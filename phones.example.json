@@ -1,0 +1,20 @@
+{
+  "bots": [
+    {
+      "id": "bot_ejemplo",
+      "name": "Nombre del Bot",
+      "autoReplyMessage": "Mensaje por defecto del bot.",
+      "phones": [
+        {
+          "number": "5491100000001",
+          "allowedContacts": ["NombreContacto1", "NombreContacto2"]
+        },
+        {
+          "number": "5491100000002",
+          "allowedContacts": ["NombreContacto3"],
+          "autoReplyMessage": "Este teléfono tiene su propio mensaje que pisa al del bot."
+        }
+      ]
+    }
+  ]
+}

@@ -4,7 +4,9 @@
   "description": "Bot de WhatsApp para respuesta automática y registro de mensajes entrantes",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "restart": "pkill -f 'wwebjs_auth' ; pkill -f 'node index' ; while pgrep -f 'wwebjs_auth' > /dev/null 2>&1; do sleep 1; done; find .wwebjs_auth -name 'SingletonLock' -delete 2>/dev/null; node index.js",
+    "connect": "node connect.js"
   },
   "dependencies": {
     "better-sqlite3": "^9.6.0",
