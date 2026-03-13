@@ -17,3 +17,16 @@ node_modules/
 # Logs
 *.log
 npm-debug.log*
+
+# Python
+backend/.venv/
+__pycache__/
+*.pyc
+
+# Playwright
+.playwright-mcp/
+frontend/test-results/
+frontend/playwright-report/
+
+# Monitor logs
+monitor/
