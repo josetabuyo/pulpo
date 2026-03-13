@@ -42,9 +42,13 @@
 
     /* Phone rows */
     .phones-table { width: 100%; }
-    .phone-row { display: flex; align-items: center; padding: 10px 16px; border-bottom: 1px solid #f0f0f0; gap: 12px; }
+    .phone-row { display: flex; align-items: center; padding: 10px 16px; border-bottom: 1px solid #f0f0f0; gap: 12px; cursor: default; }
     .phone-row:last-child { border-bottom: none; }
-    .phone-number { font-size: 14px; font-weight: 500; min-width: 140px; }
+    .phone-row[draggable=true] { cursor: grab; }
+    .phone-row.dragging { opacity: .4; }
+    .bot-block.drag-over { outline: 2px dashed #25d366; outline-offset: -2px; background: #f0fff7; }
+    .phone-number { font-size: 14px; font-weight: 500; min-width: 140px; display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+    .phone-id { font-size: 12px; color: #aaa; font-weight: 400; }
     .phone-contacts { font-size: 13px; color: #777; flex: 1; }
     .phone-msg-override { font-size: 12px; color: #999; font-style: italic; }
     .phone-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
@@ -60,6 +64,15 @@
     .s-connecting .dot, .s-authenticated .dot { background: #4285f4; animation: blink 1.2s infinite; }
     .s-disconnected, .s-failed, .s-stopped { background: #fce8e6; color: #a33; }
     .s-disconnected .dot, .s-failed .dot, .s-stopped .dot { background: #d93025; }
+    /* Telegram badge */
+    .s-tg-ready { background: #e3f2fd; color: #0d47a1; } .s-tg-ready .dot { background: #2196f3; }
+    .badge-tg { background: #e3f2fd; color: #0d47a1; font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 700; letter-spacing: .3px; }
+    .tg-label { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; color: white; background: #2196f3; font-weight: 700; margin-right: 6px; padding: 2px 6px; border-radius: 4px; letter-spacing: .3px; }
+    .wa-label { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; color: white; background: #25d366; font-weight: 700; margin-right: 6px; padding: 2px 6px; border-radius: 4px; letter-spacing: .3px; }
+    .channel-header { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; padding: 6px 16px 4px; color: #aaa; border-bottom: 1px solid #f0f0f0; }
+    .channel-header--tg { color: #2196f3; background: #f5f9ff; border-top: 1px solid #e3f2fd; }
+    .channel-header--wa { color: #1a7a45; }
+    .phone-row--tg { background: #fafcff; }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
 
     /* Buttons */
@@ -122,6 +135,7 @@
   <header>
     <span>📱 WhatsApp Bot — Admin</span>
     <div class="header-actions">
+      <button class="btn-ghost btn-sm" id="btn-refresh" onclick="refreshAll()">↺ Refresh</button>
       <button class="btn-ghost btn-sm" onclick="logout()">Salir</button>
     </div>
   </header>
@@ -211,6 +225,51 @@
   </div>
 </div>
 
+<!-- Modal: crear/editar bot de Telegram -->
+<div class="overlay" id="modal-telegram">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('modal-telegram')">✕</button>
+    <h3 id="modal-tg-title">Agregar Bot de Telegram</h3>
+    <input type="hidden" id="tg-edit-tokenId" />
+    <input type="hidden" id="tg-edit-botId" />
+    <div class="fg" id="tg-token-group">
+      <label>Token del bot (de @BotFather)</label>
+      <input id="tg-token" type="text" placeholder="123456789:AAF..." />
+    </div>
+    <div class="fg">
+      <label>Contactos permitidos (usernames sin @, separados por coma)</label>
+      <input id="tg-contacts" type="text" placeholder="mi_username, otro_username" />
+    </div>
+    <div class="fg">
+      <label>Mensaje personalizado (opcional, pisa el de la empresa)</label>
+      <textarea id="tg-message" placeholder="Dejar vacío para usar el mensaje de la empresa"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal('modal-telegram')">Cancelar</button>
+      <button class="btn-primary" onclick="saveTelegram()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: mover teléfono -->
+<div class="overlay" id="modal-move">
+  <div class="modal" style="width:380px">
+    <button class="modal-close" onclick="closeModal('modal-move')">✕</button>
+    <h3>Mover teléfono</h3>
+    <input type="hidden" id="move-number" />
+    <input type="hidden" id="move-source-bot" />
+    <div class="fg">
+      <label>Empresa destino</label>
+      <select id="move-target-bot"></select>
+    </div>
+    <p style="font-size:13px;color:#888;margin-bottom:12px">La sesión de WhatsApp se conserva.</p>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal('modal-move')">Cancelar</button>
+      <button class="btn-primary" onclick="confirmMovePhone()">Mover</button>
+    </div>
+  </div>
+</div>
+
 <script src="/qr.js"></script>
 <script>
   let pwd = sessionStorage.getItem('admin_pwd') || '';
@@ -264,25 +323,48 @@
     setTimeout(() => btn.textContent = 'Copiar', 2000);
   }
 
+  // Mapa de datos para evitar pasar objetos complejos por atributos onclick
+  const _data = {};
+
   // --- Render ---
   async function loadBots() {
     const bots = await api('GET', '/bots');
     if (!Array.isArray(bots)) return;
+    _allBots = bots;
     const el = document.getElementById('bots-list');
     if (bots.length === 0) {
       el.innerHTML = '<div class="empty">No hay empresas configuradas. Creá una con el botón de arriba.</div>';
       return;
     }
+    // Guardar datos en el mapa para que los handlers los lean sin pasar por HTML
+    for (const bot of bots) {
+      _data[`bot:${bot.id}`] = bot;
+      for (const p of bot.phones) _data[`phone:${p.number}`] = { ...p, botId: bot.id };
+      for (const tg of (bot.telegram || [])) _data[`tg:${tg.tokenId}`] = { ...tg, botId: bot.id };
+    }
     el.innerHTML = bots.map(bot => renderBot(bot)).join('');
   }
 
   function renderBot(bot) {
-    const phonesHtml = bot.phones.length === 0
-      ? '<div class="empty" style="padding:12px">Sin teléfonos</div>'
-      : bot.phones.map(p => renderPhone(p, bot.id)).join('');
+    const phones = bot.phones || [];
+    const telegrams = bot.telegram || [];
+
+    const phonesSection = phones.length === 0 ? '' : `
+      <div class="channel-header channel-header--wa">WhatsApp</div>
+      ${phones.map(p => renderPhone(p, bot.id)).join('')}
+    `;
+    const tgSection = telegrams.length === 0 ? '' : `
+      <div class="channel-header channel-header--tg">Telegram</div>
+      ${telegrams.map(tg => renderTelegram(tg, bot.id)).join('')}
+    `;
+    const emptyMsg = phones.length === 0 && telegrams.length === 0
+      ? '<div class="empty" style="padding:12px">Sin canales configurados</div>' : '';
 
     return `
-      <div class="bot-block" id="bot-${bot.id}">
+      <div class="bot-block" id="bot-${bot.id}"
+        ondragover="event.preventDefault();this.classList.add('drag-over')"
+        ondragleave="this.classList.remove('drag-over')"
+        ondrop="onDropPhone(event,'${esc(bot.id)}')">
         <div class="bot-header">
           <div class="bot-header-info">
             <div class="bot-name">${esc(bot.name)}</div>
@@ -290,13 +372,40 @@
             <div class="bot-msg">${esc(bot.autoReplyMessage)}</div>
           </div>
           <div class="bot-header-actions">
-            <button class="btn-ghost btn-sm" onclick="openEditBot('${esc(bot.id)}', '${esc(bot.name)}', ${JSON.stringify(bot.autoReplyMessage)})">Editar</button>
+            <button class="btn-ghost btn-sm" onclick="openEditBot('${esc(bot.id)}')">Editar</button>
             <button class="btn-danger btn-sm" onclick="deleteBot('${esc(bot.id)}')">Eliminar</button>
           </div>
         </div>
-        <div class="phones-table">${phonesHtml}</div>
-        <div class="add-phone-row">
-          <button class="btn-blue btn-sm" onclick="openAddPhone('${esc(bot.id)}')">+ Agregar teléfono</button>
+        <div class="phones-table">${emptyMsg}${phonesSection}${tgSection}</div>
+        <div class="add-phone-row" style="display:flex;gap:8px">
+          <button class="btn-blue btn-sm" onclick="openAddPhone('${esc(bot.id)}')">+ WhatsApp</button>
+          <button class="btn-sm" style="background:#e3f2fd;color:#0d47a1" onclick="openAddTelegram('${esc(bot.id)}')">+ Telegram</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderTelegram(tg, botId) {
+    const isReady = tg.status === 'ready';
+    const statusClass = isReady ? 's-tg-ready' : `s-${tg.status}`;
+    const statusLabel = isReady ? 'Activo' : (STATUS_LABELS[tg.status] || tg.status);
+    const contactsText = tg.allowedContacts.length ? tg.allowedContacts.join(', ') : '(sin contactos permitidos)';
+    const overrideText = tg.autoReplyMessage ? `Mensaje propio: "${tg.autoReplyMessage}"` : '';
+    const canReconnect = ['stopped', 'failed', 'disconnected'].includes(tg.status);
+    return `
+      <div class="phone-row phone-row--tg" draggable="true"
+        ondragstart="event.dataTransfer.setData('tokenId','${esc(tg.tokenId)}');event.dataTransfer.setData('sourceBotId','${esc(botId)}');event.dataTransfer.setData('type','telegram');this.classList.add('dragging')"
+        ondragend="this.classList.remove('dragging')">
+        <div class="phone-number"><span class="tg-label">TG</span><span class="phone-id">(${esc(tg.tokenId)})</span></div>
+        <div style="flex:1;min-width:0">
+          <div class="phone-contacts">${esc(contactsText)}</div>
+          ${overrideText ? `<div class="phone-msg-override">${esc(overrideText)}</div>` : ''}
+        </div>
+        <div class="phone-actions">
+          <span class="badge ${statusClass}"><span class="dot"></span>${statusLabel}</span>
+          ${canReconnect ? `<button class="btn-blue btn-sm" onclick="connectTelegram('${esc(tg.tokenId)}')">Reconectar</button>` : ''}
+          <button class="btn-ghost btn-sm" onclick="openEditTelegram('${esc(tg.tokenId)}')">Editar</button>
+          <button class="btn-danger btn-sm" onclick="deleteTelegram('${esc(tg.tokenId)}')">Eliminar</button>
         </div>
       </div>
     `;
@@ -305,17 +414,22 @@
   function renderPhone(p, botId) {
     const contactsText = p.allowedContacts.length ? p.allowedContacts.join(', ') : '(sin contactos permitidos)';
     const overrideText = p.autoReplyMessage ? `Mensaje propio: "${p.autoReplyMessage}"` : '';
+    const needsQR = ['stopped', 'failed', 'disconnected', undefined, null].includes(p.status);
     return `
-      <div class="phone-row">
-        <div class="phone-number">+${esc(p.number)}</div>
+      <div class="phone-row" draggable="true"
+        ondragstart="event.dataTransfer.setData('number','${esc(p.number)}');event.dataTransfer.setData('sourceBotId','${esc(botId)}');this.classList.add('dragging')"
+        ondragend="this.classList.remove('dragging')">
+        <div class="phone-number"><span class="wa-label">WA</span><span class="phone-id">(+${esc(p.number)})</span></div>
+        <div style="font-size:11px;color:#ccc;cursor:grab;margin-right:-4px" title="Arrastrá para mover de empresa">⠿</div>
         <div style="flex:1;min-width:0">
           <div class="phone-contacts">${esc(contactsText)}</div>
           ${overrideText ? `<div class="phone-msg-override">${esc(overrideText)}</div>` : ''}
         </div>
         <div class="phone-actions">
           <span class="badge s-${p.status}"><span class="dot"></span>${STATUS_LABELS[p.status] || p.status}</span>
-          ${p.status !== 'ready' ? `<button class="btn-blue btn-sm" onclick="connectPhone('${p.number}', '${p.sessionId}')">Conectar</button>` : ''}
-          <button class="btn-ghost btn-sm" onclick="openEditPhone('${esc(p.number)}', '${esc(botId)}', ${JSON.stringify(p.allowedContacts)}, ${JSON.stringify(p.autoReplyMessage || '')})">Editar</button>
+          ${needsQR ? `<button class="btn-primary btn-sm" onclick="connectPhone('${p.number}')">Vincular QR</button>` : ''}
+          <button class="btn-ghost btn-sm" onclick="openMovePhone('${esc(p.number)}', '${esc(botId)}')">Mover</button>
+          <button class="btn-ghost btn-sm" onclick="openEditPhone('${esc(p.number)}')">Editar</button>
           <button class="btn-danger btn-sm" onclick="deletePhone('${esc(p.number)}')">Eliminar</button>
         </div>
       </div>
@@ -337,13 +451,14 @@
     openModal('modal-bot');
   }
 
-  function openEditBot(id, name, message) {
+  function openEditBot(id) {
+    const bot = _data[`bot:${id}`];
     document.getElementById('modal-bot-title').textContent = 'Editar empresa';
     document.getElementById('bot-edit-id').value = id;
     document.getElementById('bot-id').value = id;
     document.getElementById('bot-id').disabled = true;
-    document.getElementById('bot-name').value = name;
-    document.getElementById('bot-message').value = message;
+    document.getElementById('bot-name').value = bot.name;
+    document.getElementById('bot-message').value = bot.autoReplyMessage;
     openModal('modal-bot');
   }
 
@@ -394,14 +509,15 @@
     openModal('modal-phone');
   }
 
-  function openEditPhone(number, botId, allowedContacts, message) {
+  function openEditPhone(number) {
+    const p = _data[`phone:${number}`];
     _pendingNewBot = null;
     document.getElementById('modal-phone-title').textContent = 'Editar teléfono';
     document.getElementById('phone-edit-number').value = number;
-    document.getElementById('phone-edit-botId').value = botId;
+    document.getElementById('phone-edit-botId').value = p.botId;
     document.getElementById('phone-number-group').style.display = 'none';
-    document.getElementById('phone-contacts').value = allowedContacts.join(', ');
-    document.getElementById('phone-message').value = message || '';
+    document.getElementById('phone-contacts').value = p.allowedContacts.join(', ');
+    document.getElementById('phone-message').value = p.autoReplyMessage || '';
     openModal('modal-phone');
   }
 
@@ -457,6 +573,7 @@
       onQR(dataUrl) {
         document.getElementById('qr-wrap').innerHTML = `<img src="${dataUrl}" alt="QR" />`;
         document.getElementById('qr-status').textContent = 'El código se renueva cada 20 segundos';
+        notifyQR();
       },
       onReady() {
         document.getElementById('qr-wrap').innerHTML = '<div class="success-icon">✅</div>';
@@ -482,7 +599,11 @@
   function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 
   document.querySelectorAll('.overlay').forEach(o => {
-    o.addEventListener('click', e => { if (e.target === o) closeModal(o.id); });
+    o.addEventListener('click', e => {
+      if (e.target !== o) return;
+      if (o.id === 'modal-qr') closeQRModal();
+      else closeModal(o.id);
+    });
   });
 
   // --- Auto-login ---
@@ -495,6 +616,158 @@
       if (res.ok && res.role === 'admin') showApp();
       else { sessionStorage.removeItem('admin_pwd'); pwd = ''; }
     });
+  }
+
+  // --- Telegram CRUD ---
+  function openAddTelegram(botId) {
+    document.getElementById('modal-tg-title').textContent = 'Agregar Bot de Telegram';
+    document.getElementById('tg-edit-tokenId').value = '';
+    document.getElementById('tg-edit-botId').value = botId;
+    document.getElementById('tg-token').value = '';
+    document.getElementById('tg-token').disabled = false;
+    document.getElementById('tg-token-group').style.display = '';
+    document.getElementById('tg-contacts').value = '';
+    document.getElementById('tg-message').value = '';
+    openModal('modal-telegram');
+  }
+
+  function openEditTelegram(tokenId) {
+    const tg = _data[`tg:${tokenId}`];
+    document.getElementById('modal-tg-title').textContent = 'Editar Bot de Telegram';
+    document.getElementById('tg-edit-tokenId').value = tokenId;
+    document.getElementById('tg-edit-botId').value = tg.botId;
+    document.getElementById('tg-token-group').style.display = 'none';
+    document.getElementById('tg-contacts').value = tg.allowedContacts.join(', ');
+    document.getElementById('tg-message').value = tg.autoReplyMessage || '';
+    openModal('modal-telegram');
+  }
+
+  async function saveTelegram() {
+    const editTokenId = document.getElementById('tg-edit-tokenId').value;
+    const botId      = document.getElementById('tg-edit-botId').value;
+    const token      = document.getElementById('tg-token').value.trim();
+    const contacts   = document.getElementById('tg-contacts').value.trim();
+    const message    = document.getElementById('tg-message').value.trim();
+
+    const allowedContacts = contacts ? contacts.split(',').map(c => c.trim()).filter(Boolean) : [];
+
+    let res;
+    if (editTokenId) {
+      res = await api('PUT', `/telegram/${editTokenId}`, { allowedContacts, autoReplyMessage: message });
+    } else {
+      if (!token) return alert('Token requerido.');
+      const body = { botId, token, allowedContacts };
+      if (message) body.autoReplyMessage = message;
+      res = await api('POST', '/telegram', body);
+    }
+
+    if (res.error) return alert('Error: ' + res.error);
+    closeModal('modal-telegram');
+    loadBots();
+  }
+
+  async function deleteTelegram(tokenId) {
+    if (!confirm(`¿Eliminar el bot de Telegram con token ID ${tokenId}?`)) return;
+    const res = await api('DELETE', `/telegram/${tokenId}`);
+    if (res.error) return alert('Error: ' + res.error);
+    loadBots();
+  }
+
+  async function connectTelegram(tokenId) {
+    const res = await api('POST', `/telegram/connect/${tokenId}`);
+    if (res.error) return alert('Error: ' + res.error);
+    setTimeout(() => loadBots(), 2000);
+  }
+
+  // --- Drag & drop mover teléfono ---
+  async function onDropPhone(event, targetBotId) {
+    event.preventDefault();
+    document.querySelectorAll('.bot-block').forEach(el => el.classList.remove('drag-over'));
+    const type = event.dataTransfer.getData('type');
+    const sourceBotId = event.dataTransfer.getData('sourceBotId');
+    if (sourceBotId === targetBotId) return;
+
+    if (type === 'telegram') {
+      const tokenId = event.dataTransfer.getData('tokenId');
+      if (!tokenId) return;
+      const res = await api('POST', `/telegram/${tokenId}/move`, { targetBotId });
+      if (res.error) return alert('Error: ' + res.error);
+    } else {
+      const number = event.dataTransfer.getData('number');
+      if (!number) return;
+      const res = await api('POST', `/phones/${number}/move`, { targetBotId });
+      if (res.error) return alert('Error: ' + res.error);
+    }
+    loadBots();
+  }
+
+  // --- Refresh post-suspend ---
+  async function refreshAll() {
+    const btn = document.getElementById('btn-refresh');
+    btn.disabled = true;
+    btn.textContent = 'Reconectando...';
+    const res = await api('POST', '/refresh');
+    await loadBots();
+    btn.disabled = false;
+    btn.textContent = `↺ Refresh${res.reconnected > 0 ? ` (${res.reconnected})` : ''}`;
+    setTimeout(() => { btn.textContent = '↺ Refresh'; }, 3000);
+  }
+
+  // --- Mover teléfono ---
+  let _allBots = [];
+
+  function openMovePhone(number, sourceBotId) {
+    document.getElementById('move-number').value = number;
+    document.getElementById('move-source-bot').value = sourceBotId;
+    const sel = document.getElementById('move-target-bot');
+    sel.innerHTML = _allBots
+      .filter(b => b.id !== sourceBotId)
+      .map(b => `<option value="${esc(b.id)}">${esc(b.name)}</option>`)
+      .join('');
+    openModal('modal-move');
+  }
+
+  async function confirmMovePhone() {
+    const number = document.getElementById('move-number').value;
+    const targetBotId = document.getElementById('move-target-bot').value;
+    if (!targetBotId) return alert('Seleccioná una empresa destino.');
+    const res = await api('POST', `/phones/${number}/move`, { targetBotId });
+    if (res.error) return alert('Error: ' + res.error);
+    closeModal('modal-move');
+    loadBots();
+  }
+
+  // --- Notificación QR listo ---
+  let _titleInterval = null;
+  function notifyQR() {
+    // Sonido con Web Audio API (sin archivos externos)
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      [0, 100, 200].forEach(delay => {
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.connect(g); g.connect(ctx.destination);
+        o.frequency.value = 880;
+        g.gain.setValueAtTime(0.3, ctx.currentTime + delay / 1000);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay / 1000 + 0.15);
+        o.start(ctx.currentTime + delay / 1000);
+        o.stop(ctx.currentTime + delay / 1000 + 0.15);
+      });
+    } catch {}
+    // Titular titilante
+    if (_titleInterval) clearInterval(_titleInterval);
+    const orig = document.title;
+    let on = true;
+    _titleInterval = setInterval(() => {
+      document.title = on ? '📱 QR listo!' : orig;
+      on = !on;
+    }, 800);
+    // Para de titilar cuando el usuario vuelve al tab
+    window.addEventListener('focus', () => {
+      clearInterval(_titleInterval);
+      _titleInterval = null;
+      document.title = orig;
+    }, { once: true });
   }
 
   document.getElementById('pwd-input').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });

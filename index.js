@@ -7,6 +7,7 @@ const path = require('path');
 
 const { logMessage, markAnswered } = require('./db');
 const createApi = require('./api');
+const { createTelegramClient, initTelegramBots } = require('./telegram');
 
 // Timestamps en todos los logs
 const _log = console.log.bind(console);
@@ -17,11 +18,58 @@ console.log   = (...a) => _log(`[${ts()}]`, ...a);
 console.warn  = (...a) => _warn(`[${ts()}]`, ...a);
 console.error = (...a) => _error(`[${ts()}]`, ...a);
 
+// Errores de Puppeteer/WA que no deben tirar el proceso
+// Cierre limpio al recibir SIGINT (Ctrl+C) — permite que Chrome escriba la sesión a disco
+process.on('SIGINT', () => {
+  console.log('\n[shutdown] Cerrando clientes...');
+
+  // Safety net: si en 6s no terminó, matar igual
+  const forceExit = setTimeout(() => {
+    try { execSync('pkill -f ".wwebjs_auth" 2>/dev/null || true', { stdio: 'ignore' }); } catch {}
+    console.log('[shutdown] Timeout — salida forzada.');
+    process.exit(0);
+  }, 6000);
+  forceExit.unref();
+
+  const tasks = Object.values(clients).map(c => {
+    if (!c?.client) return Promise.resolve();
+    try {
+      if (c.isTelegram) return Promise.resolve(c.client.stopPolling()).catch(() => {});
+      return c.client.destroy().catch(() => {});
+    } catch { return Promise.resolve(); }
+  });
+
+  Promise.allSettled(tasks).then(() => {
+    try { execSync('pkill -f ".wwebjs_auth" 2>/dev/null || true', { stdio: 'ignore' }); } catch {}
+    console.log('[shutdown] Listo. Bye!');
+    process.exit(0);
+  });
+});
+
+const RECOVERABLE_ERRORS = ['ProtocolError', 'Target closed', 'Execution context was destroyed', 'Session closed'];
+
+process.on('uncaughtException', (err) => {
+  const isRecoverable = RECOVERABLE_ERRORS.some(msg => err.message?.includes(msg) || err.name?.includes(msg));
+  if (isRecoverable) {
+    console.warn('[uncaughtException] Error recuperable de Puppeteer ignorado:', err.message);
+  } else {
+    console.error('[uncaughtException] Error crítico — cerrando proceso:', err);
+    process.exit(1);
+  }
+});
+
+process.on('unhandledRejection', (reason) => {
+  const msg = reason?.message || String(reason);
+  const isRecoverable = RECOVERABLE_ERRORS.some(r => msg.includes(r));
+  if (isRecoverable) {
+    console.warn('[unhandledRejection] Promesa rechazada recuperable ignorada:', msg);
+  } else {
+    console.error('[unhandledRejection] Promesa rechazada crítica:', msg);
+  }
+});
+
 // Limpiar procesos Chrome colgados de corridas anteriores
-try {
-  execSync('pkill -f wwebjs_auth', { stdio: 'ignore' });
-  execSync('sleep 1');
-} catch {}
+try { execSync('pkill -9 -f wwebjs_auth 2>/dev/null; sleep 2', { stdio: 'ignore' }); } catch {}
 
 const CONFIG_PATH = path.join(__dirname, 'phones.json');
 const PORT = process.env.PORT || 3000;
@@ -50,16 +98,27 @@ if (!config.bots || !Array.isArray(config.bots) || config.bots.length === 0) {
 // status: 'connecting' | 'qr_ready' | 'authenticated' | 'ready' | 'disconnected' | 'failed'
 const clients = {};
 
+// Generación por sessionId — detecta y silencia event handlers de instancias zombie
+const _clientGen = {};
+
 // --- Config en vivo ---
 const liveConfig = {};
 
 function reloadLiveConfig(cfg) {
   for (const bot of cfg.bots) {
     for (const phoneConfig of bot.phones) {
-      const sessionId = `${bot.id}-${phoneConfig.number}`;
+      const sessionId = phoneConfig.number;
       liveConfig[sessionId] = {
         allowedContacts: phoneConfig.allowedContacts || [],
         replyMessage: phoneConfig.autoReplyMessage || bot.autoReplyMessage,
+      };
+    }
+    for (const tg of (bot.telegram || [])) {
+      const tokenId = tg.token.split(':')[0];
+      const sessionId = `${bot.id}-tg-${tokenId}`;
+      liveConfig[sessionId] = {
+        allowedContacts: tg.allowedContacts || [],
+        replyMessage: tg.autoReplyMessage || bot.autoReplyMessage,
       };
     }
   }
@@ -79,19 +138,36 @@ fs.watch(CONFIG_PATH, (eventType) => {
 });
 
 // --- Verifica sesión guardada ---
-function hasValidSession(sessionId) {
-  const ldbPath = path.join(__dirname, '.wwebjs_auth', `session-${sessionId}`, 'Default', 'Local Storage', 'leveldb');
+function hasValidSession(number) {
+  const ldbPath = path.join(__dirname, '.wwebjs_auth', `session-${number}`, 'Default', 'Local Storage', 'leveldb');
   if (!fs.existsSync(ldbPath)) return false;
-  return fs.readdirSync(ldbPath).some(f => f.endsWith('.ldb'));
+  return fs.readdirSync(ldbPath).some(f => f.endsWith('.ldb') || f.endsWith('.log'));
 }
 
 // --- Crea y gestiona un cliente WA ---
 // autoStart=true → arrancado al inicio (sesión guardada). Si pide QR, la sesión expiró → destruir silenciosamente.
 // autoStart=false → iniciado desde la UI por el usuario → mostrar QR.
-function createPhoneClient({ botId, number, sessionId, autoStart = false }) {
+async function createPhoneClient({ botId, number, autoStart = false }) {
+  const sessionId = number;
   const label = `[${botId}/${number}]`;
 
+  // Incrementar generación — event handlers de instancias anteriores se descartarán
+  const gen = (_clientGen[sessionId] = (_clientGen[sessionId] || 0) + 1);
+  const isCurrent = () => _clientGen[sessionId] === gen;
+
+  console.log(`${label} Iniciando sesión WhatsApp... (abriendo Chrome, puede tardar 1-2 min)`);
+
+  // Bloquear inmediatamente para evitar race conditions
+  const prevClient = clients[sessionId]?.client;
   clients[sessionId] = { status: 'connecting', qr: null, botId, number, client: null, readyTime: null };
+
+  // Destruir instancia previa
+  if (prevClient) {
+    try { await prevClient.destroy(); } catch {}
+  }
+  // Matar cualquier Chrome zombie que use este directorio de sesión (más confiable que destroy())
+  try { execSync(`pkill -f "session-${number}" 2>/dev/null || true`, { stdio: 'ignore' }); } catch {}
+  await new Promise(r => setTimeout(r, 2000));
 
   const client = new Client({
     authStrategy: new LocalAuth({ clientId: sessionId }),
@@ -104,31 +180,43 @@ function createPhoneClient({ botId, number, sessionId, autoStart = false }) {
 
   clients[sessionId].client = client;
 
+  // Flags one-shot: whatsapp-web.js puede disparar estos eventos más de una vez
+  let authFired = false;
+  let readyFired = false;
+
   client.on('qr', (qr) => {
+    if (!isCurrent()) return;
     if (autoStart) {
       // Sesión local expirada en WhatsApp — no mostrar QR, esperar acción del usuario
       console.log(`${label} Sesión expirada. Reconectá desde http://localhost:${PORT}`);
       clients[sessionId].status = 'stopped';
       clients[sessionId].qr = null;
       clients[sessionId]._intentionalStop = true;
-      try { client.destroy(); } catch {}
-      const sessionPath = path.join(__dirname, '.wwebjs_auth', `session-${sessionId}`);
-      try { fs.rmSync(sessionPath, { recursive: true }); } catch {}
+      // Destruir Chrome ANTES de borrar los archivos — si no, Chrome los recrea
+      client.destroy().catch(() => {}).finally(() => {
+        const sessionPath = path.join(__dirname, '.wwebjs_auth', `session-${number}`);
+        try { fs.rmSync(sessionPath, { recursive: true }); } catch {}
+      });
       return;
     }
-    // Conexión iniciada desde la UI → mostrar QR
+    // Conexión iniciada desde la UI → mostrar QR (solo si no autenticó aún)
+    if (authFired) return;
     console.log(`${label} QR generado.`);
     clients[sessionId].qr = qr;
     clients[sessionId].status = 'qr_ready';
   });
 
   client.on('authenticated', () => {
+    if (!isCurrent() || authFired) return;
+    authFired = true;
     console.log(`${label} Autenticado. Sesión guardada.`);
     clients[sessionId].status = 'authenticated';
     clients[sessionId].qr = null;
   });
 
   client.on('ready', () => {
+    if (!isCurrent() || readyFired) return;
+    readyFired = true;
     const readyTime = Date.now();
     clients[sessionId].status = 'ready';
     clients[sessionId].readyTime = readyTime;
@@ -139,6 +227,7 @@ function createPhoneClient({ botId, number, sessionId, autoStart = false }) {
   });
 
   client.on('auth_failure', (msg) => {
+    if (!isCurrent()) return;
     console.error(`${label} Error de autenticación: ${msg}. Eliminando sesión...`);
     clients[sessionId].status = 'failed';
     clients[sessionId].qr = null;
@@ -147,6 +236,7 @@ function createPhoneClient({ botId, number, sessionId, autoStart = false }) {
   });
 
   client.on('disconnected', (reason) => {
+    if (!isCurrent()) return;
     console.warn(`${label} Desconectado: ${reason}`);
     clients[sessionId].status = 'disconnected';
     clients[sessionId].qr = null;
@@ -154,13 +244,25 @@ function createPhoneClient({ botId, number, sessionId, autoStart = false }) {
       const sessionPath = path.join(__dirname, '.wwebjs_auth', `session-${sessionId}`);
       try { fs.rmSync(sessionPath, { recursive: true }); } catch {}
       console.log(`${label} Sesión eliminada. Reconectá desde la UI.`);
+    } else {
+      // Reconectar automáticamente usando la sesión guardada (sin QR)
+      console.log(`${label} Desconexión recuperable. Reconectando en 5s...`);
+      setTimeout(() => {
+        if (!isCurrent()) return;
+        createPhoneClient({ botId, number, autoStart: true });
+      }, 5000);
     }
   });
 
-  client.on('message', async (msg) => {
-    console.log(`${label} [DEBUG] from: ${msg.from}, fromMe: ${msg.fromMe}, body: "${msg.body}"`);
+  // message_create captura todos los mensajes nuevos (más confiable que 'message')
+  client.on('message_create', async (msg) => {
+    if (!isCurrent()) return;
 
-    if (msg.fromMe || msg.from.endsWith('@g.us')) return;
+    // Ignorar grupos y direcciones LID (dispositivos vinculados, número no confiable)
+    if (msg.from.endsWith('@g.us')) return;
+    if (msg.from.endsWith('@lid')) return;
+    // Ignorar respuestas del bot a otros (evita loop), pero permitir mensajes propios (debugging)
+    if (msg.fromMe && msg.to !== msg.from) return;
 
     const { readyTime } = clients[sessionId] || {};
     if (readyTime && msg.timestamp * 1000 < readyTime) return;
@@ -175,7 +277,9 @@ function createPhoneClient({ botId, number, sessionId, autoStart = false }) {
     } catch {}
 
     const { allowedContacts, replyMessage } = liveConfig[sessionId] || {};
-    console.log(`${label} [DEBUG] name: "${name}", allowedContacts: ${JSON.stringify(allowedContacts)}`);
+
+    // Evitar loop: no responder si el mensaje ES nuestra propia respuesta automática
+    if (msg.body === replyMessage) return;
 
     if (!allowedContacts || allowedContacts.length === 0) return;
     if (!allowedContacts.includes(name) && !allowedContacts.includes(senderPhone)) return;
@@ -193,9 +297,11 @@ function createPhoneClient({ botId, number, sessionId, autoStart = false }) {
   });
 
   const initWithRetry = async (attempt = 1) => {
+    if (!isCurrent()) return;
     try {
       await client.initialize();
     } catch (err) {
+      if (!isCurrent()) return;
       if (clients[sessionId]?._intentionalStop) return;
       try { await client.destroy(); } catch {}
       if (attempt <= 3) {
@@ -218,7 +324,7 @@ function createPhoneClient({ botId, number, sessionId, autoStart = false }) {
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/api', createApi({ clients, liveConfig, reloadLiveConfig, createPhoneClient, CONFIG_PATH }));
+app.use('/api', createApi({ clients, liveConfig, reloadLiveConfig, createPhoneClient, createTelegramClient, CONFIG_PATH }));
 
 app.get('/connect', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'connect.html'));
@@ -226,7 +332,31 @@ app.get('/connect', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en http://localhost:${PORT}`);
+  initTelegramBots(config, clients, liveConfig, createTelegramClient);
 });
+
+// Watchdog: detecta clientes WA muertos y los reconecta automáticamente
+setInterval(async () => {
+  const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+  for (const bot of cfg.bots) {
+    for (const phoneConfig of bot.phones) {
+      const sessionId = phoneConfig.number;
+      const session = clients[sessionId];
+      if (!session || session.status !== 'ready') continue;
+      // Grace period: skip check for 2 min after ready (state can be OPENING or null)
+      if (session.readyTime && Date.now() - session.readyTime < 120000) continue;
+      try {
+        const state = await session.client.getState();
+        // null = client still initializing, OPENING = transitioning — skip both
+        if (state === null || state === 'OPENING') continue;
+        if (state !== 'CONNECTED') throw new Error(state);
+      } catch (err) {
+        console.warn(`[${bot.id}/${sessionId}] Watchdog: cliente caído (${err.message}). Reconectando...`);
+        createPhoneClient({ botId: bot.id, number: phoneConfig.number, autoStart: true });
+      }
+    }
+  }
+}, 30000);
 
 // --- Inicializar clientes con sesión válida al arrancar ---
 const clientsToInit = [];
@@ -239,12 +369,11 @@ for (const bot of config.bots) {
   for (const phoneConfig of bot.phones) {
     const { number } = phoneConfig;
     if (!number) { console.error(`ERROR: número faltante en bot "${bot.id}".`); process.exit(1); }
-    const sessionId = `${bot.id}-${number}`;
-    if (!hasValidSession(sessionId)) {
+    if (!hasValidSession(number)) {
       console.log(`[${bot.id}/${number}] Sin sesión. Vinculá desde http://localhost:${PORT}`);
       continue;
     }
-    clientsToInit.push({ botId: bot.id, number, sessionId, autoStart: true });
+    clientsToInit.push({ botId: bot.id, number, autoStart: true });
   }
 }
 

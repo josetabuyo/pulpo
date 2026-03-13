@@ -14,6 +14,13 @@
           "allowedContacts": ["NombreContacto3"],
           "autoReplyMessage": "Este teléfono tiene su propio mensaje que pisa al del bot."
         }
+      ],
+      "telegram": [
+        {
+          "token": "123456789:AAFxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "allowedContacts": ["mi_username_sin_arroba"],
+          "autoReplyMessage": "Mensaje opcional para Telegram (pisa al del bot si está definido)"
+        }
       ]
     }
   ]
