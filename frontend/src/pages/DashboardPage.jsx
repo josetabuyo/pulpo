@@ -414,10 +414,11 @@ export default function DashboardPage() {
   }, [call])
 
   useEffect(() => {
+    if (!pwd) return
     loadBots()
     const interval = setInterval(loadBots, 6000)
     return () => clearInterval(interval)
-  }, [loadBots])
+  }, [loadBots, pwd])
 
   function logout() {
     sessionStorage.removeItem('admin_pwd')

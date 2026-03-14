@@ -6,6 +6,16 @@
 - Para código, logs o texto largo: solo texto, sin voz
 - Trabajar un problema a la vez
 
+## Worktrees — setup obligatorio al crear uno nuevo
+Después de `git worktree add`, siempre crear estos symlinks hacia `_/`:
+```bash
+ln -s /Users/josetabuyo/Development/whatsapp_bot/_/node_modules  <worktree>/node_modules
+ln -s /Users/josetabuyo/Development/whatsapp_bot/_/phones.json   <worktree>/phones.json
+ln -s /Users/josetabuyo/Development/whatsapp_bot/_/data          <worktree>/data
+ln -s /Users/josetabuyo/Development/whatsapp_bot/_/.wwebjs_auth  <worktree>/.wwebjs_auth
+```
+Estos archivos son gitignoreados y no se copian solos. Sin ellos el bot no arranca.
+
 ## Stack
 - Runtime: Node.js
 - WhatsApp: `whatsapp-web.js` (no oficial, vía QR)

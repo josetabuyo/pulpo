@@ -2,10 +2,8 @@ import asyncio
 import logging
 import sys
 from contextlib import asynccontextmanager
-from pathlib import Path
-
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from telegram.ext import Application
 
 from config import load_config, get_telegram_bots
@@ -65,6 +63,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Bot Farm API", lifespan=lifespan)
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # --- Rutas API ---
 app.include_router(auth_router, prefix="/api")
 app.include_router(bots_router, prefix="/api")
@@ -77,9 +83,3 @@ app.include_router(messages_router, prefix="/api")
 @app.get("/health")
 async def health():
     return {"status": "ok", "bots": len(_tg_apps)}
-
-
-# --- Archivos estáticos (dashboard HTML) ---
-_PUBLIC = Path(__file__).parent.parent / "public"
-if _PUBLIC.exists():
-    app.mount("/", StaticFiles(directory=str(_PUBLIC), html=True), name="static")

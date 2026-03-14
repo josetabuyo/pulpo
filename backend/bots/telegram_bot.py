@@ -3,6 +3,7 @@ import time
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 from db import log_message, mark_answered
+from config import load_config, get_telegram_bots
 
 logger = logging.getLogger(__name__)
 
@@ -15,10 +16,15 @@ def build_telegram_app(bot_config: dict):
     bot_id = bot_config["bot_id"]
     token = bot_config["token"]
     token_id = token.split(":")[0]
-    allowed = bot_config["allowed_contacts"]
-    reply_message = bot_config["reply_message"]
     label = f"[{bot_id}/tg-{token_id}]"
     start_time = time.time()
+
+    def _get_live_config():
+        """Lee la config fresca de disco para obtener allowed y reply_message actuales."""
+        for entry in get_telegram_bots(load_config()):
+            if entry["token"] == token:
+                return entry["allowed_contacts"], entry["reply_message"]
+        return bot_config["allowed_contacts"], bot_config["reply_message"]
 
     async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = update.message
@@ -28,6 +34,8 @@ def build_telegram_app(bot_config: dict):
         # Ignorar mensajes anteriores al arranque
         if msg.date.timestamp() < start_time:
             return
+
+        allowed, reply_message = _get_live_config()
 
         if not allowed:
             return
