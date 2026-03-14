@@ -1,18 +1,20 @@
 """
 Endpoints de WhatsApp: connect, QR, refresh.
-WhatsApp todavía corre en Node.js — estos endpoints son stubs que
-serán implementados en Fase 4 cuando el adaptador Node.js haga POST aquí.
+Usa BrowserAutomation para abrir WhatsApp Web y capturar el QR.
 """
-from fastapi import APIRouter, HTTPException, Depends
+import asyncio
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from api.deps import require_admin, require_client
 from config import load_config
 from state import clients
+from automation.browser import BrowserAutomation
 
 router = APIRouter()
+_automation = BrowserAutomation()
 
 
 @router.post("/connect/{number}", dependencies=[Depends(require_client)])
-def connect_phone(number: str):
+async def connect_phone(number: str, background_tasks: BackgroundTasks):
     config = load_config()
     found = None
     for bot in config.get("bots", []):
@@ -28,9 +30,13 @@ def connect_phone(number: str):
     if existing.get("status") in ("connecting", "qr_ready", "authenticated", "ready"):
         return {"ok": True, "status": existing["status"], "sessionId": session_id}
 
-    # WhatsApp aún no está implementado en Python — informar al cliente
-    return {"ok": False, "status": "not_implemented", "sessionId": session_id,
-            "detail": "WhatsApp todavía corre en Node.js (Fase 4)"}
+    # Inicializar estado y lanzar automatización en background
+    clients[session_id] = {
+        "status": "connecting", "qr": None,
+        "bot_id": found["bot_id"], "type": "whatsapp", "client": None,
+    }
+    background_tasks.add_task(_automation.whatsapp_get_qr, session_id)
+    return {"ok": True, "status": "connecting", "sessionId": session_id}
 
 
 @router.get("/qr/{session_id}", dependencies=[Depends(require_client)])
