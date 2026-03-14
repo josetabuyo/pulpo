@@ -9,7 +9,7 @@ from telegram.ext import Application
 from config import load_config, get_telegram_bots
 from db import init_db
 from bots.telegram_bot import build_telegram_app
-from state import clients
+from state import clients, wa_session
 
 from api.auth import router as auth_router
 from api.bots import router as bots_router
@@ -33,6 +33,9 @@ async def lifespan(app: FastAPI):
     # Arranque
     await init_db()
     logger.info("DB lista.")
+
+    await wa_session.launch()
+    logger.info("Browser iniciado.")
 
     config = load_config()
     tg_configs = get_telegram_bots(config)
@@ -59,6 +62,9 @@ async def lifespan(app: FastAPI):
         await tg_app.stop()
         await tg_app.shutdown()
     logger.info("Bots de Telegram detenidos.")
+
+    await wa_session.shutdown()
+    logger.info("Browser cerrado.")
 
 
 app = FastAPI(title="Bot Farm API", lifespan=lifespan)

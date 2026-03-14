@@ -15,3 +15,8 @@ Estructura de cada entrada:
 from typing import Any
 
 clients: dict[str, dict[str, Any]] = {}
+
+# Singleton de WhatsAppSession — un browser, N sesiones en paralelo
+# Importación diferida para evitar ciclos
+from automation.whatsapp import WhatsAppSession
+wa_session = WhatsAppSession(headless=True)

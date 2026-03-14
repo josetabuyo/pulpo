@@ -1,16 +1,20 @@
 """
-Endpoints de WhatsApp: connect, QR, refresh.
-Usa BrowserAutomation para abrir WhatsApp Web y capturar el QR.
+Endpoints de WhatsApp.
+
+Flujo de "Vincular QR":
+  1. POST /connect/{number}  → abre sesión, intenta restaurar auth
+     - Si retorna status="restored": ya está listo, no hay QR
+     - Si retorna status="connecting": hay que pedir QR y esperar scan
+  2. GET  /qr/{session_id}   → devuelve el QR como base64 (polling)
+  3. GET  /status/{session_id} → estado actual de la sesión
 """
-import asyncio
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+
 from api.deps import require_admin, require_client
 from config import load_config
-from state import clients
-from automation.browser import BrowserAutomation
+from state import clients, wa_session
 
 router = APIRouter()
-_automation = BrowserAutomation()
 
 
 @router.post("/connect/{number}", dependencies=[Depends(require_client)])
@@ -19,39 +23,67 @@ async def connect_phone(number: str, background_tasks: BackgroundTasks):
     found = None
     for bot in config.get("bots", []):
         if any(p["number"] == number for p in bot.get("phones", [])):
-            found = {"bot_id": bot["id"], "number": number, "session_id": number}
+            found = {"bot_id": bot["id"], "number": number}
             break
 
     if not found:
-        raise HTTPException(status_code=404, detail="Número no encontrado. Contactá al administrador.")
+        raise HTTPException(status_code=404, detail="Número no encontrado.")
 
-    session_id = found["session_id"]
+    session_id = number
     existing = clients.get(session_id, {})
-    if existing.get("status") in ("connecting", "qr_ready", "authenticated", "ready"):
+
+    # Si ya está conectado o en proceso, no relanzar
+    if existing.get("status") in ("connecting", "qr_needed", "qr_ready", "ready"):
         return {"ok": True, "status": existing["status"], "sessionId": session_id}
 
-    # Inicializar estado y lanzar automatización en background
-    clients[session_id] = {
-        "status": "connecting", "qr": None,
-        "bot_id": found["bot_id"], "type": "whatsapp", "client": None,
-    }
-    background_tasks.add_task(_automation.whatsapp_get_qr, session_id)
+    # Lanzar conexión en background (puede tardar varios segundos)
+    background_tasks.add_task(_connect_and_get_qr, session_id, found["bot_id"])
     return {"ok": True, "status": "connecting", "sessionId": session_id}
 
 
 @router.get("/qr/{session_id}", dependencies=[Depends(require_client)])
-def get_qr(session_id: str):
+async def get_qr(session_id: str):
     state = clients.get(session_id)
     if not state:
-        raise HTTPException(status_code=404, detail="Sesión no iniciada")
+        raise HTTPException(status_code=404, detail="Sesión no iniciada. Llamá primero a /connect.")
     if state["status"] == "ready":
         return {"status": "ready"}
-    if not state.get("qr"):
-        return {"status": state["status"]}, 202
-    return {"qr": state["qr"], "status": state["status"]}
+    if state.get("qr"):
+        return {"status": state["status"], "qr": state["qr"]}
+    return {"status": state["status"]}
+
+
+@router.get("/status/{session_id}", dependencies=[Depends(require_client)])
+async def get_status(session_id: str):
+    state = clients.get(session_id)
+    if not state:
+        return {"status": "unknown"}
+    alive = await wa_session.is_page_alive(session_id)
+    return {"status": state["status"], "alive": alive}
 
 
 @router.post("/refresh", dependencies=[Depends(require_admin)])
-def refresh():
-    # Stub: en Fase 4 esto pedirá al adaptador Node.js que reconecte clientes caídos
-    return {"ok": True, "reconnected": 0}
+async def refresh():
+    reconnected = 0
+    for session_id, state in clients.items():
+        if state.get("type") != "whatsapp":
+            continue
+        if not await wa_session.is_page_alive(session_id):
+            bot_id = state.get("bot_id", "")
+            result = await wa_session.connect(session_id, bot_id)
+            if result in ("restored", "qr_needed"):
+                reconnected += 1
+    return {"ok": True, "reconnected": reconnected}
+
+
+# ------------------------------------------------------------------
+# Tarea background: conectar y capturar QR si hace falta
+# ------------------------------------------------------------------
+
+async def _connect_and_get_qr(session_id: str, bot_id: str) -> None:
+    result = await wa_session.connect(session_id, bot_id)
+    if result == "qr_needed":
+        qr = await wa_session.get_qr(session_id)
+        if qr:
+            # Esperar en background que el usuario escanee
+            await wa_session.wait_for_auth(session_id)

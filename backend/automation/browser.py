@@ -1,81 +1,140 @@
 """
-BrowserAutomation — herramienta genérica de automatización web.
+BrowserAutomation — base genérica de automatización web con Playwright.
 
-Cada método público es una automatización fija (no configurable por el usuario).
-Usa Playwright en modo headless para ejecutar las acciones.
+Gestiona un único proceso de browser con múltiples contextos aislados,
+uno por sesión. Cada contexto tiene su propia página y su propio storage
+(cookies, localStorage), lo que permite manejar N sesiones en paralelo.
 
-Automatizaciones disponibles:
-  - whatsapp_get_qr(session_id): abre WhatsApp Web, captura el QR y lo guarda en state.
+No contiene lógica de ningún sitio específico. Las subclases (ej. WhatsAppSession)
+agregan los métodos propios de cada servicio.
 """
 
-import asyncio
-import base64
 import logging
-from playwright.async_api import async_playwright, Page, Browser
-
-from state import clients
+from pathlib import Path
+from playwright.async_api import (
+    async_playwright,
+    Playwright,
+    Browser,
+    BrowserContext,
+    Page,
+)
 
 logger = logging.getLogger(__name__)
-
-# Cuánto tiempo máximo esperar el QR antes de abortar (segundos)
-QR_TIMEOUT_MS = 60_000
 
 
 class BrowserAutomation:
     """
-    Automatizaciones web fijas implementadas con Playwright.
-    Instanciar una vez y reutilizar, o usar directamente los métodos estáticos/async.
+    Gestiona un browser compartido y N contextos (sesiones) aislados.
+
+    Uso típico:
+        ba = BrowserAutomation(headless=False)  # False para debug visual
+        await ba.launch()
+        page = await ba.open_session("mi-sesion", storage_path="data/sessions/mi-sesion/storage.json")
+        ...
+        await ba.shutdown()
     """
 
+    def __init__(self, headless: bool = True):
+        self.headless = headless
+        self._pw: Playwright | None = None
+        self._browser: Browser | None = None
+        # session_id → contexto y página activos
+        self._contexts: dict[str, BrowserContext] = {}
+        self._pages: dict[str, Page] = {}
+
     # ------------------------------------------------------------------
-    # WhatsApp — Vincular QR
+    # Ciclo de vida del browser
     # ------------------------------------------------------------------
 
-    async def whatsapp_get_qr(self, session_id: str) -> None:
+    async def launch(self) -> None:
+        """Inicia el proceso de browser. Llamar una vez al arrancar la app."""
+        self._pw = await async_playwright().start()
+        self._browser = await self._pw.chromium.launch(headless=self.headless)
+        logger.info(f"Browser iniciado (headless={self.headless})")
+
+    async def shutdown(self) -> None:
+        """Cierra el browser. NO borra los archivos de sesión en disco."""
+        if self._browser:
+            await self._browser.close()
+        if self._pw:
+            await self._pw.stop()
+        logger.info("Browser cerrado.")
+
+    # ------------------------------------------------------------------
+    # Gestión de sesiones
+    # ------------------------------------------------------------------
+
+    async def open_session(
+        self,
+        session_id: str,
+        storage_path: str | Path | None = None,
+    ) -> Page:
         """
-        Abre WhatsApp Web, espera el canvas del QR, lo captura como PNG base64
-        y actualiza state.clients[session_id].
-
-        Estados que escribe en state:
-          - "connecting"  → mientras navega
-          - "qr_ready"    → QR capturado y disponible en state["qr"]
-          - "failed"      → si no aparece el QR en el tiempo esperado
+        Abre un nuevo contexto aislado para session_id.
+        Si storage_path existe en disco, lo carga (restaura sesión previa).
+        Si ya hay un contexto abierto para ese session_id, lo devuelve directamente.
         """
-        _set_state(session_id, status="connecting", qr=None)
-        logger.info(f"[{session_id}] Iniciando automatización WhatsApp Web...")
+        if session_id in self._pages:
+            logger.info(f"[{session_id}] Contexto ya abierto, reutilizando.")
+            return self._pages[session_id]
 
-        async with async_playwright() as p:
-            browser: Browser = await p.chromium.launch(headless=True)
-            try:
-                page: Page = await browser.new_page()
-                await page.goto("https://web.whatsapp.com/", wait_until="domcontentloaded")
+        kwargs: dict = {}
+        if storage_path and Path(storage_path).exists():
+            kwargs["storage_state"] = str(storage_path)
+            logger.info(f"[{session_id}] Restaurando sesión desde {storage_path}")
+        else:
+            logger.info(f"[{session_id}] Abriendo contexto nuevo (sin sesión previa)")
 
-                # WhatsApp renderiza el QR en un <canvas> dentro de un div con data-ref
-                # Esperamos hasta que aparezca
-                logger.info(f"[{session_id}] Esperando QR canvas en WhatsApp Web...")
-                qr_canvas = page.locator("canvas").first
-                await qr_canvas.wait_for(state="visible", timeout=QR_TIMEOUT_MS)
+        context = await self._browser.new_context(**kwargs)
+        page = await context.new_page()
 
-                # Capturamos solo el canvas como PNG
-                qr_bytes = await qr_canvas.screenshot(type="png")
-                qr_b64 = "data:image/png;base64," + base64.b64encode(qr_bytes).decode()
+        self._contexts[session_id] = context
+        self._pages[session_id] = page
+        return page
 
-                _set_state(session_id, status="qr_ready", qr=qr_b64)
-                logger.info(f"[{session_id}] QR capturado correctamente.")
+    async def save_session(self, session_id: str, storage_path: str | Path) -> None:
+        """
+        Persiste el auth state (cookies + localStorage) en disco.
+        Llamar solo tras una autenticación exitosa confirmada.
+        NUNCA llamar en paths de error.
+        """
+        context = self._contexts.get(session_id)
+        if not context:
+            logger.warning(f"[{session_id}] save_session: no hay contexto abierto")
+            return
+        path = Path(storage_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        await context.storage_state(path=str(path))
+        logger.info(f"[{session_id}] Sesión guardada en {path}")
 
-            except Exception as e:
-                logger.error(f"[{session_id}] Error capturando QR: {e}")
-                _set_state(session_id, status="failed", qr=None)
-            finally:
-                await browser.close()
+    async def close_session(self, session_id: str) -> None:
+        """
+        Cierra el contexto en memoria. NO toca los archivos en disco.
+        El auth state guardado anteriormente sigue intacto para la próxima vez.
+        """
+        context = self._contexts.pop(session_id, None)
+        self._pages.pop(session_id, None)
+        if context:
+            await context.close()
+            logger.info(f"[{session_id}] Contexto cerrado (archivo de sesión intacto).")
 
+    def get_page(self, session_id: str) -> Page | None:
+        return self._pages.get(session_id)
 
-# ------------------------------------------------------------------
-# Helpers internos
-# ------------------------------------------------------------------
+    def active_sessions(self) -> list[str]:
+        return list(self._pages.keys())
 
-def _set_state(session_id: str, status: str, qr: str | None) -> None:
-    if session_id not in clients:
-        clients[session_id] = {"bot_id": "", "type": "whatsapp", "client": None}
-    clients[session_id]["status"] = status
-    clients[session_id]["qr"] = qr
+    # ------------------------------------------------------------------
+    # Health check
+    # ------------------------------------------------------------------
+
+    async def is_page_alive(self, session_id: str) -> bool:
+        """Devuelve True si la página está abierta y responde."""
+        page = self._pages.get(session_id)
+        if not page or page.is_closed():
+            return False
+        try:
+            await page.evaluate("1")
+            return True
+        except Exception:
+            return False
