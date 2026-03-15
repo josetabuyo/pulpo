@@ -401,14 +401,15 @@ function PhoneRow({ phone, botId, simMode, pwd, onConnect, onDisconnect, onEdit,
   )
 }
 
-function TelegramRow({ tg, botId, onEdit, onDelete, onReconnect, onDragStart }) {
+function TelegramRow({ tg, botId, simMode, pwd, onEdit, onDelete, onReconnect, onDragStart }) {
   const isReady = tg.status === 'ready'
   const statusClass = isReady ? 's-tg-ready' : `s-${tg.status}`
   const statusLabel = isReady ? 'Activo' : (STATUS_LABELS[tg.status] || tg.status)
-  const canReconnect = ['stopped', 'failed', 'disconnected'].includes(tg.status)
+  const canReconnect = !simMode && ['stopped', 'failed', 'disconnected'].includes(tg.status)
   const contactsText = tg.allowedContacts?.length ? tg.allowedContacts.join(', ') : '(sin contactos permitidos)'
 
   return (
+    <>
     <div
       className="phone-row phone-row--tg"
       draggable
@@ -443,6 +444,8 @@ function TelegramRow({ tg, botId, onEdit, onDelete, onReconnect, onDragStart }) 
         <button className="btn-danger btn-sm" onClick={() => onDelete(tg.tokenId)}>Eliminar</button>
       </div>
     </div>
+    {simMode && isReady && <SimChat number={tg.sessionId} pwd={pwd} />}
+    </>
   )
 }
 
@@ -734,6 +737,8 @@ export default function DashboardPage() {
                         key={tg.tokenId}
                         tg={tg}
                         botId={bot.id}
+                        simMode={simMode}
+                        pwd={pwd}
                         onEdit={t => setTgModal({ open: true, editTg: t, botId: bot.id })}
                         onDelete={handleDeleteTg}
                         onReconnect={handleReconnectTg}

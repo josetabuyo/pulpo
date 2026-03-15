@@ -46,7 +46,7 @@ async def sim_receive(session_id: str, from_name: str, from_phone: str, text: st
       3. Guarda la respuesta como answered.
     Devuelve el texto de la respuesta, o None si no hay auto_reply.
     """
-    from db import log_message, mark_answered
+    from db import log_message, mark_answered, log_outbound_message
 
     cfg = _get_phone_config(session_id)
     if not cfg:
@@ -61,6 +61,7 @@ async def sim_receive(session_id: str, from_name: str, from_phone: str, text: st
     reply = cfg["auto_reply"]
     if reply:
         await mark_answered(msg_id)
+        await log_outbound_message(cfg["bot_id"], session_id, from_phone, reply)
         conv.append({"role": "bot", "text": reply, "from_name": "Bot", "ts": ts})
 
     return reply or None
@@ -74,10 +75,19 @@ def _get_phone_config(session_id: str) -> dict | None:
     from config import load_config
     config = load_config()
     for bot in config.get("bots", []):
+        # WhatsApp phones
         for phone in bot.get("phones", []):
             if phone["number"] == session_id:
                 return {
                     "bot_id": bot["id"],
                     "auto_reply": phone.get("autoReplyMessage") or bot.get("autoReplyMessage", ""),
+                }
+        # Telegram bots — session_id = "{bot_id}-tg-{token_id}"
+        for tg in bot.get("telegram", []):
+            token_id = tg["token"].split(":")[0]
+            if f"{bot['id']}-tg-{token_id}" == session_id:
+                return {
+                    "bot_id": bot["id"],
+                    "auto_reply": tg.get("autoReplyMessage") or bot.get("autoReplyMessage", ""),
                 }
     return None

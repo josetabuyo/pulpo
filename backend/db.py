@@ -23,9 +23,15 @@ async def init_db():
                 name      TEXT,
                 body      TEXT NOT NULL,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                answered  INTEGER DEFAULT 0
+                answered  INTEGER DEFAULT 0,
+                outbound  INTEGER DEFAULT 0
             )
         """))
+        # Migración: agregar outbound si la tabla ya existía sin esa columna
+        try:
+            await conn.execute(text("ALTER TABLE messages ADD COLUMN outbound INTEGER DEFAULT 0"))
+        except Exception:
+            pass  # Ya existe
 
 
 async def log_message(bot_id: str, bot_phone: str, phone: str, name: str | None, body: str) -> int:
@@ -33,6 +39,18 @@ async def log_message(bot_id: str, bot_phone: str, phone: str, name: str | None,
         result = await session.execute(
             text("INSERT INTO messages (bot_id, bot_phone, phone, name, body) VALUES (:bot_id, :bot_phone, :phone, :name, :body)"),
             {"bot_id": bot_id, "bot_phone": bot_phone, "phone": phone, "name": name, "body": body},
+        )
+        await session.commit()
+        return result.lastrowid
+
+
+async def log_outbound_message(bot_id: str, bot_phone: str, phone: str, body: str) -> int:
+    """Registra un mensaje enviado por el bot (respuesta automática o manual)."""
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            text("INSERT INTO messages (bot_id, bot_phone, phone, name, body, answered, outbound) "
+                 "VALUES (:bot_id, :bot_phone, :phone, 'Bot', :body, 1, 1)"),
+            {"bot_id": bot_id, "bot_phone": bot_phone, "phone": phone, "body": body},
         )
         await session.commit()
         return result.lastrowid

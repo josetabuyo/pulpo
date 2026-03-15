@@ -19,6 +19,7 @@ from api.telegram_api import router as telegram_router
 from api.whatsapp import router as whatsapp_router
 from api.messages import router as messages_router
 from api.sim import router as sim_router
+from api.client import router as client_router
 import sim as sim_engine
 
 logging.basicConfig(
@@ -41,6 +42,16 @@ async def lifespan(app: FastAPI):
 
     if sim_engine.SIM_MODE:
         logger.info("Modo SIMULADO — bots reales desactivados (ENABLE_BOTS != true).")
+        config = load_config()
+        for bot in config.get("bots", []):
+            for phone in bot.get("phones", []):
+                sim_engine.sim_connect(phone["number"], bot["id"])
+                logger.info(f"[sim] Auto-conectado WA: {phone['number']} ({bot['name']})")
+            for tg in bot.get("telegram", []):
+                token_id = tg["token"].split(":")[0]
+                session_id = f"{bot['id']}-tg-{token_id}"
+                sim_engine.sim_connect(session_id, bot["id"])
+                logger.info(f"[sim] Auto-conectado TG: {session_id} ({bot['name']})")
     else:
         # Limpiar procesos Playwright huérfanos de reinicios anteriores
         import subprocess, sys
@@ -100,6 +111,7 @@ app.include_router(telegram_router, prefix="/api")
 app.include_router(whatsapp_router, prefix="/api")
 app.include_router(messages_router, prefix="/api")
 app.include_router(sim_router, prefix="/api")
+app.include_router(client_router, prefix="/api")
 
 
 @app.get("/health")
