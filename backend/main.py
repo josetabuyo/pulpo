@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import sys
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -75,9 +76,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Bot Farm API", lifespan=lifespan)
 
+_frontend_port = os.environ.get("FRONTEND_PORT", "5173")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=[f"http://localhost:{_frontend_port}"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

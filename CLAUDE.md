@@ -7,14 +7,55 @@
 - Trabajar un problema a la vez
 
 ## Worktrees — setup obligatorio al crear uno nuevo
-Después de `git worktree add`, siempre crear estos symlinks hacia `_/`:
+
+Cada worktree es un ambiente **completamente independiente** con su propio back y front.
+**NUNCA compartir puertos entre worktrees.** Cada ambiente tiene los suyos.
+
+### 1. Crear el worktree
 ```bash
-ln -s /Users/josetabuyo/Development/whatsapp_bot/_/node_modules  <worktree>/node_modules
-ln -s /Users/josetabuyo/Development/whatsapp_bot/_/phones.json   <worktree>/phones.json
-ln -s /Users/josetabuyo/Development/whatsapp_bot/_/data          <worktree>/data
-ln -s /Users/josetabuyo/Development/whatsapp_bot/_/.wwebjs_auth  <worktree>/.wwebjs_auth
+git worktree add /Users/josetabuyo/Development/whatsapp_bot/<nombre-rama> <nombre-rama>
 ```
-Estos archivos son gitignoreados y no se copian solos. Sin ellos el bot no arranca.
+
+### 2. Symlinks de archivos gitignoreados (obligatorio)
+```bash
+WDIR=/Users/josetabuyo/Development/whatsapp_bot/<nombre-rama>
+ln -s /Users/josetabuyo/Development/whatsapp_bot/_/node_modules  $WDIR/node_modules
+ln -s /Users/josetabuyo/Development/whatsapp_bot/_/phones.json   $WDIR/phones.json
+ln -s /Users/josetabuyo/Development/whatsapp_bot/_/data          $WDIR/data
+ln -s /Users/josetabuyo/Development/whatsapp_bot/_/.wwebjs_auth  $WDIR/.wwebjs_auth
+```
+
+### 3. Crear el .env con puertos únicos para este ambiente
+```bash
+cp /Users/josetabuyo/Development/whatsapp_bot/_/.env.example $WDIR/.env
+# Editar $WDIR/.env con puertos que no estén en uso:
+#   master (estable): BACKEND_PORT=8000  FRONTEND_PORT=5173
+#   dev-1:            BACKEND_PORT=8001  FRONTEND_PORT=5174
+#   dev-2:            BACKEND_PORT=8002  FRONTEND_PORT=5175
+```
+
+### 4. Arrancar el ambiente
+```bash
+cd $WDIR && ./start.sh          # back + front juntos
+cd $WDIR && ./start.sh back     # solo backend
+cd $WDIR && ./start.sh front    # solo frontend
+```
+
+El script `start.sh` imprime al arrancar:
+```
+════════════════════════════════════════
+  Ambiente : <nombre-rama>
+  Backend  : http://localhost:8001
+  Frontend : http://localhost:5174
+════════════════════════════════════════
+```
+
+### Tabla de ambientes activos (actualizar al crear/borrar)
+| Worktree / Rama  | Backend            | Frontend           | Propósito          |
+|------------------|--------------------|--------------------|--------------------|
+| `_` (master)     | :8000              | :5173              | Estable / producción |
+| (libre)          | :8001              | :5174              | Dev 1              |
+| (libre)          | :8002              | :5175              | Dev 2              |
 
 ## Stack
 - Runtime: Node.js
