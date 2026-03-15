@@ -292,8 +292,9 @@ function QRModal({ open, number, onClose, pwd, onConnected }) {
 
 // ─── Filas de teléfono / telegram ─────────────────────────────────────────────
 
-function PhoneRow({ phone, botId, onConnect, onEdit, onDelete, onMove, onDragStart }) {
+function PhoneRow({ phone, botId, onConnect, onDisconnect, onEdit, onDelete, onMove, onDragStart }) {
   const needsQR = ['stopped', 'failed', 'disconnected', undefined, null].includes(phone.status)
+  const isReady = phone.status === 'ready'
   const contactsText = phone.allowedContacts?.length ? phone.allowedContacts.join(', ') : '(sin contactos permitidos)'
 
   return (
@@ -326,6 +327,9 @@ function PhoneRow({ phone, botId, onConnect, onEdit, onDelete, onMove, onDragSta
         </span>
         {needsQR && (
           <button className="btn-primary btn-sm" onClick={() => onConnect(phone.number)}>Vincular QR</button>
+        )}
+        {isReady && (
+          <button className="btn-danger btn-sm" onClick={() => onDisconnect(phone.number)}>Desconectar</button>
         )}
         <button className="btn-ghost btn-sm" onClick={() => onMove(phone.number, botId)}>Mover</button>
         <button className="btn-ghost btn-sm" onClick={() => onEdit(phone)}>Editar</button>
@@ -519,6 +523,12 @@ export default function DashboardPage() {
     setTimeout(loadBots, 2000)
   }
 
+  async function handleDisconnect(number) {
+    const res = await call('POST', `/disconnect/${number}`)
+    if (res.error) return alert('Error: ' + res.error)
+    loadBots()
+  }
+
   // ── Mover ──
   async function handleMovePhone(targetBotId) {
     const res = await call('POST', `/phones/${moveModal.number}/move`, { targetBotId })
@@ -625,6 +635,7 @@ export default function DashboardPage() {
                         phone={p}
                         botId={bot.id}
                         onConnect={number => setQrModal({ open: true, number })}
+                        onDisconnect={handleDisconnect}
                         onEdit={phone => setPhoneModal({ open: true, editPhone: phone, botId: bot.id })}
                         onDelete={handleDeletePhone}
                         onMove={(number, srcBotId) => setMoveModal({ open: true, number, sourceBotId: srcBotId })}
