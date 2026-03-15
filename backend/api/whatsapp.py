@@ -8,6 +8,8 @@ Flujo de "Vincular QR":
   2. GET  /qr/{session_id}   → devuelve el QR como base64 (polling)
   3. GET  /status/{session_id} → estado actual de la sesión
 """
+import base64
+
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 
 from api.deps import require_admin, require_client
@@ -84,6 +86,20 @@ async def disconnect_all():
         clients[session_id]["qr"] = None
         closed.append(session_id)
     return {"ok": True, "closed": closed}
+
+
+@router.get("/screenshot/{session_id}", dependencies=[Depends(require_admin)])
+async def get_screenshot(session_id: str):
+    """Captura un screenshot del browser headless para esa sesión de WA."""
+    page = wa_session.get_page(session_id)
+    if not page or page.is_closed():
+        raise HTTPException(status_code=404, detail="Sesión no activa.")
+    try:
+        screenshot_bytes = await page.screenshot(type="png", full_page=False)
+        b64 = base64.b64encode(screenshot_bytes).decode()
+        return {"screenshot": f"data:image/png;base64,{b64}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/refresh", dependencies=[Depends(require_admin)])

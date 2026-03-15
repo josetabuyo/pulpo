@@ -190,6 +190,54 @@ function MoveModal({ open, onClose, number, sourceBotId, allBots, onMove }) {
   )
 }
 
+function ScreenshotModal({ open, number, onClose, pwd }) {
+  const [src, setSrc] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [ts, setTs] = useState(null)
+  const intervalRef = useRef(null)
+
+  async function fetchShot() {
+    if (!number) return
+    setLoading(true)
+    try {
+      const data = await api('GET', `/screenshot/${number}`, null, pwd)
+      if (data?.screenshot) { setSrc(data.screenshot); setTs(new Date().toLocaleTimeString()) }
+    } catch {}
+    setLoading(false)
+  }
+
+  useEffect(() => {
+    if (!open) { clearInterval(intervalRef.current); setSrc(null); return }
+    fetchShot()
+    intervalRef.current = setInterval(fetchShot, 8000)
+    return () => clearInterval(intervalRef.current)
+  }, [open, number])
+
+  return (
+    <Modal open={open} onClose={onClose} width="min(92vw, 960px)">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+        <h3 style={{ margin: 0 }}>Browser — +{number}</h3>
+        <button className="btn-ghost btn-sm" onClick={fetchShot} disabled={loading}>
+          {loading ? '...' : '↺ Refrescar'}
+        </button>
+        {ts && <span style={{ fontSize: 12, color: '#888', marginLeft: 'auto' }}>Última: {ts} · auto-refresh 8s</span>}
+      </div>
+      {src
+        ? <img
+            src={src}
+            alt="WA Web"
+            style={{ width: '100%', borderRadius: 6, cursor: 'pointer', display: 'block' }}
+            onClick={() => window.open(src, '_blank')}
+            title="Click para ver en tamaño completo"
+          />
+        : <div style={{ textAlign: 'center', padding: 40, color: '#888' }}>
+            {loading ? 'Capturando...' : 'Sin imagen'}
+          </div>
+      }
+    </Modal>
+  )
+}
+
 function QRModal({ open, number, onClose, pwd, onConnected }) {
   const [qrSrc, setQrSrc] = useState(null)
   const [status, setStatus] = useState('Iniciando conexión...')
@@ -293,7 +341,7 @@ function QRModal({ open, number, onClose, pwd, onConnected }) {
 
 // ─── Filas de teléfono / telegram ─────────────────────────────────────────────
 
-function PhoneRow({ phone, botId, simMode, pwd, onConnect, onDisconnect, onEdit, onDelete, onMove, onDragStart }) {
+function PhoneRow({ phone, botId, simMode, pwd, onConnect, onDisconnect, onEdit, onDelete, onMove, onScreenshot, onDragStart }) {
   const needsQR = ['stopped', 'failed', 'disconnected', undefined, null].includes(phone.status)
   const isReady = phone.status === 'ready'
   const contactsText = phone.allowedContacts?.length ? phone.allowedContacts.join(', ') : '(sin contactos permitidos)'
@@ -333,6 +381,9 @@ function PhoneRow({ phone, botId, simMode, pwd, onConnect, onDisconnect, onEdit,
           )}
           {needsQR && simMode && (
             <button className="btn-primary btn-sm" onClick={() => onConnect(phone.number)}>Conectar sim</button>
+          )}
+          {isReady && !simMode && (
+            <button className="btn-ghost btn-sm" onClick={() => onScreenshot(phone.number)} title="Ver browser headless">👁 Ver</button>
           )}
           {isReady && (
             <button className="btn-danger btn-sm" onClick={() => onDisconnect(phone.number)}>Desconectar</button>
@@ -411,6 +462,7 @@ export default function DashboardPage() {
   const [tgModal, setTgModal] = useState({ open: false, editTg: null, botId: null })
   const [moveModal, setMoveModal] = useState({ open: false, number: null, sourceBotId: null })
   const [qrModal, setQrModal] = useState({ open: false, number: null })
+  const [screenshotModal, setScreenshotModal] = useState({ open: false, number: null })
 
   // Redirect si no hay pwd
   useEffect(() => {
@@ -667,6 +719,7 @@ export default function DashboardPage() {
                         onEdit={phone => setPhoneModal({ open: true, editPhone: phone, botId: bot.id })}
                         onDelete={handleDeletePhone}
                         onMove={(number, srcBotId) => setMoveModal({ open: true, number, sourceBotId: srcBotId })}
+                        onScreenshot={number => setScreenshotModal({ open: true, number })}
                       />
                     ))}
                   </>
@@ -743,6 +796,13 @@ export default function DashboardPage() {
         pwd={pwd}
         onClose={() => setQrModal({ open: false, number: null })}
         onConnected={loadBots}
+      />
+
+      <ScreenshotModal
+        open={screenshotModal.open}
+        number={screenshotModal.number}
+        pwd={pwd}
+        onClose={() => setScreenshotModal({ open: false, number: null })}
       />
     </>
   )

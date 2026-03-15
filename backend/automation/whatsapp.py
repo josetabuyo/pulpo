@@ -29,7 +29,7 @@ SESSIONS_DIR = Path("data/sessions")
 WA_URL = "https://web.whatsapp.com/"
 
 # Timeouts
-QR_APPEAR_TIMEOUT_MS = 30_000   # tiempo máximo para que aparezca el QR
+QR_APPEAR_TIMEOUT_MS = 60_000   # tiempo máximo para que aparezca el QR
 QR_SCAN_TIMEOUT_MS   = 120_000  # tiempo máximo para que el usuario escanee
 SEND_TIMEOUT_MS      = 15_000
 
@@ -62,10 +62,35 @@ class WhatsAppSession(BrowserAutomation):
         context = await self._pw.chromium.launch_persistent_context(
             user_data_dir=profile_dir,
             headless=self.headless,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+            ],
+            user_agent=(
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            viewport={"width": 1280, "height": 800},
+            locale="es-AR",
         )
+        # Quitar navigator.webdriver para que WA Web no detecte automatización
+        await context.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+        )
+
         page = context.pages[0] if context.pages else await context.new_page()
         self._contexts[session_id] = context
         self._pages[session_id] = page
+
+        # Listeners de diagnóstico — visibles en el log del backend
+        page.on("console", lambda msg: logger.debug(f"[{session_id}][browser] {msg.type}: {msg.text}"))
+        page.on("pageerror", lambda err: logger.error(f"[{session_id}][browser:error] {err}"))
+        page.on("load", lambda: logger.info(f"[{session_id}] Página cargada: {page.url}"))
+        page.on("crash", lambda: logger.error(f"[{session_id}] ¡La página crasheó!"))
+        context.on("weberror", lambda e: logger.error(f"[{session_id}][weberror] {e.error}"))
+
         logger.info(f"[{session_id}] Perfil persistente abierto en {profile_dir}")
         return page
 
@@ -88,22 +113,26 @@ class WhatsAppSession(BrowserAutomation):
 
         # Selectores precisos — NO usar canvas genérico que matchea elementos de carga
         SELECTORS_AUTHED = "[data-testid='chat-list'], #side, [data-testid='search-input']"
-        SELECTORS_QR     = "[data-testid='qrcode'], div[data-ref]"
+        SELECTORS_QR     = "[data-testid='qrcode'], div[data-ref], canvas"
+
+        # Cerrar sesión previa si existía (importante en reintentos)
+        await self.close_session(session_id)
 
         try:
             await self.ensure_launched()
             page = await self._open_wa_session(session_id)
-            await page.goto(WA_URL, wait_until="domcontentloaded")
+            await page.goto(WA_URL, wait_until="domcontentloaded", timeout=30_000)
 
-            # Esperar hasta 25s a que aparezca la UI principal O el QR
+            # Esperar hasta 90s a que aparezca la UI principal O el QR
             try:
                 await page.wait_for_selector(
                     f"{SELECTORS_AUTHED}, {SELECTORS_QR}",
-                    timeout=25_000,
+                    timeout=90_000,
                 )
             except Exception:
-                logger.error(f"[{session_id}] WA Web no cargó en 25s")
+                logger.error(f"[{session_id}] WA Web no cargó en 90s")
                 _update(session_id, status="failed")
+                await self.close_session(session_id)
                 return "failed"
 
             # Ahora determinar qué apareció
@@ -120,6 +149,7 @@ class WhatsAppSession(BrowserAutomation):
         except Exception as e:
             logger.error(f"[{session_id}] Error al conectar: {e}")
             _update(session_id, status="failed")
+            await self.close_session(session_id)
             return "failed"
 
     # ------------------------------------------------------------------
