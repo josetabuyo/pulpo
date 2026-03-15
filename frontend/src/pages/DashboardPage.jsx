@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, connectAndPoll } from '../api.js'
 import SimChat from '../SimChat.jsx'
+import MonitorPanel from '../components/MonitorPanel.jsx'
 
 const STATUS_LABELS = {
   ready: 'Conectado', qr_ready: 'Esperando escaneo',
@@ -467,6 +468,8 @@ export default function DashboardPage() {
   const [moveModal, setMoveModal] = useState({ open: false, number: null, sourceBotId: null })
   const [qrModal, setQrModal] = useState({ open: false, number: null })
   const [screenshotModal, setScreenshotModal] = useState({ open: false, number: null })
+  const [monitorOpen, setMonitorOpen] = useState(false)
+  const [monitorAlerts, setMonitorAlerts] = useState(0)
 
   // Redirect si no hay pwd
   useEffect(() => {
@@ -650,6 +653,16 @@ export default function DashboardPage() {
           <button className="btn-ghost btn-sm" onClick={handleRefresh} disabled={refreshLabel !== '↺ Refresh'}>
             {refreshLabel}
           </button>
+          <button
+            className="btn-ghost btn-sm mon-btn"
+            onClick={() => setMonitorOpen(true)}
+            style={{ position: 'relative' }}
+          >
+            📊 Monitor
+            {monitorAlerts > 0 && (
+              <span className="mon-badge">{monitorAlerts}</span>
+            )}
+          </button>
           <button className="btn-ghost btn-sm" onClick={logout}>Salir</button>
         </div>
       </header>
@@ -809,6 +822,13 @@ export default function DashboardPage() {
         number={screenshotModal.number}
         pwd={pwd}
         onClose={() => setScreenshotModal({ open: false, number: null })}
+      />
+
+      <MonitorPanel
+        open={monitorOpen}
+        onClose={() => setMonitorOpen(false)}
+        pwd={pwd}
+        onAlertsChange={setMonitorAlerts}
       />
     </>
   )

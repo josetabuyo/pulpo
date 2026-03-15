@@ -1,0 +1,23 @@
+{
+  "log_sources": {
+    "backend": "monitor/backend.log",
+    "frontend": "monitor/frontend.log"
+  },
+  "highlight_patterns": [
+    { "pattern": "ERROR",      "color": "red",    "label": "Error" },
+    { "pattern": "WARNING",    "color": "yellow", "label": "Warning" },
+    { "pattern": "200 OK",     "color": "green",  "label": "OK" },
+    { "pattern": "restored",   "color": "green",  "label": "Restaurado" },
+    { "pattern": "getUpdates", "color": "blue",   "label": "Telegram" }
+  ],
+  "alert_patterns": [
+    { "pattern": "Traceback",    "label": "Python exception", "severity": "error" },
+    { "pattern": "HTTP/1.1 5",   "label": "Server Error 5xx", "severity": "error" },
+    { "pattern": "session lost", "label": "Sesión WA perdida", "severity": "error" }
+  ],
+  "display": {
+    "max_lines": 500,
+    "default_source": "backend",
+    "refresh_interval_ms": 2000
+  }
+}
