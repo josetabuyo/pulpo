@@ -7,10 +7,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from telegram.ext import Application
 
+from pathlib import Path
+
 from config import load_config, get_telegram_bots
 from db import init_db
 from bots.telegram_bot import build_telegram_app
 from state import clients, wa_session
+from api.whatsapp import _connect_and_get_qr, _get_wa_config
 
 from api.auth import router as auth_router
 from api.bots import router as bots_router
@@ -79,6 +82,19 @@ async def lifespan(app: FastAPI):
 
         if not tg_configs:
             logger.warning("No hay bots de Telegram configurados en phones.json.")
+
+        # Auto-reconectar sesiones WA que tienen perfil guardado en disco
+        for bot in config.get("bots", []):
+            for phone in bot.get("phones", []):
+                if phone.get("type", "whatsapp") != "whatsapp":
+                    continue
+                number = phone["number"]
+                profile_dir = Path("data/sessions") / number / "profile"
+                if profile_dir.exists() and any(profile_dir.iterdir()):
+                    logger.info(f"[{number}] Perfil guardado encontrado — reconectando en background...")
+                    asyncio.create_task(_connect_and_get_qr(number, bot["id"]))
+                else:
+                    logger.info(f"[{number}] Sin perfil guardado — esperando escaneo de QR manual.")
 
     yield
 
