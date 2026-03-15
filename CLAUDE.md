@@ -104,6 +104,42 @@ log_back            # tail en vivo del backend
 log_front           # tail en vivo del frontend
 ```
 
+## Flujo de desarrollo — Tests primero
+
+**El orden siempre es:**
+1. Correr los tests existentes antes de tocar código (`pytest tests/ -v` + `playwright test`)
+2. Escribir o actualizar tests que cubran la nueva funcionalidad
+3. Implementar hasta que los tests pasen
+4. Nunca mergear con tests en rojo
+
+Si una feature no tiene tests, escribirlos es parte de la tarea — no opcional.
+
+## Tests
+
+### Backend (pytest + httpx — requiere server corriendo en :8001 o :8000)
+```bash
+cd backend
+pytest tests/ -v
+```
+Archivos:
+- `tests/test_auth.py` — auth, health, mode
+- `tests/test_logs.py` — endpoint /api/logs/latest, auth, source inválido
+- `tests/test_sim.py`  — simulador: send, log de mensajes, connect/disconnect
+
+### Frontend (Playwright — requiere server corriendo)
+```bash
+cd frontend
+node_modules/.bin/playwright test
+```
+Archivos:
+- `tests/login.spec.cjs`   — login, contraseña incorrecta, dashboard carga
+- `tests/monitor.spec.cjs` — botón Monitor, drawer, log live, filtro, pausa, sim→log
+
+> **Nota:** `pytest` y sus dependencias (`pytest-asyncio`, `httpx`) deben estar instalados en el venv:
+> ```bash
+> .venv/bin/pip install pytest pytest-asyncio httpx
+> ```
+
 ## Sesiones WhatsApp — reglas críticas
 - **NUNCA `pkill -9`** en procesos Playwright/Chromium — SIGKILL corrompe el perfil Chrome y pierde la sesión WA
 - Usar solo `pkill` (SIGTERM) para que Chrome guarde limpiamente
