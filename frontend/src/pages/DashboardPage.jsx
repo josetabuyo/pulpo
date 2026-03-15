@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, connectAndPoll } from '../api.js'
+import SimChat from '../SimChat.jsx'
 
 const STATUS_LABELS = {
   ready: 'Conectado', qr_ready: 'Esperando escaneo',
@@ -292,49 +293,58 @@ function QRModal({ open, number, onClose, pwd, onConnected }) {
 
 // ─── Filas de teléfono / telegram ─────────────────────────────────────────────
 
-function PhoneRow({ phone, botId, onConnect, onDisconnect, onEdit, onDelete, onMove, onDragStart }) {
+function PhoneRow({ phone, botId, simMode, pwd, onConnect, onDisconnect, onEdit, onDelete, onMove, onDragStart }) {
   const needsQR = ['stopped', 'failed', 'disconnected', undefined, null].includes(phone.status)
   const isReady = phone.status === 'ready'
   const contactsText = phone.allowedContacts?.length ? phone.allowedContacts.join(', ') : '(sin contactos permitidos)'
 
   return (
-    <div
-      className="phone-row"
-      draggable
-      onDragStart={e => {
-        e.dataTransfer.setData('number', phone.number)
-        e.dataTransfer.setData('sourceBotId', botId)
-        e.dataTransfer.setData('type', 'phone')
-        e.currentTarget.classList.add('dragging')
-        onDragStart?.()
-      }}
-      onDragEnd={e => e.currentTarget.classList.remove('dragging')}
-    >
-      <div className="phone-number">
-        <span className="wa-label">WA</span>
-        <span className="phone-id">(+{phone.number})</span>
+    <div>
+      <div
+        className="phone-row"
+        draggable
+        onDragStart={e => {
+          e.dataTransfer.setData('number', phone.number)
+          e.dataTransfer.setData('sourceBotId', botId)
+          e.dataTransfer.setData('type', 'phone')
+          e.currentTarget.classList.add('dragging')
+          onDragStart?.()
+        }}
+        onDragEnd={e => e.currentTarget.classList.remove('dragging')}
+      >
+        <div className="phone-number">
+          <span className="wa-label">WA</span>
+          <span className="phone-id">(+{phone.number})</span>
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="phone-contacts">{contactsText}</div>
+          {phone.autoReplyMessage && (
+            <div className="phone-msg-override">Mensaje propio: "{phone.autoReplyMessage}"</div>
+          )}
+        </div>
+        <div className="phone-actions">
+          {simMode && <span className="badge s-sim">SIM</span>}
+          <span className={`badge s-${phone.status}`}>
+            <span className="dot" />
+            {STATUS_LABELS[phone.status] || phone.status}
+          </span>
+          {needsQR && !simMode && (
+            <button className="btn-primary btn-sm" onClick={() => onConnect(phone.number)}>Vincular QR</button>
+          )}
+          {needsQR && simMode && (
+            <button className="btn-primary btn-sm" onClick={() => onConnect(phone.number)}>Conectar sim</button>
+          )}
+          {isReady && (
+            <button className="btn-danger btn-sm" onClick={() => onDisconnect(phone.number)}>Desconectar</button>
+          )}
+          <button className="btn-ghost btn-sm" onClick={() => onMove(phone.number, botId)}>Mover</button>
+          <button className="btn-ghost btn-sm" onClick={() => onEdit(phone)}>Editar</button>
+          <button className="btn-danger btn-sm" onClick={() => onDelete(phone.number)}>Eliminar</button>
+        </div>
       </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div className="phone-contacts">{contactsText}</div>
-        {phone.autoReplyMessage && (
-          <div className="phone-msg-override">Mensaje propio: "{phone.autoReplyMessage}"</div>
-        )}
-      </div>
-      <div className="phone-actions">
-        <span className={`badge s-${phone.status}`}>
-          <span className="dot" />
-          {STATUS_LABELS[phone.status] || phone.status}
-        </span>
-        {needsQR && (
-          <button className="btn-primary btn-sm" onClick={() => onConnect(phone.number)}>Vincular QR</button>
-        )}
-        {isReady && (
-          <button className="btn-danger btn-sm" onClick={() => onDisconnect(phone.number)}>Desconectar</button>
-        )}
-        <button className="btn-ghost btn-sm" onClick={() => onMove(phone.number, botId)}>Mover</button>
-        <button className="btn-ghost btn-sm" onClick={() => onEdit(phone)}>Editar</button>
-        <button className="btn-danger btn-sm" onClick={() => onDelete(phone.number)}>Eliminar</button>
-      </div>
+      {simMode && isReady && (
+        <SimChat number={phone.number} pwd={pwd} />
+      )}
     </div>
   )
 }
@@ -393,6 +403,7 @@ export default function DashboardPage() {
   const [bots, setBots] = useState([])
   const [loading, setLoading] = useState(true)
   const [refreshLabel, setRefreshLabel] = useState('↺ Refresh')
+  const [simMode, setSimMode] = useState(false)
 
   // Modales
   const [botModal, setBotModal] = useState({ open: false, editBot: null })
@@ -419,6 +430,9 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!pwd) return
+    api('GET', '/mode', null, pwd).then(data => {
+      if (data?.mode === 'sim') setSimMode(true)
+    })
     loadBots()
     const interval = setInterval(loadBots, 6000)
     return () => clearInterval(interval)
@@ -523,8 +537,20 @@ export default function DashboardPage() {
     setTimeout(loadBots, 2000)
   }
 
+  async function handleConnect(number) {
+    if (simMode) {
+      const res = await call('POST', `/sim/connect/${number}`)
+      if (res.error) return alert('Error: ' + res.error)
+      loadBots()
+    } else {
+      setQrModal({ open: true, number })
+    }
+  }
+
   async function handleDisconnect(number) {
-    const res = await call('POST', `/disconnect/${number}`)
+    const res = simMode
+      ? await call('POST', `/sim/disconnect/${number}`)
+      : await call('POST', `/disconnect/${number}`)
     if (res.error) return alert('Error: ' + res.error)
     loadBots()
   }
@@ -634,7 +660,9 @@ export default function DashboardPage() {
                         key={p.number}
                         phone={p}
                         botId={bot.id}
-                        onConnect={number => setQrModal({ open: true, number })}
+                        simMode={simMode}
+                        pwd={pwd}
+                        onConnect={handleConnect}
                         onDisconnect={handleDisconnect}
                         onEdit={phone => setPhoneModal({ open: true, editPhone: phone, botId: bot.id })}
                         onDelete={handleDeletePhone}

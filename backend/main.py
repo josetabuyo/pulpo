@@ -18,6 +18,8 @@ from api.phones import router as phones_router
 from api.telegram_api import router as telegram_router
 from api.whatsapp import router as whatsapp_router
 from api.messages import router as messages_router
+from api.sim import router as sim_router
+import sim as sim_engine
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,43 +37,46 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("DB lista.")
 
-    # Limpiar procesos Playwright huérfanos de reinicios anteriores
-    import subprocess, sys
-    subprocess.run(
-        ["pkill", "-f", "ms-playwright/chromium"],
-        capture_output=True,
-    )
-    await wa_session.launch()
-    logger.info("Browser iniciado.")
+    if sim_engine.SIM_MODE:
+        logger.info("Modo SIMULADO — bots reales desactivados (ENABLE_BOTS != true).")
+    else:
+        # Limpiar procesos Playwright huérfanos de reinicios anteriores
+        import subprocess, sys
+        subprocess.run(
+            ["pkill", "-f", "ms-playwright/chromium"],
+            capture_output=True,
+        )
+        await wa_session.launch()
+        logger.info("Browser iniciado.")
 
-    config = load_config()
-    tg_configs = get_telegram_bots(config)
+        config = load_config()
+        tg_configs = get_telegram_bots(config)
 
-    for cfg in tg_configs:
-        token_id = cfg["token"].split(":")[0]
-        session_id = f"{cfg['bot_id']}-tg-{token_id}"
-        tg_app = build_telegram_app(cfg)
-        await tg_app.initialize()
-        await tg_app.start()
-        await tg_app.updater.start_polling(drop_pending_updates=True)
-        _tg_apps.append(tg_app)
-        clients[session_id] = {"status": "ready", "qr": None, "bot_id": cfg["bot_id"], "type": "telegram", "client": tg_app}
-        logger.info(f"[{cfg['bot_id']}/tg-{token_id}] Bot de Telegram listo.")
+        for cfg in tg_configs:
+            token_id = cfg["token"].split(":")[0]
+            session_id = f"{cfg['bot_id']}-tg-{token_id}"
+            tg_app = build_telegram_app(cfg)
+            await tg_app.initialize()
+            await tg_app.start()
+            await tg_app.updater.start_polling(drop_pending_updates=True)
+            _tg_apps.append(tg_app)
+            clients[session_id] = {"status": "ready", "qr": None, "bot_id": cfg["bot_id"], "type": "telegram", "client": tg_app}
+            logger.info(f"[{cfg['bot_id']}/tg-{token_id}] Bot de Telegram listo.")
 
-    if not tg_configs:
-        logger.warning("No hay bots de Telegram configurados en phones.json.")
+        if not tg_configs:
+            logger.warning("No hay bots de Telegram configurados en phones.json.")
 
     yield
 
     # Apagado
-    for tg_app in _tg_apps:
-        await tg_app.updater.stop()
-        await tg_app.stop()
-        await tg_app.shutdown()
-    logger.info("Bots de Telegram detenidos.")
-
-    await wa_session.shutdown()
-    logger.info("Browser cerrado.")
+    if not sim_engine.SIM_MODE:
+        for tg_app in _tg_apps:
+            await tg_app.updater.stop()
+            await tg_app.stop()
+            await tg_app.shutdown()
+        logger.info("Bots de Telegram detenidos.")
+        await wa_session.shutdown()
+        logger.info("Browser cerrado.")
 
 
 app = FastAPI(title="Bot Farm API", lifespan=lifespan)
@@ -92,6 +97,7 @@ app.include_router(phones_router, prefix="/api")
 app.include_router(telegram_router, prefix="/api")
 app.include_router(whatsapp_router, prefix="/api")
 app.include_router(messages_router, prefix="/api")
+app.include_router(sim_router, prefix="/api")
 
 
 @app.get("/health")

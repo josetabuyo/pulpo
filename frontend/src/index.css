@@ -301,3 +301,44 @@ main { max-width: 900px; margin: 28px auto; padding: 0 16px; }
 .success-icon-lg { font-size: 56px; margin: 16px 0; }
 .success-text-lg { font-size: 17px; font-weight: 600; color: #1a7a45; margin-bottom: 8px; }
 .success-sub { font-size: 13px; color: #888; }
+
+/* ─── Simulador ─── */
+.badge.s-sim {
+  background: #fff3e0; color: #e65100; font-size: 11px;
+  padding: 2px 8px; border-radius: 20px; font-weight: 700; letter-spacing: .5px;
+}
+.sim-chat {
+  margin: 0 0 8px 0; border: 1.5px dashed #ffb300;
+  border-radius: 10px; overflow: hidden; background: #fffde7;
+}
+.sim-chat-header {
+  background: #ffe082; padding: 6px 14px;
+  font-size: 12px; font-weight: 600; color: #5d4037;
+}
+.sim-chat-messages {
+  padding: 10px 14px; min-height: 80px; max-height: 260px;
+  overflow-y: auto; display: flex; flex-direction: column; gap: 6px;
+}
+.sim-empty { font-size: 13px; color: #aaa; text-align: center; margin: 20px 0; }
+.sim-msg {
+  display: flex; gap: 8px; align-items: baseline;
+  font-size: 13px; max-width: 90%;
+}
+.sim-msg--user { align-self: flex-start; }
+.sim-msg--bot  { align-self: flex-end; flex-direction: row-reverse; }
+.sim-msg-from  { font-weight: 600; font-size: 11px; color: #888; white-space: nowrap; }
+.sim-msg--user .sim-msg-text {
+  background: white; border: 1px solid #ddd;
+  padding: 5px 10px; border-radius: 0 10px 10px 10px;
+}
+.sim-msg--bot .sim-msg-text {
+  background: #dcf8c6; border: 1px solid #b2dfdb;
+  padding: 5px 10px; border-radius: 10px 0 10px 10px;
+}
+.sim-msg-ts    { font-size: 10px; color: #bbb; white-space: nowrap; }
+.sim-chat-input {
+  display: flex; gap: 6px; padding: 8px 14px;
+  border-top: 1px solid #ffe082; background: #fff8e1;
+}
+.sim-name-input { width: 110px; flex-shrink: 0; font-size: 13px; }
+.sim-text-input { flex: 1; font-size: 13px; }

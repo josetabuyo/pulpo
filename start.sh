@@ -29,28 +29,49 @@ BACKEND_PORT="${BACKEND_PORT:-8000}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 WORKTREE="$(basename "$ROOT")"
 
+# Modo automático: _ es producción, cualquier otro worktree es simulado
+if [ "$WORKTREE" = "_" ]; then
+  export ENABLE_BOTS=true
+  MODE_LABEL="real (bots conectados)"
+else
+  export ENABLE_BOTS=false
+  MODE_LABEL="simulado (sin bots reales)"
+fi
+
 echo "════════════════════════════════════════"
 echo "  Ambiente : $WORKTREE"
+echo "  Modo     : $MODE_LABEL"
 echo "  Backend  : http://localhost:${BACKEND_PORT}"
 echo "  Frontend : http://localhost:${FRONTEND_PORT}"
 echo "════════════════════════════════════════"
 
+LOG_DIR="$ROOT/monitor"
+mkdir -p "$LOG_DIR"
+
+BACK_LOG="$LOG_DIR/backend.log"
+FRONT_LOG="$LOG_DIR/frontend.log"
+
 MODE="${1:-both}"
 
 start_back() {
-  echo "▶ Iniciando backend (puerto ${BACKEND_PORT})..."
-  cd "$ROOT/backend" && exec ./start.sh
+  echo "▶ Backend → $BACK_LOG"
+  cd "$ROOT/backend" && ./start.sh >> "$BACK_LOG" 2>&1
 }
 
 start_front() {
-  echo "▶ Iniciando frontend (puerto ${FRONTEND_PORT})..."
-  cd "$ROOT/frontend" && exec npm run dev
+  echo "▶ Frontend → $FRONT_LOG"
+  cd "$ROOT/frontend" && npm run dev >> "$FRONT_LOG" 2>&1
 }
 
 case "$MODE" in
   back)  start_back ;;
   front) start_front ;;
   both)
+    echo ""
+    echo "  Logs en vivo:"
+    echo "    tail -f $BACK_LOG"
+    echo "    tail -f $FRONT_LOG"
+    echo ""
     trap 'kill %1 %2 2>/dev/null' EXIT
     start_back &
     start_front &
