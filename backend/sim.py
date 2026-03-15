@@ -6,10 +6,12 @@ pipeline real (log_message, mark_answered, auto_reply) sin tocar
 WhatsApp ni Telegram.
 """
 
+import logging
 import os
 from datetime import datetime
 
 SIM_MODE = os.environ.get("ENABLE_BOTS", "true").lower() != "true"
+logger = logging.getLogger(__name__)
 
 # { session_id: [{ role, text, from_name, ts }] }
 _conversations: dict[str, list] = {}
@@ -57,12 +59,14 @@ async def sim_receive(session_id: str, from_name: str, from_phone: str, text: st
 
     msg_id = await log_message(cfg["bot_id"], session_id, from_phone, from_name, text)
     conv.append({"role": "user", "text": text, "from_name": from_name, "ts": ts})
+    logger.info("[sim] MSG ← %s (%s) → %s: %s", from_name, from_phone, session_id, text)
 
     reply = cfg["auto_reply"]
     if reply:
         await mark_answered(msg_id)
         await log_outbound_message(cfg["bot_id"], session_id, from_phone, reply)
         conv.append({"role": "bot", "text": reply, "from_name": "Bot", "ts": ts})
+        logger.info("[sim] REPLY → %s: %s", session_id, reply[:80])
 
     return reply or None
 
