@@ -251,7 +251,7 @@ class WhatsAppSession(BrowserAutomation):
 
             # Ignorar si no está en allowedContacts
             if allowed_lower and name.lower().strip() not in allowed_lower:
-                logger.info(f"[{session_id}] Mensaje de '{name}' ignorado (no en allowedContacts)")
+                logger.debug(f"[{session_id}] Mensaje de '{name}' ignorado (no en allowedContacts)")
                 return
 
             logger.info(f"[{session_id}] Mensaje de {name} ({phone}): {body[:60]}")
@@ -429,7 +429,7 @@ class WhatsAppSession(BrowserAutomation):
                     if pair in seen_pairs:
                         continue
                     seen_pairs.add(pair)
-                    logger.info(f"[{session_id}] open-chat detectó: {name} ({phone}) → {body[:40]}")
+                    logger.debug(f"[{session_id}] open-chat detectó: {name} ({phone}) → {body[:40]}")
                     await on_message(phone, name, body)
 
             except Exception as e:

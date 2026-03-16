@@ -31,8 +31,8 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(message)s",
     stream=sys.stdout,
 )
-# DEBUG para el módulo de automatización — captura logs del browser Chromium
-logging.getLogger("automation").setLevel(logging.DEBUG)
+# El módulo de automatización en INFO — los mensajes ignorados y WebGL noise quedan en DEBUG
+logging.getLogger("automation").setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
 _tg_apps: list[Application] = []
