@@ -85,7 +85,17 @@ class WhatsAppSession(BrowserAutomation):
         self._pages[session_id] = page
 
         # Listeners de diagnóstico — visibles en el log del backend
-        page.on("console", lambda msg: logger.debug(f"[{session_id}][browser] {msg.type}: {msg.text}"))
+        def _on_console(msg):
+            text = msg.text
+            # Caídas de WebSocket y red: WARNING para que sean visibles en el monitor
+            if "ERR_NAME_NOT_RESOLVED" in text or "ERR_NETWORK_CHANGED" in text:
+                logger.warning(f"[{session_id}] ⚠️ Red caída: {text[:120]}")
+            elif "WebSocket connection" in text and "failed" in text:
+                logger.warning(f"[{session_id}] ⚠️ WebSocket desconectado — posibles mensajes perdidos")
+            else:
+                logger.debug(f"[{session_id}][browser] {msg.type}: {text}")
+
+        page.on("console", _on_console)
         page.on("pageerror", lambda err: logger.error(f"[{session_id}][browser:error] {err}"))
         page.on("load", lambda: logger.info(f"[{session_id}] Página cargada: {page.url}"))
         page.on("crash", lambda: logger.error(f"[{session_id}] ¡La página crasheó!"))
