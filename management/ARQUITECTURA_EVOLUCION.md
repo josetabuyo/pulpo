@@ -1,4 +1,4 @@
-# Evolución de Arquitectura — Bot Farm
+# Evolución de Arquitectura — Pulpo
 
 ## El problema de fondo
 

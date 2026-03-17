@@ -109,7 +109,7 @@ async def lifespan(app: FastAPI):
         logger.info("Browser cerrado.")
 
 
-app = FastAPI(title="Bot Farm API", lifespan=lifespan)
+app = FastAPI(title="Pulpo API", lifespan=lifespan)
 
 _frontend_port = os.environ.get("FRONTEND_PORT", "5173")
 app.add_middleware(

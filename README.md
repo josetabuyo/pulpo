@@ -1,4 +1,4 @@
-# Bot Farm
+# Pulpo
 
 Plataforma multi-bot para empresas. Gestiona bots de WhatsApp y Telegram con auto-reply, panel admin y portal de cliente.
 

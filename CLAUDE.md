@@ -1,4 +1,4 @@
-# Bot Farm — Contexto del proyecto
+# Pulpo — Contexto del proyecto
 
 ## Forma de trabajar
 - Responder siempre en **español**
@@ -47,15 +47,15 @@ Esto permite desarrollar y testear sin arriesgar la sesión de producción ni lo
 
 ### 1. Crear
 ```bash
-git worktree add /Users/josetabuyo/Development/whatsapp_bot/<rama> -b <rama>
+git worktree add /Users/josetabuyo/Development/pulpo/<rama> -b <rama>
 ```
 
 ### 2. Symlinks de archivos gitignoreados
 ```bash
-WDIR=/Users/josetabuyo/Development/whatsapp_bot/<rama>
-ln -s /Users/josetabuyo/Development/whatsapp_bot/_/node_modules  $WDIR/node_modules
-ln -s /Users/josetabuyo/Development/whatsapp_bot/_/phones.json   $WDIR/phones.json
-ln -s /Users/josetabuyo/Development/whatsapp_bot/_/data          $WDIR/data
+WDIR=/Users/josetabuyo/Development/pulpo/<rama>
+ln -s /Users/josetabuyo/Development/pulpo/_/node_modules  $WDIR/node_modules
+ln -s /Users/josetabuyo/Development/pulpo/_/phones.json   $WDIR/phones.json
+ln -s /Users/josetabuyo/Development/pulpo/_/data          $WDIR/data
 ```
 
 ### 3. `.env` con puertos únicos

@@ -649,7 +649,7 @@ export default function DashboardPage() {
   return (
     <>
       <header>
-        <span>📱 Bot Farm — Admin</span>
+        <span>🐙 Pulpo — Admin</span>
         <div className="header-actions">
           <button className="btn-ghost btn-sm" onClick={handleRefresh} disabled={refreshLabel !== '↺ Refresh'}>
             {refreshLabel}

@@ -1,10 +1,10 @@
-# Visión del Proyecto — Bot Farm
+# Visión del Proyecto — Pulpo
 
 ## El nombre
 
-**Bot Farm** — Una granja de bots al servicio de empresas y personas.
+**Pulpo** — Una plataforma multi-canal al servicio de empresas y personas.
 
-El nombre del repositorio actual (`whatsapp_bot`) es provisional. La visión es más grande: una plataforma que gestiona múltiples bots, para múltiples empresas, sobre múltiples canales de comunicación.
+El pulpo tiene muchos brazos: cada uno es un canal de comunicación. WhatsApp, Telegram, Instagram, email — todos coordinados desde un solo centro. La visión es una plataforma que gestiona múltiples bots, para múltiples empresas, sobre múltiples canales de comunicación.
 
 ---
 
