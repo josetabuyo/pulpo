@@ -468,8 +468,9 @@ export default function DashboardPage() {
   const [moveModal, setMoveModal] = useState({ open: false, number: null, sourceBotId: null })
   const [qrModal, setQrModal] = useState({ open: false, number: null })
   const [screenshotModal, setScreenshotModal] = useState({ open: false, number: null })
-  const [monitorOpen, setMonitorOpen] = useState(false)
-  const [monitorAlerts, setMonitorAlerts] = useState(0)
+  const [monitorAlerts,     setMonitorAlerts]     = useState(0)
+  const [monitorCollapsed,  setMonitorCollapsed]  = useState(false)
+  const [companiesCollapsed, setCompaniesCollapsed] = useState(false)
 
   // Redirect si no hay pwd
   useEffect(() => {
@@ -653,22 +654,30 @@ export default function DashboardPage() {
           <button className="btn-ghost btn-sm" onClick={handleRefresh} disabled={refreshLabel !== '↺ Refresh'}>
             {refreshLabel}
           </button>
-          <button
-            className="btn-ghost btn-sm mon-btn"
-            onClick={() => setMonitorOpen(true)}
-            style={{ position: 'relative' }}
-          >
-            📊 Monitor
-            {monitorAlerts > 0 && (
-              <span className="mon-badge">{monitorAlerts}</span>
-            )}
-          </button>
           <button className="btn-ghost btn-sm" onClick={logout}>Salir</button>
         </div>
       </header>
 
       <main>
-        {/* Link para clientes */}
+
+        {/* ── Sección: Monitor ── */}
+        <div className="section-block">
+          <div className="section-block-header" onClick={() => setMonitorCollapsed(c => !c)}>
+            <div className="section-block-title">
+              📊 Monitor
+              {monitorAlerts > 0 && <span className="mon-badge-inline">{monitorAlerts} alertas</span>}
+            </div>
+            <button
+              className="btn-ghost btn-sm"
+              onClick={e => { e.stopPropagation(); setMonitorCollapsed(c => !c) }}
+            >{monitorCollapsed ? '▼ Expandir' : '▲ Colapsar'}</button>
+          </div>
+          {!monitorCollapsed && (
+            <MonitorPanel pwd={pwd} onAlertsChange={setMonitorAlerts} />
+          )}
+        </div>
+
+        {/* ── Link para clientes ── */}
         <div className="card">
           <div className="card-title">Link para conectar clientes</div>
           <div className="share-row">
@@ -678,14 +687,22 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Empresas */}
-        <div className="card">
-          <div className="section-header">
-            <h2>Empresas y teléfonos</h2>
-            <button className="btn-primary btn-sm" onClick={() => setBotModal({ open: true, editBot: null })}>
-              + Nueva empresa
-            </button>
+        {/* ── Sección: Empresas ── */}
+        <div className="section-block">
+          <div className="section-block-header" onClick={() => setCompaniesCollapsed(c => !c)}>
+            <div className="section-block-title">🏢 Empresas y teléfonos</div>
+            <div className="section-block-actions" onClick={e => e.stopPropagation()}>
+              <button className="btn-primary btn-sm" onClick={() => setBotModal({ open: true, editBot: null })}>
+                + Nueva empresa
+              </button>
+              <button
+                className="btn-ghost btn-sm"
+                onClick={() => setCompaniesCollapsed(c => !c)}
+              >{companiesCollapsed ? '▼ Expandir' : '▲ Colapsar'}</button>
+            </div>
           </div>
+          {!companiesCollapsed && (
+        <div className="section-body">
 
           {loading && <div className="empty">Cargando...</div>}
           {!loading && bots.length === 0 && (
@@ -773,6 +790,9 @@ export default function DashboardPage() {
             </div>
           ))}
         </div>
+          )}
+        </div>
+
       </main>
 
       {/* Modales */}
@@ -824,12 +844,6 @@ export default function DashboardPage() {
         onClose={() => setScreenshotModal({ open: false, number: null })}
       />
 
-      <MonitorPanel
-        open={monitorOpen}
-        onClose={() => setMonitorOpen(false)}
-        pwd={pwd}
-        onAlertsChange={setMonitorAlerts}
-      />
     </>
   )
 }

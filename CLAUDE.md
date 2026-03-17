@@ -106,13 +106,16 @@ log_front           # tail en vivo del frontend
 
 ## Flujo de desarrollo — Tests primero
 
-**El orden siempre es:**
+**El orden obligatorio, siempre:**
 1. Correr los tests existentes antes de tocar código (`pytest tests/ -v` + `playwright test`)
-2. Escribir o actualizar tests que cubran la nueva funcionalidad
+2. Leer el output — los errores describen qué asume el sistema, valen más que leer código en frío
 3. Implementar hasta que los tests pasen
 4. Nunca mergear con tests en rojo
 
-Si una feature no tiene tests, escribirlos es parte de la tarea — no opcional.
+**Tests nuevos:**
+- Lo ideal es seguir TDD: escribir el test antes de implementar
+- Si agregar tests nuevos cuesta más que el cambio (layouts, prototipos, exploración), se pueden omitir en el medio y escribir al terminar el feature
+- Si el cambio rompe un test existente de forma intencional (UI que cambió), actualizarlo es parte del trabajo
 
 ## Tests
 

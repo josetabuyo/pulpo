@@ -1,13 +1,13 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 
-// ── Config embebida (espeja monitoring.json) ──────────────────────────────────
+// ── Highlight lines ────────────────────────────────────────────────────────────
 const HIGHLIGHT = [
-  { pattern: 'ERROR',      color: '#c62828', bg: '#ffebee' },
-  { pattern: 'WARNING',    color: '#e65100', bg: '#fff3e0' },
-  { pattern: 'Traceback',  color: '#c62828', bg: '#ffebee' },
-  { pattern: '200 OK',     color: '#1a7a45', bg: '#e8f5e9' },
-  { pattern: 'restored',   color: '#1a7a45', bg: '#e8f5e9' },
-  { pattern: 'getUpdates', color: '#1565c0', bg: '#e3f2fd' },
+  { pattern: 'ERROR',      color: '#ef5350', bg: 'rgba(239,83,80,0.13)' },
+  { pattern: 'WARNING',    color: '#ff9800', bg: 'rgba(255,152,0,0.11)' },
+  { pattern: 'Traceback',  color: '#ef5350', bg: 'rgba(239,83,80,0.13)' },
+  { pattern: '200 OK',     color: '#66bb6a', bg: 'rgba(102,187,106,0.10)' },
+  { pattern: 'restored',   color: '#66bb6a', bg: 'rgba(102,187,106,0.10)' },
+  { pattern: 'getUpdates', color: '#42a5f5', bg: 'rgba(66,165,245,0.10)'  },
 ]
 const ALERT_PATTERNS = ['Traceback', 'HTTP/1.1 5', 'session lost']
 
@@ -18,79 +18,197 @@ function getLineStyle(line) {
   return {}
 }
 
-// ── Sparkline SVG ─────────────────────────────────────────────────────────────
-function Sparkline({ data, color, label }) {
-  const W = 180, H = 48
-  const max = Math.max(...data, 1)
-  const pts = data
-    .map((v, i) => {
-      const x = (i / (data.length - 1)) * W
-      const y = H - (v / max) * (H - 4) - 2
-      return `${x},${y}`
-    })
-    .join(' ')
+// ── Time windows ───────────────────────────────────────────────────────────────
+// bucketMin: tamaño de cada bucket en minutos; buckets: cantidad de puntos en el gráfico
+const TIME_WINDOWS = [
+  { label: '15m', minutes: 15,  buckets: 15, bucketMin: 1  },
+  { label: '30m', minutes: 30,  buckets: 30, bucketMin: 1  },
+  { label: '1h',  minutes: 60,  buckets: 30, bucketMin: 2  },
+  { label: '3h',  minutes: 180, buckets: 36, bucketMin: 5  },
+]
+
+// Cuántas líneas pedir según la ventana de tiempo (150 líneas/min estimado máximo)
+function linesForWindow(minutes) {
+  return Math.min(5000, minutes * 150)
+}
+
+// ── Log parsing ────────────────────────────────────────────────────────────────
+const TS_RE = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/
+
+function parseTimestamp(line) {
+  const m = line.match(TS_RE)
+  return m ? new Date(m[1]).getTime() : null
+}
+
+function classifyLine(line) {
+  if (line.includes('Mensaje de ') || line.includes('[sim] MSG ←')) return 'received'
+  if (
+    line.includes('Mensaje enviado a') ||
+    line.includes('[sim] REPLY →') ||
+    line.includes('Respuesta enviada')
+  ) return 'replied'
+  if (line.includes('ERROR') || line.includes('Traceback') || line.includes('[browser:error]')) return 'error'
+  if (line.includes('WARNING') || line.includes('⚠')) return 'warning'
+  return 'other'
+}
+
+function buildMetrics(lines, windowCfg) {
+  const now = Date.now()
+  const { buckets, bucketMin, minutes } = windowCfg
+  const bucketMs   = bucketMin * 60 * 1000
+  const windowStart = now - minutes * 60 * 1000
+  const received = new Array(buckets).fill(0)
+  const replied  = new Array(buckets).fill(0)
+  const errors   = new Array(buckets).fill(0)
+  const warnings = new Array(buckets).fill(0)
+
+  for (const line of lines) {
+    const t = parseTimestamp(line)
+    if (!t || t < windowStart) continue
+    const ageMs = now - t
+    const idx = buckets - 1 - Math.floor(ageMs / bucketMs)
+    if (idx < 0 || idx >= buckets) continue
+    const type = classifyLine(line)
+    if      (type === 'received') received[idx]++
+    else if (type === 'replied')  replied[idx]++
+    else if (type === 'error')    errors[idx]++
+    else if (type === 'warning')  warnings[idx]++
+  }
+  return { received, replied, errors, warnings }
+}
+
+function buildBucketLabels(windowCfg) {
+  const now = Date.now()
+  const { buckets, bucketMin, minutes } = windowCfg
+  return Array.from({ length: buckets }, (_, i) => {
+    const ageMin = minutes - i * bucketMin
+    const t  = new Date(now - ageMin * 60 * 1000)
+    const hh = t.getHours().toString().padStart(2, '0')
+    const mm = t.getMinutes().toString().padStart(2, '0')
+    return `${hh}:${mm}`
+  })
+}
+
+// ── Chart ──────────────────────────────────────────────────────────────────────
+const SERIES = [
+  { key: 'received', label: 'Mensajes recibidos',   color: '#25d366' },
+  { key: 'replied',  label: 'Mensajes respondidos', color: '#42a5f5' },
+  { key: 'errors',   label: 'Errores',              color: '#ef5350' },
+  { key: 'warnings', label: 'Warnings',             color: '#ff9800' },
+]
+
+function MetricChart({ metrics, labels, windowCfg }) {
+  const W = 1000, H = 130
+  const PAD = { top: 12, right: 16, bottom: 26, left: 36 }
+  const iW = W - PAD.left - PAD.right
+  const iH = H - PAD.top - PAD.bottom
+  const n = labels.length
+
+  const allVals = SERIES.flatMap(s => metrics[s.key] || [])
+  const maxVal  = Math.max(...allVals, 1)
+
+  const toX = i  => PAD.left + (n <= 1 ? iW / 2 : (i / (n - 1)) * iW)
+  const toY = v  => PAD.top  + iH - (v / maxVal) * iH
+
+  // Labels every ~5-6 points
+  const step = n <= 20 ? 2 : n <= 30 ? 4 : 6
+
+  // Y grid lines
+  const yTicks = [0, Math.round(maxVal / 2), maxVal]
 
   return (
-    <div className="mon-spark">
-      <svg width={W} height={H} style={{ overflow: 'visible' }}>
-        <polyline
-          points={pts}
-          fill="none"
-          stroke={color}
-          strokeWidth="2"
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
-        {data.map((v, i) => {
-          if (v === 0) return null
-          const x = (i / (data.length - 1)) * W
-          const y = H - (v / max) * (H - 4) - 2
-          return <circle key={i} cx={x} cy={y} r="3" fill={color} />
-        })}
-      </svg>
-      <div className="mon-spark-label">
-        <span style={{ color }}>{label}</span>
-        <span className="mon-spark-cur">{data[data.length - 1]}</span>
-      </div>
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', display: 'block' }}>
+      {/* Grid lines + Y labels */}
+      {yTicks.map((v, i) => {
+        const y = toY(v)
+        return (
+          <g key={i}>
+            <line
+              x1={PAD.left} y1={y} x2={W - PAD.right} y2={y}
+              stroke="#2e2e2e" strokeWidth="1"
+            />
+            <text x={PAD.left - 5} y={y + 4} textAnchor="end" fill="#555" fontSize="10">
+              {v}
+            </text>
+          </g>
+        )
+      })}
+
+      {/* X labels */}
+      {labels.map((lbl, i) => {
+        if (i % step !== 0 && i !== n - 1) return null
+        return (
+          <text key={i} x={toX(i)} y={H - 6} textAnchor="middle" fill="#555" fontSize="10">
+            {lbl}
+          </text>
+        )
+      })}
+
+      {/* Series lines */}
+      {SERIES.map(({ key, color }) => {
+        const data = metrics[key] || []
+        if (data.every(v => v === 0)) return null
+        const pts = data.map((v, i) => `${toX(i)},${toY(v)}`).join(' ')
+        return (
+          <g key={key}>
+            <polyline
+              points={pts} fill="none" stroke={color}
+              strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"
+            />
+            {data.map((v, i) =>
+              v > 0
+                ? <circle key={i} cx={toX(i)} cy={toY(v)} r="3" fill={color} />
+                : null
+            )}
+          </g>
+        )
+      })}
+    </svg>
+  )
+}
+
+// ── Stat card ──────────────────────────────────────────────────────────────────
+function StatCard({ label, value, color }) {
+  return (
+    <div className="mon-stat">
+      <div className="mon-stat-value" style={{ color }}>{value}</div>
+      <div className="mon-stat-label">{label}</div>
     </div>
   )
 }
 
-// ── Hook de polling ───────────────────────────────────────────────────────────
-function useLogPoller(source, pwd, paused) {
+// ── Polling hook ───────────────────────────────────────────────────────────────
+function useLogPoller(source, pwd, paused, windowMinutes) {
   const [lines, setLines] = useState([])
   const [alerts, setAlerts] = useState([])
-  const knownLinesRef = useRef(0)
+  const knownRef = useRef(0)
 
   const fetchLines = useCallback(async () => {
     try {
+      const n = linesForWindow(windowMinutes)
       const res = await fetch(
-        `/api/logs/latest?source=${source}&lines=500`,
+        `/api/logs/latest?source=${source}&lines=${n}`,
         { headers: { 'x-password': pwd } }
       )
       if (!res.ok) return
       const data = await res.json()
       const incoming = data.lines || []
       setLines(incoming)
-
-      // Detectar alertas en líneas nuevas
-      const newLines = incoming.slice(knownLinesRef.current)
-      knownLinesRef.current = incoming.length
+      const newLines = incoming.slice(knownRef.current)
+      knownRef.current = incoming.length
       const found = []
-      for (const line of newLines) {
-        for (const pat of ALERT_PATTERNS) {
+      for (const line of newLines)
+        for (const pat of ALERT_PATTERNS)
           if (line.includes(pat)) found.push(line.trim())
-        }
-      }
       if (found.length) setAlerts(prev => [...prev, ...found])
     } catch {}
-  }, [source, pwd])
+  }, [source, pwd, windowMinutes])
 
   useEffect(() => {
-    knownLinesRef.current = 0
+    knownRef.current = 0
     setLines([])
     fetchLines()
-  }, [source])
+  }, [source, windowMinutes])
 
   useEffect(() => {
     if (paused) return
@@ -102,136 +220,156 @@ function useLogPoller(source, pwd, paused) {
   return { lines, alerts, clearAlerts }
 }
 
-// ── Cálculo de sparklines ─────────────────────────────────────────────────────
-function buildSparklines(lines) {
-  // Últimos 10 minutos, bucket por minuto
-  const now = Date.now()
-  const reqBuckets = new Array(10).fill(0)
-  const errBuckets = new Array(10).fill(0)
+// ── Main component ─────────────────────────────────────────────────────────────
+export default function MonitorPanel({ pwd, onAlertsChange }) {
+  const [source,      setSource]      = useState('backend')
+  const [paused,      setPaused]      = useState(false)
+  const [filter,      setFilter]      = useState('')
+  const [levelFilter, setLevelFilter] = useState('all')
+  const [windowIdx,   setWindowIdx]   = useState(0)
 
-  // Timestamp típico: "2024-01-15 14:23:05,123 INFO ..."
-  const tsRe = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/
+  const bottomRef      = useRef(null)
+  const logRef         = useRef(null)
+  const userScrolled   = useRef(false)
 
-  for (const line of lines) {
-    const m = line.match(tsRe)
-    if (!m) continue
-    const t = new Date(m[1]).getTime()
-    const minutesAgo = Math.floor((now - t) / 60000)
-    if (minutesAgo < 0 || minutesAgo >= 10) continue
-    const idx = 9 - minutesAgo
-    reqBuckets[idx]++
-    if (line.includes('ERROR') || line.includes('Traceback')) errBuckets[idx]++
-  }
-  return { reqBuckets, errBuckets }
-}
+  const windowCfg = TIME_WINDOWS[windowIdx]
+  const { lines, alerts, clearAlerts } = useLogPoller(source, pwd, paused, windowCfg.minutes)
 
-// ── Panel principal ───────────────────────────────────────────────────────────
-export default function MonitorPanel({ open, onClose, pwd, onAlertsChange }) {
-  const [source, setSource] = useState('backend')
-  const [paused, setPaused] = useState(false)
-  const [filter, setFilter] = useState('')
-  const bottomRef = useRef(null)
-  const logRef = useRef(null)
-  const userScrolledRef = useRef(false)
+  useEffect(() => { onAlertsChange?.(alerts.length) }, [alerts.length])
 
-  const { lines, alerts, clearAlerts } = useLogPoller(source, pwd, paused)
+  const metrics = useMemo(() => buildMetrics(lines, windowCfg), [lines, windowCfg])
+  const labels  = useMemo(() => buildBucketLabels(windowCfg),   [windowCfg, lines])
+
+  const totals = useMemo(() => ({
+    received: metrics.received.reduce((a, b) => a + b, 0),
+    replied:  metrics.replied.reduce((a, b) => a + b, 0),
+    errors:   metrics.errors.reduce((a, b) => a + b, 0),
+    warnings: metrics.warnings.reduce((a, b) => a + b, 0),
+  }), [metrics])
+
+  const filtered = useMemo(() => {
+    let r = lines
+    if (filter)                r = r.filter(l => l.toLowerCase().includes(filter.toLowerCase()))
+    if (levelFilter === 'error')   r = r.filter(l => l.includes('ERROR') || l.includes('Traceback'))
+    if (levelFilter === 'warning') r = r.filter(l => l.includes('WARNING'))
+    if (levelFilter === 'info')    r = r.filter(l => !l.includes('ERROR') && !l.includes('WARNING') && !l.includes('Traceback'))
+    return r
+  }, [lines, filter, levelFilter])
 
   useEffect(() => {
-    onAlertsChange?.(alerts.length)
-  }, [alerts.length])
-
-  const filtered = filter
-    ? lines.filter(l => l.toLowerCase().includes(filter.toLowerCase()))
-    : lines
-
-  const { reqBuckets, errBuckets } = buildSparklines(lines)
-
-  // Auto-scroll al fondo cuando llegan líneas nuevas, salvo que el usuario haya scrolleado
-  useEffect(() => {
-    if (!paused && !userScrolledRef.current && bottomRef.current) {
+    if (!paused && !userScrolled.current && bottomRef.current)
       bottomRef.current.scrollIntoView({ behavior: 'smooth' })
-    }
   }, [filtered.length, paused])
 
   function handleScroll(e) {
     const el = e.currentTarget
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60
-    userScrolledRef.current = !atBottom
+    userScrolled.current = el.scrollHeight - el.scrollTop - el.clientHeight > 60
   }
 
-  if (!open) return null
-
   return (
-    <div className="mon-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="mon-drawer">
+    <div className="mon-inline">
 
-        {/* Header */}
-        <div className="mon-header">
-          <span className="mon-title">📊 Monitor</span>
-          <div className="mon-tabs">
-            {['backend', 'frontend'].map(s => (
-              <button
-                key={s}
-                className={`mon-tab${source === s ? ' mon-tab--active' : ''}`}
-                onClick={() => { setSource(s); userScrolledRef.current = false }}
-              >
-                {s}
-              </button>
+      {/* Controls bar */}
+      <div className="mon-controls">
+        <div className="mon-tab-group">
+          <span className="mon-tab-label">Fuente</span>
+          {['backend', 'frontend'].map(s => (
+            <button
+              key={s}
+              className={`mon-tab${source === s ? ' mon-tab--active' : ''}`}
+              onClick={() => { setSource(s); userScrolled.current = false }}
+            >{s}</button>
+          ))}
+        </div>
+
+        <div className="mon-tab-group">
+          <span className="mon-tab-label">Ventana</span>
+          {TIME_WINDOWS.map((w, i) => (
+            <button
+              key={w.label}
+              className={`mon-tab${windowIdx === i ? ' mon-tab--active' : ''}`}
+              onClick={() => setWindowIdx(i)}
+            >{w.label}</button>
+          ))}
+        </div>
+
+        <button
+          className="btn-ghost btn-sm mon-pause-btn"
+          onClick={() => setPaused(p => !p)}
+        >{paused ? '▶ Reanudar' : '⏸ Pausar'}</button>
+      </div>
+
+      {/* Stat cards */}
+      <div className="mon-stats">
+        <StatCard label={`Recibidos — últimos ${windowCfg.label}`}   value={totals.received} color="#25d366" />
+        <StatCard label={`Respondidos — últimos ${windowCfg.label}`} value={totals.replied}  color="#42a5f5" />
+        <StatCard label={`Errores — últimos ${windowCfg.label}`}     value={totals.errors}   color="#ef5350" />
+        <StatCard label={`Warnings — últimos ${windowCfg.label}`}    value={totals.warnings} color="#ff9800" />
+      </div>
+
+      {/* Chart */}
+      <div className="mon-chart">
+        <div className="mon-chart-header">
+          <span className="mon-chart-title">
+            Actividad por {windowCfg.bucketMin === 1 ? 'minuto' : `${windowCfg.bucketMin} min`} — últimos {windowCfg.label}
+          </span>
+          <div className="mon-legend">
+            {SERIES.map(s => (
+              <span key={s.key} className="mon-legend-item">
+                <span className="mon-legend-dot" style={{ background: s.color }} />
+                {s.label}
+              </span>
             ))}
           </div>
-          <div className="mon-header-actions">
-            <button className="btn-ghost btn-sm" onClick={() => setPaused(p => !p)}>
-              {paused ? '▶ Reanudar' : '⏸ Pausar'}
-            </button>
-            <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
-          </div>
         </div>
-
-        {/* Alertas */}
-        {alerts.length > 0 && (
-          <div className="mon-alerts">
-            <strong>⚠ {alerts.length} alerta{alerts.length > 1 ? 's' : ''}</strong>
-            <button className="btn-ghost btn-sm" onClick={clearAlerts}>Descartar</button>
-            <div className="mon-alert-list">
-              {alerts.slice(-3).map((a, i) => (
-                <div key={i} className="mon-alert-line">{a}</div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Sparklines */}
-        <div className="mon-sparks">
-          <Sparkline data={reqBuckets} color="#25d366" label="req/min" />
-          <Sparkline data={errBuckets} color="#c62828" label="err/min" />
-        </div>
-
-        {/* Filtro */}
-        <div className="mon-filter-row">
-          <input
-            className="mon-filter"
-            placeholder="Filtrar líneas..."
-            value={filter}
-            onChange={e => setFilter(e.target.value)}
-          />
-          <span className="mon-count">{filtered.length} líneas</span>
-          {paused && <span className="mon-paused-badge">PAUSADO</span>}
-        </div>
-
-        {/* Log */}
-        <div className="mon-log" ref={logRef} onScroll={handleScroll}>
-          {filtered.length === 0 && (
-            <div className="mon-empty">Sin líneas en el log aún...</div>
-          )}
-          {filtered.map((line, i) => (
-            <div key={i} className="mon-line" style={getLineStyle(line)}>
-              {line}
-            </div>
-          ))}
-          <div ref={bottomRef} />
-        </div>
-
+        <MetricChart metrics={metrics} labels={labels} windowCfg={windowCfg} />
       </div>
+
+      {/* Alerts */}
+      {alerts.length > 0 && (
+        <div className="mon-alerts">
+          <strong>⚠ {alerts.length} alerta{alerts.length > 1 ? 's' : ''}</strong>
+          <button className="btn-ghost btn-sm" onClick={clearAlerts}>Descartar</button>
+          <div className="mon-alert-list">
+            {alerts.slice(-3).map((a, i) => (
+              <div key={i} className="mon-alert-line">{a}</div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Log filter row */}
+      <div className="mon-filter-row">
+        <input
+          className="mon-filter"
+          placeholder="Filtrar log..."
+          value={filter}
+          onChange={e => setFilter(e.target.value)}
+        />
+        <div className="mon-tab-group">
+          {[['all','Todos'],['error','Errores'],['warning','Warnings'],['info','Info']].map(([v, l]) => (
+            <button
+              key={v}
+              className={`mon-tab${levelFilter === v ? ' mon-tab--active' : ''}`}
+              onClick={() => setLevelFilter(v)}
+            >{l}</button>
+          ))}
+        </div>
+        <span className="mon-count">{filtered.length} líneas</span>
+        {paused && <span className="mon-paused-badge">PAUSADO</span>}
+      </div>
+
+      {/* Log */}
+      <div className="mon-log" ref={logRef} onScroll={handleScroll}>
+        {filtered.length === 0 && (
+          <div className="mon-empty">Sin líneas en el log aún...</div>
+        )}
+        {filtered.map((line, i) => (
+          <div key={i} className="mon-line" style={getLineStyle(line)}>{line}</div>
+        ))}
+        <div ref={bottomRef} />
+      </div>
+
     </div>
   )
 }

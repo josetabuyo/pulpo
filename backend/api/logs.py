@@ -32,7 +32,7 @@ def _resolve_log_path(source: str) -> str:
 @router.get("/logs/latest", dependencies=[Depends(require_admin)])
 async def logs_latest(
     source: str = Query("backend"),
-    lines: int = Query(200, ge=1, le=2000),
+    lines: int = Query(200, ge=1, le=5000),
 ):
     path = _resolve_log_path(source)
     if not os.path.exists(path):

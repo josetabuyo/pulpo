@@ -25,11 +25,11 @@ test('login con admin navega al dashboard', async ({ page }) => {
   await expect(page.getByText('Bot Farm — Admin')).toBeVisible()
 })
 
-test('dashboard muestra lista de empresas', async ({ page }) => {
+test('dashboard muestra sección de empresas', async ({ page }) => {
   await page.getByPlaceholder('Contraseña').fill('admin')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL('/dashboard')
-  await expect(page.getByRole('heading', { name: /Empresas y teléfonos/i })).toBeVisible()
+  await expect(page.getByText(/Empresas y teléfonos/i).first()).toBeVisible()
   await expect(page.getByRole('button', { name: '+ Nueva empresa' })).toBeVisible()
 })
 
