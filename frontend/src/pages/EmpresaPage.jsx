@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import StatusBadge from '../components/StatusBadge.jsx'
 import ChatWidget from '../components/ChatWidget.jsx'
+import { ConexionRow } from './NuevaEmpresaPage.jsx'
 
 // ─── Helpers de API empresa ──────────────────────────────────────
 
@@ -222,9 +223,177 @@ function ConexionCard({ conn, botId, pwd, onRefresh }) {
   )
 }
 
+// ─── Vista Configurar ────────────────────────────────────────────
+
+function ConfigView({ botId, botName, pwd, onSaved }) {
+  const [form, setForm]             = useState({ name: botName, password: '', newPassword: '', autoReplyMessage: '' })
+  const [savingData, setSavingData] = useState(false)
+  const [dataResult, setDataResult] = useState(null)
+  const [waInput, setWaInput]       = useState('')
+  const [tgInput, setTgInput]       = useState('')
+  const [waError, setWaError]       = useState('')
+  const [tgError, setTgError]       = useState('')
+  const [conns, setConns]           = useState([])
+  const [loadingConn, setLoadingConn] = useState(false)
+
+  const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }))
+
+  const loadConns = useCallback(async () => {
+    const res = await empresaApi('GET', `/empresa/${botId}`, null, pwd).catch(() => null)
+    if (res?.connections) {
+      setConns(res.connections)
+      setForm(f => ({ ...f, name: res.bot_name, autoReplyMessage: f.autoReplyMessage || res.autoReplyMessage }))
+    }
+  }, [botId, pwd])
+
+  useEffect(() => { loadConns() }, [loadConns])
+
+  async function handleSaveData(e) {
+    e.preventDefault(); setSavingData(true); setDataResult(null)
+    const body = {}
+    if (form.name.trim() && form.name !== botName) body.name = form.name
+    if (form.autoReplyMessage.trim()) body.autoReplyMessage = form.autoReplyMessage
+    if (form.newPassword) {
+      if (form.newPassword !== form.password) { setSavingData(false); setDataResult('pwd-mismatch'); return }
+      body.password = form.newPassword
+    }
+    if (Object.keys(body).length === 0) { setSavingData(false); return }
+    const res = await empresaApi('PUT', `/empresa/${botId}/config`, body, pwd).catch(() => null)
+    setSavingData(false)
+    setDataResult(res?.ok ? 'ok' : (res?.detail || 'error'))
+    if (res?.ok && body.password) {
+      sessionStorage.setItem('empresa_pwd', form.newPassword)
+      setForm(f => ({ ...f, password: '', newPassword: '' }))
+    }
+    if (res?.ok) onSaved(form.name || botName)
+    setTimeout(() => setDataResult(null), 3000)
+  }
+
+  async function addWa(e) {
+    e.preventDefault(); setWaError('')
+    const number = waInput.trim(); if (!number) return
+    setLoadingConn(true)
+    const res = await empresaApi('POST', `/empresa/${botId}/whatsapp`, { number }, pwd).catch(() => null)
+    setLoadingConn(false)
+    if (!res?.ok) { setWaError(res?.detail || 'Error al agregar'); return }
+    setConns(c => [...c, { id: number, type: 'whatsapp', status: 'stopped' }])
+    setWaInput('')
+  }
+
+  async function addTg(e) {
+    e.preventDefault(); setTgError('')
+    const token = tgInput.trim(); if (!token) return
+    setLoadingConn(true)
+    const res = await empresaApi('POST', `/empresa/${botId}/telegram`, { token }, pwd).catch(() => null)
+    setLoadingConn(false)
+    if (!res?.ok) { setTgError(res?.detail || 'Error al agregar'); return }
+    const tokenId = token.split(':')[0]
+    const sessionId = `${botId}-tg-${tokenId}`
+    setConns(c => [...c, { id: sessionId, type: 'telegram', status: res.requires_restart ? 'stopped' : 'ready' }])
+    if (res.requires_restart) setTgError('Agregado. Requiere reinicio del servidor para activarse.')
+    setTgInput('')
+  }
+
+  async function removeConn(conn) {
+    if (!confirm(`¿Eliminar ${conn.type === 'whatsapp' ? '+' + conn.id : conn.id}?`)) return
+    if (conn.type === 'whatsapp') {
+      await empresaApi('DELETE', `/empresa/${botId}/whatsapp/${conn.id}`, null, pwd)
+    } else {
+      const tokenId = conn.id.split('-tg-')[1]
+      await empresaApi('DELETE', `/empresa/${botId}/telegram/${tokenId}`, null, pwd)
+    }
+    setConns(c => c.filter(x => x.id !== conn.id))
+  }
+
+  return (
+    <main className="portal-main">
+
+      {/* Datos */}
+      <div className="card">
+        <div className="card-title">Datos de la empresa</div>
+        <form onSubmit={handleSaveData}>
+          <div className="fg">
+            <label>Nombre</label>
+            <input value={form.name} onChange={set('name')} placeholder="Nombre de la empresa" />
+          </div>
+          <div className="fg">
+            <label>Mensaje de respuesta automática</label>
+            <textarea rows={4} value={form.autoReplyMessage} onChange={set('autoReplyMessage')}
+              placeholder="Ej: Hola, te responderemos a la brevedad." />
+          </div>
+          <div className="fg">
+            <label>Nueva contraseña (dejar vacío para no cambiar)</label>
+            <input type="password" value={form.newPassword} onChange={set('newPassword')} placeholder="Nueva clave" />
+          </div>
+          {form.newPassword && (
+            <div className="fg">
+              <label>Confirmar nueva contraseña</label>
+              <input type="password" value={form.password} onChange={set('password')} placeholder="Repetir clave" />
+            </div>
+          )}
+          <div className="portal-save-row">
+            <button type="submit" className="btn-primary btn-sm" disabled={savingData}>
+              {savingData ? 'Guardando...' : 'Guardar datos'}
+            </button>
+            {dataResult === 'ok'           && <span className="portal-save-ok">✓ Guardado</span>}
+            {dataResult === 'pwd-mismatch' && <span className="portal-save-err">Las contraseñas no coinciden</span>}
+            {dataResult && dataResult !== 'ok' && dataResult !== 'pwd-mismatch' && (
+              <span className="portal-save-err">{dataResult}</span>
+            )}
+          </div>
+        </form>
+      </div>
+
+      {/* Conexiones */}
+      <div className="card">
+        <div className="card-title">Conexiones</div>
+
+        {/* WhatsApp */}
+        <div className="channel-header channel-header--wa">WhatsApp</div>
+        <div className="phones-table" style={{ marginBottom: 12 }}>
+          {conns.filter(c => c.type === 'whatsapp').map(c => (
+            <ConexionRow key={c.id} conn={c} botId={botId} pwd={pwd}
+              onDelete={removeConn}
+              onConnected={() => setConns(cs => cs.map(x => x.id === c.id ? { ...x, status: 'ready' } : x))} />
+          ))}
+          {conns.filter(c => c.type === 'whatsapp').length === 0 && (
+            <div className="empty" style={{ padding: 10 }}>Sin números configurados</div>
+          )}
+        </div>
+        <form onSubmit={addWa} style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
+          <input style={{ flex: 1 }} type="tel" value={waInput} onChange={e => setWaInput(e.target.value)}
+            placeholder="Número sin + (ej: 5491155612767)" />
+          <button type="submit" className="btn-primary btn-sm" disabled={loadingConn}>+ Agregar WA</button>
+        </form>
+        {waError && <div className="error" style={{ fontSize: 13, marginBottom: 8 }}>{waError}</div>}
+
+        {/* Telegram */}
+        <div className="channel-header channel-header--tg" style={{ marginTop: 16 }}>Telegram</div>
+        <div className="phones-table" style={{ marginBottom: 12 }}>
+          {conns.filter(c => c.type === 'telegram').map(c => (
+            <ConexionRow key={c.id} conn={c} botId={botId} pwd={pwd} onDelete={removeConn} />
+          ))}
+          {conns.filter(c => c.type === 'telegram').length === 0 && (
+            <div className="empty" style={{ padding: 10 }}>Sin bots configurados</div>
+          )}
+        </div>
+        <form onSubmit={addTg} style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
+          <input style={{ flex: 1 }} value={tgInput} onChange={e => setTgInput(e.target.value)}
+            placeholder="Token de @BotFather (123456:ABC...)" />
+          <button type="submit" className="btn-primary btn-sm" disabled={loadingConn}>+ Agregar TG</button>
+        </form>
+        {tgError && <div style={{ fontSize: 13, color: tgError.includes('Requiere') ? '#b45309' : 'var(--error)', marginBottom: 4 }}>{tgError}</div>}
+      </div>
+
+    </main>
+  )
+}
+
 // ─── EmpresaDashboard ────────────────────────────────────────────
 
-function EmpresaDashboard({ botId, botName, pwd, onLogout }) {
+function EmpresaDashboard({ botId, botName: initialBotName, pwd, onLogout }) {
+  const [botName, setBotName]       = useState(initialBotName)
+  const [view, setView]             = useState('dashboard')
   const [data, setData]             = useState(null)
   const [replyMsg, setReplyMsg]     = useState('')
   const [saving, setSaving]         = useState(false)
@@ -234,6 +403,7 @@ function EmpresaDashboard({ botId, botName, pwd, onLogout }) {
     const res = await empresaApi('GET', `/empresa/${botId}`, null, pwd).catch(() => null)
     if (!res || res.detail) return
     setData(res)
+    setBotName(res.bot_name)
     setReplyMsg(prev => prev === '' ? (res.autoReplyMessage ?? '') : prev)
   }, [botId, pwd])
 
@@ -257,11 +427,20 @@ function EmpresaDashboard({ botId, botName, pwd, onLogout }) {
       <header>
         <span className="portal-title">🐙 {botName}</span>
         <div className="header-actions">
+          <button className={`btn-ghost btn-sm${view === 'dashboard' ? ' active' : ''}`}
+            onClick={() => setView('dashboard')}>Dashboard</button>
+          <button className={`btn-ghost btn-sm${view === 'config' ? ' active' : ''}`}
+            onClick={() => setView('config')}>⚙ Configurar</button>
           <button className="btn-ghost btn-sm" onClick={onLogout}>Salir</button>
         </div>
       </header>
 
-      <main className="portal-main">
+      {view === 'config' && (
+        <ConfigView botId={botId} botName={botName} pwd={pwd}
+          onSaved={name => { setBotName(name); setView('dashboard') }} />
+      )}
+
+      {view === 'dashboard' && <main className="portal-main">
 
         {/* Conexiones (estado + acciones + conversaciones) */}
         <div className="card">
@@ -300,7 +479,7 @@ function EmpresaDashboard({ botId, botName, pwd, onLogout }) {
           </div>
         </div>
 
-      </main>
+      </main>}
     </div>
   )
 }

@@ -1,4 +1,5 @@
 """Endpoints del portal de empresa — acceso con la contraseña del bot."""
+import re
 from fastapi import APIRouter, HTTPException, Header, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -24,6 +25,17 @@ def _require_empresa(bot_id: str, x_empresa_pwd: str = Header(...)):
     if not bot or bot["id"] != bot_id:
         raise HTTPException(status_code=401, detail="No autorizado")
     return bot
+
+
+def _generate_bot_id(name: str, config: dict) -> str:
+    existing = {b["id"] for b in config.get("bots", [])}
+    base = re.sub(r"[^a-z0-9]+", "_", name.lower().strip()).strip("_") or "empresa"
+    candidate = base
+    i = 2
+    while candidate in existing:
+        candidate = f"{base}_{i}"
+        i += 1
+    return candidate
 
 
 # ─── Auth ────────────────────────────────────────────────────────
@@ -247,4 +259,196 @@ async def empresa_chat_send(bot_id: str, number: str, contact: str,
             {"number": number, "contact": contact},
         )
         await session.commit()
+    return {"ok": True}
+
+# ─── Alta de empresa (sin auth) ──────────────────────────────────
+
+class NuevaEmpresaBody(BaseModel):
+    name: str
+    password: str
+    autoReplyMessage: str = ""
+
+
+@router.post("/empresa/nueva")
+def empresa_nueva(body: NuevaEmpresaBody):
+    if not body.name.strip():
+        raise HTTPException(status_code=400, detail="El nombre es requerido")
+    if not body.password.strip():
+        raise HTTPException(status_code=400, detail="La contraseña es requerida")
+
+    config = load_config()
+    if _find_bot_by_password(config, body.password):
+        raise HTTPException(status_code=409, detail="Esa contraseña ya está en uso")
+
+    bot_id = _generate_bot_id(body.name, config)
+    new_bot = {
+        "id": bot_id,
+        "name": body.name.strip(),
+        "password": body.password,
+        "autoReplyMessage": body.autoReplyMessage,
+        "phones": [],
+        "telegram": [],
+    }
+    config["bots"].append(new_bot)
+    save_config(config)
+    return {"ok": True, "bot_id": bot_id, "bot_name": new_bot["name"]}
+
+
+# ─── Editar datos de la empresa ──────────────────────────────────
+
+class EmpresaConfigBody(BaseModel):
+    name: str | None = None
+    password: str | None = None
+    autoReplyMessage: str | None = None
+
+
+@router.put("/empresa/{bot_id}/config")
+def empresa_put_config(bot_id: str, body: EmpresaConfigBody, x_empresa_pwd: str = Header(...)):
+    _require_empresa(bot_id, x_empresa_pwd)
+
+    config = load_config()
+    bot = next((b for b in config["bots"] if b["id"] == bot_id), None)
+    if not bot:
+        raise HTTPException(status_code=404, detail="Bot no encontrado")
+
+    if body.name is not None:
+        if not body.name.strip():
+            raise HTTPException(status_code=400, detail="Nombre no puede ser vacío")
+        bot["name"] = body.name.strip()
+
+    if body.password is not None:
+        if not body.password.strip():
+            raise HTTPException(status_code=400, detail="Contraseña no puede ser vacía")
+        for b in config["bots"]:
+            if b["id"] != bot_id and b.get("password") == body.password:
+                raise HTTPException(status_code=409, detail="Esa contraseña ya está en uso")
+        bot["password"] = body.password
+
+    if body.autoReplyMessage is not None:
+        bot["autoReplyMessage"] = body.autoReplyMessage
+
+    save_config(config)
+    return {"ok": True, "bot_id": bot_id, "bot_name": bot["name"]}
+
+
+# ─── Gestión de conexiones WhatsApp ──────────────────────────────
+
+class AddWhatsappBody(BaseModel):
+    number: str
+
+
+@router.post("/empresa/{bot_id}/whatsapp")
+def empresa_add_whatsapp(bot_id: str, body: AddWhatsappBody, x_empresa_pwd: str = Header(...)):
+    _require_empresa(bot_id, x_empresa_pwd)
+    number = body.number.strip()
+    if not number:
+        raise HTTPException(status_code=400, detail="Número requerido")
+
+    config = load_config()
+    for b in config["bots"]:
+        if any(p["number"] == number for p in b.get("phones", [])):
+            raise HTTPException(status_code=409, detail=f"El número {number} ya está configurado")
+
+    bot = next(b for b in config["bots"] if b["id"] == bot_id)
+    bot.setdefault("phones", []).append({"number": number})
+    save_config(config)
+
+    if sim_engine.SIM_MODE:
+        sim_engine.sim_connect(number, bot_id)
+
+    return {"ok": True, "number": number}
+
+
+@router.delete("/empresa/{bot_id}/whatsapp/{number}")
+async def empresa_remove_whatsapp(bot_id: str, number: str, x_empresa_pwd: str = Header(...)):
+    _require_empresa(bot_id, x_empresa_pwd)
+
+    config = load_config()
+    bot = next((b for b in config["bots"] if b["id"] == bot_id), None)
+    if not bot:
+        raise HTTPException(status_code=404, detail="Bot no encontrado")
+
+    original = len(bot.get("phones", []))
+    bot["phones"] = [p for p in bot.get("phones", []) if p["number"] != number]
+    if len(bot["phones"]) == original:
+        raise HTTPException(status_code=404, detail="Número no encontrado")
+
+    save_config(config)
+
+    if sim_engine.SIM_MODE:
+        sim_engine.sim_disconnect(number)
+    else:
+        from state import wa_session
+        await wa_session.close_session(number)
+
+    clients.pop(number, None)
+    return {"ok": True}
+
+
+# ─── Gestión de conexiones Telegram ──────────────────────────────
+
+class AddTelegramBody(BaseModel):
+    token: str
+
+
+@router.post("/empresa/{bot_id}/telegram")
+async def empresa_add_telegram(bot_id: str, body: AddTelegramBody, x_empresa_pwd: str = Header(...)):
+    _require_empresa(bot_id, x_empresa_pwd)
+    token = body.token.strip()
+    if not token or ":" not in token:
+        raise HTTPException(status_code=400, detail="Token inválido (formato: 123456789:ABC...)")
+
+    token_id = token.split(":")[0]
+    session_id = f"{bot_id}-tg-{token_id}"
+
+    config = load_config()
+    for b in config["bots"]:
+        for tg in b.get("telegram", []):
+            if tg["token"].split(":")[0] == token_id:
+                raise HTTPException(status_code=409, detail="Ese token ya está configurado")
+
+    bot = next(b for b in config["bots"] if b["id"] == bot_id)
+    bot.setdefault("telegram", []).append({"token": token})
+    save_config(config)
+
+    requires_restart = False
+    if sim_engine.SIM_MODE:
+        sim_engine.sim_connect(session_id, bot_id)
+    else:
+        # Intentar iniciar dinámicamente
+        try:
+            from bots.telegram_bot import build_telegram_app
+            from main import _tg_apps
+            cfg = {"bot_id": bot_id, "token": token, "allowed_contacts": [], "reply_message": bot.get("autoReplyMessage", "")}
+            tg_app = build_telegram_app(cfg)
+            await tg_app.initialize()
+            await tg_app.start()
+            await tg_app.updater.start_polling(drop_pending_updates=True)
+            _tg_apps.append(tg_app)
+            clients[session_id] = {"status": "ready", "qr": None, "bot_id": bot_id, "type": "telegram", "client": tg_app}
+        except Exception:
+            requires_restart = True
+
+    return {"ok": True, "session_id": session_id, "requires_restart": requires_restart}
+
+
+@router.delete("/empresa/{bot_id}/telegram/{token_id}")
+def empresa_remove_telegram(bot_id: str, token_id: str, x_empresa_pwd: str = Header(...)):
+    _require_empresa(bot_id, x_empresa_pwd)
+
+    config = load_config()
+    bot = next((b for b in config["bots"] if b["id"] == bot_id), None)
+    if not bot:
+        raise HTTPException(status_code=404, detail="Bot no encontrado")
+
+    original = len(bot.get("telegram", []))
+    bot["telegram"] = [tg for tg in bot.get("telegram", []) if tg["token"].split(":")[0] != token_id]
+    if len(bot["telegram"]) == original:
+        raise HTTPException(status_code=404, detail="Token no encontrado")
+
+    save_config(config)
+    session_id = f"{bot_id}-tg-{token_id}"
+    if sim_engine.SIM_MODE:
+        sim_engine.sim_disconnect(session_id)
+    clients.pop(session_id, None)
     return {"ok": True}

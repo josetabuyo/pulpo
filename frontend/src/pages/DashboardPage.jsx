@@ -677,13 +677,26 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* ── Link para clientes ── */}
+        {/* ── Links para clientes ── */}
         <div className="card">
-          <div className="card-title">Link para conectar clientes</div>
-          <div className="share-row">
-            <input className="share-url" readOnly value={window.location.origin + '/connect'} />
-            <button className="btn-blue" onClick={copyLink}>Copiar</button>
-            <button className="btn-ghost" onClick={() => window.open(window.location.origin + '/connect')}>Abrir</button>
+          <div className="card-title">Links para empresas</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div>
+              <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>Portal de empresa (acceso con contraseña)</div>
+              <div className="share-row">
+                <input className="share-url" readOnly value={window.location.origin + '/empresa'} />
+                <button className="btn-blue" onClick={() => navigator.clipboard.writeText(window.location.origin + '/empresa')}>Copiar</button>
+                <button className="btn-ghost" onClick={() => window.open(window.location.origin + '/empresa')}>Abrir</button>
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>Alta nueva empresa (link en blanco)</div>
+              <div className="share-row">
+                <input className="share-url" readOnly value={window.location.origin + '/empresa/nueva'} />
+                <button className="btn-blue" onClick={() => navigator.clipboard.writeText(window.location.origin + '/empresa/nueva')}>Copiar</button>
+                <button className="btn-ghost" onClick={() => window.open(window.location.origin + '/empresa/nueva')}>Abrir</button>
+              </div>
+            </div>
           </div>
         </div>
 
