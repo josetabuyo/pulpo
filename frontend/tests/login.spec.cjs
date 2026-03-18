@@ -22,7 +22,7 @@ test('login con admin navega al dashboard', async ({ page }) => {
   await page.getByPlaceholder('Contraseña').fill('admin')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL('/dashboard')
-  await expect(page.getByText('Bot Farm — Admin')).toBeVisible()
+  await expect(page.getByText('Pulpo — Admin')).toBeVisible()
 })
 
 test('dashboard muestra sección de empresas', async ({ page }) => {
