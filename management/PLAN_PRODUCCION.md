@@ -1,108 +1,105 @@
-# Plan: Exposición a internet desde Mac local
+# Plan: Exposición a internet — Mac local primero, hosting después
 
-## Objetivo
+## Filosofía
 
-Hacer que clientes reales puedan acceder al sistema sin necesidad de un servidor externo.
-La Mac de José es el servidor — se expone al exterior con un túnel. Cuando la facturación
-lo justifique, se evalúa migrar a hosting.
+Lean. Cada paso entrega valor real. No se invierte hasta que hay ingresos que lo justifiquen.
 
 ---
 
-## Estrategia: túnel permanente
+## Etapa 1 — ngrok gratis (hoy, $0)
 
-En lugar de hostear en un VPS, se expone el servidor local mediante un túnel HTTPS.
-El cliente accede a una URL pública que redirige al backend/frontend en la Mac.
+**Objetivo:** URL pública estable, primer cliente puede darse de alta hoy.
 
-### Opciones
+### Qué es
 
-| Herramienta | Costo | URL estable | Notas |
-|---|---|---|---|
-| **Cloudflare Tunnel** | Gratis | ✅ (subdominio fijo) | Requiere cuenta CF. La mejor opción |
-| **ngrok** | Free tier limitado / $8/mes | ✅ con plan pago | URL cambia en free tier |
-| **Tailscale Funnel** | Gratis | ✅ | Más orientado a dev, menos robusto |
+ngrok free tier da 1 dominio estático gratis para siempre (`algo.ngrok-free.app`).
+Sin tarjeta. Sin fecha de vencimiento. La Mac sigue siendo el servidor.
 
-**Opción elegida: Cloudflare Tunnel** — gratis, URL estable, HTTPS automático, sin exponer IP.
+### Setup
 
-### Cómo funciona
-
-```
-Cliente → https://pulpo.midominio.com
-              ↓  (Cloudflare Tunnel)
-         Mac local → localhost:8000 (backend) / localhost:5173 (frontend)
-```
-
-El daemon `cloudflared` corre en la Mac como servicio (launchd), se inicia solo al arrancar.
-
----
-
-## Setup
-
-### 1. Instalar cloudflared
 ```bash
-brew install cloudflare/cloudflare/cloudflared
-cloudflared login   # abre browser, autenticar con cuenta CF
+# 1. Instalar
+brew install ngrok
+
+# 2. Registrarse en ngrok.com → copiar authtoken
+ngrok config add-authtoken <token>
+
+# 3. Reclamar dominio estático en ngrok.com → Dashboard → Domains → New Domain
+#    Te asigna algo como: pulpo-abc123.ngrok-free.app
+
+# 4. Levantar el túnel apuntando al frontend
+ngrok http --domain=pulpo-abc123.ngrok-free.app 5173
 ```
 
-### 2. Crear el túnel
-```bash
-cloudflared tunnel create pulpo
-cloudflared tunnel route dns pulpo pulpo.midominio.com
-```
+### Cambios en el sistema
 
-### 3. Config del túnel (`~/.cloudflared/config.yml`)
-```yaml
-tunnel: <tunnel-id>
-credentials-file: ~/.cloudflared/<tunnel-id>.json
+- `CORS` en `backend/main.py`: agregar el dominio ngrok a `allow_origins`
+- Frontend: el backend en prod apunta a `/api` (mismo origen via ngrok) o a la URL del backend si se expone por separado
+- Contraseña admin: cambiar de `admin` a algo seguro
 
-ingress:
-  - hostname: pulpo.midominio.com
-    service: http://localhost:5173     # frontend
-  - hostname: api.pulpo.midominio.com
-    service: http://localhost:8000     # backend
-  - service: http_status:404
-```
+### Limitaciones aceptables en esta etapa
 
-### 4. Correr como servicio (inicio automático)
-```bash
-cloudflared service install
-sudo launchctl start com.cloudflare.cloudflared
-```
+- Si la Mac se apaga, el servicio cae (solución: deshabilitar suspensión)
+- 1 solo túnel en free tier → frontend y backend van por el mismo puerto (el frontend proxea `/api` a uvicorn)
+- URL no es un dominio propio (`*.ngrok-free.app`) — suficiente para primeros clientes
+
+### Valor entregado
+
+Un cliente puede entrar a la URL, darse de alta como empresa, configurar su bot.
+Pulpo está "en producción" sin gastar un peso.
 
 ---
 
-## Cambios necesarios en el sistema
+## Etapa 2 — Dominio propio en Cloudflare (~$10/año, cuando haya ingresos)
 
-- **Frontend**: la URL del backend en producción pasa a ser `https://api.pulpo.midominio.com`
-  (o se sirve todo desde el mismo dominio con proxy rules en CF)
-- **CORS**: agregar el dominio público a `allow_origins` en `backend/main.py`
-- **Contraseña admin**: cambiar de `admin` a algo seguro antes de exponer
-- **HTTPS**: Cloudflare lo gestiona automáticamente, no se necesita certificado local
+**Objetivo:** URL profesional (`pulpo.io` o similar), más confianza del cliente.
+
+### Qué cambia
+
+- Registrar dominio en Cloudflare Registrar (~$8-10/año)
+- Instalar `cloudflared` y crear túnel permanente (el servicio es gratis)
+- Reemplazar ngrok por Cloudflare Tunnel — misma Mac, misma lógica
+- HTTPS automático, sin exponer IP, sin límites de tráfico
+
+### Ventajas sobre ngrok
+
+- Dominio propio (más profesional)
+- Sin restricciones de conexiones simultáneas
+- Puede tener subdominios: `app.pulpo.io` para frontend, `api.pulpo.io` para backend
+- El daemon `cloudflared` se instala como servicio y arranca solo con la Mac
 
 ---
 
-## Limitaciones conocidas
+## Etapa 3 — VPS Linux (cuando la Mac no alcance o se quiera uptime garantizado)
 
-- **WhatsApp Web**: Playwright corre localmente — si la Mac se apaga o duerme, los bots caen
-  - Mitigación: deshabilitar suspensión en Preferencias del Sistema → Energía
-  - La sesión WA se recupera sola al reiniciar (perfil persistido en `data/sessions/`)
-- **Uptime**: depende de la Mac. Aceptable para MVP / clientes iniciales
-- **Capacidad**: suficiente para decenas de empresas con tráfico moderado
+**Trigger:** más de 3-5 empresas activas con tráfico real, o el cliente pide SLA.
+
+### Qué cambia
+
+- VPS Linux (~€5/mes en Hetzner, Railway, Fly.io)
+- Mover `data/` y `phones.json` al servidor
+- Playwright corre en el servidor (headless, sin pantalla)
+- Cloudflare Tunnel sigue funcionando igual pero apunta al VPS
+- Backup automático de la DB
+
+### Lo que NO cambia
+
+- Stack: FastAPI + React + SQLite (suficiente para decenas de empresas)
+- Cloudflare Tunnel para HTTPS
+- `phones.json` como fuente de verdad (hasta que se necesite PostgreSQL)
 
 ---
 
-## Camino a hosting (futuro)
+## Etapa 4 — PostgreSQL + infraestructura seria (futuro lejano)
 
-Cuando la facturación lo justifique:
-
-1. **VPS Linux** (Railway, Fly.io, Hetzner ~€5/mes) + mover `data/` y `phones.json`
-2. **SQLite → PostgreSQL**: SQLAlchemy ya lo abstrae, migración limpia
-3. **WA sessions en servidor**: mismo Playwright, distinto disco
-4. **WhatsApp Business API** (opcional): más estable que WA Web pero requiere aprobación Meta
-
-No hay prisa — WA Web funciona bien y el costo de mantenimiento es bajo hoy.
+Solo si la escala lo exige. SQLite aguanta bien hasta cientos de empresas con tráfico moderado.
+No hay prisa.
 
 ---
 
 ## Estado
 
-Pendiente. Primera tarea: registrar dominio + configurar Cloudflare Tunnel.
+- [ ] Etapa 1: ngrok — **próximo paso**
+- [ ] Etapa 2: dominio + Cloudflare Tunnel
+- [ ] Etapa 3: VPS
+- [ ] Etapa 4: PostgreSQL
