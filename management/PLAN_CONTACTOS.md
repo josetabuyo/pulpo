@@ -274,17 +274,17 @@ Elimina la dependencia de `allowedContacts` en `phones.json`.
 
 ## Orden de implementación
 
-### Bloque A — Contactos (base)
-1. Fase 1 — DB: tablas `contacts` + `contact_channels`
-2. Fase 2 — API REST de contactos
-3. Fase 3 — UI básica de contactos (sin sugeridos)
-4. Fase 4 — Lógica del bot: reemplazar `allowedContacts` por DB
+### Bloque A — Contactos (base) ✅ completado 2026-03-18
+1. ~~Fase 1 — DB: tablas `contacts` + `contact_channels`~~
+2. ~~Fase 2 — API REST de contactos~~
+3. ~~Fase 3 — UI básica de contactos (con sugeridos)~~
+4. ~~Fase 4 — Lógica del bot: reemplazar `allowedContacts` por DB (con fallback JSON)~~
 
-### Bloque B — Herramientas (sobre la base de contactos)
-5. Fase 5 — DB: tablas `tools`, `tool_connections`, `tool_contacts_included/excluded`
-6. Fase 6 — API REST de herramientas + endpoint de validación de exclusividad
-7. Fase 7 — UI de herramientas: lista + formulario con multi-select de contactos/conexiones
-8. Fase 8 — Motor de resolución: reemplazar lógica de respuesta automática por evaluación de herramientas activas
+### Bloque B — Herramientas (sobre la base de contactos) ✅ completado 2026-03-18
+5. ~~Fase 5 — DB: tablas `tools`, `tool_connections`, `tool_contacts_included/excluded`~~
+6. ~~Fase 6 — API REST de herramientas + endpoint de validación de exclusividad~~
+7. ~~Fase 7 — UI de herramientas: lista + formulario con multi-select de contactos/conexiones~~
+8. ~~Fase 8 — Motor de resolución: reemplazar lógica de respuesta automática por evaluación de herramientas activas~~
 
 ### Bloque C — Conversaciones unificadas (post-MVP)
 9. Fase 9 — Vista de conversaciones por empresa (sesión aparte)
