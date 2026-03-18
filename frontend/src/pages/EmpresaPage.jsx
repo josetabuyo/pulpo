@@ -378,7 +378,7 @@ function ConfigView({ botId, botName, onSaved }) {
 
 // ─── HerramientasSection ─────────────────────────────────────────
 
-function ToolModal({ botId, pwd, tool, contacts, onClose, onSaved }) {
+function ToolModal({ botId, tool, contacts, onClose, onSaved }) {
   const isEdit = !!tool
   const [form, setForm] = useState({
     nombre: tool?.nombre ?? '',
@@ -398,10 +398,10 @@ function ToolModal({ botId, pwd, tool, contacts, onClose, onSaved }) {
 
   // Cargar conexiones disponibles
   useEffect(() => {
-    empresaApi('GET', `/empresa/${botId}`, null, pwd).catch(() => null).then(res => {
+    empresaApi('GET', `/empresa/${botId}`, null).catch(() => null).then(res => {
       if (res?.connections) setAllConns(res.connections)
     })
-  }, [botId, pwd])
+  }, [botId])
 
   const set = k => v => setForm(f => ({ ...f, [k]: v }))
   const setE = k => e => setForm(f => ({ ...f, [k]: e.target.value }))
@@ -432,12 +432,12 @@ function ToolModal({ botId, pwd, tool, contacts, onClose, onSaved }) {
         contactos_incluidos: form.incluidos,
         incluir_desconocidos: form.incluir_desconocidos,
         exclusiva: form.exclusiva,
-      }, pwd).catch(() => null)
+      }).catch(() => null)
       setValidating(false)
       setConflicts(res?.conflicts ?? [])
     }, 400)
     return () => clearTimeout(t)
-  }, [form.conexiones, form.incluidos, form.incluir_desconocidos, form.exclusiva, botId, pwd, tool?.id])
+  }, [form.conexiones, form.incluidos, form.incluir_desconocidos, form.exclusiva, botId, tool?.id])
 
   async function handleSave(e) {
     e.preventDefault(); setErr(''); setSaving(true)
@@ -456,7 +456,7 @@ function ToolModal({ botId, pwd, tool, contacts, onClose, onSaved }) {
     }
     const method = isEdit ? 'PUT' : 'POST'
     const path = isEdit ? `/tools/${tool.id}` : `/empresas/${botId}/tools`
-    const res = await empresaApi(method, path, payload, pwd).catch(() => null)
+    const res = await empresaApi(method, path, payload).catch(() => null)
     setSaving(false)
     if (!res?.id) { setErr(res?.detail || 'Error al guardar'); return }
     onSaved(res)
@@ -576,30 +576,30 @@ function ToolModal({ botId, pwd, tool, contacts, onClose, onSaved }) {
   )
 }
 
-function HerramientasSection({ botId, pwd }) {
+function HerramientasSection({ botId }) {
   const [tools, setTools]     = useState([])
   const [contacts, setContacts] = useState([])
   const [modal, setModal]     = useState(null) // null | 'new' | tool-obj
 
   const load = useCallback(async () => {
     const [t, c] = await Promise.all([
-      empresaApi('GET', `/empresas/${botId}/tools`, null, pwd).catch(() => []),
-      empresaApi('GET', `/bots/${botId}/contacts`, null, pwd).catch(() => []),
+      empresaApi('GET', `/empresas/${botId}/tools`, null).catch(() => []),
+      empresaApi('GET', `/bots/${botId}/contacts`, null).catch(() => []),
     ])
     if (Array.isArray(t)) setTools(t)
     if (Array.isArray(c)) setContacts(c)
-  }, [botId, pwd])
+  }, [botId])
 
   useEffect(() => { load() }, [load])
 
   async function handleToggle(tool) {
-    await empresaApi('POST', `/tools/${tool.id}/toggle`, null, pwd).catch(() => null)
+    await empresaApi('POST', `/tools/${tool.id}/toggle`, null).catch(() => null)
     load()
   }
 
   async function handleDelete(tool) {
     if (!confirm(`¿Eliminar herramienta "${tool.nombre}"?`)) return
-    await empresaApi('DELETE', `/tools/${tool.id}`, null, pwd).catch(() => null)
+    await empresaApi('DELETE', `/tools/${tool.id}`, null).catch(() => null)
     load()
   }
 
@@ -651,7 +651,6 @@ function HerramientasSection({ botId, pwd }) {
       {modal && (
         <ToolModal
           botId={botId}
-          pwd={pwd}
           tool={modal === 'new' ? null : modal}
           contacts={contacts}
           onClose={() => setModal(null)}
@@ -666,7 +665,7 @@ function HerramientasSection({ botId, pwd }) {
 
 const CHANNEL_LABELS = { whatsapp: '📱 WA', telegram: '✈️ TG' }
 
-function ContactModal({ botId, pwd, contact, onClose, onSaved }) {
+function ContactModal({ botId, contact, onClose, onSaved }) {
   const isEdit = !!contact
   const [name, setName]         = useState(contact?.name ?? '')
   const [channels, setChannels] = useState(contact?.channels ?? [])
@@ -681,11 +680,11 @@ function ContactModal({ botId, pwd, contact, onClose, onSaved }) {
     if (!name.trim()) { setErr('El nombre es obligatorio'); setSaving(false); return }
 
     if (isEdit) {
-      const res = await empresaApi('PUT', `/contacts/${contact.id}`, { name }, pwd).catch(() => null)
+      const res = await empresaApi('PUT', `/contacts/${contact.id}`, { name }).catch(() => null)
       if (!res?.id) { setErr(res?.detail || 'Error al guardar'); setSaving(false); return }
       onSaved(res)
     } else {
-      const res = await empresaApi('POST', `/bots/${botId}/contacts`, { name, channels }, pwd).catch(() => null)
+      const res = await empresaApi('POST', `/bots/${botId}/contacts`, { name, channels }).catch(() => null)
       if (!res?.id) { setErr(res?.detail || 'Error al crear'); setSaving(false); return }
       onSaved(res)
     }
@@ -696,7 +695,7 @@ function ContactModal({ botId, pwd, contact, onClose, onSaved }) {
     e.preventDefault(); setChErr('')
     const val = newVal.trim(); if (!val) return
     if (isEdit) {
-      const res = await empresaApi('POST', `/contacts/${contact.id}/channels`, { type: newType, value: val }, pwd).catch(() => null)
+      const res = await empresaApi('POST', `/contacts/${contact.id}/channels`, { type: newType, value: val }).catch(() => null)
       if (!res?.id) { setChErr(res?.detail || 'Error al agregar canal'); return }
       setChannels(c => [...c, res])
     } else {
@@ -707,7 +706,7 @@ function ContactModal({ botId, pwd, contact, onClose, onSaved }) {
 
   async function removeChannel(ch) {
     if (isEdit) {
-      await empresaApi('DELETE', `/contact-channels/${ch.id}`, null, pwd).catch(() => null)
+      await empresaApi('DELETE', `/contact-channels/${ch.id}`, null).catch(() => null)
     }
     setChannels(c => c.filter(x => x.id !== ch.id))
   }
@@ -764,7 +763,7 @@ function ContactModal({ botId, pwd, contact, onClose, onSaved }) {
   )
 }
 
-function ContactosSection({ botId, pwd }) {
+function ContactosSection({ botId }) {
   const [contacts, setContacts]   = useState([])
   const [suggested, setSuggested] = useState([])
   const [modal, setModal]         = useState(null) // null | 'new' | contact-obj
@@ -772,25 +771,25 @@ function ContactosSection({ botId, pwd }) {
 
   const loadContacts = useCallback(async () => {
     const [c, s] = await Promise.all([
-      empresaApi('GET', `/bots/${botId}/contacts`, null, pwd).catch(() => []),
-      empresaApi('GET', `/bots/${botId}/contacts/suggested`, null, pwd).catch(() => []),
+      empresaApi('GET', `/bots/${botId}/contacts`, null).catch(() => []),
+      empresaApi('GET', `/bots/${botId}/contacts/suggested`, null).catch(() => []),
     ])
     if (Array.isArray(c)) setContacts(c)
     if (Array.isArray(s)) setSuggested(s)
-  }, [botId, pwd])
+  }, [botId])
 
   useEffect(() => { loadContacts() }, [loadContacts])
 
   async function handleDelete(contact) {
     if (!confirm(`¿Eliminar "${contact.name}"?`)) return
-    await empresaApi('DELETE', `/contacts/${contact.id}`, null, pwd).catch(() => null)
+    await empresaApi('DELETE', `/contacts/${contact.id}`, null).catch(() => null)
     loadContacts()
   }
 
   async function handleAddSuggested(s) {
     setLoading(true)
     const res = await empresaApi('POST', `/bots/${botId}/contacts`,
-      { name: s.name || s.phone, channels: [{ type: 'whatsapp', value: s.phone }] }, pwd
+      { name: s.name || s.phone, channels: [{ type: 'whatsapp', value: s.phone }] }
     ).catch(() => null)
     setLoading(false)
     if (res?.id) loadContacts()
@@ -849,7 +848,6 @@ function ContactosSection({ botId, pwd }) {
       {modal && (
         <ContactModal
           botId={botId}
-          pwd={pwd}
           contact={modal === 'new' ? null : modal}
           onClose={() => setModal(null)}
           onSaved={handleSaved}
@@ -995,10 +993,10 @@ function EmpresaDashboard({ botId, botName: initialBotName, onLogout }) {
         </div>
 
         {/* 4. HERRAMIENTAS */}
-        <HerramientasSection botId={botId} pwd={pwd} />
+        <HerramientasSection botId={botId} />
 
         {/* 5. CONTACTOS */}
-        <ContactosSection botId={botId} pwd={pwd} />
+        <ContactosSection botId={botId} />
 
       </main>
     </div>
