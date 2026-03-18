@@ -376,6 +376,292 @@ function ConfigView({ botId, botName, pwd, onSaved }) {
   )
 }
 
+// ─── HerramientasSection ─────────────────────────────────────────
+
+function ToolModal({ botId, pwd, tool, contacts, onClose, onSaved }) {
+  const isEdit = !!tool
+  const [form, setForm] = useState({
+    nombre: tool?.nombre ?? '',
+    tipo: tool?.tipo ?? 'fixed_message',
+    mensaje: tool?.config?.message ?? '',
+    conexiones: tool?.connections ?? [],
+    incluidos: (tool?.contactos_incluidos ?? []).map(c => c.id),
+    excluidos: (tool?.contactos_excluidos ?? []).map(c => c.id),
+    incluir_desconocidos: tool?.incluir_desconocidos ?? false,
+    exclusiva: tool?.exclusiva ?? false,
+  })
+  const [allConns, setAllConns] = useState([])
+  const [conflicts, setConflicts] = useState([])
+  const [validating, setValidating] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+
+  // Cargar conexiones disponibles
+  useEffect(() => {
+    empresaApi('GET', `/empresa/${botId}`, null, pwd).catch(() => null).then(res => {
+      if (res?.connections) setAllConns(res.connections)
+    })
+  }, [botId, pwd])
+
+  const set = k => v => setForm(f => ({ ...f, [k]: v }))
+  const setE = k => e => setForm(f => ({ ...f, [k]: e.target.value }))
+  const setCheck = k => e => setForm(f => ({ ...f, [k]: e.target.checked }))
+
+  function toggleConn(id) {
+    setForm(f => ({
+      ...f,
+      conexiones: f.conexiones.includes(id) ? f.conexiones.filter(x => x !== id) : [...f.conexiones, id]
+    }))
+  }
+  function toggleContact(k, id) {
+    setForm(f => ({
+      ...f,
+      [k]: f[k].includes(id) ? f[k].filter(x => x !== id) : [...f[k], id]
+    }))
+  }
+
+  // Validación en tiempo real
+  useEffect(() => {
+    if (!form.exclusiva) { setConflicts([]); return }
+    const t = setTimeout(async () => {
+      setValidating(true)
+      const res = await empresaApi('POST', '/tools/validate-exclusivity', {
+        empresa_id: botId,
+        tool_id: tool?.id ?? null,
+        conexiones: form.conexiones,
+        contactos_incluidos: form.incluidos,
+        incluir_desconocidos: form.incluir_desconocidos,
+        exclusiva: form.exclusiva,
+      }, pwd).catch(() => null)
+      setValidating(false)
+      setConflicts(res?.conflicts ?? [])
+    }, 400)
+    return () => clearTimeout(t)
+  }, [form.conexiones, form.incluidos, form.incluir_desconocidos, form.exclusiva, botId, pwd, tool?.id])
+
+  async function handleSave(e) {
+    e.preventDefault(); setErr(''); setSaving(true)
+    if (!form.nombre.trim()) { setErr('El nombre es obligatorio'); setSaving(false); return }
+    if (conflicts.length > 0) { setErr('Hay conflictos de exclusividad'); setSaving(false); return }
+
+    const payload = {
+      nombre: form.nombre.trim(),
+      tipo: form.tipo,
+      config: { message: form.mensaje },
+      conexiones: form.conexiones,
+      contactos_incluidos: form.incluidos,
+      contactos_excluidos: form.excluidos,
+      incluir_desconocidos: form.incluir_desconocidos,
+      exclusiva: form.exclusiva,
+    }
+    const method = isEdit ? 'PUT' : 'POST'
+    const path = isEdit ? `/tools/${tool.id}` : `/empresas/${botId}/tools`
+    const res = await empresaApi(method, path, payload, pwd).catch(() => null)
+    setSaving(false)
+    if (!res?.id) { setErr(res?.detail || 'Error al guardar'); return }
+    onSaved(res)
+  }
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal-box" style={{ width: 560 }}>
+        <div className="modal-header">
+          <span>{isEdit ? 'Editar herramienta' : 'Nueva herramienta'}</span>
+          <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
+        </div>
+        <form onSubmit={handleSave}>
+
+          <div className="fg">
+            <label>Nombre</label>
+            <input value={form.nombre} onChange={setE('nombre')} placeholder="Ej: Bienvenida VIP" autoFocus />
+          </div>
+
+          <div className="fg">
+            <label>Tipo</label>
+            <select value={form.tipo} onChange={setE('tipo')}>
+              <option value="fixed_message">Mensaje fijo</option>
+            </select>
+          </div>
+
+          {form.tipo === 'fixed_message' && (
+            <div className="fg">
+              <label>Mensaje</label>
+              <textarea rows={3} value={form.mensaje} onChange={setE('mensaje')}
+                placeholder="Texto que enviará el bot al activarse" />
+            </div>
+          )}
+
+          <div className="fg">
+            <label>Conexiones</label>
+            <div className="tool-checks">
+              {allConns.map(c => (
+                <label key={c.id} className="tool-check-label">
+                  <input type="checkbox" checked={form.conexiones.includes(c.id)}
+                    onChange={() => toggleConn(c.id)} />
+                  {c.type === 'telegram' ? '✈️' : '📱'} {c.number || c.id}
+                </label>
+              ))}
+              {allConns.length === 0 && <span style={{ fontSize: 12, color: '#999' }}>Sin conexiones configuradas</span>}
+            </div>
+            <div style={{ fontSize: 11, color: '#999', marginTop: 3 }}>
+              Si no seleccionás ninguna, aplica a todas las conexiones de la empresa.
+            </div>
+          </div>
+
+          <div className="fg">
+            <label>Contactos incluidos</label>
+            <div className="tool-contact-picks">
+              {contacts.map(c => (
+                <label key={c.id} className={`tool-pick-item ${form.incluidos.includes(c.id) ? 'tool-pick-item--on' : ''}`}>
+                  <input type="checkbox" checked={form.incluidos.includes(c.id)}
+                    onChange={() => toggleContact('incluidos', c.id)} />
+                  {c.name}
+                </label>
+              ))}
+              {contacts.length === 0 && <span style={{ fontSize: 12, color: '#999' }}>Sin contactos registrados</span>}
+            </div>
+          </div>
+
+          <div className="fg">
+            <label>Contactos excluidos</label>
+            <div className="tool-contact-picks">
+              {contacts.map(c => (
+                <label key={c.id} className={`tool-pick-item ${form.excluidos.includes(c.id) ? 'tool-pick-item--exc' : ''}`}>
+                  <input type="checkbox" checked={form.excluidos.includes(c.id)}
+                    onChange={() => toggleContact('excluidos', c.id)} />
+                  {c.name}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="tool-toggles">
+            <label className="tool-toggle">
+              <input type="checkbox" checked={form.incluir_desconocidos} onChange={setCheck('incluir_desconocidos')} />
+              <span>Incluir desconocidos</span>
+              <small>Aplica a contactos no registrados</small>
+            </label>
+            <label className="tool-toggle">
+              <input type="checkbox" checked={form.exclusiva} onChange={setCheck('exclusiva')} />
+              <span>Exclusiva</span>
+              <small>Solo una herramienta exclusiva por contacto+conexión</small>
+            </label>
+          </div>
+
+          {conflicts.length > 0 && (
+            <div className="conflict-panel">
+              <div className="conflict-title">Conflictos de exclusividad {validating ? '(verificando...)' : ''}</div>
+              {conflicts.map((c, i) => (
+                <div key={i} className="conflict-item">
+                  <strong>{c.conflicting_tool_nombre}</strong>
+                  {c.conflicting_empresa_id !== botId && ` (${c.conflicting_empresa_nombre})`}
+                  {' — '}{c.contact_name ? `contacto: ${c.contact_name}` : 'desconocidos'}
+                  {' en '}{c.bot_id}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {err && <div className="error" style={{ fontSize: 13, marginBottom: 8 }}>{err}</div>}
+          <div className="portal-save-row">
+            <button type="button" className="btn-ghost btn-sm" onClick={onClose}>Cancelar</button>
+            <button type="submit" className="btn-primary btn-sm"
+              disabled={saving || conflicts.length > 0}>
+              {saving ? 'Guardando...' : 'Guardar'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function HerramientasSection({ botId, pwd }) {
+  const [tools, setTools]     = useState([])
+  const [contacts, setContacts] = useState([])
+  const [modal, setModal]     = useState(null) // null | 'new' | tool-obj
+
+  const load = useCallback(async () => {
+    const [t, c] = await Promise.all([
+      empresaApi('GET', `/empresas/${botId}/tools`, null, pwd).catch(() => []),
+      empresaApi('GET', `/bots/${botId}/contacts`, null, pwd).catch(() => []),
+    ])
+    if (Array.isArray(t)) setTools(t)
+    if (Array.isArray(c)) setContacts(c)
+  }, [botId, pwd])
+
+  useEffect(() => { load() }, [load])
+
+  async function handleToggle(tool) {
+    await empresaApi('POST', `/tools/${tool.id}/toggle`, null, pwd).catch(() => null)
+    load()
+  }
+
+  async function handleDelete(tool) {
+    if (!confirm(`¿Eliminar herramienta "${tool.nombre}"?`)) return
+    await empresaApi('DELETE', `/tools/${tool.id}`, null, pwd).catch(() => null)
+    load()
+  }
+
+  function handleSaved() { setModal(null); load() }
+
+  return (
+    <div className="card">
+      <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span>Herramientas</span>
+        <button className="btn-primary btn-sm" onClick={() => setModal('new')}>+ Nueva</button>
+      </div>
+
+      {tools.length === 0
+        ? <div className="empty" style={{ marginBottom: 12 }}>Sin herramientas configuradas</div>
+        : <table className="contacts-table">
+            <thead><tr><th>Nombre</th><th>Tipo</th><th>Estado</th><th>Info</th><th></th></tr></thead>
+            <tbody>
+              {tools.map(t => (
+                <tr key={t.id}>
+                  <td>
+                    {t.nombre}
+                    {t.exclusiva && <span className="ch-badge ch-badge--telegram" style={{ marginLeft: 6 }}>Exclusiva</span>}
+                  </td>
+                  <td style={{ fontSize: 12, color: '#666' }}>Mensaje fijo</td>
+                  <td>
+                    <button
+                      className={`status-toggle ${t.activa ? 'status-toggle--on' : 'status-toggle--off'}`}
+                      onClick={() => handleToggle(t)}
+                    >
+                      {t.activa ? 'Activa' : 'Inactiva'}
+                    </button>
+                  </td>
+                  <td style={{ fontSize: 12, color: '#888' }}>
+                    {t.connections.length > 0 ? t.connections.join(', ') : 'Todas'}
+                    {' · '}{t.contactos_incluidos.length > 0
+                      ? `${t.contactos_incluidos.length} incluidos`
+                      : t.incluir_desconocidos ? 'todos' : '—'}
+                  </td>
+                  <td>
+                    <button className="btn-ghost btn-sm" style={{ marginRight: 4 }} onClick={() => setModal(t)}>Editar</button>
+                    <button className="btn-danger btn-sm" onClick={() => handleDelete(t)}>Eliminar</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+      }
+
+      {modal && (
+        <ToolModal
+          botId={botId}
+          pwd={pwd}
+          tool={modal === 'new' ? null : modal}
+          contacts={contacts}
+          onClose={() => setModal(null)}
+          onSaved={handleSaved}
+        />
+      )}
+    </div>
+  )
+}
+
 // ─── ContactosSection ────────────────────────────────────────────
 
 const CHANNEL_LABELS = { whatsapp: '📱 WA', telegram: '✈️ TG' }
@@ -708,7 +994,10 @@ function EmpresaDashboard({ botId, botName: initialBotName, pwd, onLogout }) {
           {tgError && <div style={{ fontSize: 13, marginTop: 6, color: tgError.includes('Requiere') ? '#b45309' : 'var(--error)' }}>{tgError}</div>}
         </div>
 
-        {/* 4. CONTACTOS */}
+        {/* 4. HERRAMIENTAS */}
+        <HerramientasSection botId={botId} pwd={pwd} />
+
+        {/* 5. CONTACTOS */}
         <ContactosSection botId={botId} pwd={pwd} />
 
       </main>
