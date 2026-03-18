@@ -717,3 +717,38 @@ main { max-width: 900px; margin: 28px auto; padding: 0 16px; }
 }
 .sim-name-input { width: 110px; flex-shrink: 0; font-size: 13px; }
 .sim-text-input { flex: 1; font-size: 13px; }
+
+/* ─── Portal empresa — Conexion cards ─── */
+.conexion-card {
+  background: white;
+  border-radius: 12px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.07);
+  border: 1px solid #e8e8e8;
+  border-left: 4px solid transparent;
+  overflow: hidden;
+}
+.conexion-card--wa { border-left-color: #25d366; }
+.conexion-card--tg { border-left-color: #2196f3; }
+
+.conexion-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: #fafafa;
+  border-bottom: 1px solid #f0f0f0;
+}
+.conexion-icon { font-size: 18px; flex-shrink: 0; }
+.conexion-number { font-weight: 600; font-size: 14px; flex: 1; }
+.conexion-actions { display: flex; gap: 8px; align-items: center; }
+.conexion-qr { padding: 16px; text-align: center; border-bottom: 1px solid #f0f0f0; }
+
+/* ─── Conversaciones inline ─── */
+.conv-inline { display: flex; flex-direction: column; }
+.conv-inline-chat {
+  background: #f8f8f8;
+  border-bottom: 1px solid #f0f0f0;
+}
+.conv-row--active { background: #f5f0ff !important; }
+.conv-row--active .conv-name { color: #7c3aed; font-weight: 700; }

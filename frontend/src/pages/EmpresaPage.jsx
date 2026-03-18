@@ -75,19 +75,14 @@ function ContactChat({ botId, number, pwd, contact, onClose }) {
   }
 
   return (
-    <div style={{ marginBottom: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
-        <button className="btn-ghost btn-sm" onClick={onClose}>✕ Cerrar chat</button>
-      </div>
-      <ChatWidget
-        title={contact.name || contact.phone}
-        subtitle={contact.phone}
-        messages={messages}
-        onSend={handleSend}
-        defaultOpen={true}
-        unreadCount={0}
-      />
-    </div>
+    <ChatWidget
+      title={contact.name || contact.phone}
+      subtitle={contact.phone}
+      messages={messages}
+      onSend={handleSend}
+      defaultOpen={true}
+      unreadCount={0}
+    />
   )
 }
 
@@ -134,35 +129,31 @@ function ConexionCard({ conn, botId, pwd, onRefresh }) {
   }
 
   return (
-    <div className="card" style={{ marginBottom: 12 }}>
+    <div className={`conexion-card conexion-card--${isTelegram ? 'tg' : 'wa'}`}>
 
-      {/* Header de la conexión */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-        <span style={{ fontSize: 20 }}>{isTelegram ? '✈️' : '📱'}</span>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 600, fontSize: 14 }}>
-            {isTelegram ? conn.number : `+${conn.number}`}
-          </div>
-        </div>
+      {/* Header: icono + número/id + status badge + botones de acción */}
+      <div className="conexion-header">
+        <span className="conexion-icon">{isTelegram ? '✈️' : '📱'}</span>
+        <span className="conexion-number">{isTelegram ? conn.number : `+${conn.number}`}</span>
         <StatusBadge status={conn.status} />
-      </div>
-
-      {/* Acciones WA */}
-      {!isTelegram && !showQr && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          {isConnected && (
-            <button className="btn-danger btn-sm" onClick={handleDisconnect}>Desconectar</button>
+        <div className="conexion-actions">
+          {!isTelegram && !showQr && (
+            <>
+              {isConnected && (
+                <button className="btn-danger btn-sm" onClick={handleDisconnect}>Desconectar</button>
+              )}
+              {!isConnected && !isConnecting && (
+                <button className="btn-primary btn-sm" onClick={handleConnect}>Conectar</button>
+              )}
+              {isConnecting && <span className="portal-connecting-hint">Conectando...</span>}
+            </>
           )}
-          {!isConnected && !isConnecting && (
-            <button className="btn-primary btn-sm" onClick={handleConnect}>Conectar</button>
-          )}
-          {isConnecting && <span className="portal-connecting-hint">Conectando...</span>}
         </div>
-      )}
+      </div>
 
       {/* QR WhatsApp */}
       {!isTelegram && showQr && (
-        <div className="portal-qr-section" style={{ marginBottom: 12 }}>
+        <div className="conexion-qr">
           <p className="qr-hint">Abrí WhatsApp → <strong>Dispositivos vinculados</strong> → <strong>Vincular dispositivo</strong></p>
           <div className="qr-wrap">{qrSrc ? <img src={qrSrc} alt="QR" /> : <div className="spinner" />}</div>
           <p className="qr-status">{qrStatus}</p>
@@ -170,63 +161,49 @@ function ConexionCard({ conn, botId, pwd, onRefresh }) {
         </div>
       )}
 
-      {/* Instrucciones Telegram */}
-      {isTelegram && (
-        <div className="portal-qr-section" style={{ marginBottom: 12 }}>
-          <p className="qr-hint">
-            Para recibir mensajes, tus contactos deben buscar tu bot en Telegram y escribirle para iniciar la conversación.
-          </p>
-          <p className="qr-status" style={{ marginTop: 8 }}>
-            El bot está {conn.status === 'ready' ? <strong style={{ color: 'var(--success, #16a34a)' }}>activo</strong> : <strong style={{ color: '#888' }}>inactivo</strong>} — los mensajes entrantes aparecerán abajo en tiempo real.
-          </p>
+      {/* Conversaciones: lista inline con expansión */}
+      {!showQr && (
+        <div className="conv-inline">
+          {conversations.length === 0
+            ? <div className="empty">Sin mensajes aún</div>
+            : [...conversations]
+                .sort((a, b) => {
+                  if (activeContact?.phone === a.phone) return -1
+                  if (activeContact?.phone === b.phone) return 1
+                  return (b.timestamp || '').localeCompare(a.timestamp || '')
+                })
+                .map(m => (
+                  <div key={m.phone}>
+                    <button
+                      className={`conv-row${activeContact?.phone === m.phone ? ' conv-row--active' : ''}`}
+                      onClick={() => setContact(c => c?.phone === m.phone ? null : { phone: m.phone, name: m.name })}
+                    >
+                      <div className="conv-avatar">{(m.name || m.phone).slice(0, 2).toUpperCase()}</div>
+                      <div className="conv-info">
+                        <div className="conv-name">{m.name || m.phone}</div>
+                        <div className="conv-preview">{m.body}</div>
+                      </div>
+                      <div className="conv-meta">
+                        <div className="conv-time">{m.timestamp?.slice(11, 16)}</div>
+                        {!m.answered && <span className="conv-unread" />}
+                      </div>
+                    </button>
+                    {activeContact?.phone === m.phone && (
+                      <div className="conv-inline-chat">
+                        <ContactChat
+                          botId={botId}
+                          number={conn.id}
+                          pwd={pwd}
+                          contact={activeContact}
+                          onClose={() => setContact(null)}
+                        />
+                      </div>
+                    )}
+                  </div>
+                ))
+          }
         </div>
       )}
-
-      {/* Conversaciones (WA y TG) */}
-      <div>
-        <div className="section-header" style={{ marginBottom: 8 }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted, #888)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Conversaciones
-          </span>
-          <span className="portal-refresh-hint">Actualiza cada 5 seg.</span>
-        </div>
-
-        {activeContact && (
-          <ContactChat
-            botId={botId}
-            number={conn.id}
-            pwd={pwd}
-            contact={activeContact}
-            onClose={() => { setContact(null); loadConvs() }}
-          />
-        )}
-
-        {!activeContact && (
-          conversations.length === 0
-            ? <div className="empty">Sin mensajes aún</div>
-            : (
-              <div className="portal-conversations">
-                {conversations.map(m => (
-                  <button
-                    key={m.phone}
-                    className="conv-row"
-                    onClick={() => setContact({ phone: m.phone, name: m.name })}
-                  >
-                    <div className="conv-avatar">{(m.name || m.phone).slice(0, 2).toUpperCase()}</div>
-                    <div className="conv-info">
-                      <div className="conv-name">{m.name || m.phone}</div>
-                      <div className="conv-preview">{m.body}</div>
-                    </div>
-                    <div className="conv-meta">
-                      <div className="conv-time">{m.timestamp?.slice(11, 16)}</div>
-                      {!m.answered && <span className="conv-unread" />}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )
-        )}
-      </div>
 
     </div>
   )
@@ -402,7 +379,6 @@ function ConfigView({ botId, botName, pwd, onSaved }) {
 
 function EmpresaDashboard({ botId, botName: initialBotName, pwd, onLogout }) {
   const [botName, setBotName]       = useState(initialBotName)
-  const [view, setView]             = useState('dashboard')
   const [data, setData]             = useState(null)
   const [replyMsg, setReplyMsg]     = useState('')
   const [saving, setSaving]         = useState(false)
@@ -436,41 +412,15 @@ function EmpresaDashboard({ botId, botName: initialBotName, pwd, onLogout }) {
       <header>
         <span className="portal-title">🐙 {botName}</span>
         <div className="header-actions">
-          <button className={`btn-ghost btn-sm${view === 'dashboard' ? ' active' : ''}`}
-            onClick={() => setView('dashboard')}>Dashboard</button>
-          <button className={`btn-ghost btn-sm${view === 'config' ? ' active' : ''}`}
-            onClick={() => setView('config')}>⚙ Configurar</button>
           <button className="btn-ghost btn-sm" onClick={onLogout}>Salir</button>
         </div>
       </header>
 
-      {view === 'config' && (
-        <ConfigView botId={botId} botName={botName} pwd={pwd}
-          onSaved={name => { setBotName(name); setView('dashboard') }} />
-      )}
+      <main className="portal-main">
 
-      {view === 'dashboard' && <main className="portal-main">
-
-        {/* Conexiones (estado + acciones + conversaciones) */}
+        {/* 1. TOOLS PRIMERO */}
         <div className="card">
-          <div className="card-title">Conexiones</div>
-          {data?.connections?.length === 0 && (
-            <div className="empty">Sin conexiones configuradas.</div>
-          )}
-          {data?.connections?.map(conn => (
-            <ConexionCard
-              key={conn.id}
-              conn={conn}
-              botId={botId}
-              pwd={pwd}
-              onRefresh={load}
-            />
-          ))}
-        </div>
-
-        {/* Auto-reply a nivel empresa */}
-        <div className="card">
-          <div className="card-title">Mensaje de respuesta automática</div>
+          <div className="card-title">Respuesta automática</div>
           <div className="fg">
             <textarea
               rows={6}
@@ -488,7 +438,21 @@ function EmpresaDashboard({ botId, botName: initialBotName, pwd, onLogout }) {
           </div>
         </div>
 
-      </main>}
+        {/* 2. CONEXIONES */}
+        {data?.connections?.length === 0 && (
+          <div className="empty">Sin conexiones configuradas.</div>
+        )}
+        {data?.connections?.map(conn => (
+          <ConexionCard
+            key={conn.id}
+            conn={conn}
+            botId={botId}
+            pwd={pwd}
+            onRefresh={load}
+          />
+        ))}
+
+      </main>
     </div>
   )
 }
