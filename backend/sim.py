@@ -40,6 +40,48 @@ def sim_disconnect(session_id: str) -> None:
     _conversations.pop(session_id, None)
 
 
+async def resolve_tool(bot_id: str, sender: str, channel_type: str) -> dict | None:
+    """
+    Retorna la primera herramienta activa que aplica a este (bot_id, sender).
+    Fallback: None (se usará auto_reply del JSON si existe).
+    """
+    from config import get_empresa_for_bot
+    from db import find_contact_by_channel, get_active_tools_for_bot
+
+    empresa_id = get_empresa_for_bot(bot_id)
+    if not empresa_id:
+        return None
+
+    contact = await find_contact_by_channel(channel_type, sender)
+    contact_id = contact["id"] if contact else None
+
+    tools = await get_active_tools_for_bot(bot_id, empresa_id)
+    if not tools:
+        return None
+
+    for tool in tools:
+        excluded_ids = [c["id"] for c in tool["contactos_excluidos"]]
+        included_ids = [c["id"] for c in tool["contactos_incluidos"]]
+
+        # Regla 1: excluido → saltar
+        if contact_id and contact_id in excluded_ids:
+            continue
+
+        # Regla 2: incluido explícitamente → activar
+        if contact_id and contact_id in included_ids:
+            return tool
+
+        # Regla 3: desconocido + incluir_desconocidos → activar
+        if contact_id is None and tool["incluir_desconocidos"]:
+            return tool
+
+        # Regla 4: lista incluidos vacía + incluir_desconocidos → activar para todos
+        if not included_ids and tool["incluir_desconocidos"]:
+            return tool
+
+    return None
+
+
 async def _is_sender_allowed(bot_id: str, channel_type: str, sender: str, allowed_contacts: list) -> bool:
     """
     Retorna True si el sender está permitido.
@@ -88,7 +130,18 @@ async def sim_receive(session_id: str, from_name: str, from_phone: str, text: st
         logger.info("[sim] IGNORADO (no es contacto registrado) → %s", from_phone)
         return None
 
-    reply = cfg["auto_reply"]
+    # Motor de resolución: herramientas en DB
+    tool = await resolve_tool(session_id, from_phone, channel_type)
+    if tool:
+        if tool["tipo"] == "fixed_message":
+            reply = tool["config"].get("message", "")
+        else:
+            reply = None
+        logger.info("[sim] TOOL '%s' → %s", tool["nombre"], session_id)
+    else:
+        # Fallback: auto_reply del JSON
+        reply = cfg["auto_reply"]
+
     if reply:
         await mark_answered(msg_id)
         await log_outbound_message(cfg["bot_id"], session_id, from_phone, reply)
