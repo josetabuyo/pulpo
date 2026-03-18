@@ -17,7 +17,7 @@ BACKEND_PORT="${BACKEND_PORT:-8000}"
 # Busca .venv local o usa el del directorio principal (_/backend)
 VENV=".venv"
 if [ ! -d "$VENV" ]; then
-  VENV="/Users/josetabuyo/Development/whatsapp_bot/_/backend/.venv"
+  VENV="/Users/josetabuyo/Development/pulpo/_/backend/.venv"
 fi
 
 echo "▶ Backend arrancando en http://localhost:${BACKEND_PORT}"

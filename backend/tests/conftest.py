@@ -1,11 +1,19 @@
 """
 Fixtures compartidos para todos los tests del backend.
-Los tests corren contra el server en localhost:8001 (debe estar levantado).
+El puerto se lee de BACKEND_PORT (mismo .env que usa el servidor),
+así funciona sin cambios en cualquier worktree.
 """
+import os
 import pytest
 import httpx
+from dotenv import load_dotenv
+from pathlib import Path
 
-BASE = "http://localhost:8001"
+# Cargar el .env de la raíz del worktree (dos niveles arriba de tests/)
+load_dotenv(Path(__file__).parent.parent.parent / ".env")
+
+PORT = os.getenv("BACKEND_PORT", "8000")
+BASE = f"http://localhost:{PORT}"
 ADMIN = {"x-password": "admin"}
 BAD   = {"x-password": "wrong"}
 
