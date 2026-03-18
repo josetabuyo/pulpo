@@ -1,10 +1,11 @@
 import re
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from sqlalchemy import text
 
 import db
 from db import AsyncSessionLocal
+from middleware_auth import require_empresa_auth
 
 router = APIRouter()
 
@@ -41,13 +42,20 @@ class ContactUpdate(BaseModel):
 
 # ─── Endpoints ───────────────────────────────────────────────────
 
+def _check_auth(bot_id: str, token_bot_id: str):
+    if token_bot_id != bot_id:
+        raise HTTPException(403, "No autorizado para esta empresa")
+
+
 @router.get("/bots/{bot_id}/contacts")
-async def list_contacts(bot_id: str):
+async def list_contacts(bot_id: str, token_bot_id: str = Depends(require_empresa_auth)):
+    _check_auth(bot_id, token_bot_id)
     return await db.get_contacts(bot_id)
 
 
 @router.post("/bots/{bot_id}/contacts", status_code=201)
-async def create_contact(bot_id: str, body: ContactIn):
+async def create_contact(bot_id: str, body: ContactIn, token_bot_id: str = Depends(require_empresa_auth)):
+    _check_auth(bot_id, token_bot_id)
     name = body.name.strip()
     if not name:
         raise HTTPException(400, "El nombre es obligatorio")
@@ -71,36 +79,42 @@ async def create_contact(bot_id: str, body: ContactIn):
 
 
 @router.get("/contacts/{contact_id}")
-async def get_contact(contact_id: int):
+async def get_contact(contact_id: int, token_bot_id: str = Depends(require_empresa_auth)):
     contact = await db.get_contact(contact_id)
     if not contact:
         raise HTTPException(404, "Contacto no encontrado")
+    _check_auth(contact["bot_id"], token_bot_id)
     return contact
 
 
 @router.put("/contacts/{contact_id}")
-async def update_contact(contact_id: int, body: ContactUpdate):
+async def update_contact(contact_id: int, body: ContactUpdate, token_bot_id: str = Depends(require_empresa_auth)):
+    contact = await db.get_contact(contact_id)
+    if not contact:
+        raise HTTPException(404, "Contacto no encontrado")
+    _check_auth(contact["bot_id"], token_bot_id)
     name = body.name.strip()
     if not name:
         raise HTTPException(400, "El nombre es obligatorio")
-    ok = await db.update_contact(contact_id, name)
-    if not ok:
-        raise HTTPException(404, "Contacto no encontrado")
+    await db.update_contact(contact_id, name)
     return await db.get_contact(contact_id)
 
 
 @router.delete("/contacts/{contact_id}", status_code=204)
-async def delete_contact(contact_id: int):
-    ok = await db.delete_contact(contact_id)
-    if not ok:
-        raise HTTPException(404, "Contacto no encontrado")
-
-
-@router.post("/contacts/{contact_id}/channels", status_code=201)
-async def add_channel(contact_id: int, body: ChannelIn):
+async def delete_contact(contact_id: int, token_bot_id: str = Depends(require_empresa_auth)):
     contact = await db.get_contact(contact_id)
     if not contact:
         raise HTTPException(404, "Contacto no encontrado")
+    _check_auth(contact["bot_id"], token_bot_id)
+    await db.delete_contact(contact_id)
+
+
+@router.post("/contacts/{contact_id}/channels", status_code=201)
+async def add_channel(contact_id: int, body: ChannelIn, token_bot_id: str = Depends(require_empresa_auth)):
+    contact = await db.get_contact(contact_id)
+    if not contact:
+        raise HTTPException(404, "Contacto no encontrado")
+    _check_auth(contact["bot_id"], token_bot_id)
     if body.type not in ("whatsapp", "telegram"):
         raise HTTPException(400, f"Tipo de canal inválido: {body.type}")
     err = _validate_channel_value(body.type, body.value.strip())
@@ -114,14 +128,15 @@ async def add_channel(contact_id: int, body: ChannelIn):
 
 
 @router.delete("/contact-channels/{channel_id}", status_code=204)
-async def delete_channel(channel_id: int):
+async def delete_channel(channel_id: int, token_bot_id: str = Depends(require_empresa_auth)):
     ok = await db.delete_channel(channel_id)
     if not ok:
         raise HTTPException(404, "Canal no encontrado")
 
 
 @router.get("/bots/{bot_id}/contacts/suggested")
-async def suggested_contacts(bot_id: str):
+async def suggested_contacts(bot_id: str, token_bot_id: str = Depends(require_empresa_auth)):
+    _check_auth(bot_id, token_bot_id)
     """Senders que escribieron pero no están en contact_channels (whatsapp)."""
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(text("""

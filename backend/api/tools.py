@@ -4,7 +4,7 @@ empresa_id == bot_id del bot en phones.json.
 Las conexiones de una empresa son sus números WA + session_ids TG.
 """
 import json
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 from sqlalchemy import text
@@ -12,18 +12,21 @@ from sqlalchemy import text
 import db
 from db import AsyncSessionLocal
 from config import load_config
+from middleware_auth import require_empresa_auth
 
 router = APIRouter()
 
 
 # ─── Auth empresa ────────────────────────────────────────────────
 
-def _require_empresa(empresa_id: str, x_empresa_pwd: str = "") -> dict:
+def _require_empresa(empresa_id: str, token_bot_id: str = Depends(require_empresa_auth)) -> dict:
+    if token_bot_id != empresa_id:
+        raise HTTPException(status_code=403, detail="No autorizado para esta empresa")
     config = load_config()
-    for bot in config.get("bots", []):
-        if bot["id"] == empresa_id and bot.get("password") == x_empresa_pwd:
-            return bot
-    raise HTTPException(401, "No autorizado")
+    bot = next((b for b in config.get("bots", []) if b["id"] == empresa_id), None)
+    if not bot:
+        raise HTTPException(status_code=404, detail="Empresa no encontrada")
+    return bot
 
 
 def _get_empresa_connections(empresa_id: str) -> list[str]:
@@ -84,14 +87,12 @@ class ValidateExclusivityIn(BaseModel):
 # ─── Endpoints ───────────────────────────────────────────────────
 
 @router.get("/empresas/{empresa_id}/tools")
-async def list_tools(empresa_id: str, x_empresa_pwd: str = Header("")):
-    _require_empresa(empresa_id, x_empresa_pwd)
+async def list_tools(empresa_id: str, _: dict = Depends(_require_empresa)):
     return await db.get_tools(empresa_id)
 
 
 @router.post("/empresas/{empresa_id}/tools", status_code=201)
-async def create_tool(empresa_id: str, body: ToolIn, x_empresa_pwd: str = Header("")):
-    _require_empresa(empresa_id, x_empresa_pwd)
+async def create_tool(empresa_id: str, body: ToolIn, _: dict = Depends(_require_empresa)):
     if not body.nombre.strip():
         raise HTTPException(400, "El nombre es obligatorio")
     if body.tipo not in ("fixed_message",):
@@ -108,20 +109,22 @@ async def create_tool(empresa_id: str, body: ToolIn, x_empresa_pwd: str = Header
 
 
 @router.get("/tools/{tool_id}")
-async def get_tool(tool_id: int, x_empresa_pwd: str = Header("")):
+async def get_tool(tool_id: int, token_bot_id: str = Depends(require_empresa_auth)):
     tool = await db.get_tool(tool_id)
     if not tool:
         raise HTTPException(404, "Herramienta no encontrada")
-    _require_empresa(tool["empresa_id"], x_empresa_pwd)
+    if tool["empresa_id"] != token_bot_id:
+        raise HTTPException(403, "No autorizado para esta herramienta")
     return tool
 
 
 @router.put("/tools/{tool_id}")
-async def update_tool(tool_id: int, body: ToolUpdate, x_empresa_pwd: str = Header("")):
+async def update_tool(tool_id: int, body: ToolUpdate, token_bot_id: str = Depends(require_empresa_auth)):
     tool = await db.get_tool(tool_id)
     if not tool:
         raise HTTPException(404, "Herramienta no encontrada")
-    _require_empresa(tool["empresa_id"], x_empresa_pwd)
+    if tool["empresa_id"] != token_bot_id:
+        raise HTTPException(403, "No autorizado para esta herramienta")
 
     updates = {}
     if body.nombre is not None:
@@ -148,20 +151,22 @@ async def update_tool(tool_id: int, body: ToolUpdate, x_empresa_pwd: str = Heade
 
 
 @router.delete("/tools/{tool_id}", status_code=204)
-async def delete_tool(tool_id: int, x_empresa_pwd: str = Header("")):
+async def delete_tool(tool_id: int, token_bot_id: str = Depends(require_empresa_auth)):
     tool = await db.get_tool(tool_id)
     if not tool:
         raise HTTPException(404, "Herramienta no encontrada")
-    _require_empresa(tool["empresa_id"], x_empresa_pwd)
+    if tool["empresa_id"] != token_bot_id:
+        raise HTTPException(403, "No autorizado para esta herramienta")
     await db.delete_tool(tool_id)
 
 
 @router.post("/tools/{tool_id}/toggle")
-async def toggle_tool(tool_id: int, x_empresa_pwd: str = Header("")):
+async def toggle_tool(tool_id: int, token_bot_id: str = Depends(require_empresa_auth)):
     tool = await db.get_tool(tool_id)
     if not tool:
         raise HTTPException(404, "Herramienta no encontrada")
-    _require_empresa(tool["empresa_id"], x_empresa_pwd)
+    if tool["empresa_id"] != token_bot_id:
+        raise HTTPException(403, "No autorizado para esta herramienta")
     await db.update_tool(tool_id, activa=not tool["activa"])
     return await db.get_tool(tool_id)
 
