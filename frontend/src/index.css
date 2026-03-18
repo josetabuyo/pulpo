@@ -842,34 +842,46 @@ main { max-width: 900px; margin: 28px auto; padding: 0 16px; }
 
 /* ─── Herramientas section ─── */
 .tool-checks {
-  display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px;
+  display: flex; flex-direction: column; gap: 4px; margin-top: 4px;
 }
 .tool-check-label {
-  display: flex; align-items: center; gap: 5px;
+  display: flex; align-items: center; gap: 8px;
   font-size: 13px; cursor: pointer;
+  padding: 7px 10px;
+  border: 1px solid #e8e8e8; border-radius: 8px;
+  background: #fafafa;
+  transition: background .1s, border-color .1s;
 }
+.tool-check-label:hover { background: #f0f0ff; border-color: #c5b8f0; }
+.tool-check-label input[type="checkbox"] { accent-color: var(--primary); width: 15px; height: 15px; flex-shrink: 0; }
+
 .tool-contact-picks {
   display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px;
 }
 .tool-pick-item {
-  display: flex; align-items: center; gap: 4px;
-  font-size: 12px; padding: 3px 8px;
+  display: flex; align-items: center;
+  font-size: 12px; padding: 4px 12px;
   border: 1px solid #e0e0e0; border-radius: 20px; cursor: pointer;
-  transition: all .15s;
+  transition: all .15s; user-select: none;
 }
-.tool-pick-item--on  { background: #e8f5e9; border-color: #4caf50; color: #2e7d32; }
-.tool-pick-item--exc { background: #fce4ec; border-color: #e91e63; color: #880e4f; }
+.tool-pick-item input[type="checkbox"] { display: none; }
+.tool-pick-item--on  { background: #e8f5e9; border-color: #4caf50; color: #2e7d32; font-weight: 600; }
+.tool-pick-item--exc { background: #fce4ec; border-color: #e91e63; color: #880e4f; font-weight: 600; }
 
 .tool-toggles {
-  display: flex; flex-direction: column; gap: 10px;
+  display: flex; flex-direction: column; gap: 8px;
   margin: 12px 0;
 }
 .tool-toggle {
-  display: flex; align-items: flex-start; gap: 8px; cursor: pointer;
+  display: flex; align-items: flex-start; gap: 10px; cursor: pointer;
+  padding: 8px 10px; border: 1px solid #e8e8e8; border-radius: 8px;
+  transition: background .1s;
 }
-.tool-toggle input { margin-top: 2px; }
+.tool-toggle:hover { background: #fafafa; }
+.tool-toggle input[type="checkbox"] { margin-top: 2px; accent-color: var(--primary); width: 15px; height: 15px; flex-shrink: 0; }
+.tool-toggle > div { display: flex; flex-direction: column; gap: 2px; }
 .tool-toggle span { font-size: 13px; font-weight: 600; }
-.tool-toggle small { font-size: 11px; color: #888; margin-left: 4px; }
+.tool-toggle small { font-size: 11px; color: #888; }
 
 .conflict-panel {
   background: #fff3e0; border: 1px solid #ffb300; border-radius: 8px;

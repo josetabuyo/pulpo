@@ -538,13 +538,17 @@ function ToolModal({ botId, tool, contacts, onClose, onSaved }) {
           <div className="tool-toggles">
             <label className="tool-toggle">
               <input type="checkbox" checked={form.incluir_desconocidos} onChange={setCheck('incluir_desconocidos')} />
-              <span>Incluir desconocidos</span>
-              <small>Aplica a contactos no registrados</small>
+              <div>
+                <span>Incluir desconocidos</span>
+                <small>Aplica a contactos que no están registrados</small>
+              </div>
             </label>
             <label className="tool-toggle">
               <input type="checkbox" checked={form.exclusiva} onChange={setCheck('exclusiva')} />
-              <span>Exclusiva</span>
-              <small>Solo una herramienta exclusiva por contacto+conexión</small>
+              <div>
+                <span>Exclusiva</span>
+                <small>Solo una herramienta exclusiva activa por contacto + conexión</small>
+              </div>
             </label>
           </div>
 
