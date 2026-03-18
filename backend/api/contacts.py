@@ -1,8 +1,10 @@
 import re
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import text
 
 import db
+from db import AsyncSessionLocal
 
 router = APIRouter()
 
@@ -116,3 +118,20 @@ async def delete_channel(channel_id: int):
     ok = await db.delete_channel(channel_id)
     if not ok:
         raise HTTPException(404, "Canal no encontrado")
+
+
+@router.get("/bots/{bot_id}/contacts/suggested")
+async def suggested_contacts(bot_id: str):
+    """Senders que escribieron pero no están en contact_channels (whatsapp)."""
+    async with AsyncSessionLocal() as session:
+        rows = (await session.execute(text("""
+            SELECT DISTINCT m.phone, m.name
+            FROM messages m
+            WHERE m.bot_id = :bot_id
+              AND m.outbound = 0
+              AND m.phone NOT IN (
+                  SELECT cc.value FROM contact_channels cc WHERE cc.type = 'whatsapp'
+              )
+            ORDER BY m.phone
+        """), {"bot_id": bot_id})).fetchall()
+    return [{"phone": r[0], "name": r[1]} for r in rows]
