@@ -61,6 +61,47 @@ async def init_db():
             "CREATE INDEX IF NOT EXISTS idx_contact_channels_lookup ON contact_channels(type, value)"
         ))
 
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS tools (
+                id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+                empresa_id           TEXT NOT NULL,
+                nombre               TEXT NOT NULL,
+                tipo                 TEXT NOT NULL CHECK(tipo IN ('fixed_message')),
+                config               TEXT NOT NULL,
+                incluir_desconocidos INTEGER NOT NULL DEFAULT 0,
+                exclusiva            INTEGER NOT NULL DEFAULT 0,
+                activa               INTEGER NOT NULL DEFAULT 1,
+                created_at           DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_tools_empresa_id ON tools(empresa_id)"
+        ))
+
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS tool_connections (
+                tool_id INTEGER NOT NULL REFERENCES tools(id) ON DELETE CASCADE,
+                bot_id  TEXT NOT NULL,
+                PRIMARY KEY (tool_id, bot_id)
+            )
+        """))
+
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS tool_contacts_included (
+                tool_id    INTEGER NOT NULL REFERENCES tools(id) ON DELETE CASCADE,
+                contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+                PRIMARY KEY (tool_id, contact_id)
+            )
+        """))
+
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS tool_contacts_excluded (
+                tool_id    INTEGER NOT NULL REFERENCES tools(id) ON DELETE CASCADE,
+                contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+                PRIMARY KEY (tool_id, contact_id)
+            )
+        """))
+
 
 async def log_message(bot_id: str, bot_phone: str, phone: str, name: str | None, body: str) -> int:
     async with AsyncSessionLocal() as session:
@@ -208,3 +249,177 @@ async def find_contact_by_channel(type: str, value: str) -> dict | None:
         channels_map = await _get_channels_for(session, [contact_id])
         return {"id": contact_row[0], "bot_id": contact_row[1], "name": contact_row[2],
                 "created_at": str(contact_row[3]), "channels": channels_map.get(contact_id, [])}
+
+
+# ─── Tools ───────────────────────────────────────────────────────
+
+import json as _json
+
+
+async def _get_tool_details(conn, tool_ids: list[int]) -> dict:
+    """Retorna {tool_id: {connections, contactos_incluidos, contactos_excluidos}}."""
+    if not tool_ids:
+        return {}
+    ph = ",".join(f":t{i}" for i in range(len(tool_ids)))
+    params = {f"t{i}": tid for i, tid in enumerate(tool_ids)}
+
+    conns = (await conn.execute(
+        text(f"SELECT tool_id, bot_id FROM tool_connections WHERE tool_id IN ({ph})"), params
+    )).fetchall()
+
+    inc = (await conn.execute(
+        text(f"""SELECT ti.tool_id, c.id, c.name FROM tool_contacts_included ti
+                 JOIN contacts c ON c.id = ti.contact_id WHERE ti.tool_id IN ({ph})"""), params
+    )).fetchall()
+
+    exc = (await conn.execute(
+        text(f"""SELECT te.tool_id, c.id, c.name FROM tool_contacts_excluded te
+                 JOIN contacts c ON c.id = te.contact_id WHERE te.tool_id IN ({ph})"""), params
+    )).fetchall()
+
+    result = {tid: {"connections": [], "contactos_incluidos": [], "contactos_excluidos": []} for tid in tool_ids}
+    for r in conns:
+        result[r[0]]["connections"].append(r[1])
+    for r in inc:
+        result[r[0]]["contactos_incluidos"].append({"id": r[1], "name": r[2]})
+    for r in exc:
+        result[r[0]]["contactos_excluidos"].append({"id": r[1], "name": r[2]})
+    return result
+
+
+def _tool_row_to_dict(row, details: dict) -> dict:
+    tid = row[0]
+    d = details.get(tid, {"connections": [], "contactos_incluidos": [], "contactos_excluidos": []})
+    return {
+        "id": tid,
+        "empresa_id": row[1],
+        "nombre": row[2],
+        "tipo": row[3],
+        "config": _json.loads(row[4]),
+        "incluir_desconocidos": bool(row[5]),
+        "exclusiva": bool(row[6]),
+        "activa": bool(row[7]),
+        "created_at": str(row[8]),
+        **d,
+    }
+
+
+async def create_tool(empresa_id: str, nombre: str, tipo: str, config: dict,
+                      incluir_desconocidos: bool, exclusiva: bool) -> int:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            text("""INSERT INTO tools (empresa_id, nombre, tipo, config, incluir_desconocidos, exclusiva)
+                    VALUES (:empresa_id, :nombre, :tipo, :config, :inc, :exc)"""),
+            {"empresa_id": empresa_id, "nombre": nombre, "tipo": tipo,
+             "config": _json.dumps(config), "inc": int(incluir_desconocidos), "exc": int(exclusiva)},
+        )
+        await session.commit()
+        return result.lastrowid
+
+
+async def get_tools(empresa_id: str) -> list[dict]:
+    async with AsyncSessionLocal() as session:
+        rows = (await session.execute(
+            text("SELECT id,empresa_id,nombre,tipo,config,incluir_desconocidos,exclusiva,activa,created_at "
+                 "FROM tools WHERE empresa_id=:e ORDER BY id"),
+            {"e": empresa_id},
+        )).fetchall()
+        if not rows:
+            return []
+        details = await _get_tool_details(session, [r[0] for r in rows])
+        return [_tool_row_to_dict(r, details) for r in rows]
+
+
+async def get_tool(tool_id: int) -> dict | None:
+    async with AsyncSessionLocal() as session:
+        row = (await session.execute(
+            text("SELECT id,empresa_id,nombre,tipo,config,incluir_desconocidos,exclusiva,activa,created_at "
+                 "FROM tools WHERE id=:id"),
+            {"id": tool_id},
+        )).fetchone()
+        if not row:
+            return None
+        details = await _get_tool_details(session, [tool_id])
+        return _tool_row_to_dict(row, details)
+
+
+async def update_tool(tool_id: int, **kwargs) -> bool:
+    allowed = {"nombre", "tipo", "config", "incluir_desconocidos", "exclusiva", "activa"}
+    updates = {k: v for k, v in kwargs.items() if k in allowed}
+    if not updates:
+        return False
+    if "config" in updates:
+        updates["config"] = _json.dumps(updates["config"])
+    for k in ("incluir_desconocidos", "exclusiva", "activa"):
+        if k in updates:
+            updates[k] = int(updates[k])
+    set_clause = ", ".join(f"{k}=:{k}" for k in updates)
+    updates["id"] = tool_id
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            text(f"UPDATE tools SET {set_clause} WHERE id=:id"), updates
+        )
+        await session.commit()
+        return result.rowcount > 0
+
+
+async def delete_tool(tool_id: int) -> bool:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(text("DELETE FROM tools WHERE id=:id"), {"id": tool_id})
+        await session.commit()
+        return result.rowcount > 0
+
+
+async def set_tool_connections(tool_id: int, bot_ids: list[str]) -> None:
+    async with AsyncSessionLocal() as session:
+        await session.execute(text("DELETE FROM tool_connections WHERE tool_id=:tid"), {"tid": tool_id})
+        for bid in bot_ids:
+            await session.execute(
+                text("INSERT INTO tool_connections (tool_id, bot_id) VALUES (:tid, :bid)"),
+                {"tid": tool_id, "bid": bid},
+            )
+        await session.commit()
+
+
+async def set_tool_contacts_included(tool_id: int, contact_ids: list[int]) -> None:
+    async with AsyncSessionLocal() as session:
+        await session.execute(text("DELETE FROM tool_contacts_included WHERE tool_id=:tid"), {"tid": tool_id})
+        for cid in contact_ids:
+            await session.execute(
+                text("INSERT INTO tool_contacts_included (tool_id, contact_id) VALUES (:tid, :cid)"),
+                {"tid": tool_id, "cid": cid},
+            )
+        await session.commit()
+
+
+async def set_tool_contacts_excluded(tool_id: int, contact_ids: list[int]) -> None:
+    async with AsyncSessionLocal() as session:
+        await session.execute(text("DELETE FROM tool_contacts_excluded WHERE tool_id=:tid"), {"tid": tool_id})
+        for cid in contact_ids:
+            await session.execute(
+                text("INSERT INTO tool_contacts_excluded (tool_id, contact_id) VALUES (:tid, :cid)"),
+                {"tid": tool_id, "cid": cid},
+            )
+        await session.commit()
+
+
+async def get_active_tools_for_bot(bot_id: str, empresa_id: str) -> list[dict]:
+    """Herramientas activas que aplican a este bot (por conexión explícita o vacía=todas)."""
+    async with AsyncSessionLocal() as session:
+        rows = (await session.execute(
+            text("""
+                SELECT DISTINCT t.id,t.empresa_id,t.nombre,t.tipo,t.config,
+                       t.incluir_desconocidos,t.exclusiva,t.activa,t.created_at
+                FROM tools t
+                LEFT JOIN tool_connections tc ON tc.tool_id = t.id
+                WHERE t.empresa_id = :empresa_id
+                  AND t.activa = 1
+                  AND (tc.bot_id = :bot_id OR tc.bot_id IS NULL)
+                ORDER BY t.id
+            """),
+            {"empresa_id": empresa_id, "bot_id": bot_id},
+        )).fetchall()
+        if not rows:
+            return []
+        details = await _get_tool_details(session, [r[0] for r in rows])
+        return [_tool_row_to_dict(r, details) for r in rows]
