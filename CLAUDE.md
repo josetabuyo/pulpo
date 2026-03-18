@@ -55,7 +55,9 @@ git worktree add /Users/josetabuyo/Development/pulpo/<rama> -b <rama>
 WDIR=/Users/josetabuyo/Development/pulpo/<rama>
 ln -s /Users/josetabuyo/Development/pulpo/_/node_modules  $WDIR/node_modules
 ln -s /Users/josetabuyo/Development/pulpo/_/phones.json   $WDIR/phones.json
-ln -s /Users/josetabuyo/Development/pulpo/_/data          $WDIR/data
+# ⚠️  NO linkear data/ — cada worktree tiene su propia data/ aislada
+# El backend la crea automáticamente al arrancar (messages.db vacía, sin sesiones WA reales)
+mkdir -p $WDIR/data
 ```
 
 ### 3. `.env` con puertos únicos
@@ -142,6 +144,39 @@ Archivos:
 > ```bash
 > .venv/bin/pip install pytest pytest-asyncio httpx
 > ```
+
+## Browsers automatizados — tres usos distintos
+
+Hay tres tipos de browser Playwright/Chromium corriendo en paralelo. **Nunca confundirlos:**
+
+| Tipo | Cómo identificarlo en `ps` | Tocar |
+|------|---------------------------|-------|
+| **MCP** (Claude + dev) | proceso node `playwright-mcp` + Chrome con `--user-data-dir=/var/folders/...` | ✅ OK matar |
+| **WA bots** | Chrome con `--user-data-dir=.../data/sessions/{número}/profile` | ❌ NUNCA |
+| **Tests de UI** | Chrome lanzado por `playwright test` (también `/var/folders/...`) | ✅ OK (solo existen mientras corren tests) |
+
+### Cuando el MCP se traba
+El servidor MCP es el proceso node `playwright-mcp` — **nunca matarlo**, es el que le da las herramientas de browser a Claude.
+
+Lo que hay que hacer es matar solo el **Chrome** que el MCP lanzó (tiene user-data-dir temporal en `/var/folders/...`). El servidor node lo reinicia solo:
+
+```bash
+# Matar solo el Chrome del MCP (NO el servidor node)
+pkill -f "playwright_chromiumdev_profile"
+
+# Verificar que los WA bots sobrevivieron
+ps aux | grep "data/sessions" | grep -v grep
+```
+
+Si el servidor node también está caído (porque alguien lo mató), el **usuario** lo reinicia en su terminal:
+```bash
+npm exec @playwright/mcp@latest --browser chromium
+```
+Claude NO puede iniciarlo — necesita que el servidor esté corriendo para tener las herramientas.
+
+La clave para distinguir: `--user-data-dir`
+- `/var/folders/...` → temporal (MCP o test) — matar el Chrome OK, nunca el node server
+- `.../data/sessions/` → persistente WA — NUNCA tocar
 
 ## Sesiones WhatsApp — reglas críticas
 - **NUNCA `pkill -9`** en procesos Playwright/Chromium — SIGKILL corrompe el perfil Chrome y pierde la sesión WA

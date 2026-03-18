@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import StatusBadge from '../components/StatusBadge.jsx'
 import ChatWidget from '../components/ChatWidget.jsx'
 import { ConexionRow } from './NuevaEmpresaPage.jsx'
@@ -547,6 +548,10 @@ function EmpresaLogin({ onLogin }) {
             onChange={e => setPwd(e.target.value)} autoFocus />
           <button type="submit" className="btn-connect">Entrar</button>
         </form>
+        <div className="connect-divider">¿Primera vez?</div>
+        <Link to="/empresa/nueva" className="btn-ghost btn-sm" style={{ textAlign: 'center', display: 'block' }}>
+          Crear empresa nueva →
+        </Link>
       </div>
     </div>
   )

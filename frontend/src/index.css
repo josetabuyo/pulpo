@@ -293,6 +293,16 @@ main { max-width: 900px; margin: 28px auto; padding: 0 16px; }
   width: 100%; padding: 12px; border-radius: 10px;
   font-size: 15px; font-weight: 600; background: #7c3aed; color: white;
 }
+.connect-divider {
+  margin: 20px 0 10px; font-size: 12px; color: #aaa; text-align: center;
+  position: relative;
+}
+.connect-divider::before, .connect-divider::after {
+  content: ''; position: absolute; top: 50%; width: 30%; height: 1px; background: #eee;
+}
+.connect-divider::before { left: 0; }
+.connect-divider::after { right: 0; }
+.btn-sm { font-size: 13px; padding: 8px 16px; border-radius: 8px; }
 .qr-wrap-lg {
   width: 260px; height: 260px; margin: 20px auto 16px;
   border: 2px dashed #ddd; border-radius: 14px;
@@ -748,8 +758,11 @@ main { max-width: 900px; margin: 28px auto; padding: 0 16px; }
 /* ─── Conversaciones inline ─── */
 .conv-inline { display: flex; flex-direction: column; }
 .conv-inline-chat {
-  background: #f8f8f8;
-  border-bottom: 1px solid #f0f0f0;
+  background: #faf8ff;
+  border-bottom: 1px solid #e8e0ff;
+  border-left: 3px solid #7c3aed;
+  padding: 12px;
 }
-.conv-row--active { background: #f5f0ff !important; }
+.conv-row--active { background: #f0ebff !important; }
 .conv-row--active .conv-name { color: #7c3aed; font-weight: 700; }
+.conv-row--active .conv-avatar { outline: 2px solid #7c3aed; }
