@@ -867,6 +867,11 @@ main { max-width: 900px; margin: 28px auto; padding: 0 16px; }
 .tool-pick-item input[type="checkbox"] { display: none; }
 .tool-pick-item--on  { background: #e8f5e9; border-color: #4caf50; color: #2e7d32; font-weight: 600; }
 .tool-pick-item--exc { background: #fce4ec; border-color: #e91e63; color: #880e4f; font-weight: 600; }
+.tool-empty-contacts {
+  font-size: 12px; color: #888; padding: 8px 10px;
+  border: 1px dashed #d0d0d0; border-radius: 8px;
+  background: #fafafa; margin-top: 4px;
+}
 
 .tool-toggles {
   display: flex; flex-direction: column; gap: 8px;

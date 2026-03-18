@@ -388,7 +388,6 @@ function ToolModal({ botId, tool, contacts, onClose, onSaved }) {
     incluidos: (tool?.contactos_incluidos ?? []).map(c => c.id),
     excluidos: (tool?.contactos_excluidos ?? []).map(c => c.id),
     incluir_desconocidos: tool?.incluir_desconocidos ?? false,
-    exclusiva: tool?.exclusiva ?? false,
   })
   const [allConns, setAllConns] = useState([])
   const [conflicts, setConflicts] = useState([])
@@ -420,9 +419,8 @@ function ToolModal({ botId, tool, contacts, onClose, onSaved }) {
     }))
   }
 
-  // Validación en tiempo real
+  // Validación de exclusividad en tiempo real (siempre exclusiva)
   useEffect(() => {
-    if (!form.exclusiva) { setConflicts([]); return }
     const t = setTimeout(async () => {
       setValidating(true)
       const res = await empresaApi('POST', '/tools/validate-exclusivity', {
@@ -431,13 +429,13 @@ function ToolModal({ botId, tool, contacts, onClose, onSaved }) {
         conexiones: form.conexiones,
         contactos_incluidos: form.incluidos,
         incluir_desconocidos: form.incluir_desconocidos,
-        exclusiva: form.exclusiva,
+        exclusiva: true,
       }).catch(() => null)
       setValidating(false)
       setConflicts(res?.conflicts ?? [])
     }, 400)
     return () => clearTimeout(t)
-  }, [form.conexiones, form.incluidos, form.incluir_desconocidos, form.exclusiva, botId, tool?.id])
+  }, [form.conexiones, form.incluidos, form.incluir_desconocidos, botId, tool?.id])
 
   async function handleSave(e) {
     e.preventDefault(); setErr(''); setSaving(true)
@@ -452,7 +450,7 @@ function ToolModal({ botId, tool, contacts, onClose, onSaved }) {
       contactos_incluidos: form.incluidos,
       contactos_excluidos: form.excluidos,
       incluir_desconocidos: form.incluir_desconocidos,
-      exclusiva: form.exclusiva,
+      exclusiva: true,
     }
     const method = isEdit ? 'PUT' : 'POST'
     const path = isEdit ? `/tools/${tool.id}` : `/empresas/${botId}/tools`
@@ -509,45 +507,48 @@ function ToolModal({ botId, tool, contacts, onClose, onSaved }) {
           </div>
 
           <div className="fg">
-            <label>Contactos incluidos</label>
-            <div className="tool-contact-picks">
-              {contacts.map(c => (
-                <label key={c.id} className={`tool-pick-item ${form.incluidos.includes(c.id) ? 'tool-pick-item--on' : ''}`}>
-                  <input type="checkbox" checked={form.incluidos.includes(c.id)}
-                    onChange={() => toggleContact('incluidos', c.id)} />
-                  {c.name}
-                </label>
-              ))}
-              {contacts.length === 0 && <span style={{ fontSize: 12, color: '#999' }}>Sin contactos registrados</span>}
-            </div>
+            <label>Contactos incluidos
+              <small style={{ fontWeight: 400, color: '#888', marginLeft: 6 }}>— clic para seleccionar</small>
+            </label>
+            {contacts.length === 0
+              ? <div className="tool-empty-contacts">
+                  Sin contactos registrados. Agregá contactos desde la sección <strong>Contactos</strong> del portal.
+                </div>
+              : <div className="tool-contact-picks">
+                  {contacts.map(c => (
+                    <label key={c.id} className={`tool-pick-item ${form.incluidos.includes(c.id) ? 'tool-pick-item--on' : ''}`}>
+                      <input type="checkbox" checked={form.incluidos.includes(c.id)}
+                        onChange={() => toggleContact('incluidos', c.id)} />
+                      {c.name}
+                    </label>
+                  ))}
+                </div>
+            }
           </div>
 
-          <div className="fg">
-            <label>Contactos excluidos</label>
-            <div className="tool-contact-picks">
-              {contacts.map(c => (
-                <label key={c.id} className={`tool-pick-item ${form.excluidos.includes(c.id) ? 'tool-pick-item--exc' : ''}`}>
-                  <input type="checkbox" checked={form.excluidos.includes(c.id)}
-                    onChange={() => toggleContact('excluidos', c.id)} />
-                  {c.name}
-                </label>
-              ))}
+          {contacts.length > 0 && (
+            <div className="fg">
+              <label>Contactos excluidos
+                <small style={{ fontWeight: 400, color: '#888', marginLeft: 6 }}>— nunca reciben esta herramienta</small>
+              </label>
+              <div className="tool-contact-picks">
+                {contacts.map(c => (
+                  <label key={c.id} className={`tool-pick-item ${form.excluidos.includes(c.id) ? 'tool-pick-item--exc' : ''}`}>
+                    <input type="checkbox" checked={form.excluidos.includes(c.id)}
+                      onChange={() => toggleContact('excluidos', c.id)} />
+                    {c.name}
+                  </label>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="tool-toggles">
             <label className="tool-toggle">
               <input type="checkbox" checked={form.incluir_desconocidos} onChange={setCheck('incluir_desconocidos')} />
               <div>
                 <span>Incluir desconocidos</span>
-                <small>Aplica a contactos que no están registrados</small>
-              </div>
-            </label>
-            <label className="tool-toggle">
-              <input type="checkbox" checked={form.exclusiva} onChange={setCheck('exclusiva')} />
-              <div>
-                <span>Exclusiva</span>
-                <small>Solo una herramienta exclusiva activa por contacto + conexión</small>
+                <small>Aplica también a contactos que no están registrados</small>
               </div>
             </label>
           </div>
