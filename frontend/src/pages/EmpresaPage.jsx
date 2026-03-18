@@ -106,10 +106,9 @@ function ConexionCard({ conn, botId, pwd, onRefresh }) {
   const isTelegram   = conn.type === 'telegram'
 
   const loadConvs = useCallback(async () => {
-    if (isTelegram) return
     const res = await empresaApi('GET', `/empresa/${botId}/messages/${conn.id}`, null, pwd).catch(() => null)
     if (Array.isArray(res)) setConvs(res)
-  }, [botId, conn.id, pwd, isTelegram])
+  }, [botId, conn.id, pwd])
 
   useEffect(() => {
     loadConvs()
@@ -161,7 +160,7 @@ function ConexionCard({ conn, botId, pwd, onRefresh }) {
         </div>
       )}
 
-      {/* QR */}
+      {/* QR WhatsApp */}
       {!isTelegram && showQr && (
         <div className="portal-qr-section" style={{ marginBottom: 12 }}>
           <p className="qr-hint">Abrí WhatsApp → <strong>Dispositivos vinculados</strong> → <strong>Vincular dispositivo</strong></p>
@@ -171,53 +170,63 @@ function ConexionCard({ conn, botId, pwd, onRefresh }) {
         </div>
       )}
 
-      {/* Conversaciones WA */}
-      {!isTelegram && (
-        <div>
-          <div className="section-header" style={{ marginBottom: 8 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted, #888)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Conversaciones
-            </span>
-            <span className="portal-refresh-hint">Actualiza cada 5 seg.</span>
-          </div>
-
-          {activeContact && (
-            <ContactChat
-              botId={botId}
-              number={conn.id}
-              pwd={pwd}
-              contact={activeContact}
-              onClose={() => { setContact(null); loadConvs() }}
-            />
-          )}
-
-          {!activeContact && (
-            conversations.length === 0
-              ? <div className="empty">Sin mensajes aún</div>
-              : (
-                <div className="portal-conversations">
-                  {conversations.map(m => (
-                    <button
-                      key={m.phone}
-                      className="conv-row"
-                      onClick={() => setContact({ phone: m.phone, name: m.name })}
-                    >
-                      <div className="conv-avatar">{(m.name || m.phone).slice(0, 2).toUpperCase()}</div>
-                      <div className="conv-info">
-                        <div className="conv-name">{m.name || m.phone}</div>
-                        <div className="conv-preview">{m.body}</div>
-                      </div>
-                      <div className="conv-meta">
-                        <div className="conv-time">{m.timestamp?.slice(11, 16)}</div>
-                        {!m.answered && <span className="conv-unread" />}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )
-          )}
+      {/* Instrucciones Telegram */}
+      {isTelegram && (
+        <div className="portal-qr-section" style={{ marginBottom: 12 }}>
+          <p className="qr-hint">
+            Para recibir mensajes, tus contactos deben buscar tu bot en Telegram y escribirle para iniciar la conversación.
+          </p>
+          <p className="qr-status" style={{ marginTop: 8 }}>
+            El bot está {conn.status === 'ready' ? <strong style={{ color: 'var(--success, #16a34a)' }}>activo</strong> : <strong style={{ color: '#888' }}>inactivo</strong>} — los mensajes entrantes aparecerán abajo en tiempo real.
+          </p>
         </div>
       )}
+
+      {/* Conversaciones (WA y TG) */}
+      <div>
+        <div className="section-header" style={{ marginBottom: 8 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted, #888)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Conversaciones
+          </span>
+          <span className="portal-refresh-hint">Actualiza cada 5 seg.</span>
+        </div>
+
+        {activeContact && (
+          <ContactChat
+            botId={botId}
+            number={conn.id}
+            pwd={pwd}
+            contact={activeContact}
+            onClose={() => { setContact(null); loadConvs() }}
+          />
+        )}
+
+        {!activeContact && (
+          conversations.length === 0
+            ? <div className="empty">Sin mensajes aún</div>
+            : (
+              <div className="portal-conversations">
+                {conversations.map(m => (
+                  <button
+                    key={m.phone}
+                    className="conv-row"
+                    onClick={() => setContact({ phone: m.phone, name: m.name })}
+                  >
+                    <div className="conv-avatar">{(m.name || m.phone).slice(0, 2).toUpperCase()}</div>
+                    <div className="conv-info">
+                      <div className="conv-name">{m.name || m.phone}</div>
+                      <div className="conv-preview">{m.body}</div>
+                    </div>
+                    <div className="conv-meta">
+                      <div className="conv-time">{m.timestamp?.slice(11, 16)}</div>
+                      {!m.answered && <span className="conv-unread" />}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )
+        )}
+      </div>
 
     </div>
   )

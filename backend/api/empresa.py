@@ -172,14 +172,20 @@ async def empresa_disconnect(bot_id: str, number: str, x_empresa_pwd: str = Head
 
 # ─── Mensajes / Chat ─────────────────────────────────────────────
 
-def _owns_number(bot: dict, number: str) -> bool:
-    return any(p["number"] == number for p in bot.get("phones", []))
+def _owns_session(bot: dict, session_id: str) -> bool:
+    if any(p["number"] == session_id for p in bot.get("phones", [])):
+        return True
+    for tg in bot.get("telegram", []):
+        token_id = tg["token"].split(":")[0]
+        if f"{bot['id']}-tg-{token_id}" == session_id:
+            return True
+    return False
 
 
 @router.get("/empresa/{bot_id}/messages/{number}")
 async def empresa_messages(bot_id: str, number: str, x_empresa_pwd: str = Header(...)):
     bot = _require_empresa(bot_id, x_empresa_pwd)
-    if not _owns_number(bot, number):
+    if not _owns_session(bot, number):
         raise HTTPException(status_code=404, detail="Número no pertenece a esta empresa")
 
     async with AsyncSessionLocal() as session:
@@ -205,7 +211,7 @@ async def empresa_messages(bot_id: str, number: str, x_empresa_pwd: str = Header
 @router.get("/empresa/{bot_id}/chat/{number}/{contact}")
 async def empresa_chat_get(bot_id: str, number: str, contact: str, x_empresa_pwd: str = Header(...)):
     bot = _require_empresa(bot_id, x_empresa_pwd)
-    if not _owns_number(bot, number):
+    if not _owns_session(bot, number):
         raise HTTPException(status_code=404, detail="Número no pertenece a esta empresa")
 
     async with AsyncSessionLocal() as session:
@@ -232,7 +238,7 @@ class EmpresaSendBody(BaseModel):
 async def empresa_chat_send(bot_id: str, number: str, contact: str,
                             body: EmpresaSendBody, x_empresa_pwd: str = Header(...)):
     bot = _require_empresa(bot_id, x_empresa_pwd)
-    if not _owns_number(bot, number):
+    if not _owns_session(bot, number):
         raise HTTPException(status_code=404, detail="Número no pertenece a esta empresa")
     if not body.text.strip():
         raise HTTPException(status_code=400, detail="Texto vacío")
