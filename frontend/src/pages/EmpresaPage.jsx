@@ -376,6 +376,489 @@ function ConfigView({ botId, botName, onSaved }) {
   )
 }
 
+// ─── HerramientasSection ─────────────────────────────────────────
+
+function ToolModal({ botId, pwd, tool, contacts, onClose, onSaved }) {
+  const isEdit = !!tool
+  const [form, setForm] = useState({
+    nombre: tool?.nombre ?? '',
+    tipo: tool?.tipo ?? 'fixed_message',
+    mensaje: tool?.config?.message ?? '',
+    conexiones: tool?.connections ?? [],
+    incluidos: (tool?.contactos_incluidos ?? []).map(c => c.id),
+    excluidos: (tool?.contactos_excluidos ?? []).map(c => c.id),
+    incluir_desconocidos: tool?.incluir_desconocidos ?? false,
+    exclusiva: tool?.exclusiva ?? false,
+  })
+  const [allConns, setAllConns] = useState([])
+  const [conflicts, setConflicts] = useState([])
+  const [validating, setValidating] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+
+  // Cargar conexiones disponibles
+  useEffect(() => {
+    empresaApi('GET', `/empresa/${botId}`, null, pwd).catch(() => null).then(res => {
+      if (res?.connections) setAllConns(res.connections)
+    })
+  }, [botId, pwd])
+
+  const set = k => v => setForm(f => ({ ...f, [k]: v }))
+  const setE = k => e => setForm(f => ({ ...f, [k]: e.target.value }))
+  const setCheck = k => e => setForm(f => ({ ...f, [k]: e.target.checked }))
+
+  function toggleConn(id) {
+    setForm(f => ({
+      ...f,
+      conexiones: f.conexiones.includes(id) ? f.conexiones.filter(x => x !== id) : [...f.conexiones, id]
+    }))
+  }
+  function toggleContact(k, id) {
+    setForm(f => ({
+      ...f,
+      [k]: f[k].includes(id) ? f[k].filter(x => x !== id) : [...f[k], id]
+    }))
+  }
+
+  // Validación en tiempo real
+  useEffect(() => {
+    if (!form.exclusiva) { setConflicts([]); return }
+    const t = setTimeout(async () => {
+      setValidating(true)
+      const res = await empresaApi('POST', '/tools/validate-exclusivity', {
+        empresa_id: botId,
+        tool_id: tool?.id ?? null,
+        conexiones: form.conexiones,
+        contactos_incluidos: form.incluidos,
+        incluir_desconocidos: form.incluir_desconocidos,
+        exclusiva: form.exclusiva,
+      }, pwd).catch(() => null)
+      setValidating(false)
+      setConflicts(res?.conflicts ?? [])
+    }, 400)
+    return () => clearTimeout(t)
+  }, [form.conexiones, form.incluidos, form.incluir_desconocidos, form.exclusiva, botId, pwd, tool?.id])
+
+  async function handleSave(e) {
+    e.preventDefault(); setErr(''); setSaving(true)
+    if (!form.nombre.trim()) { setErr('El nombre es obligatorio'); setSaving(false); return }
+    if (conflicts.length > 0) { setErr('Hay conflictos de exclusividad'); setSaving(false); return }
+
+    const payload = {
+      nombre: form.nombre.trim(),
+      tipo: form.tipo,
+      config: { message: form.mensaje },
+      conexiones: form.conexiones,
+      contactos_incluidos: form.incluidos,
+      contactos_excluidos: form.excluidos,
+      incluir_desconocidos: form.incluir_desconocidos,
+      exclusiva: form.exclusiva,
+    }
+    const method = isEdit ? 'PUT' : 'POST'
+    const path = isEdit ? `/tools/${tool.id}` : `/empresas/${botId}/tools`
+    const res = await empresaApi(method, path, payload, pwd).catch(() => null)
+    setSaving(false)
+    if (!res?.id) { setErr(res?.detail || 'Error al guardar'); return }
+    onSaved(res)
+  }
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal-box" style={{ width: 560 }}>
+        <div className="modal-header">
+          <span>{isEdit ? 'Editar herramienta' : 'Nueva herramienta'}</span>
+          <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
+        </div>
+        <form onSubmit={handleSave}>
+
+          <div className="fg">
+            <label>Nombre</label>
+            <input value={form.nombre} onChange={setE('nombre')} placeholder="Ej: Bienvenida VIP" autoFocus />
+          </div>
+
+          <div className="fg">
+            <label>Tipo</label>
+            <select value={form.tipo} onChange={setE('tipo')}>
+              <option value="fixed_message">Mensaje fijo</option>
+            </select>
+          </div>
+
+          {form.tipo === 'fixed_message' && (
+            <div className="fg">
+              <label>Mensaje</label>
+              <textarea rows={3} value={form.mensaje} onChange={setE('mensaje')}
+                placeholder="Texto que enviará el bot al activarse" />
+            </div>
+          )}
+
+          <div className="fg">
+            <label>Conexiones</label>
+            <div className="tool-checks">
+              {allConns.map(c => (
+                <label key={c.id} className="tool-check-label">
+                  <input type="checkbox" checked={form.conexiones.includes(c.id)}
+                    onChange={() => toggleConn(c.id)} />
+                  {c.type === 'telegram' ? '✈️' : '📱'} {c.number || c.id}
+                </label>
+              ))}
+              {allConns.length === 0 && <span style={{ fontSize: 12, color: '#999' }}>Sin conexiones configuradas</span>}
+            </div>
+            <div style={{ fontSize: 11, color: '#999', marginTop: 3 }}>
+              Si no seleccionás ninguna, aplica a todas las conexiones de la empresa.
+            </div>
+          </div>
+
+          <div className="fg">
+            <label>Contactos incluidos</label>
+            <div className="tool-contact-picks">
+              {contacts.map(c => (
+                <label key={c.id} className={`tool-pick-item ${form.incluidos.includes(c.id) ? 'tool-pick-item--on' : ''}`}>
+                  <input type="checkbox" checked={form.incluidos.includes(c.id)}
+                    onChange={() => toggleContact('incluidos', c.id)} />
+                  {c.name}
+                </label>
+              ))}
+              {contacts.length === 0 && <span style={{ fontSize: 12, color: '#999' }}>Sin contactos registrados</span>}
+            </div>
+          </div>
+
+          <div className="fg">
+            <label>Contactos excluidos</label>
+            <div className="tool-contact-picks">
+              {contacts.map(c => (
+                <label key={c.id} className={`tool-pick-item ${form.excluidos.includes(c.id) ? 'tool-pick-item--exc' : ''}`}>
+                  <input type="checkbox" checked={form.excluidos.includes(c.id)}
+                    onChange={() => toggleContact('excluidos', c.id)} />
+                  {c.name}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="tool-toggles">
+            <label className="tool-toggle">
+              <input type="checkbox" checked={form.incluir_desconocidos} onChange={setCheck('incluir_desconocidos')} />
+              <span>Incluir desconocidos</span>
+              <small>Aplica a contactos no registrados</small>
+            </label>
+            <label className="tool-toggle">
+              <input type="checkbox" checked={form.exclusiva} onChange={setCheck('exclusiva')} />
+              <span>Exclusiva</span>
+              <small>Solo una herramienta exclusiva por contacto+conexión</small>
+            </label>
+          </div>
+
+          {conflicts.length > 0 && (
+            <div className="conflict-panel">
+              <div className="conflict-title">Conflictos de exclusividad {validating ? '(verificando...)' : ''}</div>
+              {conflicts.map((c, i) => (
+                <div key={i} className="conflict-item">
+                  <strong>{c.conflicting_tool_nombre}</strong>
+                  {c.conflicting_empresa_id !== botId && ` (${c.conflicting_empresa_nombre})`}
+                  {' — '}{c.contact_name ? `contacto: ${c.contact_name}` : 'desconocidos'}
+                  {' en '}{c.bot_id}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {err && <div className="error" style={{ fontSize: 13, marginBottom: 8 }}>{err}</div>}
+          <div className="portal-save-row">
+            <button type="button" className="btn-ghost btn-sm" onClick={onClose}>Cancelar</button>
+            <button type="submit" className="btn-primary btn-sm"
+              disabled={saving || conflicts.length > 0}>
+              {saving ? 'Guardando...' : 'Guardar'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function HerramientasSection({ botId, pwd }) {
+  const [tools, setTools]     = useState([])
+  const [contacts, setContacts] = useState([])
+  const [modal, setModal]     = useState(null) // null | 'new' | tool-obj
+
+  const load = useCallback(async () => {
+    const [t, c] = await Promise.all([
+      empresaApi('GET', `/empresas/${botId}/tools`, null, pwd).catch(() => []),
+      empresaApi('GET', `/bots/${botId}/contacts`, null, pwd).catch(() => []),
+    ])
+    if (Array.isArray(t)) setTools(t)
+    if (Array.isArray(c)) setContacts(c)
+  }, [botId, pwd])
+
+  useEffect(() => { load() }, [load])
+
+  async function handleToggle(tool) {
+    await empresaApi('POST', `/tools/${tool.id}/toggle`, null, pwd).catch(() => null)
+    load()
+  }
+
+  async function handleDelete(tool) {
+    if (!confirm(`¿Eliminar herramienta "${tool.nombre}"?`)) return
+    await empresaApi('DELETE', `/tools/${tool.id}`, null, pwd).catch(() => null)
+    load()
+  }
+
+  function handleSaved() { setModal(null); load() }
+
+  return (
+    <div className="card">
+      <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span>Herramientas</span>
+        <button className="btn-primary btn-sm" onClick={() => setModal('new')}>+ Nueva</button>
+      </div>
+
+      {tools.length === 0
+        ? <div className="empty" style={{ marginBottom: 12 }}>Sin herramientas configuradas</div>
+        : <table className="contacts-table">
+            <thead><tr><th>Nombre</th><th>Tipo</th><th>Estado</th><th>Info</th><th></th></tr></thead>
+            <tbody>
+              {tools.map(t => (
+                <tr key={t.id}>
+                  <td>
+                    {t.nombre}
+                    {t.exclusiva && <span className="ch-badge ch-badge--telegram" style={{ marginLeft: 6 }}>Exclusiva</span>}
+                  </td>
+                  <td style={{ fontSize: 12, color: '#666' }}>Mensaje fijo</td>
+                  <td>
+                    <button
+                      className={`status-toggle ${t.activa ? 'status-toggle--on' : 'status-toggle--off'}`}
+                      onClick={() => handleToggle(t)}
+                    >
+                      {t.activa ? 'Activa' : 'Inactiva'}
+                    </button>
+                  </td>
+                  <td style={{ fontSize: 12, color: '#888' }}>
+                    {t.connections.length > 0 ? t.connections.join(', ') : 'Todas'}
+                    {' · '}{t.contactos_incluidos.length > 0
+                      ? `${t.contactos_incluidos.length} incluidos`
+                      : t.incluir_desconocidos ? 'todos' : '—'}
+                  </td>
+                  <td>
+                    <button className="btn-ghost btn-sm" style={{ marginRight: 4 }} onClick={() => setModal(t)}>Editar</button>
+                    <button className="btn-danger btn-sm" onClick={() => handleDelete(t)}>Eliminar</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+      }
+
+      {modal && (
+        <ToolModal
+          botId={botId}
+          pwd={pwd}
+          tool={modal === 'new' ? null : modal}
+          contacts={contacts}
+          onClose={() => setModal(null)}
+          onSaved={handleSaved}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─── ContactosSection ────────────────────────────────────────────
+
+const CHANNEL_LABELS = { whatsapp: '📱 WA', telegram: '✈️ TG' }
+
+function ContactModal({ botId, pwd, contact, onClose, onSaved }) {
+  const isEdit = !!contact
+  const [name, setName]         = useState(contact?.name ?? '')
+  const [channels, setChannels] = useState(contact?.channels ?? [])
+  const [newType, setNewType]   = useState('whatsapp')
+  const [newVal, setNewVal]     = useState('')
+  const [chErr, setChErr]       = useState('')
+  const [saving, setSaving]     = useState(false)
+  const [err, setErr]           = useState('')
+
+  async function handleSave(e) {
+    e.preventDefault(); setErr(''); setSaving(true)
+    if (!name.trim()) { setErr('El nombre es obligatorio'); setSaving(false); return }
+
+    if (isEdit) {
+      const res = await empresaApi('PUT', `/contacts/${contact.id}`, { name }, pwd).catch(() => null)
+      if (!res?.id) { setErr(res?.detail || 'Error al guardar'); setSaving(false); return }
+      onSaved(res)
+    } else {
+      const res = await empresaApi('POST', `/bots/${botId}/contacts`, { name, channels }, pwd).catch(() => null)
+      if (!res?.id) { setErr(res?.detail || 'Error al crear'); setSaving(false); return }
+      onSaved(res)
+    }
+    setSaving(false)
+  }
+
+  async function addChannel(e) {
+    e.preventDefault(); setChErr('')
+    const val = newVal.trim(); if (!val) return
+    if (isEdit) {
+      const res = await empresaApi('POST', `/contacts/${contact.id}/channels`, { type: newType, value: val }, pwd).catch(() => null)
+      if (!res?.id) { setChErr(res?.detail || 'Error al agregar canal'); return }
+      setChannels(c => [...c, res])
+    } else {
+      setChannels(c => [...c, { id: Date.now(), type: newType, value: val }])
+    }
+    setNewVal('')
+  }
+
+  async function removeChannel(ch) {
+    if (isEdit) {
+      await empresaApi('DELETE', `/contact-channels/${ch.id}`, null, pwd).catch(() => null)
+    }
+    setChannels(c => c.filter(x => x.id !== ch.id))
+  }
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal-box">
+        <div className="modal-header">
+          <span>{isEdit ? 'Editar contacto' : 'Nuevo contacto'}</span>
+          <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
+        </div>
+        <form onSubmit={handleSave}>
+          <div className="fg">
+            <label>Nombre</label>
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="Nombre del contacto" autoFocus />
+          </div>
+
+          <div className="fg">
+            <label>Canales</label>
+            {channels.length > 0
+              ? <div className="channel-list">
+                  {channels.map(ch => (
+                    <div key={ch.id} className="channel-item">
+                      <span className="ch-badge ch-badge--small">{CHANNEL_LABELS[ch.type] || ch.type}</span>
+                      <span className="ch-value">{ch.value}</span>
+                      <button type="button" className="btn-ghost btn-sm" onClick={() => removeChannel(ch)}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              : <div className="empty" style={{ marginBottom: 8 }}>Sin canales</div>
+            }
+            <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+              <select value={newType} onChange={e => setNewType(e.target.value)} style={{ width: 130 }}>
+                <option value="whatsapp">WhatsApp</option>
+                <option value="telegram">Telegram</option>
+              </select>
+              <input style={{ flex: 1 }} value={newVal} onChange={e => setNewVal(e.target.value)}
+                placeholder={newType === 'whatsapp' ? 'Número (sin +)' : 'Número o @username'} />
+              <button type="button" className="btn-ghost btn-sm" onClick={addChannel}>+ Canal</button>
+            </div>
+            {chErr && <div className="error" style={{ fontSize: 12, marginTop: 4 }}>{chErr}</div>}
+          </div>
+
+          {err && <div className="error" style={{ fontSize: 13, marginBottom: 8 }}>{err}</div>}
+          <div className="portal-save-row">
+            <button type="button" className="btn-ghost btn-sm" onClick={onClose}>Cancelar</button>
+            <button type="submit" className="btn-primary btn-sm" disabled={saving}>
+              {saving ? 'Guardando...' : 'Guardar'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function ContactosSection({ botId, pwd }) {
+  const [contacts, setContacts]   = useState([])
+  const [suggested, setSuggested] = useState([])
+  const [modal, setModal]         = useState(null) // null | 'new' | contact-obj
+  const [loading, setLoading]     = useState(false)
+
+  const loadContacts = useCallback(async () => {
+    const [c, s] = await Promise.all([
+      empresaApi('GET', `/bots/${botId}/contacts`, null, pwd).catch(() => []),
+      empresaApi('GET', `/bots/${botId}/contacts/suggested`, null, pwd).catch(() => []),
+    ])
+    if (Array.isArray(c)) setContacts(c)
+    if (Array.isArray(s)) setSuggested(s)
+  }, [botId, pwd])
+
+  useEffect(() => { loadContacts() }, [loadContacts])
+
+  async function handleDelete(contact) {
+    if (!confirm(`¿Eliminar "${contact.name}"?`)) return
+    await empresaApi('DELETE', `/contacts/${contact.id}`, null, pwd).catch(() => null)
+    loadContacts()
+  }
+
+  async function handleAddSuggested(s) {
+    setLoading(true)
+    const res = await empresaApi('POST', `/bots/${botId}/contacts`,
+      { name: s.name || s.phone, channels: [{ type: 'whatsapp', value: s.phone }] }, pwd
+    ).catch(() => null)
+    setLoading(false)
+    if (res?.id) loadContacts()
+  }
+
+  function handleSaved() { setModal(null); loadContacts() }
+
+  return (
+    <div className="card">
+      <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span>Contactos</span>
+        <button className="btn-primary btn-sm" onClick={() => setModal('new')}>+ Nuevo</button>
+      </div>
+
+      {contacts.length === 0
+        ? <div className="empty" style={{ marginBottom: 12 }}>Sin contactos registrados</div>
+        : <table className="contacts-table">
+            <thead><tr><th>Nombre</th><th>Canales</th><th>Creado</th><th></th></tr></thead>
+            <tbody>
+              {contacts.map(c => (
+                <tr key={c.id}>
+                  <td>{c.name}</td>
+                  <td>
+                    {c.channels.map(ch => (
+                      <span key={ch.id} className={`ch-badge ch-badge--${ch.type}`}>
+                        {CHANNEL_LABELS[ch.type]} {ch.value}
+                      </span>
+                    ))}
+                  </td>
+                  <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{c.created_at?.slice(0, 10)}</td>
+                  <td>
+                    <button className="btn-ghost btn-sm" style={{ marginRight: 4 }} onClick={() => setModal(c)}>Editar</button>
+                    <button className="btn-danger btn-sm" onClick={() => handleDelete(c)}>Eliminar</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+      }
+
+      {suggested.length > 0 && (
+        <>
+          <div className="card-subtitle" style={{ marginTop: 16 }}>Sugeridos (escribieron pero no están registrados)</div>
+          <div className="suggested-list">
+            {suggested.map(s => (
+              <div key={s.phone} className="suggested-item">
+                <span>{s.name || s.phone} <small style={{ color: 'var(--text-muted)' }}>({s.phone})</small></span>
+                <button className="btn-ghost btn-sm" disabled={loading}
+                  onClick={() => handleAddSuggested(s)}>+ Agregar</button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {modal && (
+        <ContactModal
+          botId={botId}
+          pwd={pwd}
+          contact={modal === 'new' ? null : modal}
+          onClose={() => setModal(null)}
+          onSaved={handleSaved}
+        />
+      )}
+    </div>
+  )
+}
+
 // ─── EmpresaDashboard ────────────────────────────────────────────
 
 function EmpresaDashboard({ botId, botName: initialBotName, onLogout }) {
@@ -510,6 +993,12 @@ function EmpresaDashboard({ botId, botName: initialBotName, onLogout }) {
           </form>
           {tgError && <div style={{ fontSize: 13, marginTop: 6, color: tgError.includes('Requiere') ? '#b45309' : 'var(--error)' }}>{tgError}</div>}
         </div>
+
+        {/* 4. HERRAMIENTAS */}
+        <HerramientasSection botId={botId} pwd={pwd} />
+
+        {/* 5. CONTACTOS */}
+        <ContactosSection botId={botId} pwd={pwd} />
 
       </main>
     </div>

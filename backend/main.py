@@ -26,6 +26,8 @@ from api.sim import router as sim_router
 from api.client import router as client_router
 from api.logs import router as logs_router
 from api.empresa import router as empresa_router
+from api.contacts import router as contacts_router
+from api.tools import router as tools_router
 import sim as sim_engine
 
 logging.basicConfig(
@@ -139,6 +141,8 @@ app.include_router(client_router, prefix="/api")
 app.include_router(logs_router, prefix="/api")
 app.include_router(auth_empresa_router, prefix="/api")
 app.include_router(empresa_router, prefix="/api")
+app.include_router(contacts_router, prefix="/api")
+app.include_router(tools_router, prefix="/api")
 
 
 @app.get("/health")

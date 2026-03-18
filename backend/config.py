@@ -15,6 +15,29 @@ def save_config(config: dict) -> None:
         json.dump(config, f, indent=2, ensure_ascii=False)
 
 
+def get_empresa_for_bot(bot_id: str) -> str | None:
+    """
+    Retorna el empresa_id al que pertenece este bot_id.
+    En phones.json, el 'id' del bot es el empresa_id.
+    Los números WA y session TG pertenecen al bot que los contiene.
+    """
+    config = load_config()
+    for bot in config.get("bots", []):
+        # El bot_id directo
+        if bot["id"] == bot_id:
+            return bot["id"]
+        # Números WA
+        for phone in bot.get("phones", []):
+            if phone["number"] == bot_id:
+                return bot["id"]
+        # Sessions TG
+        for tg in bot.get("telegram", []):
+            token_id = tg["token"].split(":")[0]
+            if f"{bot['id']}-tg-{token_id}" == bot_id:
+                return bot["id"]
+    return None
+
+
 def get_telegram_bots(config: dict) -> list[dict]:
     """
     Devuelve una lista de configs de bots de Telegram:
