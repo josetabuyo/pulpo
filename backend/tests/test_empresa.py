@@ -28,7 +28,7 @@ def test_empresa_auth_missing_body(client):
 # ─── Endpoints con auth válida (usa la password de test del bot_test) ──
 
 BOT_ID  = "bot_test"
-BOT_PWD = "test1234"
+BOT_PWD = "bot_test"
 EMPRESA = {"x-empresa-pwd": BOT_PWD}
 
 
