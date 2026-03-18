@@ -144,6 +144,12 @@ Estas cosas van independientemente del sistema de auth elegido:
 
 ## Estado
 
-- [ ] Fase 1: JWT + refresh tokens + rate limiting
+- [x] Fase 1: JWT + refresh tokens + rate limiting — **completado 2026-03-18**, mergeado a master
+  - Tabla `sessions` en SQLite
+  - `POST /api/empresa/login` → JWT 30min + refresh cookie HttpOnly 30d
+  - `POST /api/empresa/refresh` + `POST /api/empresa/logout`
+  - Middleware Bearer en `/empresa/{bot_id}/*`
+  - Rate limiting 10 intentos/hora por IP (`slowapi`)
+  - Frontend: `authFetch` wrapper con auto-refresh en 401
 - [ ] Fase 2: Google OAuth (post-dominio propio)
 - [ ] Hash de contraseñas en phones.json
