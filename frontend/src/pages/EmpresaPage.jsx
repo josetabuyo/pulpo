@@ -90,7 +90,7 @@ function ContactChat({ botId, number, contact, onClose }) {
 
 // ─── ConexionCard ────────────────────────────────────────────────
 
-function ConexionCard({ conn, botId, onRefresh }) {
+function ConexionCard({ conn, botId, contacts = [], onRefresh }) {
   const [showQr, setShowQr]         = useState(false)
   const [qrSrc, setQrSrc]           = useState(null)
   const [qrStatus, setQrStatus]     = useState('')
@@ -101,6 +101,15 @@ function ConexionCard({ conn, botId, onRefresh }) {
   const isConnected  = conn.status === 'ready'
   const isConnecting = ['connecting', 'qr_needed', 'qr_ready', 'authenticated'].includes(conn.status)
   const isTelegram   = conn.type === 'telegram'
+
+  // Solo mostrar conversaciones de contactos registrados
+  const chanType = isTelegram ? 'telegram' : 'whatsapp'
+  const allowedValues = new Set(
+    contacts.flatMap(c => c.channels.filter(ch => ch.type === chanType).map(ch => ch.value))
+  )
+  const visibleConvs = conversations.filter(m =>
+    allowedValues.has(m.phone) || allowedValues.has(m.name)
+  )
 
   const loadConvs = useCallback(async () => {
     const res = await empresaApi('GET', `/empresa/${botId}/messages/${conn.id}`, null).catch(() => null)
@@ -163,12 +172,14 @@ function ConexionCard({ conn, botId, onRefresh }) {
         </div>
       )}
 
-      {/* Conversaciones: lista inline con expansión */}
+      {/* Conversaciones: solo contactos registrados */}
       {!showQr && (
         <div className="conv-inline">
-          {conversations.length === 0
-            ? <div className="empty">Sin mensajes aún</div>
-            : [...conversations]
+          {contacts.length === 0
+            ? <div className="empty">Sin contactos registrados. Agregá contactos en la sección Contactos.</div>
+            : visibleConvs.length === 0
+              ? <div className="empty">Sin mensajes de contactos registrados aún</div>
+              : [...visibleConvs]
                 .sort((a, b) => {
                   if (activeContact?.phone === a.phone) return -1
                   if (activeContact?.phone === b.phone) return 1
@@ -211,7 +222,7 @@ function ConexionCard({ conn, botId, onRefresh }) {
   )
 }
 
-// ─── Vista Configurar ────────────────────────────────────────────
+// ─── Vista Configurar ─────────────────────────────────────────────────────
 
 function ConfigView({ botId, botName, onSaved }) {
   const [form, setForm]             = useState({ name: botName, password: '', newPassword: '', autoReplyMessage: '' })
@@ -768,11 +779,12 @@ function ContactModal({ botId, contact, onClose, onSaved }) {
   )
 }
 
-function ContactosSection({ botId }) {
-  const [contacts, setContacts]   = useState([])
-  const [suggested, setSuggested] = useState([])
-  const [modal, setModal]         = useState(null) // null | 'new' | contact-obj
-  const [loading, setLoading]     = useState(false)
+function ContactosSection({ botId, onContactsChange }) {
+  const [contacts, setContacts]         = useState([])
+  const [suggested, setSuggested]       = useState([])
+  const [modal, setModal]               = useState(null) // null | 'new' | contact-obj
+  const [loading, setLoading]           = useState(false)
+  const [showSuggested, setShowSuggested] = useState(false)
 
   const loadContacts = useCallback(async () => {
     const [c, s] = await Promise.all([
@@ -800,13 +812,20 @@ function ContactosSection({ botId }) {
     if (res?.id) loadContacts()
   }
 
-  function handleSaved() { setModal(null); loadContacts() }
+  function handleSaved() { setModal(null); loadContacts(); onContactsChange?.() }
 
   return (
     <div className="card">
       <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span>Contactos</span>
-        <button className="btn-primary btn-sm" onClick={() => setModal('new')}>+ Nuevo</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {suggested.length > 0 && (
+            <button className="btn-ghost btn-sm" onClick={() => setShowSuggested(s => !s)}>
+              {showSuggested ? '▲' : '▼'} Sugeridos ({suggested.length})
+            </button>
+          )}
+          <button className="btn-primary btn-sm" onClick={() => setModal('new')}>+ Nuevo</button>
+        </div>
       </div>
 
       {contacts.length === 0
@@ -835,19 +854,16 @@ function ContactosSection({ botId }) {
           </table>
       }
 
-      {suggested.length > 0 && (
-        <>
-          <div className="card-subtitle" style={{ marginTop: 16 }}>Sugeridos (escribieron pero no están registrados)</div>
-          <div className="suggested-list">
-            {suggested.map(s => (
-              <div key={s.phone} className="suggested-item">
-                <span>{s.name || s.phone} <small style={{ color: 'var(--text-muted)' }}>({s.phone})</small></span>
-                <button className="btn-ghost btn-sm" disabled={loading}
-                  onClick={() => handleAddSuggested(s)}>+ Agregar</button>
-              </div>
-            ))}
-          </div>
-        </>
+      {showSuggested && suggested.length > 0 && (
+        <div className="suggested-list" style={{ marginTop: 8 }}>
+          {suggested.map(s => (
+            <div key={s.phone} className="suggested-item">
+              <span>{s.name || s.phone} <small style={{ color: 'var(--text-muted)' }}>({s.phone})</small></span>
+              <button className="btn-ghost btn-sm" disabled={loading}
+                onClick={() => handleAddSuggested(s)}>+ Agregar</button>
+            </div>
+          ))}
+        </div>
       )}
 
       {modal && (
@@ -865,15 +881,13 @@ function ContactosSection({ botId }) {
 // ─── EmpresaDashboard ────────────────────────────────────────────
 
 function EmpresaDashboard({ botId, botName: initialBotName, onLogout }) {
-  const [botName, setBotName]       = useState(initialBotName)
-  const [data, setData]             = useState(null)
-  const [replyMsg, setReplyMsg]     = useState('')
-  const [saving, setSaving]         = useState(false)
-  const [saveResult, setSaveResult] = useState(null)
-  const [waInput, setWaInput]       = useState('')
-  const [tgInput, setTgInput]       = useState('')
-  const [waError, setWaError]       = useState('')
-  const [tgError, setTgError]       = useState('')
+  const [botName, setBotName]         = useState(initialBotName)
+  const [data, setData]               = useState(null)
+  const [contacts, setContacts]       = useState([])
+  const [waInput, setWaInput]         = useState('')
+  const [tgInput, setTgInput]         = useState('')
+  const [waError, setWaError]         = useState('')
+  const [tgError, setTgError]         = useState('')
   const [loadingConn, setLoadingConn] = useState(false)
 
   const load = useCallback(async () => {
@@ -881,23 +895,20 @@ function EmpresaDashboard({ botId, botName: initialBotName, onLogout }) {
     if (!res || res.detail) return
     setData(res)
     setBotName(res.bot_name)
-    setReplyMsg(prev => prev === '' ? (res.autoReplyMessage ?? '') : prev)
+  }, [botId])
+
+  const loadContacts = useCallback(async () => {
+    const c = await empresaApi('GET', `/bots/${botId}/contacts`, null).catch(() => [])
+    if (Array.isArray(c)) setContacts(c)
   }, [botId])
 
   useEffect(() => {
     load()
+    loadContacts()
     const iv = setInterval(load, 5000)
-    return () => clearInterval(iv)
-  }, [load])
-
-  async function handleSaveTools() {
-    setSaving(true); setSaveResult(null)
-    const res = await empresaApi('PUT', `/empresa/${botId}/tools`, { autoReplyMessage: replyMsg }).catch(() => null)
-    setSaving(false)
-    setSaveResult(res?.ok ? 'ok' : 'error')
-    if (res?.ok) load()
-    setTimeout(() => setSaveResult(null), 3000)
-  }
+    const iv2 = setInterval(loadContacts, 10000)
+    return () => { clearInterval(iv); clearInterval(iv2) }
+  }, [load, loadContacts])
 
   async function addWa(e) {
     e.preventDefault(); setWaError('')
@@ -945,31 +956,14 @@ function EmpresaDashboard({ botId, botName: initialBotName, onLogout }) {
 
       <main className="portal-main">
 
-        {/* 1. RESPUESTA AUTOMÁTICA */}
-        <div className="card">
-          <div className="card-title">Respuesta automática</div>
-          <div className="fg">
-            <textarea
-              rows={6}
-              value={replyMsg}
-              onChange={e => setReplyMsg(e.target.value)}
-              placeholder="Ej: Hola, te responderemos a la brevedad."
-            />
-          </div>
-          <div className="portal-save-row">
-            <button className="btn-primary btn-sm" onClick={handleSaveTools} disabled={saving}>
-              {saving ? 'Guardando...' : 'Guardar'}
-            </button>
-            {saveResult === 'ok'    && <span className="portal-save-ok">✓ Guardado</span>}
-            {saveResult === 'error' && <span className="portal-save-err">Error al guardar</span>}
-          </div>
-        </div>
+        {/* 1. HERRAMIENTAS */}
+        <HerramientasSection botId={botId} />
 
         {/* 2. WHATSAPP */}
         <div className="card">
           <div className="card-title">📱 WhatsApp</div>
           {waConns.map(conn => (
-            <ConexionCard key={conn.id} conn={conn} botId={botId} onRefresh={load}
+            <ConexionCard key={conn.id} conn={conn} botId={botId} contacts={contacts} onRefresh={load}
               onDelete={() => removeConn(conn)} />
           ))}
           {waConns.length === 0 && <div className="empty" style={{ marginBottom: 12 }}>Sin números configurados</div>}
@@ -985,7 +979,7 @@ function EmpresaDashboard({ botId, botName: initialBotName, onLogout }) {
         <div className="card">
           <div className="card-title">✈️ Telegram</div>
           {tgConns.map(conn => (
-            <ConexionCard key={conn.id} conn={conn} botId={botId} onRefresh={load}
+            <ConexionCard key={conn.id} conn={conn} botId={botId} contacts={contacts} onRefresh={load}
               onDelete={() => removeConn(conn)} />
           ))}
           {tgConns.length === 0 && <div className="empty" style={{ marginBottom: 12 }}>Sin bots configurados</div>}
@@ -997,11 +991,8 @@ function EmpresaDashboard({ botId, botName: initialBotName, onLogout }) {
           {tgError && <div style={{ fontSize: 13, marginTop: 6, color: tgError.includes('Requiere') ? '#b45309' : 'var(--error)' }}>{tgError}</div>}
         </div>
 
-        {/* 4. HERRAMIENTAS */}
-        <HerramientasSection botId={botId} />
-
-        {/* 5. CONTACTOS */}
-        <ContactosSection botId={botId} />
+        {/* 4. CONTACTOS */}
+        <ContactosSection botId={botId} onContactsChange={loadContacts} />
 
       </main>
     </div>
