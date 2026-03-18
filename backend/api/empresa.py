@@ -1,12 +1,13 @@
-"""Endpoints del portal de empresa — acceso con la contraseña del bot."""
+"""Endpoints del portal de empresa — acceso con JWT Bearer token."""
 import re
-from fastapi import APIRouter, HTTPException, Header, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy import text
 
 from config import load_config, save_config
 from state import clients
 from db import AsyncSessionLocal, log_outbound_message
+from middleware_auth import require_empresa_auth
 import sim as sim_engine
 
 router = APIRouter()
@@ -27,11 +28,14 @@ def _find_bot_by_password(config: dict, password: str):
     return None
 
 
-def _require_empresa(bot_id: str, x_empresa_pwd: str = Header(...)):
+def _require_empresa(bot_id: str, token_bot_id: str = Depends(require_empresa_auth)):
+    """Verifica que el token JWT pertenezca al mismo bot_id del path."""
+    if token_bot_id != bot_id:
+        raise HTTPException(status_code=403, detail="No autorizado para esta empresa")
     config = load_config()
-    bot = _find_bot_by_password(config, x_empresa_pwd)
-    if not bot or bot["id"] != bot_id:
-        raise HTTPException(status_code=401, detail="No autorizado")
+    bot = next((b for b in config.get("bots", []) if b["id"] == bot_id), None)
+    if not bot:
+        raise HTTPException(status_code=404, detail="Empresa no encontrada")
     return bot
 
 
@@ -64,8 +68,7 @@ def empresa_auth(body: EmpresaAuthBody):
 # ─── Dashboard ───────────────────────────────────────────────────
 
 @router.get("/empresa/{bot_id}")
-def empresa_get(bot_id: str, x_empresa_pwd: str = Header(...)):
-    bot = _require_empresa(bot_id, x_empresa_pwd)
+def empresa_get(bot_id: str, bot: dict = Depends(_require_empresa)):
 
     connections = []
 
@@ -109,8 +112,7 @@ class EmpresaToolsBody(BaseModel):
 
 
 @router.put("/empresa/{bot_id}/tools")
-def empresa_put_tools(bot_id: str, body: EmpresaToolsBody, x_empresa_pwd: str = Header(...)):
-    _require_empresa(bot_id, x_empresa_pwd)
+def empresa_put_tools(bot_id: str, body: EmpresaToolsBody, _: dict = Depends(_require_empresa)):
 
     config = load_config()
     bot = next((b for b in config.get("bots", []) if b["id"] == bot_id), None)
@@ -125,8 +127,7 @@ def empresa_put_tools(bot_id: str, body: EmpresaToolsBody, x_empresa_pwd: str = 
 # ─── Connect / QR / Disconnect ───────────────────────────────────
 
 @router.post("/empresa/{bot_id}/connect/{number}")
-async def empresa_connect(bot_id: str, number: str, background_tasks: BackgroundTasks, x_empresa_pwd: str = Header(...)):
-    bot = _require_empresa(bot_id, x_empresa_pwd)
+async def empresa_connect(bot_id: str, number: str, background_tasks: BackgroundTasks, bot: dict = Depends(_require_empresa)):
 
     if not any(p["number"] == number for p in bot.get("phones", [])):
         raise HTTPException(status_code=404, detail="Número no pertenece a esta empresa")
@@ -145,8 +146,7 @@ async def empresa_connect(bot_id: str, number: str, background_tasks: Background
 
 
 @router.get("/empresa/{bot_id}/qr/{session_id}")
-def empresa_qr(bot_id: str, session_id: str, x_empresa_pwd: str = Header(...)):
-    _require_empresa(bot_id, x_empresa_pwd)
+def empresa_qr(bot_id: str, session_id: str, _: dict = Depends(_require_empresa)):
 
     state = clients.get(session_id)
     if not state:
@@ -159,8 +159,7 @@ def empresa_qr(bot_id: str, session_id: str, x_empresa_pwd: str = Header(...)):
 
 
 @router.post("/empresa/{bot_id}/disconnect/{number}")
-async def empresa_disconnect(bot_id: str, number: str, x_empresa_pwd: str = Header(...)):
-    bot = _require_empresa(bot_id, x_empresa_pwd)
+async def empresa_disconnect(bot_id: str, number: str, bot: dict = Depends(_require_empresa)):
 
     if not any(p["number"] == number for p in bot.get("phones", [])):
         raise HTTPException(status_code=404, detail="Número no pertenece a esta empresa")
@@ -191,8 +190,7 @@ def _owns_session(bot: dict, session_id: str) -> bool:
 
 
 @router.get("/empresa/{bot_id}/messages/{number}")
-async def empresa_messages(bot_id: str, number: str, x_empresa_pwd: str = Header(...)):
-    bot = _require_empresa(bot_id, x_empresa_pwd)
+async def empresa_messages(bot_id: str, number: str, bot: dict = Depends(_require_empresa)):
     if not _owns_session(bot, number):
         raise HTTPException(status_code=404, detail="Número no pertenece a esta empresa")
 
@@ -217,8 +215,7 @@ async def empresa_messages(bot_id: str, number: str, x_empresa_pwd: str = Header
 
 
 @router.get("/empresa/{bot_id}/chat/{number}/{contact}")
-async def empresa_chat_get(bot_id: str, number: str, contact: str, x_empresa_pwd: str = Header(...)):
-    bot = _require_empresa(bot_id, x_empresa_pwd)
+async def empresa_chat_get(bot_id: str, number: str, contact: str, bot: dict = Depends(_require_empresa)):
     if not _owns_session(bot, number):
         raise HTTPException(status_code=404, detail="Número no pertenece a esta empresa")
 
@@ -244,8 +241,7 @@ class EmpresaSendBody(BaseModel):
 
 @router.post("/empresa/{bot_id}/chat/{number}/{contact}")
 async def empresa_chat_send(bot_id: str, number: str, contact: str,
-                            body: EmpresaSendBody, x_empresa_pwd: str = Header(...)):
-    bot = _require_empresa(bot_id, x_empresa_pwd)
+                            body: EmpresaSendBody, bot: dict = Depends(_require_empresa)):
     if not _owns_session(bot, number):
         raise HTTPException(status_code=404, detail="Número no pertenece a esta empresa")
     if not body.text.strip():
@@ -328,8 +324,7 @@ class EmpresaConfigBody(BaseModel):
 
 
 @router.put("/empresa/{bot_id}/config")
-def empresa_put_config(bot_id: str, body: EmpresaConfigBody, x_empresa_pwd: str = Header(...)):
-    _require_empresa(bot_id, x_empresa_pwd)
+def empresa_put_config(bot_id: str, body: EmpresaConfigBody, _: dict = Depends(_require_empresa)):
 
     config = load_config()
     bot = next((b for b in config["bots"] if b["id"] == bot_id), None)
@@ -363,8 +358,7 @@ class AddWhatsappBody(BaseModel):
 
 
 @router.post("/empresa/{bot_id}/whatsapp")
-def empresa_add_whatsapp(bot_id: str, body: AddWhatsappBody, x_empresa_pwd: str = Header(...)):
-    _require_empresa(bot_id, x_empresa_pwd)
+def empresa_add_whatsapp(bot_id: str, body: AddWhatsappBody, _: dict = Depends(_require_empresa)):
     number = body.number.strip()
     if not number:
         raise HTTPException(status_code=400, detail="Número requerido")
@@ -385,8 +379,7 @@ def empresa_add_whatsapp(bot_id: str, body: AddWhatsappBody, x_empresa_pwd: str 
 
 
 @router.delete("/empresa/{bot_id}/whatsapp/{number}")
-async def empresa_remove_whatsapp(bot_id: str, number: str, x_empresa_pwd: str = Header(...)):
-    _require_empresa(bot_id, x_empresa_pwd)
+async def empresa_remove_whatsapp(bot_id: str, number: str, _: dict = Depends(_require_empresa)):
 
     config = load_config()
     bot = next((b for b in config["bots"] if b["id"] == bot_id), None)
@@ -417,8 +410,7 @@ class AddTelegramBody(BaseModel):
 
 
 @router.post("/empresa/{bot_id}/telegram")
-async def empresa_add_telegram(bot_id: str, body: AddTelegramBody, x_empresa_pwd: str = Header(...)):
-    _require_empresa(bot_id, x_empresa_pwd)
+async def empresa_add_telegram(bot_id: str, body: AddTelegramBody, _: dict = Depends(_require_empresa)):
     token = body.token.strip()
     if not token or ":" not in token:
         raise HTTPException(status_code=400, detail="Token inválido (formato: 123456789:ABC...)")
@@ -458,8 +450,7 @@ async def empresa_add_telegram(bot_id: str, body: AddTelegramBody, x_empresa_pwd
 
 
 @router.delete("/empresa/{bot_id}/telegram/{token_id}")
-def empresa_remove_telegram(bot_id: str, token_id: str, x_empresa_pwd: str = Header(...)):
-    _require_empresa(bot_id, x_empresa_pwd)
+def empresa_remove_telegram(bot_id: str, token_id: str, _: dict = Depends(_require_empresa)):
 
     config = load_config()
     bot = next((b for b in config["bots"] if b["id"] == bot_id), None)

@@ -1,16 +1,21 @@
-"""Tests del portal de empresa."""
+"""Tests del portal de empresa — con JWT Bearer tokens."""
+import pytest
 
 ADMIN = {"x-password": "admin"}
 
+BOT_ID  = "bot_test"
+BOT_PWD = "bot_test"
 
-def _get_first_bot(client):
-    """Devuelve (bot_id, password) del primer bot en phones.json."""
-    bots = client.get("/api/bots", headers=ADMIN).json()
-    assert len(bots) > 0, "No hay bots configurados"
-    bot = bots[0]
-    # La password la obtenemos autenticándonos con la del bot directamente.
-    # Como no la exponemos por API, usamos la conocida del bot de prueba.
-    return bot["id"], bot
+
+def _get_token(client):
+    """Login JWT y devuelve access_token."""
+    r = client.post("/api/empresa/login", json={"bot_id": BOT_ID, "password": BOT_PWD})
+    assert r.status_code == 200, f"Login falló: {r.text}"
+    return r.json()["access_token"]
+
+
+def _auth(token):
+    return {"Authorization": f"Bearer {token}"}
 
 
 # ─── Auth ────────────────────────────────────────────────────────
@@ -25,13 +30,6 @@ def test_empresa_auth_missing_body(client):
     assert r.status_code == 422
 
 
-# ─── Endpoints con auth válida (usa la password de test del bot_test) ──
-
-BOT_ID  = "bot_test"
-BOT_PWD = "bot_test"
-EMPRESA = {"x-empresa-pwd": BOT_PWD}
-
-
 def test_empresa_auth_ok(client):
     r = client.post("/api/empresa/auth", json={"password": BOT_PWD})
     assert r.status_code == 200
@@ -41,8 +39,39 @@ def test_empresa_auth_ok(client):
     assert isinstance(body["bot_name"], str)
 
 
+# ─── Login JWT ───────────────────────────────────────────────────
+
+def test_empresa_login_wrong_password(client):
+    r = client.post("/api/empresa/login", json={"bot_id": BOT_ID, "password": "mala"})
+    assert r.status_code == 401
+
+
+def test_empresa_login_ok(client):
+    r = client.post("/api/empresa/login", json={"bot_id": BOT_ID, "password": BOT_PWD})
+    assert r.status_code == 200
+    body = r.json()
+    assert "access_token" in body
+    assert body["token_type"] == "bearer"
+    assert body["bot_id"] == BOT_ID
+
+
+def test_empresa_me(client):
+    token = _get_token(client)
+    r = client.get("/api/empresa/me", headers=_auth(token))
+    assert r.status_code == 200
+    assert r.json()["bot_id"] == BOT_ID
+
+
+def test_empresa_me_invalid_token(client):
+    r = client.get("/api/empresa/me", headers={"Authorization": "Bearer INVALID"})
+    assert r.status_code == 401
+
+
+# ─── Endpoints con auth JWT ──────────────────────────────────────
+
 def test_empresa_get_ok(client):
-    r = client.get(f"/api/empresa/{BOT_ID}", headers=EMPRESA)
+    token = _get_token(client)
+    r = client.get(f"/api/empresa/{BOT_ID}", headers=_auth(token))
     assert r.status_code == 200
     body = r.json()
     assert body["bot_id"] == BOT_ID
@@ -52,7 +81,8 @@ def test_empresa_get_ok(client):
 
 
 def test_empresa_get_connections_structure(client):
-    r = client.get(f"/api/empresa/{BOT_ID}", headers=EMPRESA)
+    token = _get_token(client)
+    r = client.get(f"/api/empresa/{BOT_ID}", headers=_auth(token))
     conns = r.json()["connections"]
     assert len(conns) > 0
     for c in conns:
@@ -63,68 +93,95 @@ def test_empresa_get_connections_structure(client):
 
 
 def test_empresa_get_wrong_auth(client):
-    r = client.get(f"/api/empresa/{BOT_ID}", headers={"x-empresa-pwd": "mala_clave"})
+    r = client.get(f"/api/empresa/{BOT_ID}", headers={"Authorization": "Bearer INVALID"})
     assert r.status_code == 401
 
 
 def test_empresa_get_wrong_bot_id(client):
-    """Password correcta pero bot_id que no corresponde → 401."""
-    r = client.get("/api/empresa/otro_bot_id", headers=EMPRESA)
-    assert r.status_code == 401
+    """Token de bot_test, pero accediendo a otro bot → 403."""
+    token = _get_token(client)
+    r = client.get("/api/empresa/otro_bot_id", headers=_auth(token))
+    assert r.status_code == 403
 
 
 def test_empresa_get_no_auth(client):
     r = client.get(f"/api/empresa/{BOT_ID}")
-    assert r.status_code == 422
+    assert r.status_code == 401
 
 
 def test_empresa_put_tools_ok(client):
-    original = client.get(f"/api/empresa/{BOT_ID}", headers=EMPRESA).json()["autoReplyMessage"]
+    token = _get_token(client)
+    headers = _auth(token)
+
+    original = client.get(f"/api/empresa/{BOT_ID}", headers=headers).json()["autoReplyMessage"]
 
     new_msg = "Mensaje de prueba automatizado"
-    r = client.put(f"/api/empresa/{BOT_ID}/tools", json={"autoReplyMessage": new_msg}, headers=EMPRESA)
+    r = client.put(f"/api/empresa/{BOT_ID}/tools", json={"autoReplyMessage": new_msg}, headers=headers)
     assert r.status_code == 200
     assert r.json()["ok"] is True
 
-    # Verificar que se guardó
-    updated = client.get(f"/api/empresa/{BOT_ID}", headers=EMPRESA).json()["autoReplyMessage"]
+    updated = client.get(f"/api/empresa/{BOT_ID}", headers=headers).json()["autoReplyMessage"]
     assert updated == new_msg
 
-    # Restaurar
-    client.put(f"/api/empresa/{BOT_ID}/tools", json={"autoReplyMessage": original}, headers=EMPRESA)
+    client.put(f"/api/empresa/{BOT_ID}/tools", json={"autoReplyMessage": original}, headers=headers)
 
 
 def test_empresa_put_tools_wrong_auth(client):
     r = client.put(f"/api/empresa/{BOT_ID}/tools",
                    json={"autoReplyMessage": "algo"},
-                   headers={"x-empresa-pwd": "mala"})
+                   headers={"Authorization": "Bearer INVALID"})
     assert r.status_code == 401
 
 
 def test_empresa_connect_sim(client):
     """En modo sim, connect devuelve status ready inmediatamente."""
-    conns = client.get(f"/api/empresa/{BOT_ID}", headers=EMPRESA).json()["connections"]
-    wa_conns = [c for c in conns if c["type"] == "whatsapp"]
-    if not wa_conns:
-        return  # no hay WA en este bot de prueba, skip
-    number = wa_conns[0]["id"]
-
-    r = client.post(f"/api/empresa/{BOT_ID}/connect/{number}", headers=EMPRESA)
-    assert r.status_code == 200
-    assert r.json()["sessionId"] == number
-
-
-def test_empresa_disconnect_sim(client):
-    """Disconnect en modo sim → ok. Reconecta al final para no dejar estado sucio."""
-    conns = client.get(f"/api/empresa/{BOT_ID}", headers=EMPRESA).json()["connections"]
+    token = _get_token(client)
+    conns = client.get(f"/api/empresa/{BOT_ID}", headers=_auth(token)).json()["connections"]
     wa_conns = [c for c in conns if c["type"] == "whatsapp"]
     if not wa_conns:
         return
     number = wa_conns[0]["id"]
 
-    r = client.post(f"/api/empresa/{BOT_ID}/disconnect/{number}", headers=EMPRESA)
+    r = client.post(f"/api/empresa/{BOT_ID}/connect/{number}", headers=_auth(token))
+    assert r.status_code == 200
+    assert r.json()["sessionId"] == number
+
+
+def test_empresa_disconnect_sim(client):
+    """Disconnect en modo sim → ok."""
+    token = _get_token(client)
+    conns = client.get(f"/api/empresa/{BOT_ID}", headers=_auth(token)).json()["connections"]
+    wa_conns = [c for c in conns if c["type"] == "whatsapp"]
+    if not wa_conns:
+        return
+    number = wa_conns[0]["id"]
+
+    r = client.post(f"/api/empresa/{BOT_ID}/disconnect/{number}", headers=_auth(token))
     assert r.status_code == 200
     assert r.json()["ok"] is True
 
-    # Restaurar estado para no romper tests posteriores
-    client.post(f"/api/empresa/{BOT_ID}/connect/{number}", headers=EMPRESA)
+    client.post(f"/api/empresa/{BOT_ID}/connect/{number}", headers=_auth(token))
+
+
+# ─── Refresh + Logout ────────────────────────────────────────────
+
+def test_empresa_refresh_and_logout(client):
+    """Login → refresh → logout → refresh falla."""
+    # Login
+    r = client.post("/api/empresa/login", json={"bot_id": BOT_ID, "password": BOT_PWD})
+    assert r.status_code == 200
+    cookies = r.cookies
+
+    # Refresh
+    r2 = client.post("/api/empresa/refresh", cookies=cookies)
+    assert r2.status_code == 200
+    assert "access_token" in r2.json()
+
+    # Logout
+    r3 = client.post("/api/empresa/logout", cookies=cookies)
+    assert r3.status_code == 200
+    assert r3.json()["ok"] is True
+
+    # Refresh después de logout → 401
+    r4 = client.post("/api/empresa/refresh", cookies=cookies)
+    assert r4.status_code == 401
