@@ -12,6 +12,14 @@ import sim as sim_engine
 router = APIRouter()
 
 
+def _db_phone(number: str) -> str:
+    """Telegram sessions usan session_id como key en clients pero guardan en DB solo el token_id."""
+    # Formato: "{bot_id}-tg-{token_id}" → devuelve "{token_id}"
+    if "-tg-" in number:
+        return number.split("-tg-")[-1]
+    return number
+
+
 def _find_bot_by_password(config: dict, password: str):
     for bot in config.get("bots", []):
         if bot.get("password") == password:
@@ -195,7 +203,7 @@ async def empresa_messages(bot_id: str, number: str, x_empresa_pwd: str = Header
                 "FROM messages WHERE bot_phone = :number AND outbound = 0 "
                 "ORDER BY timestamp DESC LIMIT 30"
             ),
-            {"number": number},
+            {"number": _db_phone(number)},
         )
         rows = result.fetchall()
 
@@ -221,7 +229,7 @@ async def empresa_chat_get(bot_id: str, number: str, contact: str, x_empresa_pwd
                 "FROM messages WHERE bot_phone = :number AND phone = :contact "
                 "ORDER BY timestamp ASC LIMIT 100"
             ),
-            {"number": number, "contact": contact},
+            {"number": _db_phone(number), "contact": contact},
         )
         rows = result.fetchall()
 
@@ -243,26 +251,37 @@ async def empresa_chat_send(bot_id: str, number: str, contact: str,
     if not body.text.strip():
         raise HTTPException(status_code=400, detail="Texto vacío")
 
+    db_number = _db_phone(number)
+
     if sim_engine.SIM_MODE:
-        await log_outbound_message(bot_id, number, contact, body.text)
+        await log_outbound_message(bot_id, db_number, contact, body.text)
         async with AsyncSessionLocal() as session:
             await session.execute(
                 text("UPDATE messages SET answered = 1 WHERE bot_phone = :number AND phone = :contact AND answered = 0"),
-                {"number": number, "contact": contact},
+                {"number": db_number, "contact": contact},
             )
             await session.commit()
         return {"ok": True}
 
-    from state import wa_session
-    ok = await wa_session.send_message(number, contact, body.text)
-    if not ok:
-        raise HTTPException(status_code=503, detail="No se pudo enviar. Verificá que el bot esté conectado.")
+    if "-tg-" in number:
+        tg_client = clients.get(number)
+        if not tg_client:
+            raise HTTPException(status_code=503, detail="Bot de Telegram no está activo")
+        try:
+            await tg_client["client"].bot.send_message(chat_id=int(contact), text=body.text)
+        except Exception as e:
+            raise HTTPException(status_code=503, detail=f"No se pudo enviar por Telegram: {e}")
+    else:
+        from state import wa_session
+        ok = await wa_session.send_message(number, contact, body.text)
+        if not ok:
+            raise HTTPException(status_code=503, detail="No se pudo enviar. Verificá que el bot esté conectado.")
 
-    await log_outbound_message(bot_id, number, contact, body.text)
+    await log_outbound_message(bot_id, db_number, contact, body.text)
     async with AsyncSessionLocal() as session:
         await session.execute(
             text("UPDATE messages SET answered = 1 WHERE bot_phone = :number AND phone = :contact AND answered = 0"),
-            {"number": number, "contact": contact},
+            {"number": db_number, "contact": contact},
         )
         await session.commit()
     return {"ok": True}

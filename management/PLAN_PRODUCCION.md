@@ -1,43 +1,108 @@
-# Plan: Producción sostenida (Etapa 4)
+# Plan: Exposición a internet desde Mac local
 
 ## Objetivo
 
-Mover el sistema de "corre en la Mac de José" a una infraestructura real, estable y escalable.
+Hacer que clientes reales puedan acceder al sistema sin necesidad de un servidor externo.
+La Mac de José es el servidor — se expone al exterior con un túnel. Cuando la facturación
+lo justifique, se evalúa migrar a hosting.
 
-## Qué cambia
+---
 
-### Base de datos — SQLite → PostgreSQL
-- SQLite es suficiente para la escala actual pero no para multi-empresa con tráfico real
-- La migración es transparente para el código: SQLAlchemy ya abstrae el motor
-- Momento: cuando haya más de 2-3 empresas activas o tráfico sostenido
+## Estrategia: túnel permanente
 
-### Deploy separado por componente
-- Backend Python en servidor Linux (VPS, Railway, Fly.io, etc.)
-- Frontend servido desde CDN o el mismo servidor
-- DB en servicio gestionado (Supabase, Railway PostgreSQL, etc.)
-- Cada componente con su propio proceso y restart automático
+En lugar de hostear en un VPS, se expone el servidor local mediante un túnel HTTPS.
+El cliente accede a una URL pública que redirige al backend/frontend en la Mac.
 
-### Sesiones WA en servidor
-- Las sesiones de Chrome (Playwright) corren en el servidor, no en Mac local
-- El perfil de Chrome se persiste en el servidor — misma lógica, distinto disco
-- Evaluar si vale la pena Xvfb (pantalla virtual) o browser headless es suficiente
+### Opciones
 
-### WhatsApp Business API (futuro)
-- Hoy usamos WA Web vía Playwright — funciona pero es frágil (puede romperse si WA cambia el DOM)
-- La API oficial de Meta es estable, pero tiene costo y aprobación de cuenta
-- Migrar cuando el costo del mantenimiento de WA Web supere el costo de la API oficial
-- No es urgente: WA Web funciona bien y la API oficial requiere número dedicado
+| Herramienta | Costo | URL estable | Notas |
+|---|---|---|---|
+| **Cloudflare Tunnel** | Gratis | ✅ (subdominio fijo) | Requiere cuenta CF. La mejor opción |
+| **ngrok** | Free tier limitado / $8/mes | ✅ con plan pago | URL cambia en free tier |
+| **Tailscale Funnel** | Gratis | ✅ | Más orientado a dev, menos robusto |
 
-## Checklist de producción
+**Opción elegida: Cloudflare Tunnel** — gratis, URL estable, HTTPS automático, sin exponer IP.
 
-- [ ] PostgreSQL configurado y migración de esquema
-- [ ] Variables de entorno externalizadas (sin `phones.json` hardcodeado)
-- [ ] Servidor Linux con Python 3.12 + Playwright instalado
-- [ ] Proceso de restart automático (systemd, supervisor, o similar)
-- [ ] Backup automático de la DB
-- [ ] Monitoreo externo (uptime check)
-- [ ] HTTPS para el frontend y el backend
+### Cómo funciona
+
+```
+Cliente → https://pulpo.midominio.com
+              ↓  (Cloudflare Tunnel)
+         Mac local → localhost:8000 (backend) / localhost:5173 (frontend)
+```
+
+El daemon `cloudflared` corre en la Mac como servicio (launchd), se inicia solo al arrancar.
+
+---
+
+## Setup
+
+### 1. Instalar cloudflared
+```bash
+brew install cloudflare/cloudflare/cloudflared
+cloudflared login   # abre browser, autenticar con cuenta CF
+```
+
+### 2. Crear el túnel
+```bash
+cloudflared tunnel create pulpo
+cloudflared tunnel route dns pulpo pulpo.midominio.com
+```
+
+### 3. Config del túnel (`~/.cloudflared/config.yml`)
+```yaml
+tunnel: <tunnel-id>
+credentials-file: ~/.cloudflared/<tunnel-id>.json
+
+ingress:
+  - hostname: pulpo.midominio.com
+    service: http://localhost:5173     # frontend
+  - hostname: api.pulpo.midominio.com
+    service: http://localhost:8000     # backend
+  - service: http_status:404
+```
+
+### 4. Correr como servicio (inicio automático)
+```bash
+cloudflared service install
+sudo launchctl start com.cloudflare.cloudflared
+```
+
+---
+
+## Cambios necesarios en el sistema
+
+- **Frontend**: la URL del backend en producción pasa a ser `https://api.pulpo.midominio.com`
+  (o se sirve todo desde el mismo dominio con proxy rules en CF)
+- **CORS**: agregar el dominio público a `allow_origins` en `backend/main.py`
+- **Contraseña admin**: cambiar de `admin` a algo seguro antes de exponer
+- **HTTPS**: Cloudflare lo gestiona automáticamente, no se necesita certificado local
+
+---
+
+## Limitaciones conocidas
+
+- **WhatsApp Web**: Playwright corre localmente — si la Mac se apaga o duerme, los bots caen
+  - Mitigación: deshabilitar suspensión en Preferencias del Sistema → Energía
+  - La sesión WA se recupera sola al reiniciar (perfil persistido en `data/sessions/`)
+- **Uptime**: depende de la Mac. Aceptable para MVP / clientes iniciales
+- **Capacidad**: suficiente para decenas de empresas con tráfico moderado
+
+---
+
+## Camino a hosting (futuro)
+
+Cuando la facturación lo justifique:
+
+1. **VPS Linux** (Railway, Fly.io, Hetzner ~€5/mes) + mover `data/` y `phones.json`
+2. **SQLite → PostgreSQL**: SQLAlchemy ya lo abstrae, migración limpia
+3. **WA sessions en servidor**: mismo Playwright, distinto disco
+4. **WhatsApp Business API** (opcional): más estable que WA Web pero requiere aprobación Meta
+
+No hay prisa — WA Web funciona bien y el costo de mantenimiento es bajo hoy.
+
+---
 
 ## Estado
 
-No iniciado. Priorizar cuando haya más de 1 empresa de pago activa.
+Pendiente. Primera tarea: registrar dominio + configurar Cloudflare Tunnel.

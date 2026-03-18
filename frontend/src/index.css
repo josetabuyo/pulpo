@@ -486,12 +486,13 @@ main { max-width: 900px; margin: 28px auto; padding: 0 16px; }
 
 .conv-row {
   display: flex; align-items: center; gap: 12px;
-  padding: 12px 0; border-bottom: 1px solid #f0f0f0;
+  padding: 12px 16px; border-bottom: 1px solid #f0f0f0;
   background: none; border-radius: 0; text-align: left;
   width: 100%; cursor: pointer; transition: background .1s;
+  box-sizing: border-box;
 }
 .conv-row:last-child { border-bottom: none; }
-.conv-row:hover { background: #f8f8f8; margin: 0 -24px; padding: 12px 24px; width: calc(100% + 48px); }
+.conv-row:hover { background: #f5f0ff; }
 
 .conv-avatar {
   width: 42px; height: 42px; border-radius: 50%;

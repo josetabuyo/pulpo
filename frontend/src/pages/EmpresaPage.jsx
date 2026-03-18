@@ -383,6 +383,11 @@ function EmpresaDashboard({ botId, botName: initialBotName, pwd, onLogout }) {
   const [replyMsg, setReplyMsg]     = useState('')
   const [saving, setSaving]         = useState(false)
   const [saveResult, setSaveResult] = useState(null)
+  const [waInput, setWaInput]       = useState('')
+  const [tgInput, setTgInput]       = useState('')
+  const [waError, setWaError]       = useState('')
+  const [tgError, setTgError]       = useState('')
+  const [loadingConn, setLoadingConn] = useState(false)
 
   const load = useCallback(async () => {
     const res = await empresaApi('GET', `/empresa/${botId}`, null, pwd).catch(() => null)
@@ -407,6 +412,41 @@ function EmpresaDashboard({ botId, botName: initialBotName, pwd, onLogout }) {
     setTimeout(() => setSaveResult(null), 3000)
   }
 
+  async function addWa(e) {
+    e.preventDefault(); setWaError('')
+    const number = waInput.trim(); if (!number) return
+    setLoadingConn(true)
+    const res = await empresaApi('POST', `/empresa/${botId}/whatsapp`, { number }, pwd).catch(() => null)
+    setLoadingConn(false)
+    if (!res?.ok) { setWaError(res?.detail || 'Error al agregar'); return }
+    setWaInput(''); load()
+  }
+
+  async function addTg(e) {
+    e.preventDefault(); setTgError('')
+    const token = tgInput.trim(); if (!token) return
+    setLoadingConn(true)
+    const res = await empresaApi('POST', `/empresa/${botId}/telegram`, { token }, pwd).catch(() => null)
+    setLoadingConn(false)
+    if (!res?.ok) { setTgError(res?.detail || 'Error al agregar'); return }
+    if (res.requires_restart) setTgError('Agregado. Requiere reinicio del servidor para activarse.')
+    setTgInput(''); load()
+  }
+
+  async function removeConn(conn) {
+    if (!confirm(`¿Eliminar ${conn.type === 'whatsapp' ? '+' + conn.id : conn.id}?`)) return
+    if (conn.type === 'whatsapp') {
+      await empresaApi('DELETE', `/empresa/${botId}/whatsapp/${conn.id}`, null, pwd)
+    } else {
+      const tokenId = conn.id.split('-tg-')[1]
+      await empresaApi('DELETE', `/empresa/${botId}/telegram/${tokenId}`, null, pwd)
+    }
+    load()
+  }
+
+  const waConns = data?.connections?.filter(c => c.type === 'whatsapp') ?? []
+  const tgConns = data?.connections?.filter(c => c.type === 'telegram') ?? []
+
   return (
     <div className="client-portal">
       <header>
@@ -418,7 +458,7 @@ function EmpresaDashboard({ botId, botName: initialBotName, pwd, onLogout }) {
 
       <main className="portal-main">
 
-        {/* 1. TOOLS PRIMERO */}
+        {/* 1. RESPUESTA AUTOMÁTICA */}
         <div className="card">
           <div className="card-title">Respuesta automática</div>
           <div className="fg">
@@ -438,19 +478,37 @@ function EmpresaDashboard({ botId, botName: initialBotName, pwd, onLogout }) {
           </div>
         </div>
 
-        {/* 2. CONEXIONES */}
-        {data?.connections?.length === 0 && (
-          <div className="empty">Sin conexiones configuradas.</div>
-        )}
-        {data?.connections?.map(conn => (
-          <ConexionCard
-            key={conn.id}
-            conn={conn}
-            botId={botId}
-            pwd={pwd}
-            onRefresh={load}
-          />
-        ))}
+        {/* 2. WHATSAPP */}
+        <div className="card">
+          <div className="card-title">📱 WhatsApp</div>
+          {waConns.map(conn => (
+            <ConexionCard key={conn.id} conn={conn} botId={botId} pwd={pwd} onRefresh={load}
+              onDelete={() => removeConn(conn)} />
+          ))}
+          {waConns.length === 0 && <div className="empty" style={{ marginBottom: 12 }}>Sin números configurados</div>}
+          <form onSubmit={addWa} style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+            <input style={{ flex: 1 }} type="tel" value={waInput} onChange={e => setWaInput(e.target.value)}
+              placeholder="Número sin + (ej: 5491155612767)" />
+            <button type="submit" className="btn-primary btn-sm" disabled={loadingConn}>+ Agregar</button>
+          </form>
+          {waError && <div className="error" style={{ fontSize: 13, marginTop: 6 }}>{waError}</div>}
+        </div>
+
+        {/* 3. TELEGRAM */}
+        <div className="card">
+          <div className="card-title">✈️ Telegram</div>
+          {tgConns.map(conn => (
+            <ConexionCard key={conn.id} conn={conn} botId={botId} pwd={pwd} onRefresh={load}
+              onDelete={() => removeConn(conn)} />
+          ))}
+          {tgConns.length === 0 && <div className="empty" style={{ marginBottom: 12 }}>Sin bots configurados</div>}
+          <form onSubmit={addTg} style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+            <input style={{ flex: 1 }} value={tgInput} onChange={e => setTgInput(e.target.value)}
+              placeholder="Token de @BotFather (123456:ABC...)" />
+            <button type="submit" className="btn-primary btn-sm" disabled={loadingConn}>+ Agregar</button>
+          </form>
+          {tgError && <div style={{ fontSize: 13, marginTop: 6, color: tgError.includes('Requiere') ? '#b45309' : 'var(--error)' }}>{tgError}</div>}
+        </div>
 
       </main>
     </div>
