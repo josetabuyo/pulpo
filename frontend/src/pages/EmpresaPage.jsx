@@ -3,25 +3,26 @@ import { Link } from 'react-router-dom'
 import StatusBadge from '../components/StatusBadge.jsx'
 import ChatWidget from '../components/ChatWidget.jsx'
 import { ConexionRow } from './NuevaEmpresaPage.jsx'
+import { authFetch, setAccessToken, clearAccessToken, getAccessToken } from '../lib/auth.js'
 
 // ─── Helpers de API empresa ──────────────────────────────────────
 
-function empresaApi(method, path, body, pwd) {
-  const headers = { 'Content-Type': 'application/json', 'x-empresa-pwd': pwd }
-  return fetch('/api' + path, {
+async function empresaApi(method, path, body) {
+  const res = await authFetch('/api' + path, {
     method,
-    headers,
     body: body ? JSON.stringify(body) : undefined,
-  }).then(r => r.json())
+  })
+  if (res.status === 401) return { _unauthorized: true }
+  return res.json()
 }
 
-async function connectAndPollEmpresa({ botId, number, pwd, onQR, onReady, onError }) {
+async function connectAndPollEmpresa({ botId, number, onQR, onReady, onError }) {
   let interval = null
   const stop = () => { if (interval) { clearInterval(interval); interval = null } }
 
   let res
   try {
-    res = await empresaApi('POST', `/empresa/${botId}/connect/${number}`, null, pwd)
+    res = await empresaApi('POST', `/empresa/${botId}/connect/${number}`, null)
   } catch {
     onError('Error de red.')
     return stop
@@ -34,7 +35,7 @@ async function connectAndPollEmpresa({ botId, number, pwd, onQR, onReady, onErro
 
   interval = setInterval(async () => {
     try {
-      const data = await empresaApi('GET', `/empresa/${botId}/qr/${sessionId}`, null, pwd)
+      const data = await empresaApi('GET', `/empresa/${botId}/qr/${sessionId}`, null)
       if (data.status === 'ready') { stop(); onReady(); return }
       if (data.status === 'failed' || data.status === 'disconnected') {
         stop(); onError('Error al conectar. Intentá de nuevo.'); return
@@ -48,11 +49,11 @@ async function connectAndPollEmpresa({ botId, number, pwd, onQR, onReady, onErro
 
 // ─── Chat con un contacto ────────────────────────────────────────
 
-function ContactChat({ botId, number, pwd, contact, onClose }) {
+function ContactChat({ botId, number, contact, onClose }) {
   const [messages, setMessages] = useState([])
 
   const load = useCallback(async () => {
-    const res = await empresaApi('GET', `/empresa/${botId}/chat/${number}/${contact.phone}`, null, pwd).catch(() => null)
+    const res = await empresaApi('GET', `/empresa/${botId}/chat/${number}/${contact.phone}`, null).catch(() => null)
     if (Array.isArray(res)) {
       setMessages(res.map(m => ({
         id: m.id,
@@ -62,7 +63,7 @@ function ContactChat({ botId, number, pwd, contact, onClose }) {
         time: m.timestamp?.slice(11, 16),
       })))
     }
-  }, [botId, number, pwd, contact.phone])
+  }, [botId, number, contact.phone])
 
   useEffect(() => {
     load()
@@ -71,7 +72,7 @@ function ContactChat({ botId, number, pwd, contact, onClose }) {
   }, [load])
 
   async function handleSend(text) {
-    const res = await empresaApi('POST', `/empresa/${botId}/chat/${number}/${contact.phone}`, { text }, pwd).catch(() => null)
+    const res = await empresaApi('POST', `/empresa/${botId}/chat/${number}/${contact.phone}`, { text }).catch(() => null)
     if (res?.ok) load()
   }
 
@@ -89,7 +90,7 @@ function ContactChat({ botId, number, pwd, contact, onClose }) {
 
 // ─── ConexionCard ────────────────────────────────────────────────
 
-function ConexionCard({ conn, botId, pwd, onRefresh }) {
+function ConexionCard({ conn, botId, onRefresh }) {
   const [showQr, setShowQr]         = useState(false)
   const [qrSrc, setQrSrc]           = useState(null)
   const [qrStatus, setQrStatus]     = useState('')
@@ -102,9 +103,9 @@ function ConexionCard({ conn, botId, pwd, onRefresh }) {
   const isTelegram   = conn.type === 'telegram'
 
   const loadConvs = useCallback(async () => {
-    const res = await empresaApi('GET', `/empresa/${botId}/messages/${conn.id}`, null, pwd).catch(() => null)
+    const res = await empresaApi('GET', `/empresa/${botId}/messages/${conn.id}`, null).catch(() => null)
     if (Array.isArray(res)) setConvs(res)
-  }, [botId, conn.id, pwd])
+  }, [botId, conn.id])
 
   useEffect(() => {
     loadConvs()
@@ -115,7 +116,7 @@ function ConexionCard({ conn, botId, pwd, onRefresh }) {
   async function handleConnect() {
     setShowQr(true); setQrSrc(null); setQrStatus('Generando código QR...')
     stopRef.current = await connectAndPollEmpresa({
-      botId, number: conn.id, pwd,
+      botId, number: conn.id,
       onQR(dataUrl) { setQrSrc(dataUrl); setQrStatus('El código se renueva cada 20 segundos') },
       onReady() { stopRef.current = null; setShowQr(false); onRefresh() },
       onError() { stopRef.current = null; setShowQr(false); onRefresh() },
@@ -125,7 +126,7 @@ function ConexionCard({ conn, botId, pwd, onRefresh }) {
   function handleCancelQr() { stopRef.current?.(); stopRef.current = null; setShowQr(false) }
 
   async function handleDisconnect() {
-    await empresaApi('POST', `/empresa/${botId}/disconnect/${conn.id}`, null, pwd).catch(() => null)
+    await empresaApi('POST', `/empresa/${botId}/disconnect/${conn.id}`, null).catch(() => null)
     onRefresh()
   }
 
@@ -194,7 +195,7 @@ function ConexionCard({ conn, botId, pwd, onRefresh }) {
                         <ContactChat
                           botId={botId}
                           number={conn.id}
-                          pwd={pwd}
+                         
                           contact={activeContact}
                           onClose={() => setContact(null)}
                         />
@@ -212,7 +213,7 @@ function ConexionCard({ conn, botId, pwd, onRefresh }) {
 
 // ─── Vista Configurar ────────────────────────────────────────────
 
-function ConfigView({ botId, botName, pwd, onSaved }) {
+function ConfigView({ botId, botName, onSaved }) {
   const [form, setForm]             = useState({ name: botName, password: '', newPassword: '', autoReplyMessage: '' })
   const [savingData, setSavingData] = useState(false)
   const [dataResult, setDataResult] = useState(null)
@@ -226,12 +227,12 @@ function ConfigView({ botId, botName, pwd, onSaved }) {
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }))
 
   const loadConns = useCallback(async () => {
-    const res = await empresaApi('GET', `/empresa/${botId}`, null, pwd).catch(() => null)
+    const res = await empresaApi('GET', `/empresa/${botId}`, null).catch(() => null)
     if (res?.connections) {
       setConns(res.connections)
       setForm(f => ({ ...f, name: res.bot_name, autoReplyMessage: f.autoReplyMessage || res.autoReplyMessage }))
     }
-  }, [botId, pwd])
+  }, [botId])
 
   useEffect(() => { loadConns() }, [loadConns])
 
@@ -245,11 +246,10 @@ function ConfigView({ botId, botName, pwd, onSaved }) {
       body.password = form.newPassword
     }
     if (Object.keys(body).length === 0) { setSavingData(false); return }
-    const res = await empresaApi('PUT', `/empresa/${botId}/config`, body, pwd).catch(() => null)
+    const res = await empresaApi('PUT', `/empresa/${botId}/config`, body).catch(() => null)
     setSavingData(false)
     setDataResult(res?.ok ? 'ok' : (res?.detail || 'error'))
     if (res?.ok && body.password) {
-      sessionStorage.setItem('empresa_pwd', form.newPassword)
       setForm(f => ({ ...f, password: '', newPassword: '' }))
     }
     if (res?.ok) onSaved(form.name || botName)
@@ -260,7 +260,7 @@ function ConfigView({ botId, botName, pwd, onSaved }) {
     e.preventDefault(); setWaError('')
     const number = waInput.trim(); if (!number) return
     setLoadingConn(true)
-    const res = await empresaApi('POST', `/empresa/${botId}/whatsapp`, { number }, pwd).catch(() => null)
+    const res = await empresaApi('POST', `/empresa/${botId}/whatsapp`, { number }).catch(() => null)
     setLoadingConn(false)
     if (!res?.ok) { setWaError(res?.detail || 'Error al agregar'); return }
     setConns(c => [...c, { id: number, type: 'whatsapp', status: 'stopped' }])
@@ -271,7 +271,7 @@ function ConfigView({ botId, botName, pwd, onSaved }) {
     e.preventDefault(); setTgError('')
     const token = tgInput.trim(); if (!token) return
     setLoadingConn(true)
-    const res = await empresaApi('POST', `/empresa/${botId}/telegram`, { token }, pwd).catch(() => null)
+    const res = await empresaApi('POST', `/empresa/${botId}/telegram`, { token }).catch(() => null)
     setLoadingConn(false)
     if (!res?.ok) { setTgError(res?.detail || 'Error al agregar'); return }
     const tokenId = token.split(':')[0]
@@ -284,10 +284,10 @@ function ConfigView({ botId, botName, pwd, onSaved }) {
   async function removeConn(conn) {
     if (!confirm(`¿Eliminar ${conn.type === 'whatsapp' ? '+' + conn.id : conn.id}?`)) return
     if (conn.type === 'whatsapp') {
-      await empresaApi('DELETE', `/empresa/${botId}/whatsapp/${conn.id}`, null, pwd)
+      await empresaApi('DELETE', `/empresa/${botId}/whatsapp/${conn.id}`, null)
     } else {
       const tokenId = conn.id.split('-tg-')[1]
-      await empresaApi('DELETE', `/empresa/${botId}/telegram/${tokenId}`, null, pwd)
+      await empresaApi('DELETE', `/empresa/${botId}/telegram/${tokenId}`, null)
     }
     setConns(c => c.filter(x => x.id !== conn.id))
   }
@@ -339,7 +339,7 @@ function ConfigView({ botId, botName, pwd, onSaved }) {
         <div className="channel-header channel-header--wa">WhatsApp</div>
         <div className="phones-table" style={{ marginBottom: 12 }}>
           {conns.filter(c => c.type === 'whatsapp').map(c => (
-            <ConexionRow key={c.id} conn={c} botId={botId} pwd={pwd}
+            <ConexionRow key={c.id} conn={c} botId={botId}
               onDelete={removeConn}
               onConnected={() => setConns(cs => cs.map(x => x.id === c.id ? { ...x, status: 'ready' } : x))} />
           ))}
@@ -358,7 +358,7 @@ function ConfigView({ botId, botName, pwd, onSaved }) {
         <div className="channel-header channel-header--tg" style={{ marginTop: 16 }}>Telegram</div>
         <div className="phones-table" style={{ marginBottom: 12 }}>
           {conns.filter(c => c.type === 'telegram').map(c => (
-            <ConexionRow key={c.id} conn={c} botId={botId} pwd={pwd} onDelete={removeConn} />
+            <ConexionRow key={c.id} conn={c} botId={botId} onDelete={removeConn} />
           ))}
           {conns.filter(c => c.type === 'telegram').length === 0 && (
             <div className="empty" style={{ padding: 10 }}>Sin bots configurados</div>
@@ -378,7 +378,7 @@ function ConfigView({ botId, botName, pwd, onSaved }) {
 
 // ─── EmpresaDashboard ────────────────────────────────────────────
 
-function EmpresaDashboard({ botId, botName: initialBotName, pwd, onLogout }) {
+function EmpresaDashboard({ botId, botName: initialBotName, onLogout }) {
   const [botName, setBotName]       = useState(initialBotName)
   const [data, setData]             = useState(null)
   const [replyMsg, setReplyMsg]     = useState('')
@@ -391,12 +391,12 @@ function EmpresaDashboard({ botId, botName: initialBotName, pwd, onLogout }) {
   const [loadingConn, setLoadingConn] = useState(false)
 
   const load = useCallback(async () => {
-    const res = await empresaApi('GET', `/empresa/${botId}`, null, pwd).catch(() => null)
+    const res = await empresaApi('GET', `/empresa/${botId}`, null).catch(() => null)
     if (!res || res.detail) return
     setData(res)
     setBotName(res.bot_name)
     setReplyMsg(prev => prev === '' ? (res.autoReplyMessage ?? '') : prev)
-  }, [botId, pwd])
+  }, [botId])
 
   useEffect(() => {
     load()
@@ -406,7 +406,7 @@ function EmpresaDashboard({ botId, botName: initialBotName, pwd, onLogout }) {
 
   async function handleSaveTools() {
     setSaving(true); setSaveResult(null)
-    const res = await empresaApi('PUT', `/empresa/${botId}/tools`, { autoReplyMessage: replyMsg }, pwd).catch(() => null)
+    const res = await empresaApi('PUT', `/empresa/${botId}/tools`, { autoReplyMessage: replyMsg }).catch(() => null)
     setSaving(false)
     setSaveResult(res?.ok ? 'ok' : 'error')
     if (res?.ok) load()
@@ -417,7 +417,7 @@ function EmpresaDashboard({ botId, botName: initialBotName, pwd, onLogout }) {
     e.preventDefault(); setWaError('')
     const number = waInput.trim(); if (!number) return
     setLoadingConn(true)
-    const res = await empresaApi('POST', `/empresa/${botId}/whatsapp`, { number }, pwd).catch(() => null)
+    const res = await empresaApi('POST', `/empresa/${botId}/whatsapp`, { number }).catch(() => null)
     setLoadingConn(false)
     if (!res?.ok) { setWaError(res?.detail || 'Error al agregar'); return }
     setWaInput(''); load()
@@ -427,7 +427,7 @@ function EmpresaDashboard({ botId, botName: initialBotName, pwd, onLogout }) {
     e.preventDefault(); setTgError('')
     const token = tgInput.trim(); if (!token) return
     setLoadingConn(true)
-    const res = await empresaApi('POST', `/empresa/${botId}/telegram`, { token }, pwd).catch(() => null)
+    const res = await empresaApi('POST', `/empresa/${botId}/telegram`, { token }).catch(() => null)
     setLoadingConn(false)
     if (!res?.ok) { setTgError(res?.detail || 'Error al agregar'); return }
     if (res.requires_restart) setTgError('Agregado. Requiere reinicio del servidor para activarse.')
@@ -437,10 +437,10 @@ function EmpresaDashboard({ botId, botName: initialBotName, pwd, onLogout }) {
   async function removeConn(conn) {
     if (!confirm(`¿Eliminar ${conn.type === 'whatsapp' ? '+' + conn.id : conn.id}?`)) return
     if (conn.type === 'whatsapp') {
-      await empresaApi('DELETE', `/empresa/${botId}/whatsapp/${conn.id}`, null, pwd)
+      await empresaApi('DELETE', `/empresa/${botId}/whatsapp/${conn.id}`, null)
     } else {
       const tokenId = conn.id.split('-tg-')[1]
-      await empresaApi('DELETE', `/empresa/${botId}/telegram/${tokenId}`, null, pwd)
+      await empresaApi('DELETE', `/empresa/${botId}/telegram/${tokenId}`, null)
     }
     load()
   }
@@ -483,7 +483,7 @@ function EmpresaDashboard({ botId, botName: initialBotName, pwd, onLogout }) {
         <div className="card">
           <div className="card-title">📱 WhatsApp</div>
           {waConns.map(conn => (
-            <ConexionCard key={conn.id} conn={conn} botId={botId} pwd={pwd} onRefresh={load}
+            <ConexionCard key={conn.id} conn={conn} botId={botId} onRefresh={load}
               onDelete={() => removeConn(conn)} />
           ))}
           {waConns.length === 0 && <div className="empty" style={{ marginBottom: 12 }}>Sin números configurados</div>}
@@ -499,7 +499,7 @@ function EmpresaDashboard({ botId, botName: initialBotName, pwd, onLogout }) {
         <div className="card">
           <div className="card-title">✈️ Telegram</div>
           {tgConns.map(conn => (
-            <ConexionCard key={conn.id} conn={conn} botId={botId} pwd={pwd} onRefresh={load}
+            <ConexionCard key={conn.id} conn={conn} botId={botId} onRefresh={load}
               onDelete={() => removeConn(conn)} />
           ))}
           {tgConns.length === 0 && <div className="empty" style={{ marginBottom: 12 }}>Sin bots configurados</div>}
@@ -519,21 +519,30 @@ function EmpresaDashboard({ botId, botName: initialBotName, pwd, onLogout }) {
 // ─── EmpresaLogin ────────────────────────────────────────────────
 
 function EmpresaLogin({ onLogin }) {
+  const [botId, setBotId] = useState('')
   const [pwd, setPwd]     = useState('')
   const [error, setError] = useState('')
 
   async function handleSubmit(e) {
     e.preventDefault(); setError('')
-    const res = await fetch('/api/empresa/auth', {
+    const res = await fetch('/api/empresa/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: pwd }),
+      credentials: 'include',
+      body: JSON.stringify({ bot_id: botId.trim(), password: pwd }),
     }).then(r => r.json()).catch(() => null)
 
-    if (!res?.ok) { setError('Contraseña incorrecta.'); return }
-    sessionStorage.setItem('empresa_bot_id', res.bot_id)
-    sessionStorage.setItem('empresa_pwd', pwd)
-    onLogin({ botId: res.bot_id, botName: res.bot_name, pwd })
+    if (!res?.access_token) { setError('Credenciales incorrectas.'); return }
+
+    setAccessToken(res.access_token)
+    localStorage.setItem('empresa_bot_id', res.bot_id)
+
+    // Obtener nombre de la empresa
+    const me = await fetch('/api/empresa/me', {
+      headers: { 'Authorization': `Bearer ${res.access_token}` },
+    }).then(r => r.json()).catch(() => null)
+
+    onLogin({ botId: res.bot_id, botName: me?.nombre ?? res.bot_id })
   }
 
   return (
@@ -541,11 +550,13 @@ function EmpresaLogin({ onLogin }) {
       <div className="connect-box">
         <div className="logo">🐙</div>
         <h1>Portal de empresa</h1>
-        <p className="subtitle">Ingresá la clave de tu empresa</p>
+        <p className="subtitle">Ingresá tus credenciales</p>
         <div className="error">{error}</div>
         <form onSubmit={handleSubmit}>
-          <input type="password" placeholder="Clave de acceso" value={pwd}
-            onChange={e => setPwd(e.target.value)} autoFocus />
+          <input placeholder="ID de empresa (ej: bot_test)" value={botId}
+            onChange={e => setBotId(e.target.value)} autoFocus />
+          <input type="password" placeholder="Contraseña" value={pwd}
+            onChange={e => setPwd(e.target.value)} />
           <button type="submit" className="btn-connect">Entrar</button>
         </form>
         <div className="connect-divider">¿Primera vez?</div>
@@ -563,30 +574,48 @@ export default function EmpresaPage() {
   const [session, setSession] = useState(null)
 
   useEffect(() => {
-    const botId = sessionStorage.getItem('empresa_bot_id')
-    const pwd   = sessionStorage.getItem('empresa_pwd')
-    if (!botId || !pwd) return
+    const token = getAccessToken()
+    const botId = localStorage.getItem('empresa_bot_id')
+    if (!token || !botId) return
 
-    fetch('/api/empresa/auth', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: pwd }),
-    }).then(r => r.json()).then(res => {
-      if (res.ok) setSession({ botId: res.bot_id, botName: res.bot_name, pwd })
+    // Verificar que el token sigue siendo válido
+    fetch('/api/empresa/me', {
+      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include',
+    }).then(r => {
+      if (r.ok) return r.json()
+      // Intentar refresh
+      return fetch('/api/empresa/refresh', { method: 'POST', credentials: 'include' })
+        .then(r2 => {
+          if (!r2.ok) throw new Error('refresh failed')
+          return r2.json()
+        })
+        .then(data => {
+          setAccessToken(data.access_token)
+          return fetch('/api/empresa/me', {
+            headers: { 'Authorization': `Bearer ${data.access_token}` },
+          }).then(r3 => r3.ok ? r3.json() : null)
+        })
+    }).then(me => {
+      if (me?.bot_id) setSession({ botId: me.bot_id, botName: me.nombre })
       else {
-        sessionStorage.removeItem('empresa_bot_id')
-        sessionStorage.removeItem('empresa_pwd')
+        clearAccessToken()
+        localStorage.removeItem('empresa_bot_id')
       }
-    }).catch(() => {})
+    }).catch(() => {
+      clearAccessToken()
+      localStorage.removeItem('empresa_bot_id')
+    })
   }, [])
 
-  function handleLogin({ botId, botName, pwd }) {
-    setSession({ botId, botName, pwd })
+  function handleLogin({ botId, botName }) {
+    setSession({ botId, botName })
   }
 
-  function handleLogout() {
-    sessionStorage.removeItem('empresa_bot_id')
-    sessionStorage.removeItem('empresa_pwd')
+  async function handleLogout() {
+    await fetch('/api/empresa/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
+    clearAccessToken()
+    localStorage.removeItem('empresa_bot_id')
     setSession(null)
   }
 
@@ -595,7 +624,6 @@ export default function EmpresaPage() {
       <EmpresaDashboard
         botId={session.botId}
         botName={session.botName}
-        pwd={session.pwd}
         onLogout={handleLogout}
       />
     )

@@ -33,6 +33,23 @@ async def init_db():
         except Exception:
             pass  # Ya existe
 
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                bot_id        TEXT NOT NULL,
+                refresh_token TEXT NOT NULL UNIQUE,
+                created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+                expires_at    DATETIME NOT NULL,
+                revoked       INTEGER NOT NULL DEFAULT 0
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(refresh_token)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_sessions_bot_id ON sessions(bot_id)"
+        ))
+
 
 async def log_message(bot_id: str, bot_phone: str, phone: str, name: str | None, body: str) -> int:
     async with AsyncSessionLocal() as session:
@@ -54,6 +71,56 @@ async def log_outbound_message(bot_id: str, bot_phone: str, phone: str, body: st
         )
         await session.commit()
         return result.lastrowid
+
+
+async def create_session(bot_id: str, refresh_token: str, expires_at: str) -> int:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            text("INSERT INTO sessions (bot_id, refresh_token, expires_at) VALUES (:bot_id, :token, :expires_at)"),
+            {"bot_id": bot_id, "token": refresh_token, "expires_at": expires_at},
+        )
+        await session.commit()
+        return result.lastrowid
+
+
+async def get_session(refresh_token: str) -> dict | None:
+    """Devuelve la sesión si existe, no está revocada y no expiró."""
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            text("""
+                SELECT id, bot_id, refresh_token, created_at, expires_at
+                FROM sessions
+                WHERE refresh_token = :token
+                  AND revoked = 0
+                  AND expires_at > CURRENT_TIMESTAMP
+            """),
+            {"token": refresh_token},
+        )
+        row = result.fetchone()
+    if not row:
+        return None
+    return {"id": row[0], "bot_id": row[1], "refresh_token": row[2],
+            "created_at": row[3], "expires_at": row[4]}
+
+
+async def revoke_session(refresh_token: str) -> bool:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            text("UPDATE sessions SET revoked = 1 WHERE refresh_token = :token"),
+            {"token": refresh_token},
+        )
+        await session.commit()
+        return result.rowcount > 0
+
+
+async def revoke_all_sessions(bot_id: str) -> int:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            text("UPDATE sessions SET revoked = 1 WHERE bot_id = :bot_id AND revoked = 0"),
+            {"bot_id": bot_id},
+        )
+        await session.commit()
+        return result.rowcount
 
 
 async def mark_answered(msg_id: int):

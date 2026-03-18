@@ -16,6 +16,7 @@ from state import clients, wa_session
 from api.whatsapp import _connect_and_get_qr, _get_wa_config
 
 from api.auth import router as auth_router
+from api.auth_empresa import router as auth_empresa_router, limiter as empresa_limiter
 from api.bots import router as bots_router
 from api.phones import router as phones_router
 from api.telegram_api import router as telegram_router
@@ -110,7 +111,12 @@ async def lifespan(app: FastAPI):
         logger.info("Browser cerrado.")
 
 
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
 app = FastAPI(title="Pulpo API", lifespan=lifespan)
+app.state.limiter = empresa_limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 _frontend_port = os.environ.get("FRONTEND_PORT", "5173")
 app.add_middleware(
@@ -131,6 +137,7 @@ app.include_router(messages_router, prefix="/api")
 app.include_router(sim_router, prefix="/api")
 app.include_router(client_router, prefix="/api")
 app.include_router(logs_router, prefix="/api")
+app.include_router(auth_empresa_router, prefix="/api")
 app.include_router(empresa_router, prefix="/api")
 
 
