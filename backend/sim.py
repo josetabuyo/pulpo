@@ -82,21 +82,11 @@ async def resolve_tool(bot_id: str, sender: str, channel_type: str) -> dict | No
     return None
 
 
-async def _is_sender_allowed(bot_id: str, channel_type: str, sender: str, allowed_contacts: list) -> bool:
-    """
-    Retorna True si el sender está permitido.
-    Prioridad: DB (contact_channels) → fallback allowedContacts de phones.json.
-    """
-    from db import get_contacts, find_contact_by_channel
-    # Verificar si hay contactos en DB para este bot
-    db_contacts = await get_contacts(bot_id)
-    if db_contacts:
-        contact = await find_contact_by_channel(channel_type, sender)
-        return contact is not None
-    # Fallback: allowedContacts del JSON
-    if not allowed_contacts:
-        return True  # Sin lista → todos permitidos (comportamiento anterior)
-    return sender in allowed_contacts
+async def _is_sender_allowed(bot_id: str, channel_type: str, sender: str) -> bool:
+    """Retorna True si el sender tiene un contacto registrado en DB."""
+    from db import find_contact_by_channel
+    contact = await find_contact_by_channel(channel_type, sender)
+    return contact is not None
 
 
 async def sim_receive(session_id: str, from_name: str, from_phone: str, text: str) -> str | None:
@@ -125,7 +115,7 @@ async def sim_receive(session_id: str, from_name: str, from_phone: str, text: st
     logger.info("[sim] MSG ← %s (%s) → %s: %s", from_name, from_phone, session_id, text)
 
     # Verificar si el sender está permitido
-    allowed = await _is_sender_allowed(cfg["bot_id"], channel_type, from_phone, cfg.get("allowed_contacts", []))
+    allowed = await _is_sender_allowed(cfg["bot_id"], channel_type, from_phone)
     if not allowed:
         logger.info("[sim] IGNORADO (no es contacto registrado) → %s", from_phone)
         return None
@@ -165,7 +155,6 @@ def _get_phone_config(session_id: str) -> dict | None:
                 return {
                     "bot_id": bot["id"],
                     "auto_reply": phone.get("autoReplyMessage") or bot.get("autoReplyMessage", ""),
-                    "allowed_contacts": bot.get("allowedContacts", []),
                 }
         # Telegram bots — session_id = "{bot_id}-tg-{token_id}"
         for tg in bot.get("telegram", []):
@@ -174,6 +163,5 @@ def _get_phone_config(session_id: str) -> dict | None:
                 return {
                     "bot_id": bot["id"],
                     "auto_reply": tg.get("autoReplyMessage") or bot.get("autoReplyMessage", ""),
-                    "allowed_contacts": bot.get("allowedContacts", []),
                 }
     return None

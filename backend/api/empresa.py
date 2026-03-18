@@ -436,7 +436,7 @@ async def empresa_add_telegram(bot_id: str, body: AddTelegramBody, _: dict = Dep
         try:
             from bots.telegram_bot import build_telegram_app
             from main import _tg_apps
-            cfg = {"bot_id": bot_id, "token": token, "allowed_contacts": [], "reply_message": bot.get("autoReplyMessage", "")}
+            cfg = {"bot_id": bot_id, "token": token, "reply_message": bot.get("autoReplyMessage", "")}
             tg_app = build_telegram_app(cfg)
             await tg_app.initialize()
             await tg_app.start()

@@ -12,14 +12,13 @@ router = APIRouter()
 
 # ─── Validaciones ────────────────────────────────────────────────
 
-_WA_RE  = re.compile(r"^\d+$")
 _TG_RE  = re.compile(r"^(@\w+|\d+)$")
 
 def _validate_channel_value(type: str, value: str) -> str | None:
     """Retorna mensaje de error o None si es válido."""
     if type == "whatsapp":
-        if not _WA_RE.match(value):
-            return "El valor WhatsApp debe ser solo números (sin +, sin @)"
+        if not value:
+            return "El valor WhatsApp no puede estar vacío"
     elif type == "telegram":
         if not _TG_RE.match(value):
             return "El valor Telegram debe ser un número o @username"

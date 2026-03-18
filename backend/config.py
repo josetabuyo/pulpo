@@ -41,7 +41,7 @@ def get_empresa_for_bot(bot_id: str) -> str | None:
 def get_telegram_bots(config: dict) -> list[dict]:
     """
     Devuelve una lista de configs de bots de Telegram:
-    [{ bot_id, token, allowed_contacts, reply_message }, ...]
+    [{ bot_id, token, reply_message }, ...]
     """
     result = []
     for bot in config.get("bots", []):
@@ -52,7 +52,6 @@ def get_telegram_bots(config: dict) -> list[dict]:
             result.append({
                 "bot_id": bot_id,
                 "token": tg["token"],
-                "allowed_contacts": [str(c).lower() for c in tg.get("allowedContacts", [])],
                 "reply_message": reply,
             })
     return result

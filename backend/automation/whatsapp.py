@@ -223,17 +223,11 @@ class WhatsAppSession(BrowserAutomation):
         session_id: str,
         bot_id: str,
         bot_phone: str,
-        allowed_contacts: list[str],
-        auto_reply: str,
     ) -> None:
         """
         Inyecta un observer JS en la página principal de WA Web que detecta
         chats con mensajes no leídos. Por cada mensaje nuevo llama al handler
-        Python que loguea en DB y envía auto-respuesta si corresponde.
-
-        allowed_contacts: lista de nombres de contacto (como aparecen en WA).
-                          Si está vacía, no responde a nadie.
-        auto_reply:       mensaje automático a enviar. Si está vacío no responde.
+        Python que loguea en DB y responde según herramientas activas.
         """
         page = self.get_page(session_id)
         if not page:
@@ -242,16 +236,11 @@ class WhatsAppSession(BrowserAutomation):
 
         # Importación diferida para evitar ciclo circular
         from db import log_message, mark_answered
+        from sim import resolve_tool
 
-        allowed_lower = {c.lower().strip() for c in allowed_contacts}
         recent_msgs: set[tuple[str, str]] = set()  # dedup entre JS y Python poll
 
         async def _on_message(phone: str, name: str, body: str) -> None:
-            # Prevenir loop: ignorar si el mensaje es el auto-reply del bot
-            if auto_reply and body.strip() == auto_reply.strip():
-                logger.info(f"[{session_id}] Ignorando mensaje (es el auto-reply, evitar loop)")
-                return
-
             # Dedup: mismo (name, body) ya procesado recientemente
             pair = (name, body)
             if pair in recent_msgs:
@@ -259,20 +248,31 @@ class WhatsAppSession(BrowserAutomation):
             recent_msgs.add(pair)
             asyncio.get_event_loop().call_later(60, lambda: recent_msgs.discard(pair))
 
-            # Ignorar si no está en allowedContacts
-            if allowed_lower and name.lower().strip() not in allowed_lower:
-                logger.debug(f"[{session_id}] Mensaje de '{name}' ignorado (no en allowedContacts)")
-                return
-
             logger.info(f"[{session_id}] Mensaje de {name} ({phone}): {body[:60]}")
+            # Log siempre (para sugeridos)
             msg_id = await log_message(bot_id, bot_phone, phone or name, name, body)
 
-            if auto_reply:
-                # Enviamos en página temporal para no interrumpir el observer
-                target = phone if phone else name
-                ok = await self.send_message(session_id, target, auto_reply)
-                if ok:
-                    await mark_answered(msg_id)
+            # Motor de resolución: herramientas en DB
+            # WA usa el nombre como identificador (phone suele llegar vacío del scraper)
+            sender = phone or name
+            tool = await resolve_tool(session_id, sender, "whatsapp")
+            if not tool:
+                logger.debug(f"[{session_id}] Sin herramienta activa para '{name}'")
+                return
+
+            if tool["tipo"] == "fixed_message":
+                reply = tool["config"].get("message", "")
+            else:
+                reply = ""
+
+            if not reply or body.strip() == reply.strip():
+                return
+
+            # Enviamos en página temporal para no interrumpir el observer
+            target = phone if phone else name
+            ok = await self.send_message(session_id, target, reply)
+            if ok:
+                await mark_answered(msg_id)
 
         # Exponer callback Python → JS (falla silencioso si ya fue expuesto)
         try:

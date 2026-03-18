@@ -79,21 +79,18 @@ function BotModal({ open, onClose, editBot, onSave }) {
 function PhoneModal({ open, onClose, editPhone, botId, allBots, onSave }) {
   const isEdit = !!editPhone
   const [number, setNumber] = useState('')
-  const [contacts, setContacts] = useState('')
   const [message, setMessage] = useState('')
 
   useEffect(() => {
     if (open) {
       setNumber(editPhone?.number ?? '')
-      setContacts(editPhone?.allowedContacts?.join(', ') ?? '')
       setMessage(editPhone?.autoReplyMessage ?? '')
     }
   }, [open, editPhone])
 
   function handleSave() {
     if (!isEdit && !number.trim()) return alert('Número requerido.')
-    const allowedContacts = contacts.split(',').map(c => c.trim()).filter(Boolean)
-    onSave({ number: number.trim(), allowedContacts, autoReplyMessage: message.trim(), botId })
+    onSave({ number: number.trim(), autoReplyMessage: message.trim(), botId })
   }
 
   return (
@@ -105,10 +102,6 @@ function PhoneModal({ open, onClose, editPhone, botId, allBots, onSave }) {
           <input type="tel" value={number} onChange={e => setNumber(e.target.value)} placeholder="5491155612767" />
         </div>
       )}
-      <div className="fg">
-        <label>Contactos permitidos (separados por coma)</label>
-        <input value={contacts} onChange={e => setContacts(e.target.value)} placeholder="Juan García, María López" />
-      </div>
       <div className="fg">
         <label>Mensaje personalizado (opcional)</label>
         <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Dejar vacío para usar el de la empresa" />
@@ -124,21 +117,18 @@ function PhoneModal({ open, onClose, editPhone, botId, allBots, onSave }) {
 function TelegramModal({ open, onClose, editTg, botId, onSave }) {
   const isEdit = !!editTg
   const [token, setToken] = useState('')
-  const [contacts, setContacts] = useState('')
   const [message, setMessage] = useState('')
 
   useEffect(() => {
     if (open) {
       setToken('')
-      setContacts(editTg?.allowedContacts?.join(', ') ?? '')
       setMessage(editTg?.autoReplyMessage ?? '')
     }
   }, [open, editTg])
 
   function handleSave() {
     if (!isEdit && !token.trim()) return alert('Token requerido.')
-    const allowedContacts = contacts.split(',').map(c => c.trim()).filter(Boolean)
-    onSave({ token: token.trim(), allowedContacts, autoReplyMessage: message.trim(), botId, tokenId: editTg?.tokenId })
+    onSave({ token: token.trim(), autoReplyMessage: message.trim(), botId, tokenId: editTg?.tokenId })
   }
 
   return (
@@ -150,10 +140,6 @@ function TelegramModal({ open, onClose, editTg, botId, onSave }) {
           <input value={token} onChange={e => setToken(e.target.value)} placeholder="123456789:AAF..." />
         </div>
       )}
-      <div className="fg">
-        <label>Contactos permitidos (usernames sin @)</label>
-        <input value={contacts} onChange={e => setContacts(e.target.value)} placeholder="mi_username, otro_username" />
-      </div>
       <div className="fg">
         <label>Mensaje personalizado (opcional)</label>
         <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Dejar vacío para usar el de la empresa" />
@@ -346,7 +332,6 @@ function QRModal({ open, number, onClose, pwd, onConnected }) {
 function PhoneRow({ phone, botId, simMode, pwd, onConnect, onDisconnect, onEdit, onDelete, onMove, onScreenshot, onDragStart }) {
   const needsQR = ['stopped', 'failed', 'disconnected', 'qr_needed', undefined, null].includes(phone.status)
   const isReady = phone.status === 'ready'
-  const contactsText = phone.allowedContacts?.length ? phone.allowedContacts.join(', ') : '(sin contactos permitidos)'
 
   return (
     <div>
@@ -367,7 +352,6 @@ function PhoneRow({ phone, botId, simMode, pwd, onConnect, onDisconnect, onEdit,
           <span className="phone-id">(+{phone.number})</span>
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="phone-contacts">{contactsText}</div>
           {phone.autoReplyMessage && (
             <div className="phone-msg-override">Mensaje propio: "{phone.autoReplyMessage}"</div>
           )}
@@ -407,7 +391,6 @@ function TelegramRow({ tg, botId, simMode, pwd, onEdit, onDelete, onReconnect, o
   const statusClass = isReady ? 's-tg-ready' : `s-${tg.status}`
   const statusLabel = isReady ? 'Activo' : (STATUS_LABELS[tg.status] || tg.status)
   const canReconnect = !simMode && ['stopped', 'failed', 'disconnected'].includes(tg.status)
-  const contactsText = tg.allowedContacts?.length ? tg.allowedContacts.join(', ') : '(sin contactos permitidos)'
 
   return (
     <>
@@ -428,7 +411,6 @@ function TelegramRow({ tg, botId, simMode, pwd, onEdit, onDelete, onReconnect, o
         <span className="phone-id">({tg.tokenId})</span>
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div className="phone-contacts">{contactsText}</div>
         {tg.autoReplyMessage && (
           <div className="phone-msg-override">Mensaje propio: "{tg.autoReplyMessage}"</div>
         )}
@@ -542,13 +524,13 @@ export default function DashboardPage() {
   }
 
   // ── Phone CRUD ──
-  async function handleSavePhone({ number, allowedContacts, autoReplyMessage, botId }) {
+  async function handleSavePhone({ number, autoReplyMessage, botId }) {
     const isEdit = !!phoneModal.editPhone
     let res
     if (isEdit) {
-      res = await call('PUT', `/phones/${phoneModal.editPhone.number}`, { allowedContacts, autoReplyMessage })
+      res = await call('PUT', `/phones/${phoneModal.editPhone.number}`, { autoReplyMessage })
     } else {
-      const body = { botId, number, allowedContacts }
+      const body = { botId, number }
       if (autoReplyMessage) body.autoReplyMessage = autoReplyMessage
       if (phoneModal.newBotData) {
         body.botName = phoneModal.newBotData.name
@@ -569,13 +551,13 @@ export default function DashboardPage() {
   }
 
   // ── Telegram CRUD ──
-  async function handleSaveTg({ token, allowedContacts, autoReplyMessage, botId, tokenId }) {
+  async function handleSaveTg({ token, autoReplyMessage, botId, tokenId }) {
     const isEdit = !!tgModal.editTg
     let res
     if (isEdit) {
-      res = await call('PUT', `/telegram/${tokenId}`, { allowedContacts, autoReplyMessage })
+      res = await call('PUT', `/telegram/${tokenId}`, { autoReplyMessage })
     } else {
-      const body = { botId, token, allowedContacts }
+      const body = { botId, token }
       if (autoReplyMessage) body.autoReplyMessage = autoReplyMessage
       res = await call('POST', '/telegram', body)
     }

@@ -12,7 +12,6 @@ router = APIRouter()
 class TelegramCreate(BaseModel):
     botId: str
     token: str
-    allowedContacts: list[str] = []
     autoReplyMessage: str | None = None
 
 
@@ -33,7 +32,7 @@ def add_telegram(body: TelegramCreate):
     if any(t["token"].split(":")[0] == token_id for t in bot["telegram"]):
         raise HTTPException(status_code=409, detail="Este token ya está registrado")
 
-    entry: dict = {"token": body.token, "allowedContacts": body.allowedContacts}
+    entry: dict = {"token": body.token}
     if body.autoReplyMessage:
         entry["autoReplyMessage"] = body.autoReplyMessage
     bot["telegram"].append(entry)
@@ -46,7 +45,6 @@ def add_telegram(body: TelegramCreate):
 
 
 class TelegramUpdate(BaseModel):
-    allowedContacts: list[str] | None = None
     autoReplyMessage: str | None = None
 
 
@@ -56,8 +54,6 @@ def update_telegram(token_id: str, body: TelegramUpdate):
     for bot in config.get("bots", []):
         tg = next((t for t in bot.get("telegram", []) if t["token"].split(":")[0] == token_id), None)
         if tg:
-            if body.allowedContacts is not None:
-                tg["allowedContacts"] = body.allowedContacts
             if body.autoReplyMessage is not None:
                 if body.autoReplyMessage:
                     tg["autoReplyMessage"] = body.autoReplyMessage

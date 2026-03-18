@@ -19,7 +19,6 @@ def get_phones():
                 "botId": bot["id"],
                 "botName": bot["name"],
                 "number": phone["number"],
-                "allowedContacts": phone.get("allowedContacts", []),
                 "autoReplyMessage": phone.get("autoReplyMessage") or bot.get("autoReplyMessage"),
                 "sessionId": session_id,
                 "status": clients.get(session_id, {}).get("status", "stopped"),
@@ -31,7 +30,6 @@ class PhoneCreate(BaseModel):
     botId: str
     botName: str | None = None
     number: str
-    allowedContacts: list[str] = []
     autoReplyMessage: str | None = None
 
 
@@ -53,7 +51,7 @@ def create_phone(body: PhoneCreate):
         if any(p["number"] == body.number for p in b.get("phones", [])):
             raise HTTPException(status_code=409, detail=f'El número ya está en la empresa "{b["name"]}". Movelo desde ahí.')
 
-    entry: dict = {"number": body.number, "allowedContacts": body.allowedContacts}
+    entry: dict = {"number": body.number}
     if body.autoReplyMessage:
         entry["autoReplyMessage"] = body.autoReplyMessage
     bot.setdefault("phones", []).append(entry)
@@ -63,7 +61,6 @@ def create_phone(body: PhoneCreate):
 
 
 class PhoneUpdate(BaseModel):
-    allowedContacts: list[str] | None = None
     autoReplyMessage: str | None = None
 
 
@@ -73,8 +70,6 @@ def update_phone(number: str, body: PhoneUpdate):
     for bot in config.get("bots", []):
         phone = next((p for p in bot.get("phones", []) if p["number"] == number), None)
         if phone:
-            if body.allowedContacts is not None:
-                phone["allowedContacts"] = body.allowedContacts
             if body.autoReplyMessage is not None:
                 if body.autoReplyMessage:
                     phone["autoReplyMessage"] = body.autoReplyMessage

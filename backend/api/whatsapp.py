@@ -121,16 +121,12 @@ async def refresh():
 # ------------------------------------------------------------------
 
 def _get_wa_config(config: dict, number: str) -> dict:
-    """Extrae allowedContacts y autoReplyMessage para un número dado."""
+    """Extrae bot_id para un número dado."""
     for bot in config.get("bots", []):
         for phone_cfg in bot.get("phones", []):
             if phone_cfg.get("number") == number:
-                return {
-                    "bot_id": bot["id"],
-                    "allowed_contacts": phone_cfg.get("allowedContacts", []),
-                    "auto_reply": phone_cfg.get("autoReplyMessage") or bot.get("autoReplyMessage", ""),
-                }
-    return {"bot_id": "", "allowed_contacts": [], "auto_reply": ""}
+                return {"bot_id": bot["id"]}
+    return {"bot_id": ""}
 
 
 async def _connect_and_get_qr(session_id: str, bot_id: str) -> None:
@@ -139,10 +135,7 @@ async def _connect_and_get_qr(session_id: str, bot_id: str) -> None:
     if result == "restored":
         # Sesión restaurada — arrancar listener directamente
         cfg = _get_wa_config(load_config(), session_id)
-        await wa_session.start_listening(
-            session_id, cfg["bot_id"], session_id,
-            cfg["allowed_contacts"], cfg["auto_reply"],
-        )
+        await wa_session.start_listening(session_id, cfg["bot_id"], session_id)
         return
 
     if result == "qr_needed":
@@ -151,7 +144,4 @@ async def _connect_and_get_qr(session_id: str, bot_id: str) -> None:
             authenticated = await wa_session.wait_for_auth(session_id)
             if authenticated:
                 cfg = _get_wa_config(load_config(), session_id)
-                await wa_session.start_listening(
-                    session_id, cfg["bot_id"], session_id,
-                    cfg["allowed_contacts"], cfg["auto_reply"],
-                )
+                await wa_session.start_listening(session_id, cfg["bot_id"], session_id)

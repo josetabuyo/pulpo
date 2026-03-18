@@ -18,7 +18,6 @@ def get_bots():
             session_id = phone["number"]
             phones.append({
                 "number": phone["number"],
-                "allowedContacts": phone.get("allowedContacts", []),
                 "autoReplyMessage": phone.get("autoReplyMessage"),
                 "sessionId": session_id,
                 "status": clients.get(session_id, {}).get("status", "stopped"),
@@ -29,7 +28,6 @@ def get_bots():
             session_id = f"{bot['id']}-tg-{token_id}"
             telegram.append({
                 "tokenId": token_id,
-                "allowedContacts": tg.get("allowedContacts", []),
                 "autoReplyMessage": tg.get("autoReplyMessage"),
                 "sessionId": session_id,
                 "status": clients.get(session_id, {}).get("status", "stopped"),
