@@ -95,7 +95,7 @@ async def list_tools(empresa_id: str, _: dict = Depends(_require_empresa)):
 async def create_tool(empresa_id: str, body: ToolIn, _: dict = Depends(_require_empresa)):
     if not body.nombre.strip():
         raise HTTPException(400, "El nombre es obligatorio")
-    if body.tipo not in ("fixed_message",):
+    if body.tipo not in ("fixed_message", "summarizer"):
         raise HTTPException(400, f"Tipo inválido: {body.tipo}")
 
     tool_id = await db.create_tool(

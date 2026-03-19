@@ -493,6 +493,7 @@ function ToolModal({ botId, tool, contacts: initialContacts, onClose, onSaved })
             <label>Tipo</label>
             <select value={form.tipo} onChange={setE('tipo')}>
               <option value="fixed_message">Mensaje fijo</option>
+              <option value="summarizer">Sumarizadora (pasiva)</option>
             </select>
           </div>
 
@@ -501,6 +502,14 @@ function ToolModal({ botId, tool, contacts: initialContacts, onClose, onSaved })
               <label>Mensaje</label>
               <textarea rows={3} value={form.mensaje} onChange={setE('mensaje')}
                 placeholder="Texto que enviará el bot al activarse" />
+            </div>
+          )}
+
+          {form.tipo === 'summarizer' && (
+            <div className="fg">
+              <div style={{ fontSize: 13, color: '#666', background: '#f5f5f5', padding: '8px 12px', borderRadius: 6 }}>
+                Acumula todos los mensajes del contacto en un archivo de texto. No envía respuestas.
+              </div>
             </div>
           )}
 
@@ -596,10 +605,79 @@ function ToolModal({ botId, tool, contacts: initialContacts, onClose, onSaved })
   )
 }
 
+const TIPO_LABELS = {
+  fixed_message: 'Mensaje fijo',
+  summarizer: 'Sumarizadora',
+}
+
+function SummaryModal({ botId, tool, onClose }) {
+  const [contacts, setContacts] = useState(null)
+  const [selected, setSelected] = useState(null)
+  const [content, setContent]   = useState('')
+  const [loading, setLoading]   = useState(false)
+
+  useEffect(() => {
+    empresaApi('GET', `/summarizer/${botId}`, null).then(res => {
+      setContacts(res?.contacts ?? [])
+    }).catch(() => setContacts([]))
+  }, [botId])
+
+  async function viewContact(phone) {
+    setSelected(phone); setLoading(true); setContent('')
+    const res = await fetch(`/api/summarizer/${botId}/${phone}`, {
+      headers: { 'Authorization': `Bearer ${(await import('../lib/auth.js')).getAccessToken()}` },
+    }).catch(() => null)
+    setLoading(false)
+    if (res?.ok) setContent(await res.text())
+    else setContent('(sin resumen)')
+  }
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal-box" style={{ width: 600 }}>
+        <div className="modal-header">
+          <span>Resúmenes — {tool.nombre}</span>
+          <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
+        </div>
+        {contacts === null
+          ? <div className="empty">Cargando...</div>
+          : contacts.length === 0
+            ? <div className="empty" style={{ padding: 16 }}>Sin resúmenes acumulados aún</div>
+            : <div style={{ display: 'flex', gap: 12 }}>
+                <div style={{ width: 160, flexShrink: 0, borderRight: '1px solid #eee', paddingRight: 8 }}>
+                  {contacts.map(phone => (
+                    <button key={phone}
+                      className={`btn-ghost btn-sm${selected === phone ? ' btn-ghost--active' : ''}`}
+                      style={{ display: 'block', width: '100%', textAlign: 'left', marginBottom: 4 }}
+                      onClick={() => viewContact(phone)}
+                    >
+                      {phone}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ flex: 1, overflow: 'auto', maxHeight: 400 }}>
+                  {loading
+                    ? <div className="empty">Cargando...</div>
+                    : selected
+                      ? <pre style={{ fontSize: 12, whiteSpace: 'pre-wrap', margin: 0 }}>{content}</pre>
+                      : <div className="empty" style={{ padding: 16 }}>Seleccioná un contacto</div>
+                  }
+                </div>
+              </div>
+        }
+        <div style={{ marginTop: 12, textAlign: 'right' }}>
+          <button className="btn-ghost btn-sm" onClick={onClose}>Cerrar</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function HerramientasSection({ botId }) {
   const [tools, setTools]     = useState([])
   const [contacts, setContacts] = useState([])
   const [modal, setModal]     = useState(null) // null | 'new' | tool-obj
+  const [summaryModal, setSummaryModal] = useState(null) // tool obj
 
   const load = useCallback(async () => {
     const [t, c] = await Promise.all([
@@ -643,7 +721,7 @@ function HerramientasSection({ botId }) {
                     {t.nombre}
                     {t.exclusiva && <span className="ch-badge ch-badge--telegram" style={{ marginLeft: 6 }}>Exclusiva</span>}
                   </td>
-                  <td style={{ fontSize: 12, color: '#666' }}>Mensaje fijo</td>
+                  <td style={{ fontSize: 12, color: '#666' }}>{TIPO_LABELS[t.tipo] ?? t.tipo}</td>
                   <td>
                     <button
                       className={`status-toggle ${t.activa ? 'status-toggle--on' : 'status-toggle--off'}`}
@@ -659,6 +737,9 @@ function HerramientasSection({ botId }) {
                       : t.incluir_desconocidos ? 'todos' : '—'}
                   </td>
                   <td>
+                    {t.tipo === 'summarizer' && (
+                      <button className="btn-ghost btn-sm" style={{ marginRight: 4 }} onClick={() => setSummaryModal(t)}>Ver resúmenes</button>
+                    )}
                     <button className="btn-ghost btn-sm" style={{ marginRight: 4 }} onClick={() => setModal(t)}>Editar</button>
                     <button className="btn-danger btn-sm" onClick={() => handleDelete(t)}>Eliminar</button>
                   </td>
@@ -675,6 +756,14 @@ function HerramientasSection({ botId }) {
           contacts={contacts}
           onClose={() => setModal(null)}
           onSaved={handleSaved}
+        />
+      )}
+
+      {summaryModal && (
+        <SummaryModal
+          botId={botId}
+          tool={summaryModal}
+          onClose={() => setSummaryModal(null)}
         />
       )}
     </div>

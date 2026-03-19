@@ -40,45 +40,58 @@ def sim_disconnect(session_id: str) -> None:
     _conversations.pop(session_id, None)
 
 
-async def resolve_tool(bot_id: str, sender: str, channel_type: str) -> dict | None:
+def _tool_applies(tool: dict, contact_id: int | None) -> bool:
+    """¿Aplica esta herramienta a este contacto?"""
+    excluded_ids = [c["id"] for c in tool["contactos_excluidos"]]
+    included_ids = [c["id"] for c in tool["contactos_incluidos"]]
+
+    if contact_id and contact_id in excluded_ids:
+        return False
+    if contact_id and contact_id in included_ids:
+        return True
+    if contact_id is None and tool["incluir_desconocidos"]:
+        return True
+    if not included_ids and tool["incluir_desconocidos"]:
+        return True
+    return False
+
+
+async def resolve_tools(bot_id: str, sender: str, channel_type: str) -> tuple[list[dict], dict | None]:
     """
-    Retorna la primera herramienta activa que aplica a este (bot_id, sender).
-    Evalúa todas las empresas que tienen este bot_id (conexión compartida).
-    Fallback: None.
+    Retorna (summarizers, reply_tool) para este (bot_id, sender).
+    - summarizers: lista de herramientas tipo 'summarizer' que aplican (para acumular)
+    - reply_tool: primera herramienta no-summarizer que aplica (para responder), o None
     """
     from config import get_empresas_for_bot
     from db import find_contact_by_channel, get_active_tools_for_bot
 
     empresa_ids = get_empresas_for_bot(bot_id)
     if not empresa_ids:
-        return None
+        return [], None
 
     contact = await find_contact_by_channel(channel_type, sender)
     contact_id = contact["id"] if contact else None
 
+    summarizers: list[dict] = []
+    reply_tool: dict | None = None
+
     for empresa_id in empresa_ids:
         tools = await get_active_tools_for_bot(bot_id, empresa_id)
         for tool in tools:
-            excluded_ids = [c["id"] for c in tool["contactos_excluidos"]]
-            included_ids = [c["id"] for c in tool["contactos_incluidos"]]
-
-            # Regla 1: excluido → saltar
-            if contact_id and contact_id in excluded_ids:
+            if not _tool_applies(tool, contact_id):
                 continue
+            if tool["tipo"] == "summarizer":
+                summarizers.append(tool)
+            elif reply_tool is None:
+                reply_tool = tool
 
-            # Regla 2: incluido explícitamente → activar
-            if contact_id and contact_id in included_ids:
-                return tool
+    return summarizers, reply_tool
 
-            # Regla 3: desconocido + incluir_desconocidos → activar
-            if contact_id is None and tool["incluir_desconocidos"]:
-                return tool
 
-            # Regla 4: lista incluidos vacía + incluir_desconocidos → activar para todos
-            if not included_ids and tool["incluir_desconocidos"]:
-                return tool
-
-    return None
+async def resolve_tool(bot_id: str, sender: str, channel_type: str) -> dict | None:
+    """Compatibilidad: retorna solo la primera herramienta de respuesta (no summarizer)."""
+    _, reply_tool = await resolve_tools(bot_id, sender, channel_type)
+    return reply_tool
 
 
 async def sim_receive(session_id: str, from_name: str, from_phone: str, text: str) -> str | None:
@@ -115,14 +128,28 @@ async def sim_receive(session_id: str, from_name: str, from_phone: str, text: st
     conv.append({"role": "user", "text": text, "from_name": from_name, "ts": ts})
     logger.info("[sim] MSG ← %s (%s) → %s: %s", from_name, from_phone, session_id, text)
 
-    # Motor de resolución: herramientas en DB (para la empresa dueña)
-    tool = await resolve_tool(session_id, from_phone, channel_type)
-    if tool:
-        if tool["tipo"] == "fixed_message":
-            reply = tool["config"].get("message", "")
+    # Motor de resolución: herramientas en DB
+    summarizers, reply_tool = await resolve_tools(session_id, from_phone, channel_type)
+
+    # Sumarizadoras: acumular bajo cada empresa que las define
+    if summarizers:
+        from tools import summarizer as summarizer_mod
+        for s_tool in summarizers:
+            summarizer_mod.accumulate(
+                empresa_id=s_tool["empresa_id"],
+                contact_phone=from_phone,
+                contact_name=from_name,
+                msg_type="texto",
+                content=text,
+            )
+            logger.info("[sim] SUMMARIZER '%s' acumuló de %s", s_tool["nombre"], from_phone)
+
+    if reply_tool:
+        if reply_tool["tipo"] == "fixed_message":
+            reply = reply_tool["config"].get("message", "")
         else:
             reply = None
-        logger.info("[sim] TOOL '%s' → %s", tool["nombre"], session_id)
+        logger.info("[sim] TOOL '%s' → %s", reply_tool["nombre"], session_id)
     else:
         # Fallback: auto_reply del JSON
         reply = cfg["auto_reply"]
