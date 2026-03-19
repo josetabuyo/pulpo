@@ -34,6 +34,30 @@ def build_telegram_app(bot_config: dict):
 
         text = msg.text or ""
 
+        # Detectar audio (voice note o archivo de audio)
+        is_audio = False
+        audio_obj = msg.voice or msg.audio
+        if audio_obj and not text:
+            is_audio = True
+            import os, tempfile
+            from tools import transcription
+            tg_file = await context.bot.get_file(audio_obj.file_id)
+            suffix = ".ogg" if msg.voice else ".mp3"
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                tmp_path = tmp.name
+            try:
+                await tg_file.download_to_drive(tmp_path)
+                text = await transcription.transcribe(tmp_path)
+                logger.info(f"{label} Audio transcrito de {sender_name}: \"{text[:60]}\"")
+            except Exception as e:
+                logger.warning(f"{label} Error transcribiendo audio: {e}")
+                text = "[audio — error al transcribir]"
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+
         # Dispatch multi-empresa: loguar bajo todos los bots que tienen este session_id
         from config import get_empresas_for_bot
         empresa_ids = get_empresas_for_bot(session_id)
@@ -59,7 +83,7 @@ def build_telegram_app(bot_config: dict):
                     empresa_id=s_tool["bot_id"],
                     contact_phone=sender_id,
                     contact_name=sender_name,
-                    msg_type="text",
+                    msg_type="audio" if is_audio else "text",
                     content=text,
                     timestamp=datetime.now(),
                 )
