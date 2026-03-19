@@ -18,24 +18,35 @@ def save_config(config: dict) -> None:
 def get_empresa_for_bot(bot_id: str) -> str | None:
     """
     Retorna el empresa_id al que pertenece este bot_id.
-    En phones.json, el 'id' del bot es el empresa_id.
-    Los números WA y session TG pertenecen al bot que los contiene.
+    Si el bot pertenece a múltiples empresas, devuelve el primero.
+    Usar get_empresas_for_bot() para el caso multi-empresa.
+    """
+    results = get_empresas_for_bot(bot_id)
+    return results[0] if results else None
+
+
+def get_empresas_for_bot(bot_id: str) -> list[str]:
+    """
+    Retorna todos los empresa_ids que contienen este bot_id.
+    Un mismo número WA puede estar en múltiples empresas (conexión compartida).
     """
     config = load_config()
+    result = []
     for bot in config.get("bots", []):
-        # El bot_id directo
         if bot["id"] == bot_id:
-            return bot["id"]
-        # Números WA
+            result.append(bot["id"])
+            continue
         for phone in bot.get("phones", []):
             if phone["number"] == bot_id:
-                return bot["id"]
-        # Sessions TG
-        for tg in bot.get("telegram", []):
-            token_id = tg["token"].split(":")[0]
-            if f"{bot['id']}-tg-{token_id}" == bot_id:
-                return bot["id"]
-    return None
+                result.append(bot["id"])
+                break
+        else:
+            for tg in bot.get("telegram", []):
+                token_id = tg["token"].split(":")[0]
+                if f"{bot['id']}-tg-{token_id}" == bot_id:
+                    result.append(bot["id"])
+                    break
+    return result
 
 
 def get_telegram_bots(config: dict) -> list[dict]:

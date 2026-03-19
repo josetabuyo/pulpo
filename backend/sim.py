@@ -43,41 +43,40 @@ def sim_disconnect(session_id: str) -> None:
 async def resolve_tool(bot_id: str, sender: str, channel_type: str) -> dict | None:
     """
     Retorna la primera herramienta activa que aplica a este (bot_id, sender).
-    Fallback: None (se usará auto_reply del JSON si existe).
+    Evalúa todas las empresas que tienen este bot_id (conexión compartida).
+    Fallback: None.
     """
-    from config import get_empresa_for_bot
+    from config import get_empresas_for_bot
     from db import find_contact_by_channel, get_active_tools_for_bot
 
-    empresa_id = get_empresa_for_bot(bot_id)
-    if not empresa_id:
+    empresa_ids = get_empresas_for_bot(bot_id)
+    if not empresa_ids:
         return None
 
     contact = await find_contact_by_channel(channel_type, sender)
     contact_id = contact["id"] if contact else None
 
-    tools = await get_active_tools_for_bot(bot_id, empresa_id)
-    if not tools:
-        return None
+    for empresa_id in empresa_ids:
+        tools = await get_active_tools_for_bot(bot_id, empresa_id)
+        for tool in tools:
+            excluded_ids = [c["id"] for c in tool["contactos_excluidos"]]
+            included_ids = [c["id"] for c in tool["contactos_incluidos"]]
 
-    for tool in tools:
-        excluded_ids = [c["id"] for c in tool["contactos_excluidos"]]
-        included_ids = [c["id"] for c in tool["contactos_incluidos"]]
+            # Regla 1: excluido → saltar
+            if contact_id and contact_id in excluded_ids:
+                continue
 
-        # Regla 1: excluido → saltar
-        if contact_id and contact_id in excluded_ids:
-            continue
+            # Regla 2: incluido explícitamente → activar
+            if contact_id and contact_id in included_ids:
+                return tool
 
-        # Regla 2: incluido explícitamente → activar
-        if contact_id and contact_id in included_ids:
-            return tool
+            # Regla 3: desconocido + incluir_desconocidos → activar
+            if contact_id is None and tool["incluir_desconocidos"]:
+                return tool
 
-        # Regla 3: desconocido + incluir_desconocidos → activar
-        if contact_id is None and tool["incluir_desconocidos"]:
-            return tool
-
-        # Regla 4: lista incluidos vacía + incluir_desconocidos → activar para todos
-        if not included_ids and tool["incluir_desconocidos"]:
-            return tool
+            # Regla 4: lista incluidos vacía + incluir_desconocidos → activar para todos
+            if not included_ids and tool["incluir_desconocidos"]:
+                return tool
 
     return None
 

@@ -199,19 +199,21 @@ async def empresa_messages(bot_id: str, number: str, bot: dict = Depends(_requir
             text(
                 "SELECT id, phone, name, body, timestamp, answered "
                 "FROM messages WHERE bot_phone = :number AND outbound = 0 "
-                "ORDER BY timestamp DESC LIMIT 30"
+                "AND id IN ("
+                "  SELECT MAX(id) FROM messages "
+                "  WHERE bot_phone = :number AND outbound = 0 "
+                "  GROUP BY phone"
+                ") ORDER BY timestamp DESC"
             ),
             {"number": _db_phone(number)},
         )
         rows = result.fetchall()
 
-    seen = {}
-    for r in rows:
-        phone = r[1]
-        if phone not in seen:
-            seen[phone] = {"id": r[0], "phone": phone, "name": r[2], "body": r[3],
-                           "timestamp": r[4], "answered": bool(r[5])}
-    return list(seen.values())
+    return [
+        {"id": r[0], "phone": r[1], "name": r[2], "body": r[3],
+         "timestamp": r[4], "answered": bool(r[5])}
+        for r in rows
+    ]
 
 
 @router.get("/empresa/{bot_id}/chat/{number}/{contact}")
@@ -364,11 +366,9 @@ def empresa_add_whatsapp(bot_id: str, body: AddWhatsappBody, _: dict = Depends(_
         raise HTTPException(status_code=400, detail="Número requerido")
 
     config = load_config()
-    for b in config["bots"]:
-        if any(p["number"] == number for p in b.get("phones", [])):
-            raise HTTPException(status_code=409, detail=f"El número {number} ya está configurado")
-
     bot = next(b for b in config["bots"] if b["id"] == bot_id)
+    if any(p["number"] == number for p in bot.get("phones", [])):
+        raise HTTPException(status_code=409, detail=f"El número {number} ya está configurado en esta empresa")
     bot.setdefault("phones", []).append({"number": number})
     save_config(config)
 

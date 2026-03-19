@@ -61,12 +61,10 @@ async def lifespan(app: FastAPI):
                 sim_engine.sim_connect(session_id, bot["id"])
                 logger.info(f"[sim] Auto-conectado TG: {session_id} ({bot['name']})")
     else:
-        # Limpiar procesos Playwright huérfanos de reinicios anteriores
-        import subprocess, sys
-        subprocess.run(
-            ["pkill", "-f", "ms-playwright/chromium"],
-            capture_output=True,
-        )
+        # Limpiar procesos WA huérfanos de reinicios anteriores.
+        # Solo matamos los Chrome que tienen data/sessions en su perfil — nunca el MCP.
+        import subprocess
+        subprocess.run(["pkill", "-f", "data/sessions"], capture_output=True)
         await wa_session.launch()
         logger.info("Browser iniciado.")
 
@@ -88,11 +86,16 @@ async def lifespan(app: FastAPI):
             logger.warning("No hay bots de Telegram configurados en phones.json.")
 
         # Auto-reconectar sesiones WA que tienen perfil guardado en disco
+        # Deduplicar: un número puede estar en múltiples bots (conexión compartida)
+        seen_numbers: set[str] = set()
         for bot in config.get("bots", []):
             for phone in bot.get("phones", []):
                 if phone.get("type", "whatsapp") != "whatsapp":
                     continue
                 number = phone["number"]
+                if number in seen_numbers:
+                    continue
+                seen_numbers.add(number)
                 profile_dir = Path("data/sessions") / number / "profile"
                 if profile_dir.exists() and any(profile_dir.iterdir()):
                     logger.info(f"[{number}] Perfil guardado encontrado — reconectando en background...")

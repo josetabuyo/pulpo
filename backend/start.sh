@@ -21,4 +21,12 @@ if [ ! -d "$VENV" ]; then
 fi
 
 echo "▶ Backend arrancando en http://localhost:${BACKEND_PORT}"
-"$VENV/bin/uvicorn" main:app --reload --port "$BACKEND_PORT" --host 0.0.0.0
+
+# En producción (ENABLE_BOTS=true) no usar --reload — evita recargas accidentales
+# que matan las sesiones de WhatsApp Web. En worktrees de dev (ENABLE_BOTS=false)
+# --reload es útil para iterar rápido sin consecuencias.
+if [ "${ENABLE_BOTS}" = "true" ]; then
+  "$VENV/bin/uvicorn" main:app --port "$BACKEND_PORT" --host 0.0.0.0
+else
+  "$VENV/bin/uvicorn" main:app --reload --port "$BACKEND_PORT" --host 0.0.0.0
+fi

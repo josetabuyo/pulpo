@@ -99,7 +99,7 @@ No hay prisa.
 
 ## Estado
 
-- [ ] Etapa 1: ngrok — **próximo paso**
+- [x] Etapa 1: ngrok — **completado 2026-03-18** (`https://unbuoyant-surgeless-micheal.ngrok-free.dev`)
 - [ ] Etapa 2: dominio + Cloudflare Tunnel
 - [ ] Etapa 3: VPS
 - [ ] Etapa 4: PostgreSQL

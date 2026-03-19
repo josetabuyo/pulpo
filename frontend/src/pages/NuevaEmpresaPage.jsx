@@ -1,17 +1,18 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import StatusBadge from '../components/StatusBadge.jsx'
+import { authFetch, setAccessToken } from '../lib/auth.js'
 
-function empresaApi(method, path, body, pwd) {
-  const headers = { 'Content-Type': 'application/json' }
-  if (pwd) headers['x-empresa-pwd'] = pwd
-  return fetch('/api' + path, { method, headers, body: body ? JSON.stringify(body) : undefined })
-    .then(r => r.json())
+function empresaApi(method, path, body) {
+  return authFetch('/api' + path, {
+    method,
+    body: body ? JSON.stringify(body) : undefined,
+  }).then(r => r.json())
 }
 
 // ─── Fila de conexión (igual que DashboardPage pero con empresa auth) ─────────
 
-export function ConexionRow({ conn, botId, pwd, onDelete, onConnected }) {
+export function ConexionRow({ conn, botId, onDelete, onConnected }) {
   const [showQr, setShowQr]     = useState(false)
   const [qrSrc, setQrSrc]       = useState(null)
   const [qrStatus, setQrStatus] = useState('')
@@ -31,12 +32,12 @@ export function ConexionRow({ conn, botId, pwd, onDelete, onConnected }) {
     const stop = () => { if (interval) { clearInterval(interval); interval = null } }
     stopRef.current = stop
 
-    const res = await empresaApi('POST', `/empresa/${botId}/connect/${conn.id}`, null, pwd).catch(() => null)
+    const res = await empresaApi('POST', `/empresa/${botId}/connect/${conn.id}`, null).catch(() => null)
     if (!res) { stop(); setShowQr(false); return }
     if (res.status === 'ready') { stop(); setStatus('ready'); setShowQr(false); onConnected?.(); return }
 
     interval = setInterval(async () => {
-      const data = await empresaApi('GET', `/empresa/${botId}/qr/${conn.id}`, null, pwd).catch(() => null)
+      const data = await empresaApi('GET', `/empresa/${botId}/qr/${conn.id}`, null).catch(() => null)
       if (!data) return
       if (data.status === 'ready') { stop(); setStatus('ready'); setShowQr(false); onConnected?.() }
       else if (['failed', 'disconnected'].includes(data.status)) { stop(); setStatus(data.status); setShowQr(false) }
@@ -48,7 +49,7 @@ export function ConexionRow({ conn, botId, pwd, onDelete, onConnected }) {
   }
 
   async function handleDisconnect() {
-    await empresaApi('POST', `/empresa/${botId}/disconnect/${conn.id}`, null, pwd).catch(() => null)
+    await empresaApi('POST', `/empresa/${botId}/disconnect/${conn.id}`, null).catch(() => null)
     setStatus('disconnected')
   }
 
@@ -114,7 +115,17 @@ function StepDatos({ onCreated }) {
     setLoading(false)
 
     if (!res?.ok) { setError(res?.detail || 'Error al crear la empresa'); return }
-    onCreated({ botId: res.bot_id, botName: res.bot_name, pwd: form.password })
+
+    // Login automático para obtener JWT
+    const loginRes = await fetch('/api/empresa/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bot_id: res.bot_id, password: form.password }),
+      credentials: 'include',
+    }).then(r => r.json()).catch(() => null)
+    if (loginRes?.access_token) setAccessToken(loginRes.access_token)
+
+    onCreated({ botId: res.bot_id, botName: res.bot_name })
   }
 
   return (
@@ -152,7 +163,7 @@ function StepDatos({ onCreated }) {
 // ─── Paso 2: Agregar conexiones ───────────────────────────────────
 
 function StepConexiones({ session, onDone }) {
-  const { botId, pwd } = session
+  const { botId } = session
   const [conns, setConns]       = useState([])
   const [waInput, setWaInput]   = useState('')
   const [tgInput, setTgInput]   = useState('')
@@ -165,7 +176,7 @@ function StepConexiones({ session, onDone }) {
     const number = waInput.trim()
     if (!number) return
     setLoading(true)
-    const res = await empresaApi('POST', `/empresa/${botId}/whatsapp`, { number }, pwd).catch(() => null)
+    const res = await empresaApi('POST', `/empresa/${botId}/whatsapp`, { number }).catch(() => null)
     setLoading(false)
     if (!res?.ok) { setWaError(res?.detail || 'Error al agregar'); return }
     setConns(c => [...c, { id: number, type: 'whatsapp', status: 'stopped' }])
@@ -177,7 +188,7 @@ function StepConexiones({ session, onDone }) {
     const token = tgInput.trim()
     if (!token) return
     setLoading(true)
-    const res = await empresaApi('POST', `/empresa/${botId}/telegram`, { token }, pwd).catch(() => null)
+    const res = await empresaApi('POST', `/empresa/${botId}/telegram`, { token }).catch(() => null)
     setLoading(false)
     if (!res?.ok) { setTgError(res?.detail || 'Error al agregar'); return }
     const tokenId = token.split(':')[0]
@@ -190,10 +201,10 @@ function StepConexiones({ session, onDone }) {
 
   async function removeConn(conn) {
     if (conn.type === 'whatsapp') {
-      await empresaApi('DELETE', `/empresa/${botId}/whatsapp/${conn.id}`, null, pwd).catch(() => null)
+      await empresaApi('DELETE', `/empresa/${botId}/whatsapp/${conn.id}`, null).catch(() => null)
     } else {
       const tokenId = conn.id.split('-tg-')[1]
-      await empresaApi('DELETE', `/empresa/${botId}/telegram/${tokenId}`, null, pwd).catch(() => null)
+      await empresaApi('DELETE', `/empresa/${botId}/telegram/${tokenId}`, null).catch(() => null)
     }
     setConns(c => c.filter(x => x.id !== conn.id))
   }
@@ -215,7 +226,7 @@ function StepConexiones({ session, onDone }) {
         {waError && <div className="error" style={{ marginBottom: 8 }}>{waError}</div>}
         <div className="phones-table">
           {conns.filter(c => c.type === 'whatsapp').map(c => (
-            <ConexionRow key={c.id} conn={c} botId={botId} pwd={pwd}
+            <ConexionRow key={c.id} conn={c} botId={botId}
               onDelete={removeConn} onConnected={() => setConns(cs => cs.map(x => x.id === c.id ? { ...x, status: 'ready' } : x))} />
           ))}
           {conns.filter(c => c.type === 'whatsapp').length === 0 && (
@@ -235,7 +246,7 @@ function StepConexiones({ session, onDone }) {
         {tgError && <div style={{ fontSize: 13, color: tgError.includes('Requiere') ? '#b45309' : 'var(--error)', marginBottom: 8 }}>{tgError}</div>}
         <div className="phones-table">
           {conns.filter(c => c.type === 'telegram').map(c => (
-            <ConexionRow key={c.id} conn={c} botId={botId} pwd={pwd} onDelete={removeConn} />
+            <ConexionRow key={c.id} conn={c} botId={botId} onDelete={removeConn} />
           ))}
           {conns.filter(c => c.type === 'telegram').length === 0 && (
             <div className="empty" style={{ padding: 8 }}>Sin bots aún</div>
@@ -259,8 +270,7 @@ function StepListo({ session }) {
   const navigate = useNavigate()
 
   function goPortal() {
-    sessionStorage.setItem('empresa_bot_id', session.botId)
-    sessionStorage.setItem('empresa_pwd', session.pwd)
+    localStorage.setItem('empresa_bot_id', session.botId)
     navigate('/empresa')
   }
 
@@ -288,8 +298,6 @@ export default function NuevaEmpresaPage() {
   const [session, setSession] = useState(null)
 
   function handleCreated(sess) {
-    sessionStorage.setItem('empresa_bot_id', sess.botId)
-    sessionStorage.setItem('empresa_pwd', sess.pwd)
     setSession(sess)
     setStep('conexiones')
   }

@@ -389,7 +389,7 @@ function ConfigView({ botId, botName, onSaved }) {
 
 // ─── HerramientasSection ─────────────────────────────────────────
 
-function ToolModal({ botId, tool, contacts, onClose, onSaved }) {
+function ToolModal({ botId, tool, contacts: initialContacts, onClose, onSaved }) {
   const isEdit = !!tool
   const [form, setForm] = useState({
     nombre: tool?.nombre ?? '',
@@ -401,15 +401,19 @@ function ToolModal({ botId, tool, contacts, onClose, onSaved }) {
     incluir_desconocidos: tool?.incluir_desconocidos ?? false,
   })
   const [allConns, setAllConns] = useState([])
+  const [contacts, setContacts] = useState(initialContacts ?? [])
   const [conflicts, setConflicts] = useState([])
   const [validating, setValidating] = useState(false)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
 
-  // Cargar conexiones disponibles
+  // Cargar conexiones y contactos frescos al abrir el modal
   useEffect(() => {
     empresaApi('GET', `/empresa/${botId}`, null).catch(() => null).then(res => {
       if (res?.connections) setAllConns(res.connections)
+    })
+    empresaApi('GET', `/bots/${botId}/contacts`, null).catch(() => null).then(res => {
+      if (Array.isArray(res)) setContacts(res)
     })
   }, [botId])
 
