@@ -99,3 +99,41 @@ def test_sim_messages_endpoint(client):
     r = client.get(f"/api/sim/messages/{number}", headers=ADMIN)
     assert r.status_code == 200
     assert isinstance(r.json(), list)
+
+
+def test_multi_empresa_dispatch(client):
+    """Mensaje en conexión compartida se loguea bajo todas las empresas."""
+    import time
+
+    bots = client.get("/api/bots", headers=ADMIN).json()
+
+    # Encontrar un número compartido entre ≥2 empresas
+    phone_to_bots: dict[str, list[str]] = {}
+    for bot in bots:
+        for phone in bot.get("phones", []):
+            num = phone["number"]
+            phone_to_bots.setdefault(num, []).append(bot["id"])
+
+    shared = {num: ids for num, ids in phone_to_bots.items() if len(ids) >= 2}
+    assert shared, "No hay números WA compartidos entre empresas en phones.json"
+
+    number, empresa_ids = next(iter(shared.items()))
+
+    # Enviar mensaje simulado con identificador único
+    unique_text = f"dispatch_test_{int(time.time() * 1000)}"
+    r = client.post(
+        f"/api/sim/send/{number}",
+        headers=ADMIN,
+        json={"from_name": "MultiTest", "from_phone": "5400009999", "text": unique_text},
+    )
+    assert r.status_code == 200
+
+    # Verificar que el mensaje aparece en DB para cada empresa
+    messages = client.get("/api/messages", headers=ADMIN).json()
+    bots_logged = {m["bot_id"] for m in messages if m.get("body") == unique_text}
+
+    for eid in empresa_ids:
+        assert eid in bots_logged, (
+            f"Empresa '{eid}' no recibió el mensaje (dispatch multi-empresa fallido).\n"
+            f"Empresas que sí lo tienen: {bots_logged}"
+        )

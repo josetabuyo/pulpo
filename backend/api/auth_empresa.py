@@ -1,4 +1,5 @@
 """Endpoints JWT para el portal de empresa."""
+import os
 from datetime import timedelta
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -33,8 +34,11 @@ class EmpresaLoginBody(BaseModel):
     password: str
 
 
+_LOGIN_RATE = os.environ.get("LOGIN_RATE_LIMIT", "10/hour")
+
+
 @router.post("/empresa/login")
-@limiter.limit("10/hour")
+@limiter.limit(_LOGIN_RATE)
 async def empresa_login(request: Request, response: Response, body: EmpresaLoginBody):
     config = load_config()
     bot = _find_bot_by_id(config, body.bot_id)

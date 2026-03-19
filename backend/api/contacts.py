@@ -19,6 +19,8 @@ def _validate_channel_value(type: str, value: str) -> str | None:
     if type == "whatsapp":
         if not value:
             return "El valor WhatsApp no puede estar vacío"
+        if not value.isdigit():
+            return "El valor WhatsApp debe ser numérico (sin +, espacios ni guiones)"
     elif type == "telegram":
         if not _TG_RE.match(value):
             return "El valor Telegram debe ser un número o @username"

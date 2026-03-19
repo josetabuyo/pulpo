@@ -21,3 +21,26 @@ BAD   = {"x-password": "wrong"}
 @pytest.fixture
 def client():
     return httpx.Client(base_url=BASE, timeout=5)
+
+
+# Cache de tokens JWT por (bot_id, password) — se reutiliza en toda la sesión de tests
+_token_cache: dict[tuple, str] = {}
+
+
+@pytest.fixture(scope="session")
+def _base_client():
+    """Cliente HTTP reutilizable para la sesión completa de tests."""
+    return httpx.Client(base_url=BASE, timeout=5)
+
+
+def get_empresa_token(bot_id: str, password: str, base_client) -> dict:
+    """
+    Obtiene (o reutiliza) un JWT Bearer token para una empresa.
+    Compartido entre todos los tests para no agotar el rate limit de /api/empresa/login.
+    """
+    key = (bot_id, password)
+    if key not in _token_cache:
+        r = base_client.post("/api/empresa/login", json={"bot_id": bot_id, "password": password})
+        assert r.status_code == 200, f"Login falló para {bot_id}: {r.text}"
+        _token_cache[key] = r.json()["access_token"]
+    return {"Authorization": f"Bearer {_token_cache[key]}"}
