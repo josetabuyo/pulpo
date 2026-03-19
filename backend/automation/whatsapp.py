@@ -276,11 +276,24 @@ class WhatsAppSession(BrowserAutomation):
                 is_audio = any(m in body for m in _AUDIO_MARKERS)
 
                 if is_audio:
-                    # TODO: descargar el blob de audio via Playwright y transcribir con Groq.
-                    # Por ahora se registra como placeholder para no perder el evento.
-                    # Implementar descarga cuando se estabilice el selector del blob.
-                    audio_content = "[audio — pendiente transcripción]"
-                    logger.info(f"[{session_id}] Audio detectado de {name}, registrado como placeholder")
+                    audio_path = await self._download_audio_blob(page, name, session_id)
+                    if audio_path:
+                        from tools import transcription
+                        import os
+                        try:
+                            audio_content = await transcription.transcribe(audio_path)
+                            logger.info(f"[{session_id}] Audio transcrito de {name}: {audio_content[:60]}")
+                        except Exception as _te:
+                            logger.warning(f"[{session_id}] Transcripción fallida: {_te}")
+                            audio_content = "[audio — error al transcribir]"
+                        finally:
+                            try:
+                                os.unlink(audio_path)
+                            except Exception:
+                                pass
+                    else:
+                        audio_content = "[audio — pendiente transcripción]"
+                        logger.info(f"[{session_id}] Audio de {name} sin blob disponible")
                 else:
                     audio_content = None
 
@@ -507,6 +520,105 @@ class WhatsAppSession(BrowserAutomation):
                 if "closed" in str(e).lower() or "target" in str(e).lower():
                     break
                 logger.info(f"[{session_id}] _poll_open_chat error: {e}")
+
+    # ------------------------------------------------------------------
+    # Descarga de audio desde WA Web
+    # ------------------------------------------------------------------
+
+    async def _download_audio_blob(
+        self, page, sender_name: str, session_id: str
+    ) -> str | None:
+        """
+        Abre el chat del remitente, localiza el último mensaje de audio en el panel,
+        fuerza la carga del blob clickeando play si hace falta, y descarga los bytes.
+
+        Retorna la ruta de un archivo temporal /tmp/pulpo_audio_*.ogg, o None si falla.
+        El caller es responsable de eliminar el archivo tras la transcripción.
+        """
+        import time
+        import base64 as _b64
+
+        try:
+            # 1. Abrir el chat del remitente (mismo patrón que send_message)
+            contact_span = page.locator(
+                f"[role='grid'] span[title='{sender_name}']"
+            ).first
+            await contact_span.wait_for(state="visible", timeout=5000)
+            await contact_span.click()
+            await page.wait_for_timeout(1000)
+
+            # 2. Buscar el último mensaje de audio y descargar su blob
+            blob_b64 = await page.evaluate("""
+            async () => {
+                const tryFetch = async (audio) => {
+                    if (!audio.src || !audio.src.startsWith('blob:')) return null;
+                    try {
+                        const resp = await fetch(audio.src);
+                        const buf  = await resp.arrayBuffer();
+                        const bytes = new Uint8Array(buf);
+                        let bin = '';
+                        for (let b of bytes) bin += String.fromCharCode(b);
+                        return btoa(bin);
+                    } catch(e) { return null; }
+                };
+
+                const msgs = document.querySelectorAll('[data-testid="msg-container"]');
+                if (!msgs.length) return null;
+
+                // Recorrer desde el último mensaje hacia atrás
+                for (let i = msgs.length - 1; i >= 0; i--) {
+                    const audio = msgs[i].querySelector('audio');
+                    if (!audio) continue;
+
+                    // Intentar con blob ya cargado
+                    let b64 = await tryFetch(audio);
+                    if (b64) return b64;
+
+                    // Blob no cargado: intentar clickear el play para forzar descarga
+                    const playBtn = msgs[i].querySelector(
+                        '[data-testid="audio-play"], [data-icon="audio-play"], ' +
+                        'button[aria-label*="Play"], button[aria-label*="play"], ' +
+                        'button[aria-label*="Reproducir"], button[aria-label*="reproducir"], ' +
+                        'button[aria-label*="Escuchar"], button[aria-label*="Voice"]'
+                    );
+                    if (playBtn) {
+                        playBtn.click();
+                        // Polling hasta 6s esperando que se rellene audio.src
+                        await new Promise(resolve => {
+                            let elapsed = 0;
+                            const iv = setInterval(() => {
+                                elapsed += 200;
+                                if ((audio.src && audio.src.startsWith('blob:')) || elapsed >= 6000) {
+                                    clearInterval(iv);
+                                    resolve();
+                                }
+                            }, 200);
+                        });
+                        b64 = await tryFetch(audio);
+                        if (b64) {
+                            audio.pause();  // no reproducir en producción
+                            return b64;
+                        }
+                    }
+                    break;  // solo intentar con el último mensaje de audio
+                }
+                return null;
+            }
+            """)
+
+            if not blob_b64:
+                logger.debug(f"[{session_id}] _download_audio_blob: sin blob para {sender_name}")
+                return None
+
+            path = f"/tmp/pulpo_audio_{int(time.time() * 1000)}.ogg"
+            with open(path, "wb") as f:
+                f.write(_b64.b64decode(blob_b64))
+            logger.info(f"[{session_id}] Blob de audio guardado en {path}")
+            return path
+
+        except Exception as e:
+            logger.warning(f"[{session_id}] _download_audio_blob error: {e}")
+            return None
 
     # ------------------------------------------------------------------
     # Estado
