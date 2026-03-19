@@ -34,8 +34,17 @@ def build_telegram_app(bot_config: dict):
 
         text = msg.text or ""
 
-        # Log siempre (para sugeridos)
-        msg_id = await log_message(bot_id, token_id, sender_id, sender_name, text)
+        # Dispatch multi-empresa: loguar bajo todos los bots que tienen este session_id
+        from config import get_empresas_for_bot
+        empresa_ids = get_empresas_for_bot(session_id)
+        if not empresa_ids:
+            empresa_ids = [bot_id]
+
+        msg_ids = {}
+        for eid in empresa_ids:
+            mid = await log_message(eid, token_id, sender_id, sender_name, text)
+            msg_ids[eid] = mid
+
         logger.info(f"{label} Mensaje de {sender_name}: \"{text}\"")
 
         # Motor de resolución: herramientas en DB
@@ -55,8 +64,9 @@ def build_telegram_app(bot_config: dict):
 
         try:
             await msg.reply_text(reply)
-            await mark_answered(msg_id)
-            logger.info(f"{label}   → Respuesta enviada (id: {msg_id})")
+            for mid in msg_ids.values():
+                await mark_answered(mid)
+            logger.info(f"{label}   → Respuesta enviada")
         except Exception as e:
             logger.error(f"{label}   → Error al responder: {e}")
 

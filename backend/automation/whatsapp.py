@@ -237,6 +237,7 @@ class WhatsAppSession(BrowserAutomation):
         # Importación diferida para evitar ciclo circular
         from db import log_message, mark_answered
         from sim import resolve_tool
+        from config import get_empresas_for_bot
 
         recent_msgs: set[tuple[str, str]] = set()  # dedup entre JS y Python poll
 
@@ -249,8 +250,16 @@ class WhatsAppSession(BrowserAutomation):
             asyncio.get_event_loop().call_later(60, lambda: recent_msgs.discard(pair))
 
             logger.info(f"[{session_id}] Mensaje de {name} ({phone}): {body[:60]}")
-            # Log siempre (para sugeridos)
-            msg_id = await log_message(bot_id, bot_phone, phone or name, name, body)
+
+            # Dispatch multi-empresa: loguar bajo todos los bots que tienen esta conexión
+            empresa_ids = get_empresas_for_bot(bot_phone)
+            if not empresa_ids:
+                empresa_ids = [bot_id]
+
+            msg_ids = {}
+            for eid in empresa_ids:
+                mid = await log_message(eid, bot_phone, phone or name, name, body)
+                msg_ids[eid] = mid
 
             # Motor de resolución: herramientas en DB
             # WA usa el nombre como identificador (phone suele llegar vacío del scraper)
@@ -272,7 +281,8 @@ class WhatsAppSession(BrowserAutomation):
             target = phone if phone else name
             ok = await self.send_message(session_id, target, reply)
             if ok:
-                await mark_answered(msg_id)
+                for mid in msg_ids.values():
+                    await mark_answered(mid)
 
         # Exponer callback Python → JS (falla silencioso si ya fue expuesto)
         try:

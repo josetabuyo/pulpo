@@ -82,22 +82,15 @@ async def resolve_tool(bot_id: str, sender: str, channel_type: str) -> dict | No
     return None
 
 
-async def _is_sender_allowed(bot_id: str, channel_type: str, sender: str) -> bool:
-    """Retorna True si el sender tiene un contacto registrado en DB."""
-    from db import find_contact_by_channel
-    contact = await find_contact_by_channel(channel_type, sender)
-    return contact is not None
-
-
 async def sim_receive(session_id: str, from_name: str, from_phone: str, text: str) -> str | None:
     """
     Procesa un mensaje entrante simulado por el pipeline real:
-      1. Guarda en DB (siempre, para sugeridos).
-      2. Verifica si el sender es un contacto permitido.
-      3. Si está permitido, responde con auto_reply.
-    Devuelve el texto de la respuesta, o None si no hay auto_reply o no está permitido.
+      1. Guarda en DB bajo TODAS las empresas que tienen esta conexión (dispatch multi-empresa).
+      2. Evalúa herramientas y auto_reply para la empresa dueña de la sesión.
+    Devuelve el texto de la respuesta, o None si no hay reply.
     """
     from db import log_message, mark_answered, log_outbound_message
+    from config import get_empresas_for_bot
 
     cfg = _get_phone_config(session_id)
     if not cfg:
@@ -109,18 +102,21 @@ async def sim_receive(session_id: str, from_name: str, from_phone: str, text: st
     # Detectar tipo de canal según session_id
     channel_type = "telegram" if "-tg-" in session_id else "whatsapp"
 
-    # Guardar en DB siempre (para que aparezca en sugeridos)
-    msg_id = await log_message(cfg["bot_id"], session_id, from_phone, from_name, text)
+    # Dispatch multi-empresa: loguar bajo todos los bots que tienen esta conexión
+    empresa_ids = get_empresas_for_bot(session_id)
+    if not empresa_ids:
+        # Fallback: usar solo el bot dueño de la sesión
+        empresa_ids = [cfg["bot_id"]]
+
+    msg_ids = {}
+    for eid in empresa_ids:
+        mid = await log_message(eid, session_id, from_phone, from_name, text)
+        msg_ids[eid] = mid
+
     conv.append({"role": "user", "text": text, "from_name": from_name, "ts": ts})
     logger.info("[sim] MSG ← %s (%s) → %s: %s", from_name, from_phone, session_id, text)
 
-    # Verificar si el sender está permitido
-    allowed = await _is_sender_allowed(cfg["bot_id"], channel_type, from_phone)
-    if not allowed:
-        logger.info("[sim] IGNORADO (no es contacto registrado) → %s", from_phone)
-        return None
-
-    # Motor de resolución: herramientas en DB
+    # Motor de resolución: herramientas en DB (para la empresa dueña)
     tool = await resolve_tool(session_id, from_phone, channel_type)
     if tool:
         if tool["tipo"] == "fixed_message":
@@ -133,7 +129,8 @@ async def sim_receive(session_id: str, from_name: str, from_phone: str, text: st
         reply = cfg["auto_reply"]
 
     if reply:
-        await mark_answered(msg_id)
+        for mid in msg_ids.values():
+            await mark_answered(mid)
         await log_outbound_message(cfg["bot_id"], session_id, from_phone, reply)
         conv.append({"role": "bot", "text": reply, "from_name": "Bot", "ts": ts})
         logger.info("[sim] REPLY → %s: %s", session_id, reply[:80])

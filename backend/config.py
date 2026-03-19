@@ -38,6 +38,34 @@ def get_empresa_for_bot(bot_id: str) -> str | None:
     return None
 
 
+def get_empresas_for_bot(bot_id: str) -> list[str]:
+    """
+    Retorna todos los empresa_ids que tienen registrada esta conexión (bot_id).
+    Una conexión puede ser un número WA, un session_id TG, o el propio bot_id.
+    Permite el dispatch multi-empresa: si el mismo número está en varios bots,
+    el mensaje se loguea bajo todos ellos.
+    """
+    config = load_config()
+    result = []
+    for bot in config.get("bots", []):
+        if bot["id"] == bot_id:
+            if bot["id"] not in result:
+                result.append(bot["id"])
+            continue
+        for phone in bot.get("phones", []):
+            if phone["number"] == bot_id:
+                if bot["id"] not in result:
+                    result.append(bot["id"])
+                break
+        for tg in bot.get("telegram", []):
+            token_id = tg["token"].split(":")[0]
+            if f"{bot['id']}-tg-{token_id}" == bot_id:
+                if bot["id"] not in result:
+                    result.append(bot["id"])
+                break
+    return result
+
+
 def get_telegram_bots(config: dict) -> list[dict]:
     """
     Devuelve una lista de configs de bots de Telegram:
