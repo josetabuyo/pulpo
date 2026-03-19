@@ -270,15 +270,39 @@ class WhatsAppSession(BrowserAutomation):
             if summarizers:
                 from tools import summarizer as summarizer_mod
                 from datetime import datetime
+
+                # Detectar si es un audio (el sidebar WA Web muestra 🎵, 🎤 o "Audio")
+                _AUDIO_MARKERS = ("🎵", "🎤", "Audio", "audio", "Voice message")
+                is_audio = any(m in body for m in _AUDIO_MARKERS)
+
+                if is_audio:
+                    # TODO: descargar el blob de audio via Playwright y transcribir con Groq.
+                    # Por ahora se registra como placeholder para no perder el evento.
+                    # Implementar descarga cuando se estabilice el selector del blob.
+                    audio_content = "[audio — pendiente transcripción]"
+                    logger.info(f"[{session_id}] Audio detectado de {name}, registrado como placeholder")
+                else:
+                    audio_content = None
+
                 for s_tool in summarizers:
-                    summarizer_mod.accumulate(
-                        empresa_id=s_tool["bot_id"],
-                        contact_phone=sender,
-                        contact_name=name,
-                        msg_type="text",
-                        content=body,
-                        timestamp=datetime.now(),
-                    )
+                    if is_audio:
+                        summarizer_mod.accumulate(
+                            empresa_id=s_tool["bot_id"],
+                            contact_phone=sender,
+                            contact_name=name,
+                            msg_type="audio",
+                            content=audio_content,
+                            timestamp=datetime.now(),
+                        )
+                    else:
+                        summarizer_mod.accumulate(
+                            empresa_id=s_tool["bot_id"],
+                            contact_phone=sender,
+                            contact_name=name,
+                            msg_type="text",
+                            content=body,
+                            timestamp=datetime.now(),
+                        )
 
             if not tool:
                 logger.debug(f"[{session_id}] Sin herramienta activa para '{name}'")

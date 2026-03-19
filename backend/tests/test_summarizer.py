@@ -1,8 +1,10 @@
-"""Tests de la herramienta sumarizadora."""
+"""Tests de la herramienta sumarizadora y transcripción de audio."""
 import sys
 import os
+import asyncio
 from pathlib import Path
 from datetime import datetime
+from unittest.mock import patch, MagicMock
 
 # Agregar el directorio backend al sys.path para imports directos
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -127,3 +129,121 @@ def test_summarizer_endpoint_404_sin_resumen(client):
         return
     r = client.get(f"/api/summarizer/{BOT_ID}/9999999999", headers=token)
     assert r.status_code == 404
+
+
+# ─── Tests de transcripción ──────────────────────────────────────
+
+def test_transcribe_groq_sin_api_key():
+    """Sin GROQ_API_KEY, _transcribe_groq lanza ValueError."""
+    import tools.transcription as t
+    with patch.dict(os.environ, {}, clear=True):
+        os.environ.pop("GROQ_API_KEY", None)
+        with patch("tools.transcription._transcribe_groq", side_effect=ValueError("GROQ_API_KEY no configurada")):
+            result = asyncio.run(t.transcribe("/tmp/test.ogg"))
+    # Cae a fallback local → placeholder o resultado local
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+def test_transcribe_fallback_sin_pywhispercpp(tmp_path):
+    """Sin GROQ_API_KEY y sin pywhispercpp → placeholder claro."""
+    import tools.transcription as t
+    audio = tmp_path / "test.ogg"
+    audio.write_bytes(b"fake audio data")
+
+    with patch.dict(os.environ, {}, clear=True):
+        os.environ.pop("GROQ_API_KEY", None)
+        # Simular ImportError de pywhispercpp
+        with patch("builtins.__import__", side_effect=lambda name, *a, **kw: (_ for _ in ()).throw(ImportError) if name == "pywhispercpp.model" else __import__(name, *a, **kw)):
+            result = t._transcribe_local(str(audio))
+
+    assert "[audio sin transcribir" in result
+    assert "GROQ_API_KEY" in result
+
+
+def test_transcribe_groq_mock(tmp_path):
+    """Con Groq mockeado, transcribe() retorna el texto del API."""
+    import tools.transcription as t
+    audio = tmp_path / "audio.ogg"
+    audio.write_bytes(b"fake audio")
+
+    mock_client = MagicMock()
+    mock_client.audio.transcriptions.create.return_value = MagicMock(text="Hola, esto es una prueba")
+
+    with patch.dict(os.environ, {"GROQ_API_KEY": "test-key"}):
+        with patch("groq.Groq", return_value=mock_client):
+            result = asyncio.run(t.transcribe(str(audio)))
+
+    assert result == "Hola, esto es una prueba"
+
+
+def test_accumulate_audio_tipo(tmp_path, monkeypatch):
+    """accumulate() con msg_type='audio' registra correctamente el tipo."""
+    import tools.summarizer as s
+    monkeypatch.setattr(s, "_BASE", tmp_path)
+
+    s.accumulate("e1", "5491100010", "Luis", "audio", "transcripción de prueba")
+
+    content = (tmp_path / "e1" / "5491100010.md").read_text()
+    assert "**[audio]**" in content
+    assert "transcripción de prueba" in content
+
+
+def test_sim_receive_con_audio_path(tmp_path, monkeypatch):
+    """sim_receive con audio_path transcribe y acumula con tipo 'audio'."""
+    import tools.summarizer as s
+    monkeypatch.setattr(s, "_BASE", tmp_path)
+
+    audio = tmp_path / "test.ogg"
+    audio.write_bytes(b"fake audio")
+
+    accumulated: list[dict] = []
+
+    def fake_accumulate(**kwargs):
+        accumulated.append(kwargs)
+
+    monkeypatch.setattr(s, "accumulate", fake_accumulate)
+
+    import tools.transcription as t
+    async def fake_transcribe(path):
+        return "texto transcripto del audio"
+
+    monkeypatch.setattr(t, "transcribe", fake_transcribe)
+
+    # Importar sim_receive (sin servidor — solo test unitario del flujo)
+    # Verificamos que la lógica llama a transcribe y accumulate con msg_type=audio
+    # a través de un mock de resolve_tools
+    import sim as sim_engine
+    import asyncio
+
+    async def fake_resolve_tools(session_id, sender, channel_type):
+        return (
+            [{"empresa_id": "e_test", "nombre": "TestSummarizer", "bot_id": "e_test"}],
+            None,
+        )
+
+    async def fake_get_config(*args):
+        return {"bot_id": "e_test", "auto_reply": ""}
+
+    monkeypatch.setattr(sim_engine, "resolve_tools", fake_resolve_tools)
+    monkeypatch.setattr(sim_engine, "_get_phone_config", lambda sid: {"bot_id": "e_test", "auto_reply": ""})
+
+    async def run():
+        from unittest.mock import AsyncMock
+        with patch("db.log_message", new_callable=AsyncMock, return_value=1), \
+             patch("db.mark_answered", new_callable=AsyncMock), \
+             patch("db.log_outbound_message", new_callable=AsyncMock), \
+             patch("config.get_empresas_for_bot", return_value=["e_test"]):
+            return await sim_engine.sim_receive(
+                session_id="5491100099",
+                from_name="Pepe",
+                from_phone="5491100099",
+                text="[audio]",
+                audio_path=str(audio),
+            )
+
+    asyncio.run(run())
+
+    assert len(accumulated) == 1
+    assert accumulated[0]["msg_type"] == "audio"
+    assert accumulated[0]["content"] == "texto transcripto del audio"

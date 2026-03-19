@@ -94,11 +94,18 @@ async def resolve_tool(bot_id: str, sender: str, channel_type: str) -> dict | No
     return reply_tool
 
 
-async def sim_receive(session_id: str, from_name: str, from_phone: str, text: str) -> str | None:
+async def sim_receive(
+    session_id: str,
+    from_name: str,
+    from_phone: str,
+    text: str,
+    audio_path: str | None = None,
+) -> str | None:
     """
     Procesa un mensaje entrante simulado por el pipeline real:
       1. Guarda en DB bajo TODAS las empresas que tienen esta conexión (dispatch multi-empresa).
       2. Evalúa herramientas y auto_reply para la empresa dueña de la sesión.
+    Si se pasa audio_path, transcribe el audio y lo acumula con tipo "audio".
     Devuelve el texto de la respuesta, o None si no hay reply.
     """
     from db import log_message, mark_answered, log_outbound_message
@@ -134,15 +141,34 @@ async def sim_receive(session_id: str, from_name: str, from_phone: str, text: st
     # Sumarizadoras: acumular bajo cada empresa que las define
     if summarizers:
         from tools import summarizer as summarizer_mod
+
+        # Transcribir audio si se proporcionó
+        if audio_path:
+            from tools import transcription as transcription_mod
+            transcribed = await transcription_mod.transcribe(audio_path)
+            logger.info("[sim] AUDIO transcrito de %s: %s", from_phone, transcribed[:80])
+        else:
+            transcribed = None
+
         for s_tool in summarizers:
-            summarizer_mod.accumulate(
-                empresa_id=s_tool["empresa_id"],
-                contact_phone=from_phone,
-                contact_name=from_name,
-                msg_type="texto",
-                content=text,
-            )
-            logger.info("[sim] SUMMARIZER '%s' acumuló de %s", s_tool["nombre"], from_phone)
+            if transcribed is not None:
+                summarizer_mod.accumulate(
+                    empresa_id=s_tool["empresa_id"],
+                    contact_phone=from_phone,
+                    contact_name=from_name,
+                    msg_type="audio",
+                    content=transcribed,
+                )
+                logger.info("[sim] SUMMARIZER '%s' acumuló audio de %s", s_tool["nombre"], from_phone)
+            else:
+                summarizer_mod.accumulate(
+                    empresa_id=s_tool["empresa_id"],
+                    contact_phone=from_phone,
+                    contact_name=from_name,
+                    msg_type="texto",
+                    content=text,
+                )
+                logger.info("[sim] SUMMARIZER '%s' acumuló de %s", s_tool["nombre"], from_phone)
 
     if reply_tool:
         if reply_tool["tipo"] == "fixed_message":

@@ -43,6 +43,28 @@ async def sim_send(number: str, body: SimSendBody):
     return {"ok": True, "reply": reply}
 
 
+class SimSendAudioBody(BaseModel):
+    from_name: str = "Contacto"
+    from_phone: str = "0000000000"
+    audio_path: str
+
+
+@router.post("/sim/send-audio/{number}")
+async def sim_send_audio(number: str, body: SimSendAudioBody):
+    """Simula la recepción de un mensaje de audio: transcribe y acumula en sumarizadoras."""
+    import os
+    if not os.path.exists(body.audio_path):
+        raise HTTPException(status_code=400, detail=f"audio_path no existe: {body.audio_path}")
+    reply = await sim_engine.sim_receive(
+        number,
+        body.from_name,
+        body.from_phone,
+        text="[audio]",
+        audio_path=body.audio_path,
+    )
+    return {"ok": True, "reply": reply}
+
+
 @router.get("/sim/messages/{number}")
 def sim_messages(number: str):
     return sim_engine.get_conversation(number)
