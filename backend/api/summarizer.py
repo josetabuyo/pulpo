@@ -4,6 +4,7 @@ API para consultar los resúmenes acumulados por la herramienta sumarizadora.
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import PlainTextResponse
+from pydantic import BaseModel
 from sqlalchemy import text
 
 from db import AsyncSessionLocal
@@ -34,12 +35,24 @@ async def get_summary(empresa_id: str, contact_phone: str, _: str = Depends(_che
     return content
 
 
+class SyncBody(BaseModel):
+    contact_phone: str | None = None
+
+
 @router.post("/summarizer/{empresa_id}/sync")
-async def sync_history(empresa_id: str, _: str = Depends(_check_auth)):
-    """Backfill: lee todos los mensajes entrantes de la DB y los acumula en los archivos .md.
+async def sync_history(empresa_id: str, body: SyncBody = SyncBody(), _: str = Depends(_check_auth)):
+    """Backfill: lee mensajes de la DB y los acumula en los archivos .md.
+    Si contact_phone está presente, solo sincroniza ese contacto.
     Borra los archivos existentes antes de escribir para evitar duplicados."""
-    # Limpiar archivos actuales de esta empresa
-    summarizer.clear_empresa(empresa_id)
+    if body.contact_phone:
+        summarizer.clear_contact(empresa_id, body.contact_phone)
+    else:
+        summarizer.clear_empresa(empresa_id)
+
+    extra_filter = "AND m.phone = :phone " if body.contact_phone else ""
+    params: dict = {"eid": empresa_id}
+    if body.contact_phone:
+        params["phone"] = body.contact_phone
 
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(
@@ -48,10 +61,10 @@ async def sync_history(empresa_id: str, _: str = Depends(_check_auth)):
                 "FROM messages m "
                 "JOIN contacts c ON c.bot_id = :eid "
                 "JOIN contact_channels cc ON cc.contact_id = c.id AND cc.value = m.phone "
-                "WHERE m.bot_id = :eid AND m.outbound = 0 "
+                f"WHERE m.bot_id = :eid AND m.outbound = 0 {extra_filter}"
                 "ORDER BY m.timestamp ASC"
             ),
-            {"eid": empresa_id},
+            params,
         )).fetchall()
 
     for phone, name, body, ts_raw in rows:

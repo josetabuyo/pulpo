@@ -627,11 +627,13 @@ function SummaryModal({ botId, tool, onClose }) {
 
   async function handleSync() {
     setSyncing(true)
-    const res = await empresaApi('POST', `/summarizer/${botId}/sync`, null).catch(() => null)
+    const body = selected ? { contact_phone: selected } : {}
+    const res = await empresaApi('POST', `/summarizer/${botId}/sync`, body).catch(() => null)
     setSyncing(false)
     if (res?.synced != null) {
       loadContacts()
-      setSelected(null); setContent('')
+      if (!selected) { setSelected(null); setContent('') }
+      else viewContact(selected)
     }
   }
 
@@ -680,7 +682,7 @@ function SummaryModal({ botId, tool, onClose }) {
         }
         <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <button className="btn-ghost btn-sm" onClick={handleSync} disabled={syncing}>
-            {syncing ? 'Sincronizando...' : '↺ Sincronizar histórico'}
+            {syncing ? 'Sincronizando...' : selected ? `↺ Re-sync ${selected}` : '↺ Sincronizar todos'}
           </button>
           <button className="btn-ghost btn-sm" onClick={onClose}>Cerrar</button>
         </div>

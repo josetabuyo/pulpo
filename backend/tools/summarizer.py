@@ -51,3 +51,8 @@ def clear_empresa(empresa_id: str) -> None:
         return
     for f in d.glob("*.md"):
         f.unlink()
+
+
+def clear_contact(empresa_id: str, contact_phone: str) -> None:
+    """Elimina el archivo .md de un contacto específico."""
+    _path(empresa_id, contact_phone).unlink(missing_ok=True)

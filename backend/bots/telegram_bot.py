@@ -48,8 +48,22 @@ def build_telegram_app(bot_config: dict):
         logger.info(f"{label} Mensaje de {sender_name}: \"{text}\"")
 
         # Motor de resolución: herramientas en DB
-        from sim import resolve_tool
-        tool = await resolve_tool(session_id, sender_id, "telegram")
+        from sim import resolve_tools
+        from datetime import datetime
+        summarizers, tool = await resolve_tools(session_id, sender_id, "telegram")
+
+        if summarizers:
+            from tools import summarizer as summarizer_mod
+            for s_tool in summarizers:
+                summarizer_mod.accumulate(
+                    empresa_id=s_tool["bot_id"],
+                    contact_phone=sender_id,
+                    contact_name=sender_name,
+                    msg_type="text",
+                    content=text,
+                    timestamp=datetime.now(),
+                )
+
         if not tool:
             logger.debug(f"{label} Sin herramienta activa para {sender_name} ({sender_id})")
             return
