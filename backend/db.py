@@ -68,9 +68,15 @@ async def init_db():
                 contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
                 type       TEXT NOT NULL CHECK(type IN ('whatsapp', 'telegram')),
                 value      TEXT NOT NULL,
+                is_group   INTEGER NOT NULL DEFAULT 0,
                 UNIQUE(type, value)
             )
         """))
+        # Migración: agregar is_group si la tabla ya existía sin esa columna
+        try:
+            await conn.execute(text("ALTER TABLE contact_channels ADD COLUMN is_group INTEGER NOT NULL DEFAULT 0"))
+        except Exception:
+            pass  # Ya existe
         await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS idx_contact_channels_contact_id ON contact_channels(contact_id)"
         ))
@@ -231,12 +237,12 @@ async def _get_channels_for(conn, contact_ids: list[int]) -> dict[int, list]:
     placeholders = ",".join(f":id{i}" for i in range(len(contact_ids)))
     params = {f"id{i}": cid for i, cid in enumerate(contact_ids)}
     rows = (await conn.execute(
-        text(f"SELECT id, contact_id, type, value FROM contact_channels WHERE contact_id IN ({placeholders})"),
+        text(f"SELECT id, contact_id, type, value, is_group FROM contact_channels WHERE contact_id IN ({placeholders})"),
         params,
     )).fetchall()
     result: dict[int, list] = {cid: [] for cid in contact_ids}
     for row in rows:
-        result[row[1]].append({"id": row[0], "type": row[2], "value": row[3]})
+        result[row[1]].append({"id": row[0], "type": row[2], "value": row[3], "is_group": bool(row[4])})
     return result
 
 
@@ -300,11 +306,11 @@ async def delete_contact(contact_id: int) -> bool:
         return result.rowcount > 0
 
 
-async def add_channel(contact_id: int, type: str, value: str) -> int:
+async def add_channel(contact_id: int, type: str, value: str, is_group: bool = False) -> int:
     async with AsyncSessionLocal() as session:
         result = await session.execute(
-            text("INSERT INTO contact_channels (contact_id, type, value) VALUES (:contact_id, :type, :value)"),
-            {"contact_id": contact_id, "type": type, "value": value},
+            text("INSERT INTO contact_channels (contact_id, type, value, is_group) VALUES (:contact_id, :type, :value, :is_group)"),
+            {"contact_id": contact_id, "type": type, "value": value, "is_group": int(is_group)},
         )
         await session.commit()
         return result.lastrowid

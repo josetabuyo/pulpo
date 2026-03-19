@@ -805,6 +805,7 @@ function HerramientasSection({ botId }) {
 // ─── ContactosSection ────────────────────────────────────────────
 
 const CHANNEL_LABELS = { whatsapp: '📱 WA', telegram: '✈️ TG' }
+const channelLabel = (ch) => ch.is_group ? `👥 Grupo WA` : (CHANNEL_LABELS[ch.type] || ch.type)
 
 function ContactModal({ botId, contact, onClose, onSaved }) {
   const isEdit = !!contact
@@ -812,6 +813,7 @@ function ContactModal({ botId, contact, onClose, onSaved }) {
   const [channels, setChannels] = useState(contact?.channels ?? [])
   const [newType, setNewType]   = useState('whatsapp')
   const [newVal, setNewVal]     = useState('')
+  const [newIsGroup, setNewIsGroup] = useState(false)
   const [chErr, setChErr]       = useState('')
   const [saving, setSaving]     = useState(false)
   const [err, setErr]           = useState('')
@@ -836,13 +838,13 @@ function ContactModal({ botId, contact, onClose, onSaved }) {
     e.preventDefault(); setChErr('')
     const val = newVal.trim(); if (!val) return
     if (isEdit) {
-      const res = await empresaApi('POST', `/contacts/${contact.id}/channels`, { type: newType, value: val }).catch(() => null)
+      const res = await empresaApi('POST', `/contacts/${contact.id}/channels`, { type: newType, value: val, is_group: newIsGroup }).catch(() => null)
       if (!res?.id) { setChErr(res?.detail || 'Error al agregar canal'); return }
       setChannels(c => [...c, res])
     } else {
-      setChannels(c => [...c, { id: Date.now(), type: newType, value: val }])
+      setChannels(c => [...c, { id: Date.now(), type: newType, value: val, is_group: newIsGroup }])
     }
-    setNewVal('')
+    setNewVal(''); setNewIsGroup(false)
   }
 
   async function removeChannel(ch) {
@@ -871,7 +873,7 @@ function ContactModal({ botId, contact, onClose, onSaved }) {
               ? <div className="channel-list">
                   {channels.map(ch => (
                     <div key={ch.id} className="channel-item">
-                      <span className="ch-badge ch-badge--small">{CHANNEL_LABELS[ch.type] || ch.type}</span>
+                      <span className="ch-badge ch-badge--small">{channelLabel(ch)}</span>
                       <span className="ch-value">{ch.value}</span>
                       <button type="button" className="btn-ghost btn-sm" onClick={() => removeChannel(ch)}>✕</button>
                     </div>
@@ -879,15 +881,21 @@ function ContactModal({ botId, contact, onClose, onSaved }) {
                 </div>
               : <div className="empty" style={{ marginBottom: 8 }}>Sin canales</div>
             }
-            <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-              <select value={newType} onChange={e => setNewType(e.target.value)} style={{ width: 130 }}>
+            <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+              <select value={newType} onChange={e => { setNewType(e.target.value); setNewIsGroup(false) }} style={{ width: 130 }}>
                 <option value="whatsapp">WhatsApp</option>
                 <option value="telegram">Telegram</option>
               </select>
-              <input style={{ flex: 1 }} value={newVal} onChange={e => setNewVal(e.target.value)}
-                placeholder={newType === 'whatsapp' ? 'Número (sin +)' : 'Número o @username'} />
+              <input style={{ flex: 1, minWidth: 120 }} value={newVal} onChange={e => setNewVal(e.target.value)}
+                placeholder={newType === 'whatsapp' ? (newIsGroup ? 'Nombre del grupo' : 'Número (sin +)') : 'Número o @username'} />
               <button type="button" className="btn-ghost btn-sm" onClick={addChannel}>+ Canal</button>
             </div>
+            {newType === 'whatsapp' && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, marginTop: 4, cursor: 'pointer' }}>
+                <input type="checkbox" checked={newIsGroup} onChange={e => setNewIsGroup(e.target.checked)} />
+                👥 Es grupo de WhatsApp
+              </label>
+            )}
             {chErr && <div className="error" style={{ fontSize: 12, marginTop: 4 }}>{chErr}</div>}
           </div>
 
@@ -964,7 +972,7 @@ function ContactosSection({ botId, onContactsChange }) {
                   <td>
                     {c.channels.map(ch => (
                       <span key={ch.id} className={`ch-badge ch-badge--${ch.type}`}>
-                        {CHANNEL_LABELS[ch.type]} {ch.value}
+                        {channelLabel(ch)} {ch.value}
                       </span>
                     ))}
                   </td>

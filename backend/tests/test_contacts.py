@@ -133,6 +133,33 @@ def test_channel_validation_whatsapp(client):
     client.delete(f"/api/contacts/{c['id']}", headers=auth)
 
 
+# ─── is_group ─────────────────────────────────────────────────────
+
+def test_create_group_channel(client):
+    """Canal WhatsApp con is_group=True acepta nombre (no número)."""
+    auth = get_empresa_token(BOT_ID, BOT_PWD, client)
+    r = client.post(f"/api/bots/{BOT_ID}/contacts", json={
+        "name": "Grupo SIGIRH 2025",
+        "channels": [{"type": "whatsapp", "value": "Desarrollo SIGIRH 2025", "is_group": True}],
+    }, headers=auth)
+    assert r.status_code == 201
+    body = r.json()
+    ch = body["channels"][0]
+    assert ch["is_group"] is True
+    assert ch["value"] == "Desarrollo SIGIRH 2025"
+    client.delete(f"/api/contacts/{body['id']}", headers=auth)
+
+
+def test_group_channel_rejects_number_as_non_group(client):
+    """Un canal WA sin is_group sigue requiriendo número."""
+    auth = get_empresa_token(BOT_ID, BOT_PWD, client)
+    c = client.post(f"/api/bots/{BOT_ID}/contacts", json={"name": "Val Grupo"}, headers=auth).json()
+    r = client.post(f"/api/contacts/{c['id']}/channels",
+                    json={"type": "whatsapp", "value": "Nombre del Grupo", "is_group": False}, headers=auth)
+    assert r.status_code == 400
+    client.delete(f"/api/contacts/{c['id']}", headers=auth)
+
+
 # ─── find_contact_by_channel (vía list) ─────────────────────────
 
 def test_list_contacts_includes_channels(client):

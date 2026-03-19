@@ -266,6 +266,21 @@ class WhatsAppSession(BrowserAutomation):
             sender = phone or name
             summarizers, tool = await resolve_tools(session_id, sender, "whatsapp")
 
+            # Si el contacto es un grupo, parsear "Integrante: mensaje"
+            # El sidebar de WA Web muestra el body como "NombreRemitente: texto"
+            sender_in_group: str | None = None
+            if summarizers or tool:
+                from db import find_contact_by_channel
+                contact = await find_contact_by_channel("whatsapp", sender)
+                if contact:
+                    ch = next((c for c in contact.get("channels", [])
+                               if c["type"] == "whatsapp" and c.get("is_group")), None)
+                    if ch and ": " in body:
+                        parts = body.split(": ", 1)
+                        sender_in_group = parts[0].strip()
+                        body = parts[1].strip()
+                        logger.debug(f"[{session_id}] Grupo '{name}' — remitente: {sender_in_group}")
+
             # Acumular en summarizers activos
             if summarizers:
                 from tools import summarizer as summarizer_mod
@@ -297,6 +312,12 @@ class WhatsAppSession(BrowserAutomation):
                 else:
                     audio_content = None
 
+                # Para grupos: el content incluye el remitente dentro del grupo
+                def _group_content(raw: str) -> str:
+                    if sender_in_group:
+                        return f"{sender_in_group}: {raw}"
+                    return raw
+
                 for s_tool in summarizers:
                     if is_audio:
                         summarizer_mod.accumulate(
@@ -304,7 +325,7 @@ class WhatsAppSession(BrowserAutomation):
                             contact_phone=sender,
                             contact_name=name,
                             msg_type="audio",
-                            content=audio_content,
+                            content=_group_content(audio_content),
                             timestamp=datetime.now(),
                         )
                     else:
@@ -313,7 +334,7 @@ class WhatsAppSession(BrowserAutomation):
                             contact_phone=sender,
                             contact_name=name,
                             msg_type="text",
-                            content=body,
+                            content=_group_content(body),
                             timestamp=datetime.now(),
                         )
 

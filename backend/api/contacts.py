@@ -14,12 +14,13 @@ router = APIRouter()
 
 _TG_RE  = re.compile(r"^(@\w+|\d+)$")
 
-def _validate_channel_value(type: str, value: str) -> str | None:
+def _validate_channel_value(type: str, value: str, is_group: bool = False) -> str | None:
     """Retorna mensaje de error o None si es válido."""
     if type == "whatsapp":
         if not value:
             return "El valor WhatsApp no puede estar vacío"
-        if not value.isdigit():
+        # Los grupos WA tienen nombre (texto), no número
+        if not is_group and not value.isdigit():
             return "El valor WhatsApp debe ser numérico (sin +, espacios ni guiones)"
     elif type == "telegram":
         if not _TG_RE.match(value):
@@ -32,6 +33,7 @@ def _validate_channel_value(type: str, value: str) -> str | None:
 class ChannelIn(BaseModel):
     type: str
     value: str
+    is_group: bool = False
 
 class ContactIn(BaseModel):
     name: str
@@ -64,7 +66,7 @@ async def create_contact(bot_id: str, body: ContactIn, token_bot_id: str = Depen
     for ch in body.channels:
         if ch.type not in ("whatsapp", "telegram"):
             raise HTTPException(400, f"Tipo de canal inválido: {ch.type}")
-        err = _validate_channel_value(ch.type, ch.value.strip())
+        err = _validate_channel_value(ch.type, ch.value.strip(), ch.is_group)
         if err:
             raise HTTPException(400, err)
 
@@ -72,7 +74,7 @@ async def create_contact(bot_id: str, body: ContactIn, token_bot_id: str = Depen
 
     for ch in body.channels:
         try:
-            await db.add_channel(contact_id, ch.type, ch.value.strip())
+            await db.add_channel(contact_id, ch.type, ch.value.strip(), ch.is_group)
         except Exception:
             raise HTTPException(409, f"El canal {ch.type}:{ch.value} ya está asignado a otro contacto")
 
@@ -118,14 +120,14 @@ async def add_channel(contact_id: int, body: ChannelIn, token_bot_id: str = Depe
     _check_auth(contact["bot_id"], token_bot_id)
     if body.type not in ("whatsapp", "telegram"):
         raise HTTPException(400, f"Tipo de canal inválido: {body.type}")
-    err = _validate_channel_value(body.type, body.value.strip())
+    err = _validate_channel_value(body.type, body.value.strip(), body.is_group)
     if err:
         raise HTTPException(400, err)
     try:
-        channel_id = await db.add_channel(contact_id, body.type, body.value.strip())
+        channel_id = await db.add_channel(contact_id, body.type, body.value.strip(), body.is_group)
     except Exception:
         raise HTTPException(409, f"El canal {body.type}:{body.value} ya está asignado a otro contacto")
-    return {"id": channel_id, "contact_id": contact_id, "type": body.type, "value": body.value.strip()}
+    return {"id": channel_id, "contact_id": contact_id, "type": body.type, "value": body.value.strip(), "is_group": body.is_group}
 
 
 @router.delete("/contact-channels/{channel_id}", status_code=204)
