@@ -299,19 +299,31 @@ async def delete_channel(channel_id: int) -> bool:
 
 async def find_contact_by_channel(type: str, value: str) -> dict | None:
     async with AsyncSessionLocal() as session:
+        # Primero: buscar por valor exacto del canal (número de teléfono)
         row = (await session.execute(
             text("SELECT contact_id FROM contact_channels WHERE type = :type AND value = :value"),
             {"type": type, "value": value},
         )).fetchone()
+
         if not row:
-            return None
-        contact_id = row[0]
-        contact_row = (await session.execute(
-            text("SELECT id, bot_id, name, created_at FROM contacts WHERE id = :id"),
-            {"id": contact_id},
-        )).fetchone()
-        if not contact_row:
-            return None
+            # Fallback: WA a veces solo provee el nombre, no el número.
+            # Buscar en contacts por nombre exacto o aproximado.
+            contact_row = (await session.execute(
+                text("SELECT id, bot_id, name, created_at FROM contacts WHERE name = :name"),
+                {"name": value},
+            )).fetchone()
+            if not contact_row:
+                return None
+            contact_id = contact_row[0]
+        else:
+            contact_id = row[0]
+            contact_row = (await session.execute(
+                text("SELECT id, bot_id, name, created_at FROM contacts WHERE id = :id"),
+                {"id": contact_id},
+            )).fetchone()
+            if not contact_row:
+                return None
+
         channels_map = await _get_channels_for(session, [contact_id])
         return {"id": contact_row[0], "bot_id": contact_row[1], "name": contact_row[2],
                 "created_at": str(contact_row[3]), "channels": channels_map.get(contact_id, [])}

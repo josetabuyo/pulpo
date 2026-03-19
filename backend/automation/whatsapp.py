@@ -330,6 +330,11 @@ class WhatsAppSession(BrowserAutomation):
                     lastPreview[name] = body;
                     if (!changed) continue;
 
+                    // Saltar si el último mensaje es saliente.
+                    // En el sidebar WA Web usa data-icon="status-dblcheck/check/time"
+                    const isOutgoing = !!row.querySelector('[data-icon^="status-"]');
+                    if (isOutgoing) continue;
+
                     const key = 'sidebar|' + name + '|' + body;
                     if (seen.has(key)) continue;
                     seen.add(key);
@@ -357,9 +362,11 @@ class WhatsAppSession(BrowserAutomation):
                 const allMsgs = document.querySelectorAll('[data-testid="msg-container"]');
                 if (!allMsgs.length) return;
 
-                // Tomar el último mensaje (sin distinguir incoming/outgoing)
-                // El loop prevention en Python se encarga de no responder el auto-reply
+                // Tomar el último mensaje e ignorar si es saliente (del operador)
                 const lastMsg = allMsgs[allMsgs.length - 1];
+                const isOutgoing = !!lastMsg.querySelector('[data-icon^="msg-"]');
+                if (isOutgoing) return;
+
                 const bodyEl = lastMsg.querySelector('span.copyable-text, [data-testid="msg-text"]');
                 const body = (bodyEl?.textContent || '').trim();
                 if (!body) return;
@@ -425,6 +432,11 @@ class WhatsAppSession(BrowserAutomation):
                         const body = spans[1].getAttribute('title')
                             .replace(/[\\u202a\\u202c\\u200e\\u200f]/g, '').trim();
                         if (!name || !body) continue;
+
+                        // Saltar si el último mensaje es saliente
+                        // En el sidebar WA Web usa data-icon="status-dblcheck/check/time"
+                        const isOutgoing = !!row.querySelector('[data-icon^="status-"]');
+                        if (isOutgoing) continue;
 
                         // Intentar extraer número de teléfono del atributo data-id
                         const withId = row.closest('[data-id]') || row.querySelector('[data-id]');
