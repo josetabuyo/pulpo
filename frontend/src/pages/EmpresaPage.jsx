@@ -532,7 +532,11 @@ function ToolModal({ botId, tool, contacts: initialContacts, onClose, onSaved })
 
           <div className="fg">
             <label>Contactos incluidos
-              <small style={{ fontWeight: 400, color: '#888', marginLeft: 6 }}>— clic para seleccionar</small>
+              <small style={{ fontWeight: 400, color: '#888', marginLeft: 6 }}>
+                {form.incluidos.length === 0
+                  ? '— todos los registrados (ninguno = todos)'
+                  : `— ${form.incluidos.length} seleccionado${form.incluidos.length > 1 ? 's' : ''}`}
+              </small>
             </label>
             {contacts.length === 0
               ? <div className="tool-empty-contacts">
