@@ -391,12 +391,17 @@ function ConfigView({ botId, botName, onSaved }) {
 
 function ToolModal({ botId, tool, contacts: initialContacts, onClose, onSaved }) {
   const isEdit = !!tool
+  // todasConexiones/todosContactos: true = "Todos" explícito; false = lista específica
+  const existingConns   = tool?.connections ?? []
+  const existingIncl    = (tool?.contactos_incluidos ?? []).map(c => c.id)
   const [form, setForm] = useState({
     nombre: tool?.nombre ?? '',
     tipo: tool?.tipo ?? 'fixed_message',
     mensaje: tool?.config?.message ?? '',
-    conexiones: tool?.connections ?? [],
-    incluidos: (tool?.contactos_incluidos ?? []).map(c => c.id),
+    todasConexiones: existingConns.length === 0,        // existente vacío = todas
+    conexiones: existingConns,
+    todosContactos: existingIncl.length === 0 && !!tool, // existente vacío = todos; nuevo = false
+    incluidos: existingIncl,
     excluidos: (tool?.contactos_excluidos ?? []).map(c => c.id),
     incluir_desconocidos: tool?.incluir_desconocidos ?? false,
   })
@@ -441,8 +446,8 @@ function ToolModal({ botId, tool, contacts: initialContacts, onClose, onSaved })
       const res = await empresaApi('POST', '/tools/validate-exclusivity', {
         empresa_id: botId,
         tool_id: tool?.id ?? null,
-        conexiones: form.conexiones,
-        contactos_incluidos: form.incluidos,
+        conexiones: form.todasConexiones ? [] : form.conexiones,
+        contactos_incluidos: form.todosContactos ? [] : form.incluidos,
         incluir_desconocidos: form.incluir_desconocidos,
         exclusiva: true,
       }).catch(() => null)
@@ -455,14 +460,20 @@ function ToolModal({ botId, tool, contacts: initialContacts, onClose, onSaved })
   async function handleSave(e) {
     e.preventDefault(); setErr(''); setSaving(true)
     if (!form.nombre.trim()) { setErr('El nombre es obligatorio'); setSaving(false); return }
+    if (!form.todasConexiones && form.conexiones.length === 0) {
+      setErr('Seleccioná al menos una conexión o marcá "Todas"'); setSaving(false); return
+    }
+    if (!form.todosContactos && !form.incluir_desconocidos && form.incluidos.length === 0) {
+      setErr('Seleccioná al menos un contacto, marcá "Todos los registrados" o activá "Incluir desconocidos"'); setSaving(false); return
+    }
     if (conflicts.length > 0) { setErr('Hay conflictos de exclusividad'); setSaving(false); return }
 
     const payload = {
       nombre: form.nombre.trim(),
       tipo: form.tipo,
       config: { message: form.mensaje },
-      conexiones: form.conexiones,
-      contactos_incluidos: form.incluidos,
+      conexiones: form.todasConexiones ? [] : form.conexiones,
+      contactos_incluidos: form.todosContactos ? [] : form.incluidos,
       contactos_excluidos: form.excluidos,
       incluir_desconocidos: form.incluir_desconocidos,
       exclusiva: true,
@@ -516,7 +527,12 @@ function ToolModal({ botId, tool, contacts: initialContacts, onClose, onSaved })
           <div className="fg">
             <label>Conexiones</label>
             <div className="tool-checks">
-              {allConns.map(c => (
+              <label className="tool-check-label tool-check-label--all">
+                <input type="checkbox" checked={form.todasConexiones}
+                  onChange={() => setForm(f => ({ ...f, todasConexiones: !f.todasConexiones, conexiones: [] }))} />
+                Todas las conexiones
+              </label>
+              {!form.todasConexiones && allConns.map(c => (
                 <label key={c.id} className="tool-check-label">
                   <input type="checkbox" checked={form.conexiones.includes(c.id)}
                     onChange={() => toggleConn(c.id)} />
@@ -525,33 +541,27 @@ function ToolModal({ botId, tool, contacts: initialContacts, onClose, onSaved })
               ))}
               {allConns.length === 0 && <span style={{ fontSize: 12, color: '#999' }}>Sin conexiones configuradas</span>}
             </div>
-            <div style={{ fontSize: 11, color: '#999', marginTop: 3 }}>
-              Si no seleccionás ninguna, aplica a todas las conexiones de la empresa.
-            </div>
           </div>
 
           <div className="fg">
-            <label>Contactos incluidos
-              <small style={{ fontWeight: 400, color: '#888', marginLeft: 6 }}>
-                {form.incluidos.length === 0
-                  ? '— todos los registrados (ninguno = todos)'
-                  : `— ${form.incluidos.length} seleccionado${form.incluidos.length > 1 ? 's' : ''}`}
-              </small>
-            </label>
-            {contacts.length === 0
-              ? <div className="tool-empty-contacts">
-                  Sin contactos registrados. Agregá contactos desde la sección <strong>Contactos</strong> del portal.
-                </div>
-              : <div className="tool-contact-picks">
-                  {contacts.map(c => (
+            <label>Contactos incluidos</label>
+            <div className="tool-contact-picks">
+              <label className={`tool-pick-item${form.todosContactos ? ' tool-pick-item--on' : ''}`}>
+                <input type="checkbox" checked={form.todosContactos}
+                  onChange={() => setForm(f => ({ ...f, todosContactos: !f.todosContactos, incluidos: [] }))} />
+                Todos los registrados
+              </label>
+              {!form.todosContactos && (contacts.length === 0
+                ? <span style={{ fontSize: 12, color: '#999' }}>Sin contactos registrados</span>
+                : contacts.map(c => (
                     <label key={c.id} className={`tool-pick-item ${form.incluidos.includes(c.id) ? 'tool-pick-item--on' : ''}`}>
                       <input type="checkbox" checked={form.incluidos.includes(c.id)}
                         onChange={() => toggleContact('incluidos', c.id)} />
                       {c.name}
                     </label>
-                  ))}
-                </div>
-            }
+                  ))
+              )}
+            </div>
           </div>
 
           {contacts.length > 0 && (
