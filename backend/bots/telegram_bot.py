@@ -80,7 +80,7 @@ def build_telegram_app(bot_config: dict):
             from tools import summarizer as summarizer_mod
             for s_tool in summarizers:
                 summarizer_mod.accumulate(
-                    empresa_id=s_tool["bot_id"],
+                    empresa_id=s_tool["empresa_id"],
                     contact_phone=sender_id,
                     contact_name=sender_name,
                     msg_type="audio" if is_audio else "text",

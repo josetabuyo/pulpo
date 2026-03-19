@@ -321,7 +321,7 @@ class WhatsAppSession(BrowserAutomation):
                 for s_tool in summarizers:
                     if is_audio:
                         summarizer_mod.accumulate(
-                            empresa_id=s_tool["bot_id"],
+                            empresa_id=s_tool["empresa_id"],
                             contact_phone=sender,
                             contact_name=name,
                             msg_type="audio",
@@ -330,7 +330,7 @@ class WhatsAppSession(BrowserAutomation):
                         )
                     else:
                         summarizer_mod.accumulate(
-                            empresa_id=s_tool["bot_id"],
+                            empresa_id=s_tool["empresa_id"],
                             contact_phone=sender,
                             contact_name=name,
                             msg_type="text",
