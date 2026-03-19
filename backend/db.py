@@ -83,7 +83,7 @@ async def init_db():
                 id                   INTEGER PRIMARY KEY AUTOINCREMENT,
                 empresa_id           TEXT NOT NULL,
                 nombre               TEXT NOT NULL,
-                tipo                 TEXT NOT NULL CHECK(tipo IN ('fixed_message')),
+                tipo                 TEXT NOT NULL CHECK(tipo IN ('fixed_message', 'summarizer')),
                 config               TEXT NOT NULL,
                 incluir_desconocidos INTEGER NOT NULL DEFAULT 0,
                 exclusiva            INTEGER NOT NULL DEFAULT 0,
@@ -91,6 +91,29 @@ async def init_db():
                 created_at           DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """))
+        # Migración: si la tabla existe con el CHECK antiguo (sin 'summarizer'), recrearla
+        schema_row = (await conn.execute(
+            text("SELECT sql FROM sqlite_master WHERE type='table' AND name='tools'")
+        )).fetchone()
+        if schema_row and "'summarizer'" not in schema_row[0]:
+            await conn.execute(text("ALTER TABLE tools RENAME TO _tools_bak"))
+            await conn.execute(text("""
+                CREATE TABLE tools (
+                    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+                    empresa_id           TEXT NOT NULL,
+                    nombre               TEXT NOT NULL,
+                    tipo                 TEXT NOT NULL CHECK(tipo IN ('fixed_message', 'summarizer')),
+                    config               TEXT NOT NULL,
+                    incluir_desconocidos INTEGER NOT NULL DEFAULT 0,
+                    exclusiva            INTEGER NOT NULL DEFAULT 0,
+                    activa               INTEGER NOT NULL DEFAULT 1,
+                    created_at           DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            await conn.execute(text(
+                "INSERT INTO tools SELECT * FROM _tools_bak"
+            ))
+            await conn.execute(text("DROP TABLE _tools_bak"))
         await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS idx_tools_empresa_id ON tools(empresa_id)"
         ))
