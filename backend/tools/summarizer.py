@@ -42,3 +42,12 @@ def list_contacts(empresa_id: str) -> list[str]:
     if not d.exists():
         return []
     return [f.stem for f in d.glob("*.md")]
+
+
+def clear_empresa(empresa_id: str) -> None:
+    """Elimina todos los archivos .md de una empresa (para re-sync)."""
+    d = _BASE / empresa_id
+    if not d.exists():
+        return
+    for f in d.glob("*.md"):
+        f.unlink()

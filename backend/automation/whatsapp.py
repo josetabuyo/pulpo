@@ -236,7 +236,7 @@ class WhatsAppSession(BrowserAutomation):
 
         # Importación diferida para evitar ciclo circular
         from db import log_message, mark_answered
-        from sim import resolve_tool
+        from sim import resolve_tools
         from config import get_empresas_for_bot
 
         recent_msgs: set[tuple[str, str]] = set()  # dedup entre JS y Python poll
@@ -264,7 +264,22 @@ class WhatsAppSession(BrowserAutomation):
             # Motor de resolución: herramientas en DB
             # WA usa el nombre como identificador (phone suele llegar vacío del scraper)
             sender = phone or name
-            tool = await resolve_tool(session_id, sender, "whatsapp")
+            summarizers, tool = await resolve_tools(session_id, sender, "whatsapp")
+
+            # Acumular en summarizers activos
+            if summarizers:
+                from tools import summarizer as summarizer_mod
+                from datetime import datetime
+                for s_tool in summarizers:
+                    summarizer_mod.accumulate(
+                        empresa_id=s_tool["bot_id"],
+                        contact_phone=sender,
+                        contact_name=name,
+                        msg_type="text",
+                        content=body,
+                        timestamp=datetime.now(),
+                    )
+
             if not tool:
                 logger.debug(f"[{session_id}] Sin herramienta activa para '{name}'")
                 return

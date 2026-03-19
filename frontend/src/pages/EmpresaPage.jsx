@@ -615,12 +615,25 @@ function SummaryModal({ botId, tool, onClose }) {
   const [selected, setSelected] = useState(null)
   const [content, setContent]   = useState('')
   const [loading, setLoading]   = useState(false)
+  const [syncing, setSyncing]   = useState(false)
 
-  useEffect(() => {
+  const loadContacts = useCallback(() => {
     empresaApi('GET', `/summarizer/${botId}`, null).then(res => {
       setContacts(res?.contacts ?? [])
     }).catch(() => setContacts([]))
   }, [botId])
+
+  useEffect(() => { loadContacts() }, [loadContacts])
+
+  async function handleSync() {
+    setSyncing(true)
+    const res = await empresaApi('POST', `/summarizer/${botId}/sync`, null).catch(() => null)
+    setSyncing(false)
+    if (res?.synced != null) {
+      loadContacts()
+      setSelected(null); setContent('')
+    }
+  }
 
   async function viewContact(phone) {
     setSelected(phone); setLoading(true); setContent('')
@@ -665,7 +678,10 @@ function SummaryModal({ botId, tool, onClose }) {
                 </div>
               </div>
         }
-        <div style={{ marginTop: 12, textAlign: 'right' }}>
+        <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <button className="btn-ghost btn-sm" onClick={handleSync} disabled={syncing}>
+            {syncing ? 'Sincronizando...' : '↺ Sincronizar histórico'}
+          </button>
           <button className="btn-ghost btn-sm" onClick={onClose}>Cerrar</button>
         </div>
       </div>
