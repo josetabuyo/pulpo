@@ -150,6 +150,19 @@ async def init_db():
 
 async def log_message(bot_id: str, bot_phone: str, phone: str, name: str | None, body: str) -> int:
     async with AsyncSessionLocal() as session:
+        # Dedup: evitar loguear el mismo mensaje si ya existe en los últimos 10 minutos
+        # (cubre el caso de reinicios del servidor que vacían el seen_pairs en memoria)
+        existing = (await session.execute(
+            text("""
+                SELECT id FROM messages
+                WHERE bot_id=:bot_id AND phone=:phone AND body=:body
+                AND timestamp >= datetime('now', '-10 minutes')
+                LIMIT 1
+            """),
+            {"bot_id": bot_id, "phone": phone, "body": body},
+        )).fetchone()
+        if existing:
+            return existing[0]
         result = await session.execute(
             text("INSERT INTO messages (bot_id, bot_phone, phone, name, body) VALUES (:bot_id, :bot_phone, :phone, :name, :body)"),
             {"bot_id": bot_id, "bot_phone": bot_phone, "phone": phone, "name": name, "body": body},

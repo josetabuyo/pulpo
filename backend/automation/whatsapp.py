@@ -748,9 +748,13 @@ class WhatsAppSession(BrowserAutomation):
                     const textEl = el.querySelector('span.copyable-text, [data-testid="msg-text"]');
                     const body = textEl ? textEl.innerText.trim() : '';
 
-                    // Audio / media (dentro del mismo contenedor)
-                    const hasAudio = !!el.querySelector('audio, [data-testid="audio-play"]');
-                    const hasMedia = !!el.querySelector('img[src^="blob:"], video');
+                    // Audio: buscar también en el contenedor padre (WA Web carga audio lazy)
+                    const parent = el.parentElement || el;
+                    const hasAudio = !!el.querySelector('audio, [data-testid="audio-play"]')
+                                  || !!parent.querySelector('audio, [data-testid="audio-play"]')
+                                  || !!parent.querySelector('[data-icon="audio-play"], [data-icon="ptt-play"]');
+                    const hasMedia = !!el.querySelector('img[src^="blob:"], video')
+                                  || !!parent.querySelector('img[src^="blob:"], video');
 
                     if (!body && !hasAudio && !hasMedia) continue;
 
