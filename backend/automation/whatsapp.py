@@ -641,6 +641,103 @@ class WhatsAppSession(BrowserAutomation):
             logger.warning(f"[{session_id}] _download_audio_blob error: {e}")
             return None
 
+    async def _download_audio_blob_at_index(
+        self, page, session_id: str, raw_idx: int
+    ) -> str | None:
+        """
+        Dado el índice de un elemento [data-pre-plain-text] en el DOM:
+          1. Lo scrollea al centro del viewport (fuerza lazy-load del player)
+          2. Espera hasta 3s a que aparezca el elemento <audio>
+          3. Si hay blob URL, lo descarga; si no, clickea play y espera hasta 8s
+          4. Retorna ruta a /tmp/pulpo_audio_*.ogg o None si falla
+
+        Usa el mismo pipeline que _download_audio_blob pero opera sobre
+        una posición concreta del DOM en lugar del "último audio del chat".
+        """
+        import time
+        import base64 as _b64
+
+        try:
+            # Scroll al elemento para forzar que WA Web cargue el player de audio
+            await page.evaluate(f"""
+            () => {{
+                const els = document.querySelectorAll('[data-pre-plain-text]');
+                const el = els[{raw_idx}];
+                if (el) el.scrollIntoView({{ block: 'center', behavior: 'instant' }});
+            }}
+            """)
+            # Esperar hasta 3s a que aparezca el elemento <audio> en el DOM
+            await page.wait_for_timeout(1500)
+
+            blob_b64 = await page.evaluate(f"""
+            async () => {{
+                const tryFetch = async (audio) => {{
+                    if (!audio.src || !audio.src.startsWith('blob:')) return null;
+                    try {{
+                        const resp = await fetch(audio.src);
+                        const buf  = await resp.arrayBuffer();
+                        const bytes = new Uint8Array(buf);
+                        let bin = '';
+                        for (let b of bytes) bin += String.fromCharCode(b);
+                        return btoa(bin);
+                    }} catch(e) {{ return null; }}
+                }};
+
+                const els = document.querySelectorAll('[data-pre-plain-text]');
+                const el = els[{raw_idx}];
+                if (!el) return null;
+
+                const parent = el.parentElement || el;
+                const audio = el.querySelector('audio') || parent.querySelector('audio');
+                if (!audio) return null;
+
+                // Intentar blob ya cargado
+                let b64 = await tryFetch(audio);
+                if (b64) return b64;
+
+                // Blob no cargado: clickear play y esperar hasta 8s
+                const playBtn = parent.querySelector(
+                    '[data-testid="audio-play"], [data-icon="audio-play"], ' +
+                    '[data-icon="ptt-play"], button[aria-label*="Play"], ' +
+                    'button[aria-label*="Reproducir"], button[aria-label*="Escuchar"], ' +
+                    'button[aria-label*="Voice"]'
+                );
+                if (playBtn) {{
+                    playBtn.click();
+                    await new Promise(resolve => {{
+                        let elapsed = 0;
+                        const iv = setInterval(() => {{
+                            elapsed += 200;
+                            if ((audio.src && audio.src.startsWith('blob:')) || elapsed >= 8000) {{
+                                clearInterval(iv);
+                                resolve();
+                            }}
+                        }}, 200);
+                    }});
+                    b64 = await tryFetch(audio);
+                    if (b64) {{
+                        audio.pause();
+                        return b64;
+                    }}
+                }}
+                return null;
+            }}
+            """)
+
+            if not blob_b64:
+                logger.debug(f"[{session_id}] _download_audio_blob_at_index[{raw_idx}]: sin blob")
+                return None
+
+            path = f"/tmp/pulpo_audio_{int(time.time() * 1000)}.ogg"
+            with open(path, "wb") as f:
+                f.write(_b64.b64decode(blob_b64))
+            logger.info(f"[{session_id}] Audio histórico [{raw_idx}] guardado en {path}")
+            return path
+
+        except Exception as e:
+            logger.warning(f"[{session_id}] _download_audio_blob_at_index[{raw_idx}] error: {e}")
+            return None
+
     # ------------------------------------------------------------------
     # Scraping histórico
     # ------------------------------------------------------------------
@@ -737,11 +834,13 @@ class WhatsAppSession(BrowserAutomation):
 
             # 3. Extraer todos los mensajes con su metadata
             # data-pre-plain-text está en DIV (no span) — usar selector genérico
+            # idx: índice en querySelectorAll — necesario para el segundo pasaje de audio
             raw_msgs = await page.evaluate("""
             () => {
                 const msgs = [];
                 const els = document.querySelectorAll('[data-pre-plain-text]');
-                for (const el of els) {
+                for (let idx = 0; idx < els.length; idx++) {
+                    const el = els[idx];
                     const prePlain = el.getAttribute('data-pre-plain-text') || '';
 
                     // Texto: buscar dentro del mismo div
@@ -763,6 +862,7 @@ class WhatsAppSession(BrowserAutomation):
                                || !!el.querySelector('[data-icon^="msg-dblcheck"], [data-icon="msg-check"], [data-icon="msg-time"]');
 
                     msgs.push({
+                        idx,
                         prePlain,
                         body: body || (hasAudio ? '[audio]' : '[media]'),
                         isOut,
@@ -837,9 +937,38 @@ class WhatsAppSession(BrowserAutomation):
                     "sender": sender,
                     "body": m["body"],
                     "is_outbound": m["isOut"],
+                    "_raw_idx": m["idx"],
                 })
 
             logger.info(f"[{session_id}] scrape_full_history '{contact_name}': {len(parsed)} mensajes extraídos")
+
+            # 5. Transcribir audios históricos (segundo pasaje: scroll al elemento, esperar blob)
+            audio_entries = [(i, msg) for i, msg in enumerate(parsed) if msg["body"] == "[audio]"]
+            if audio_entries:
+                import os
+                from transcription import transcription as _transcription
+                logger.info(f"[{session_id}] Transcribiendo {len(audio_entries)} audios históricos de '{contact_name}'...")
+                for parsed_idx, msg in audio_entries:
+                    raw_idx = msg["_raw_idx"]
+                    audio_path = await self._download_audio_blob_at_index(page, session_id, raw_idx)
+                    if audio_path:
+                        try:
+                            text = await _transcription.transcribe(audio_path)
+                            parsed[parsed_idx]["body"] = text
+                            logger.info(f"[{session_id}] Audio histórico [{raw_idx}] transcrito: {text[:60]}")
+                        except Exception as exc:
+                            parsed[parsed_idx]["body"] = "[audio — error al transcribir]"
+                            logger.warning(f"[{session_id}] Error transcribiendo audio histórico [{raw_idx}]: {exc}")
+                        finally:
+                            try:
+                                os.unlink(audio_path)
+                            except Exception:
+                                pass
+
+            # Limpiar campo interno antes de retornar
+            for msg in parsed:
+                msg.pop("_raw_idx", None)
+
             return parsed
 
         except Exception as e:
