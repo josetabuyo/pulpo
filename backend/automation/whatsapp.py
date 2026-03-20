@@ -288,7 +288,10 @@ class WhatsAppSession(BrowserAutomation):
 
                 # Detectar si es un audio (el sidebar WA Web muestra 🎵, 🎤 o "Audio")
                 _AUDIO_MARKERS = ("🎵", "🎤", "Audio", "audio", "Voice message")
-                is_audio = any(m in body for m in _AUDIO_MARKERS)
+                # WA Web muestra la duración del audio ("0:01", "1:23") cuando el
+                # player no está cargado — mismo patrón que en scrape_full_history
+                import re as _re
+                is_audio = any(m in body for m in _AUDIO_MARKERS) or bool(_re.match(r'^\d{1,2}:\d{2}$', body))
 
                 if is_audio:
                     audio_path = await self._download_audio_blob(page, name, session_id)
@@ -847,10 +850,12 @@ class WhatsAppSession(BrowserAutomation):
                     const textEl = el.querySelector('span.copyable-text, [data-testid="msg-text"]');
                     const body = textEl ? textEl.innerText.trim() : '';
 
-                    // Audio: buscar también en el contenedor padre (WA Web carga audio lazy)
+                    // Audio: data-testid^="audio" captura audio-play, audio-duration,
+                    // audio-waveform, etc. — algunos siempre están en el DOM aunque el
+                    // player esté lazy. Buscar también en el padre por si WA Web anida distinto.
                     const parent = el.parentElement || el;
-                    const hasAudio = !!el.querySelector('audio, [data-testid="audio-play"]')
-                                  || !!parent.querySelector('audio, [data-testid="audio-play"]')
+                    const hasAudio = !!el.querySelector('audio, [data-testid^="audio"]')
+                                  || !!parent.querySelector('audio, [data-testid^="audio"]')
                                   || !!parent.querySelector('[data-icon="audio-play"], [data-icon="ptt-play"]');
                     const hasMedia = !!el.querySelector('img[src^="blob:"], video')
                                   || !!parent.querySelector('img[src^="blob:"], video');
@@ -861,10 +866,15 @@ class WhatsAppSession(BrowserAutomation):
                     const isOut = !!el.closest('.message-out')
                                || !!el.querySelector('[data-icon^="msg-dblcheck"], [data-icon="msg-check"], [data-icon="msg-time"]');
 
+                    // Si es audio, el body puede ser la duración ("0:01") — ignorarla
+                    // y marcar como [audio] para el pasaje de transcripción posterior.
+                    const effectiveBody = hasAudio ? '[audio]' : (body || '[media]');
+                    if (!body && !hasAudio && !hasMedia) continue;
+
                     msgs.push({
                         idx,
                         prePlain,
-                        body: body || (hasAudio ? '[audio]' : '[media]'),
+                        body: effectiveBody,
                         isOut,
                     });
                 }
@@ -932,10 +942,17 @@ class WhatsAppSession(BrowserAutomation):
                 if not ts:
                     continue
 
+                # WA Web muestra la duración del audio ("0:01", "1:23") en
+                # span.copyable-text cuando el player no está en el viewport.
+                # Normalizar a [audio] para que el pasaje de transcripción lo procese.
+                body = m["body"]
+                if re.match(r'^\d{1,2}:\d{2}$', body):
+                    body = "[audio]"
+
                 parsed.append({
                     "timestamp": ts,
                     "sender": sender,
-                    "body": m["body"],
+                    "body": body,
                     "is_outbound": m["isOut"],
                     "_raw_idx": m["idx"],
                 })
