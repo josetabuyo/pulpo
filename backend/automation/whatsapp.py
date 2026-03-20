@@ -667,12 +667,34 @@ class WhatsAppSession(BrowserAutomation):
 
         try:
             # 1. Abrir el chat en el sidebar
-            contact_span = page.locator(
-                f"[role='grid'] span[title='{contact_name}']"
-            ).first
-            await contact_span.wait_for(state="visible", timeout=5000)
-            await contact_span.click()
-            await page.wait_for_timeout(1500)
+            # WA Web usa non-breaking spaces (\u00a0) en los títulos — comparamos
+            # normalizando espacios para evitar fallos de encoding.
+            def _normalize(s: str) -> str:
+                import unicodedata
+                return unicodedata.normalize("NFKC", s).strip()
+
+            # Usar evaluate_handle para obtener el elemento DOM y luego
+            # click() real de Playwright (genera eventos de mouse que React entiende).
+            row_handle = await page.evaluate_handle(
+                """(target) => {
+                    const norm = s => s.replace(/[\\u00a0\\u202a\\u202c\\u200e\\u200f]/g, ' ').trim();
+                    const grid = document.querySelector('[role="grid"]');
+                    if (!grid) return null;
+                    for (const s of grid.querySelectorAll('span[title]')) {
+                        if (norm(s.getAttribute('title')) === norm(target)) {
+                            return s.closest('[role="row"]') || s.closest('[data-id]') || s;
+                        }
+                    }
+                    return null;
+                }""",
+                _normalize(contact_name),
+            )
+            if not row_handle or await row_handle.evaluate("el => el === null"):
+                logger.warning(f"[{session_id}] scrape_full_history: no encontré '{contact_name}' en el sidebar")
+                return []
+            await row_handle.scroll_into_view_if_needed()
+            await row_handle.click()
+            await page.wait_for_timeout(2000)
 
             # 2. Scroll hacia arriba hasta que no aparezcan mensajes nuevos
             # WA Web carga más mensajes cuando llegás al tope del panel
@@ -702,30 +724,27 @@ class WhatsAppSession(BrowserAutomation):
             logger.info(f"[{session_id}] scrape '{contact_name}': {prev_count} msgs en DOM tras scroll")
 
             # 3. Extraer todos los mensajes con su metadata
+            # data-pre-plain-text está en DIV (no span) — usar selector genérico
             raw_msgs = await page.evaluate("""
             () => {
                 const msgs = [];
-                // Buscar todos los spans con data-pre-plain-text (tienen timestamp + sender)
-                const spans = document.querySelectorAll('span[data-pre-plain-text]');
-                for (const span of spans) {
-                    const prePlain = span.getAttribute('data-pre-plain-text') || '';
+                const els = document.querySelectorAll('[data-pre-plain-text]');
+                for (const el of els) {
+                    const prePlain = el.getAttribute('data-pre-plain-text') || '';
 
-                    // Texto del mensaje
-                    const textEl = span.querySelector('span.copyable-text, [data-testid="msg-text"]');
+                    // Texto: buscar dentro del mismo div
+                    const textEl = el.querySelector('span.copyable-text, [data-testid="msg-text"]');
                     const body = textEl ? textEl.innerText.trim() : '';
 
-                    // Audio / media
-                    const hasAudio = !!span.closest('[data-testid="msg-container"]')
-                                       ?.querySelector('audio, [data-testid="audio-play"]');
-                    const hasMedia = !!span.closest('[data-testid="msg-container"]')
-                                       ?.querySelector('img[src^="blob:"], video');
+                    // Audio / media (dentro del mismo contenedor)
+                    const hasAudio = !!el.querySelector('audio, [data-testid="audio-play"]');
+                    const hasMedia = !!el.querySelector('img[src^="blob:"], video');
 
                     if (!body && !hasAudio && !hasMedia) continue;
 
-                    // Detectar outbound: el mensaje-out tiene clase específica
-                    const msgBox = span.closest('[data-testid="msg-container"]');
-                    const isOut = !!msgBox?.closest('.message-out')
-                               || !!msgBox?.querySelector('[data-icon^="msg-dblcheck"], [data-icon="msg-check"], [data-icon="msg-time"]');
+                    // Outbound: el div padre suele tener clase message-out
+                    const isOut = !!el.closest('.message-out')
+                               || !!el.querySelector('[data-icon^="msg-dblcheck"], [data-icon="msg-check"], [data-icon="msg-time"]');
 
                     msgs.push({
                         prePlain,
@@ -738,46 +757,64 @@ class WhatsAppSession(BrowserAutomation):
             """)
 
             # 4. Parsear timestamps del atributo data-pre-plain-text
-            # Formato completo: "[19/3/2026, 14:35:22] Sender: "
-            # Formato corto (hoy): "[14:35] " o "[14:35:22] "
+            # Formatos reales (locale es-AR):
+            #   "[5:02 p. m., 17/3/2026] Sender: "   ← 12h, fecha después
+            #   "[17:02, 17/3/2026] Sender: "         ← 24h, fecha después
+            #   "[5:02 p. m.] Sender: "               ← solo hora (hoy)
             today = date.today()
             parsed = []
             for m in raw_msgs:
                 pre = m.get("prePlain", "")
+                # Normalizar \u00a0 (non-breaking space) en "p. m." / "a. m."
+                pre_norm = pre.replace("\xa0", " ")
                 ts = None
                 sender = None
 
-                # Fecha completa
-                full = re.search(
-                    r"\[(\d{1,2})/(\d{1,2})/(\d{4}),\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\]\s*(.*?):\s*$",
-                    pre
+                # Extraer sender: lo que hay entre "] " y ": " al final
+                snd_match = re.search(r"\]\s*(.+?):\s*$", pre_norm)
+                if snd_match:
+                    sender = snd_match.group(1).strip() or None
+
+                # Intentar parsear fecha: "hh:mm [a/p]. m., DD/M/YYYY"
+                date_m = re.search(
+                    r"(\d{1,2}):(\d{2})(?:\s*([ap])\.?\s*m\.?)?,\s*(\d{1,2})/(\d{1,2})/(\d{4})",
+                    pre_norm, re.IGNORECASE,
                 )
-                if full:
-                    d, mo, y, h, mi, s, snd = full.groups()
+                if date_m:
+                    h, mi, ampm, d, mo, y = date_m.groups()
+                    h, mi, d, mo, y = int(h), int(mi), int(d), int(mo), int(y)
+                    if ampm:
+                        if ampm.lower() == "p" and h != 12:
+                            h += 12
+                        elif ampm.lower() == "a" and h == 12:
+                            h = 0
                     try:
-                        ts = datetime(int(y), int(mo), int(d), int(h), int(mi), int(s or 0)).strftime(
-                            "%Y-%m-%d %H:%M:%S"
-                        )
+                        ts = datetime(y, mo, d, h, mi).strftime("%Y-%m-%d %H:%M:%S")
                     except ValueError:
                         pass
-                    sender = snd.strip() or None
                 else:
-                    # Solo hora (mensaje de hoy)
-                    short = re.search(r"\[(\d{1,2}):(\d{2})(?::(\d{2}))?\]", pre)
-                    if short:
-                        h, mi, s = short.groups()
+                    # Solo hora → asignar fecha de hoy
+                    time_m = re.search(
+                        r"(\d{1,2}):(\d{2})(?:\s*([ap])\.?\s*m\.?)?",
+                        pre_norm, re.IGNORECASE,
+                    )
+                    if time_m:
+                        h, mi, ampm = time_m.groups()
+                        h, mi = int(h), int(mi)
+                        if ampm:
+                            if ampm.lower() == "p" and h != 12:
+                                h += 12
+                            elif ampm.lower() == "a" and h == 12:
+                                h = 0
                         try:
-                            ts = datetime(today.year, today.month, today.day,
-                                          int(h), int(mi), int(s or 0)).strftime("%Y-%m-%d %H:%M:%S")
+                            ts = datetime(today.year, today.month, today.day, h, mi).strftime(
+                                "%Y-%m-%d %H:%M:%S"
+                            )
                         except ValueError:
                             pass
-                    # Extraer sender si está (formato: "] Sender: ")
-                    snd_match = re.search(r"\]\s*(.+?):\s*$", pre)
-                    if snd_match:
-                        sender = snd_match.group(1).strip() or None
 
                 if not ts:
-                    continue  # sin timestamp no podemos deduplicar
+                    continue
 
                 parsed.append({
                     "timestamp": ts,

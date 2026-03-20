@@ -88,6 +88,57 @@ async def disconnect_all():
     return {"ok": True, "closed": closed}
 
 
+@router.get("/dom-inspect/{session_id}", dependencies=[Depends(require_admin)])
+async def dom_inspect(session_id: str, chat: str = ""):
+    """Debug: inspecciona selectores de mensajes. Si ?chat=Nombre abre ese chat primero."""
+    page = wa_session.get_page(session_id)
+    if not page or page.is_closed():
+        raise HTTPException(status_code=404, detail="Sesión no activa.")
+
+    if chat:
+        import unicodedata
+        def _norm(s):
+            return unicodedata.normalize("NFKC", s).strip()
+        row_handle = await page.evaluate_handle(
+            """(target) => {
+                const norm = s => s.replace(/[\\u00a0\\u202a\\u202c\\u200e\\u200f]/g,' ').trim();
+                const grid = document.querySelector('[role="grid"]');
+                if (!grid) return null;
+                for (const s of grid.querySelectorAll('span[title]')) {
+                    if (norm(s.getAttribute('title')) === norm(target)) {
+                        return s.closest('[role="row"]') || s.closest('[data-id]') || s;
+                    }
+                }
+                return null;
+            }""",
+            _norm(chat),
+        )
+        if row_handle and not await row_handle.evaluate("el => el === null"):
+            await row_handle.scroll_into_view_if_needed()
+            await row_handle.click()
+        await page.wait_for_timeout(3000)
+
+    # Listar todos los títulos en el sidebar para debug
+    result = await page.evaluate("""
+    () => {
+        const prePlain   = document.querySelectorAll('[data-pre-plain-text]').length;
+        const msgBoxes   = document.querySelectorAll('[data-testid="msg-container"]').length;
+        const copyable   = document.querySelectorAll('span.copyable-text').length;
+        // Todos los títulos en el sidebar
+        const titles = [...document.querySelectorAll('[role="grid"] span[title]')]
+                         .map(s => s.getAttribute('title')).filter(Boolean).slice(0, 30);
+        // Primer msg-container HTML
+        const box = document.querySelector('[data-testid="msg-container"]');
+        const boxHtml = box ? box.outerHTML.slice(0, 600) : null;
+        // Primer data-pre-plain-text
+        const el = document.querySelector('[data-pre-plain-text]');
+        const sample = el ? { tag: el.tagName, val: el.getAttribute('data-pre-plain-text') } : null;
+        return { prePlain, msgBoxes, copyable, titles, sample, boxHtml };
+    }
+    """)
+    return result
+
+
 @router.get("/screenshot/{session_id}", dependencies=[Depends(require_admin)])
 async def get_screenshot(session_id: str):
     """Captura un screenshot del browser headless para esa sesión de WA."""
