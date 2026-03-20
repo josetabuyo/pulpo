@@ -703,20 +703,32 @@ class WhatsAppSession(BrowserAutomation):
             for _ in range(scroll_rounds):
                 await page.evaluate("""
                 () => {
-                    const panel = document.querySelector('[data-testid="conversation-panel-messages"]')
-                               || document.querySelector('[role="application"] [tabindex="-1"]')
-                               || document.querySelector('#main .copyable-area');
-                    if (panel) panel.scrollTop = 0;
+                    // Buscar el contenedor scrolleable del panel de mensajes
+                    const candidates = [
+                        document.querySelector('[data-testid="conversation-panel-messages"]'),
+                        document.querySelector('#main [tabindex="-1"]'),
+                        document.querySelector('#main [style*="overflow"]'),
+                        ...document.querySelectorAll('#main div'),
+                    ];
+                    for (const el of candidates) {
+                        if (el && el.scrollHeight > el.clientHeight && el.scrollTop > 0) {
+                            el.scrollTop = 0;
+                            return;
+                        }
+                    }
+                    // Fallback: scrollear el primer div con overflow en #main
+                    const main = document.querySelector('#main');
+                    if (main) main.scrollTop = 0;
                 }
                 """)
                 await page.wait_for_timeout(900)
+                # Usar el selector correcto (div, no span)
                 cur_count = await page.evaluate(
-                    "() => document.querySelectorAll('span[data-pre-plain-text]').length"
+                    "() => document.querySelectorAll('[data-pre-plain-text]').length"
                 )
                 if cur_count == prev_count:
                     stale_rounds += 1
                     if stale_rounds >= 3:
-                        # 3 rondas sin mensajes nuevos → llegamos al tope
                         break
                 else:
                     stale_rounds = 0
