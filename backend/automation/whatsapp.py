@@ -642,6 +642,158 @@ class WhatsAppSession(BrowserAutomation):
             return None
 
     # ------------------------------------------------------------------
+    # Scraping histórico
+    # ------------------------------------------------------------------
+
+    async def scrape_full_history(
+        self, session_id: str, contact_name: str, scroll_rounds: int = 50
+    ) -> list[dict]:
+        """
+        Abre el chat del contacto/grupo en WA Web, hace scroll hacia arriba
+        para cargar mensajes históricos, y extrae todos los mensajes visibles.
+
+        Retorna lista de dicts: {timestamp, sender, body, is_outbound}
+        - timestamp: ISO string 'YYYY-MM-DD HH:MM:SS' si disponible, None si solo tiene hora de hoy
+        - sender: nombre del remitente en grupos, None en chats individuales
+        - body: texto del mensaje (o '[audio]', '[media]')
+        - is_outbound: bool
+        """
+        import re
+        from datetime import datetime, date
+
+        page = self.get_page(session_id)
+        if not page:
+            return []
+
+        try:
+            # 1. Abrir el chat en el sidebar
+            contact_span = page.locator(
+                f"[role='grid'] span[title='{contact_name}']"
+            ).first
+            await contact_span.wait_for(state="visible", timeout=5000)
+            await contact_span.click()
+            await page.wait_for_timeout(1500)
+
+            # 2. Scroll hacia arriba hasta que no aparezcan mensajes nuevos
+            # WA Web carga más mensajes cuando llegás al tope del panel
+            prev_count = 0
+            stale_rounds = 0
+            for _ in range(scroll_rounds):
+                await page.evaluate("""
+                () => {
+                    const panel = document.querySelector('[data-testid="conversation-panel-messages"]')
+                               || document.querySelector('[role="application"] [tabindex="-1"]')
+                               || document.querySelector('#main .copyable-area');
+                    if (panel) panel.scrollTop = 0;
+                }
+                """)
+                await page.wait_for_timeout(900)
+                cur_count = await page.evaluate(
+                    "() => document.querySelectorAll('span[data-pre-plain-text]').length"
+                )
+                if cur_count == prev_count:
+                    stale_rounds += 1
+                    if stale_rounds >= 3:
+                        # 3 rondas sin mensajes nuevos → llegamos al tope
+                        break
+                else:
+                    stale_rounds = 0
+                prev_count = cur_count
+            logger.info(f"[{session_id}] scrape '{contact_name}': {prev_count} msgs en DOM tras scroll")
+
+            # 3. Extraer todos los mensajes con su metadata
+            raw_msgs = await page.evaluate("""
+            () => {
+                const msgs = [];
+                // Buscar todos los spans con data-pre-plain-text (tienen timestamp + sender)
+                const spans = document.querySelectorAll('span[data-pre-plain-text]');
+                for (const span of spans) {
+                    const prePlain = span.getAttribute('data-pre-plain-text') || '';
+
+                    // Texto del mensaje
+                    const textEl = span.querySelector('span.copyable-text, [data-testid="msg-text"]');
+                    const body = textEl ? textEl.innerText.trim() : '';
+
+                    // Audio / media
+                    const hasAudio = !!span.closest('[data-testid="msg-container"]')
+                                       ?.querySelector('audio, [data-testid="audio-play"]');
+                    const hasMedia = !!span.closest('[data-testid="msg-container"]')
+                                       ?.querySelector('img[src^="blob:"], video');
+
+                    if (!body && !hasAudio && !hasMedia) continue;
+
+                    // Detectar outbound: el mensaje-out tiene clase específica
+                    const msgBox = span.closest('[data-testid="msg-container"]');
+                    const isOut = !!msgBox?.closest('.message-out')
+                               || !!msgBox?.querySelector('[data-icon^="msg-dblcheck"], [data-icon="msg-check"], [data-icon="msg-time"]');
+
+                    msgs.push({
+                        prePlain,
+                        body: body || (hasAudio ? '[audio]' : '[media]'),
+                        isOut,
+                    });
+                }
+                return msgs;
+            }
+            """)
+
+            # 4. Parsear timestamps del atributo data-pre-plain-text
+            # Formato completo: "[19/3/2026, 14:35:22] Sender: "
+            # Formato corto (hoy): "[14:35] " o "[14:35:22] "
+            today = date.today()
+            parsed = []
+            for m in raw_msgs:
+                pre = m.get("prePlain", "")
+                ts = None
+                sender = None
+
+                # Fecha completa
+                full = re.search(
+                    r"\[(\d{1,2})/(\d{1,2})/(\d{4}),\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\]\s*(.*?):\s*$",
+                    pre
+                )
+                if full:
+                    d, mo, y, h, mi, s, snd = full.groups()
+                    try:
+                        ts = datetime(int(y), int(mo), int(d), int(h), int(mi), int(s or 0)).strftime(
+                            "%Y-%m-%d %H:%M:%S"
+                        )
+                    except ValueError:
+                        pass
+                    sender = snd.strip() or None
+                else:
+                    # Solo hora (mensaje de hoy)
+                    short = re.search(r"\[(\d{1,2}):(\d{2})(?::(\d{2}))?\]", pre)
+                    if short:
+                        h, mi, s = short.groups()
+                        try:
+                            ts = datetime(today.year, today.month, today.day,
+                                          int(h), int(mi), int(s or 0)).strftime("%Y-%m-%d %H:%M:%S")
+                        except ValueError:
+                            pass
+                    # Extraer sender si está (formato: "] Sender: ")
+                    snd_match = re.search(r"\]\s*(.+?):\s*$", pre)
+                    if snd_match:
+                        sender = snd_match.group(1).strip() or None
+
+                if not ts:
+                    continue  # sin timestamp no podemos deduplicar
+
+                parsed.append({
+                    "timestamp": ts,
+                    "sender": sender,
+                    "body": m["body"],
+                    "is_outbound": m["isOut"],
+                })
+
+            logger.info(f"[{session_id}] scrape_full_history '{contact_name}': {len(parsed)} mensajes extraídos")
+            return parsed
+
+        except Exception as e:
+            logger.warning(f"[{session_id}] scrape_full_history error para '{contact_name}': {e}")
+            return []
+
+    # ------------------------------------------------------------------
     # Estado
     # ------------------------------------------------------------------
 

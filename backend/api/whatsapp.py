@@ -102,6 +102,82 @@ async def get_screenshot(session_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/full-sync", dependencies=[Depends(require_admin)])
+async def full_sync(background_tasks: BackgroundTasks):
+    """
+    Scrapea el historial completo de todos los contactos/grupos WA registrados
+    y guarda los mensajes históricos en la DB (idempotente — no duplica).
+    Corre en background; retorna inmediatamente.
+    """
+    background_tasks.add_task(_run_full_sync)
+    return {"ok": True, "message": "Full sync iniciado en background"}
+
+
+async def _run_full_sync() -> None:
+    import logging
+    from db import log_message_historic, get_contacts
+    from config import get_empresas_for_bot
+
+    _log = logging.getLogger(__name__)
+    _log.info("[full-sync] Iniciando sync completo de historial WA...")
+    total = 0
+
+    for session_id, state in list(clients.items()):
+        if state.get("type") != "whatsapp":
+            continue
+        if state.get("status") != "ready":
+            _log.info(f"[full-sync] Sesión {session_id} no está lista, saltando.")
+            continue
+
+        bot_phone = session_id
+        empresa_ids = get_empresas_for_bot(bot_phone)
+        if not empresa_ids:
+            empresa_ids = [state.get("bot_id", "")]
+
+        # Recopilar contactos WA únicos de todas las empresas de este bot
+        seen_contact_names: set[str] = set()
+        contacts_to_sync: list[dict] = []
+        for eid in empresa_ids:
+            for contact in await get_contacts(eid):
+                if contact["name"] not in seen_contact_names:
+                    wa_chs = [ch for ch in contact.get("channels", []) if ch["type"] == "whatsapp"]
+                    if wa_chs:
+                        seen_contact_names.add(contact["name"])
+                        contacts_to_sync.append({"contact": contact, "empresa_ids": empresa_ids})
+
+        for item in contacts_to_sync:
+            contact = item["contact"]
+            eids = item["empresa_ids"]
+            contact_name = contact["name"]
+            wa_channels = [ch for ch in contact.get("channels", []) if ch["type"] == "whatsapp"]
+
+            _log.info(f"[full-sync] Scraping '{contact_name}'...")
+            messages = await wa_session.scrape_full_history(session_id, contact_name)
+
+            for msg in messages:
+                for ch in wa_channels:
+                    phone = ch["value"]
+                    is_group = ch.get("is_group", False)
+
+                    # Para grupos: guardar "Sender: body" si hay sender
+                    if is_group and msg.get("sender"):
+                        body = f"{msg['sender']}: {msg['body']}"
+                    else:
+                        body = msg["body"]
+
+                    outbound = 1 if msg.get("is_outbound") else 0
+
+                    for eid in eids:
+                        saved = await log_message_historic(
+                            eid, bot_phone, phone, contact_name,
+                            body, msg["timestamp"], outbound,
+                        )
+                        if saved:
+                            total += 1
+
+    _log.info(f"[full-sync] Completado. {total} mensajes nuevos importados.")
+
+
 @router.post("/refresh", dependencies=[Depends(require_admin)])
 async def refresh():
     reconnected = 0

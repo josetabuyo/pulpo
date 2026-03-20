@@ -158,6 +158,36 @@ async def log_message(bot_id: str, bot_phone: str, phone: str, name: str | None,
         return result.lastrowid
 
 
+async def log_message_historic(
+    bot_id: str, bot_phone: str, phone: str, name: str | None,
+    body: str, timestamp: str, outbound: int = 0
+) -> bool:
+    """
+    Inserta un mensaje con timestamp específico (para sync histórico).
+    Retorna True si fue insertado, False si ya existía (dedup por bot+phone+body+minuto).
+    """
+    async with AsyncSessionLocal() as session:
+        existing = (await session.execute(
+            text("""
+                SELECT id FROM messages
+                WHERE bot_id=:bot_id AND phone=:phone AND body=:body
+                AND strftime('%Y-%m-%d %H:%M', timestamp) = strftime('%Y-%m-%d %H:%M', :ts)
+                LIMIT 1
+            """),
+            {"bot_id": bot_id, "phone": phone, "body": body, "ts": timestamp},
+        )).fetchone()
+        if existing:
+            return False
+        await session.execute(
+            text("INSERT INTO messages (bot_id, bot_phone, phone, name, body, timestamp, outbound) "
+                 "VALUES (:bot_id, :bot_phone, :phone, :name, :body, :timestamp, :outbound)"),
+            {"bot_id": bot_id, "bot_phone": bot_phone, "phone": phone, "name": name,
+             "body": body, "timestamp": timestamp, "outbound": outbound},
+        )
+        await session.commit()
+        return True
+
+
 async def log_outbound_message(bot_id: str, bot_phone: str, phone: str, body: str) -> int:
     """Registra un mensaje enviado por el bot (respuesta automática o manual)."""
     async with AsyncSessionLocal() as session:

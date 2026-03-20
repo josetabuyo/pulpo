@@ -441,6 +441,7 @@ export default function DashboardPage() {
   const [bots, setBots] = useState([])
   const [loading, setLoading] = useState(true)
   const [refreshLabel, setRefreshLabel] = useState('↺ Refresh')
+  const [syncLabel, setSyncLabel] = useState('⟳ Re-Sync')
   const [simMode, setSimMode] = useState(false)
 
   // Modales
@@ -492,6 +493,12 @@ export default function DashboardPage() {
     const label = res.reconnected > 0 ? `↺ Refresh (${res.reconnected})` : '↺ Refresh'
     setRefreshLabel(label)
     setTimeout(() => setRefreshLabel('↺ Refresh'), 3000)
+  }
+
+  async function handleFullSync() {
+    setSyncLabel('Sincronizando...')
+    await call('POST', '/full-sync')
+    setSyncLabel('⟳ Re-Sync')
   }
 
   function copyLink() {
@@ -635,6 +642,9 @@ export default function DashboardPage() {
         <div className="header-actions">
           <button className="btn-ghost btn-sm" onClick={handleRefresh} disabled={refreshLabel !== '↺ Refresh'}>
             {refreshLabel}
+          </button>
+          <button className="btn-ghost btn-sm" onClick={handleFullSync} disabled={syncLabel !== '⟳ Re-Sync'} title="Scrapea historial completo de todos los contactos WA">
+            {syncLabel}
           </button>
           <button className="btn-ghost btn-sm" onClick={logout}>Salir</button>
         </div>
