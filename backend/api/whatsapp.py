@@ -118,22 +118,171 @@ async def dom_inspect(session_id: str, chat: str = ""):
             await row_handle.click()
         await page.wait_for_timeout(3000)
 
-    # Listar todos los títulos en el sidebar para debug
     result = await page.evaluate("""
     () => {
         const prePlain   = document.querySelectorAll('[data-pre-plain-text]').length;
         const msgBoxes   = document.querySelectorAll('[data-testid="msg-container"]').length;
         const copyable   = document.querySelectorAll('span.copyable-text').length;
-        // Todos los títulos en el sidebar
-        const titles = [...document.querySelectorAll('[role="grid"] span[title]')]
-                         .map(s => s.getAttribute('title')).filter(Boolean).slice(0, 30);
-        // Primer msg-container HTML
-        const box = document.querySelector('[data-testid="msg-container"]');
-        const boxHtml = box ? box.outerHTML.slice(0, 600) : null;
+        const audioEls   = document.querySelectorAll('audio, [data-testid="audio-play"]').length;
         // Primer data-pre-plain-text
         const el = document.querySelector('[data-pre-plain-text]');
         const sample = el ? { tag: el.tagName, val: el.getAttribute('data-pre-plain-text') } : null;
-        return { prePlain, msgBoxes, copyable, titles, sample, boxHtml };
+        // HTML del primer mensaje con audio (para ver estructura)
+        const audioMsg = document.querySelector('[data-testid="audio-play"]');
+        const audioHtml = audioMsg ? audioMsg.closest('[class*="message"]')?.outerHTML?.slice(0, 800) : null;
+        // Primer data-pre-plain-text que NO tiene span.copyable-text (posibles audios)
+        const withoutText = [...document.querySelectorAll('[data-pre-plain-text]')]
+            .filter(e => !e.querySelector('span.copyable-text'));
+        const noTextSample = withoutText[0] ? withoutText[0].outerHTML.slice(0, 600) : null;
+        return { prePlain, msgBoxes, copyable, audioEls, sample, audioHtml, noTextSample };
+    }
+    """)
+    return result
+
+
+@router.get("/audio-probe/{session_id}", dependencies=[Depends(require_admin)])
+async def audio_probe(session_id: str):
+    """
+    Inspección profunda: recolecta todos los data-icon y data-testid del DOM
+    para descubrir los selectores reales de audios/voz en WA Web.
+    """
+    page = wa_session.get_page(session_id)
+    if not page or page.is_closed():
+        raise HTTPException(status_code=404, detail="Sesión no activa.")
+
+    result = await page.evaluate("""
+    () => {
+        // 1. Todos los data-icon únicos
+        const icons = {};
+        for (const el of document.querySelectorAll('[data-icon]')) {
+            const v = el.getAttribute('data-icon');
+            icons[v] = (icons[v] || 0) + 1;
+        }
+
+        // 2. Todos los data-testid únicos (filtrar audio-related)
+        const testids = {};
+        for (const el of document.querySelectorAll('[data-testid]')) {
+            const v = el.getAttribute('data-testid');
+            if (v.includes('audio') || v.includes('ptt') || v.includes('voice')
+                || v.includes('play') || v.includes('msg')) {
+                testids[v] = (testids[v] || 0) + 1;
+            }
+        }
+
+        // 3. Elementos audio
+        const audioEls = document.querySelectorAll('audio');
+        const audioInfo = [...audioEls].slice(0, 5).map(a => ({
+            src: a.src ? a.src.slice(0, 100) : '(vacío)',
+            duration: a.duration,
+            outerHtml: a.outerHTML.slice(0, 300),
+        }));
+
+        // 4. HTML de un mensaje sin span.copyable-text (probable audio/voz)
+        const noText = [...document.querySelectorAll('[data-pre-plain-text]')]
+            .filter(e => !e.querySelector('span.copyable-text'));
+        const noTextSamples = noText.slice(0, 3).map(e => e.outerHTML.slice(0, 600));
+
+        // 5. Buscar por aria-label que contenga play/reproducir/audio/voice
+        const ariaPlayEls = [...document.querySelectorAll('[aria-label]')]
+            .filter(e => /play|reproducir|audio|voice|ptt|voz/i.test(e.getAttribute('aria-label')));
+        const ariaLabels = ariaPlayEls.slice(0, 10).map(e => ({
+            tag: e.tagName,
+            ariaLabel: e.getAttribute('aria-label'),
+            dataIcon: e.getAttribute('data-icon'),
+            dataTestid: e.getAttribute('data-testid'),
+            outerHtml: e.outerHTML.slice(0, 200),
+        }));
+
+        // 6. Análisis profundo de mensajes de voz (ptt-status)
+        const pttEls = document.querySelectorAll('[data-icon="ptt-status"]');
+        const pttContainers = [];
+        for (const el of pttEls) {
+            let container = el;
+            for (let i = 0; i < 20; i++) {
+                if (!container.parentElement) break;
+                container = container.parentElement;
+                if (container.dataset.id || container.getAttribute('role') === 'row'
+                    || container.classList.contains('message-in')
+                    || container.classList.contains('message-out')) break;
+            }
+            const meta = container.querySelector('[data-testid="msg-meta"]');
+            const metaAria = meta ? meta.getAttribute('aria-label') : null;
+            const metaText = meta ? meta.innerText.trim() : null;
+
+            // Buscar tiempo con regex en todos los spans/divs del contenedor
+            let timeFromText = null;
+            for (const span of container.querySelectorAll('span, div')) {
+                const t = span.innerText ? span.innerText.trim() : '';
+                if (/^\d{1,2}:\d{2}(\s*(a|p)\.\s*m\.?)?$/.test(t)) {
+                    timeFromText = t;
+                    break;
+                }
+            }
+
+            // Sender: span[aria-label="Name:"] o [data-testid="author"]
+            const senderAriaEl = container.querySelector('span[aria-label$=":"]');
+            const senderTestidEl = container.querySelector('[data-testid="author"]');
+            const senderAriaLabel = senderAriaEl ? senderAriaEl.getAttribute('aria-label') : null;
+            const senderTestid = senderTestidEl ? senderTestidEl.innerText : null;
+
+            // Buscar data-pre-plain-text en ancestros (a veces está en padre del padre)
+            let prePlain = null;
+            let anc = container;
+            for (let i = 0; i < 5; i++) {
+                if (!anc) break;
+                const pp = anc.querySelector('[data-pre-plain-text]');
+                if (pp) { prePlain = pp.getAttribute('data-pre-plain-text'); break; }
+                anc = anc.parentElement;
+            }
+
+            // Buscar TODOS los aria-label en el contenedor completo
+            const allAriaLabels = [...container.querySelectorAll('[aria-label]')]
+                .map(e => ({ tag: e.tagName, aria: e.getAttribute('aria-label'), text: e.innerText?.trim()?.slice(0,40) }));
+
+            // Buscar TODO el texto visible en el contenedor (para encontrar timestamp)
+            const allTextNodes = [];
+            const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+            let node;
+            while (node = walker.nextNode()) {
+                const t = node.textContent.trim();
+                if (t && t.length > 0 && t.length < 100) allTextNodes.push(t);
+            }
+
+            // Buscar span con text que parece hora (ej: "9:41 a. m." o "21:41")
+            const timeSpans = [...container.querySelectorAll('span, div')]
+                .map(e => e.innerText?.trim())
+                .filter(t => t && /^\d{1,2}:\d{2}/.test(t));
+
+            // Buscar el div/span que tiene el data-pre-plain-text en el PARENT del container
+            let parentPrePlain = null;
+            let p = container.parentElement;
+            for (let i = 0; i < 10; i++) {
+                if (!p) break;
+                const pp = p.getAttribute('data-pre-plain-text');
+                if (pp) { parentPrePlain = pp; break; }
+                const ppChild = p.querySelector('[data-pre-plain-text]');
+                if (ppChild && ppChild !== container) { parentPrePlain = ppChild.getAttribute('data-pre-plain-text'); break; }
+                p = p.parentElement;
+            }
+
+            pttContainers.push({
+                classList: container.className.slice(0, 80),
+                metaAria, metaText, timeFromText,
+                senderAriaLabel, senderTestid, prePlain,
+                allAriaLabels, allTextNodes, timeSpans, parentPrePlain,
+                outerHtml: container.outerHTML.slice(0, 5000),
+            });
+        }
+
+        // 7. Buscar TODOS los [data-testid="msg-meta"] en el DOM global
+        const allMeta = [...document.querySelectorAll('[data-testid="msg-meta"]')]
+            .slice(0, 5).map(e => ({
+                ariaLabel: e.getAttribute('aria-label'),
+                innerText: e.innerText?.trim(),
+                outerHtml: e.outerHTML.slice(0, 300),
+            }));
+
+        return { icons, testids, audioEls: audioInfo, noTextSamples, ariaLabels, pttContainers, allMeta };
     }
     """)
     return result
@@ -164,6 +313,31 @@ async def full_sync(background_tasks: BackgroundTasks):
     return {"ok": True, "message": "Full sync iniciado en background"}
 
 
+async def _contact_has_summarizer(empresa_id: str, contact_id: int, contact_name: str) -> bool:
+    """
+    Devuelve True si existe al menos una tool 'summarizer' activa en esta empresa
+    que aplique a este contacto (según incluir_desconocidos, exclusiva,
+    contactos_incluidos y contactos_excluidos).
+    """
+    from db import get_tools
+    tools = await get_tools(empresa_id)
+    for tool in tools:
+        if tool.get("tipo") != "summarizer":
+            continue
+        if not tool.get("activa", True):
+            continue
+        included = [c["id"] for c in tool.get("contactos_incluidos", [])]
+        excluded = [c["id"] for c in tool.get("contactos_excluidos", [])]
+        if contact_id in excluded:
+            continue
+        if included and contact_id not in included:
+            # Solo aplica a los explícitamente incluidos
+            if not tool.get("incluir_desconocidos"):
+                continue
+        return True
+    return False
+
+
 async def _run_full_sync() -> None:
     import logging
     from db import log_message_historic, get_contacts
@@ -185,16 +359,21 @@ async def _run_full_sync() -> None:
         if not empresa_ids:
             empresa_ids = [state.get("bot_id", "")]
 
-        # Recopilar contactos WA únicos de todas las empresas de este bot
+        # Solo contactos WA que tienen al menos una tool summarizer activa
         seen_contact_names: set[str] = set()
         contacts_to_sync: list[dict] = []
         for eid in empresa_ids:
             for contact in await get_contacts(eid):
                 if contact["name"] not in seen_contact_names:
                     wa_chs = [ch for ch in contact.get("channels", []) if ch["type"] == "whatsapp"]
-                    if wa_chs:
-                        seen_contact_names.add(contact["name"])
-                        contacts_to_sync.append({"contact": contact, "empresa_ids": empresa_ids})
+                    if not wa_chs:
+                        continue
+                    has_sum = await _contact_has_summarizer(eid, contact["id"], contact["name"])
+                    if not has_sum:
+                        _log.info(f"[full-sync] Saltando '{contact['name']}' — sin summarizer activo.")
+                        continue
+                    seen_contact_names.add(contact["name"])
+                    contacts_to_sync.append({"contact": contact, "empresa_ids": empresa_ids})
 
         for item in contacts_to_sync:
             contact = item["contact"]
@@ -222,6 +401,7 @@ async def _run_full_sync() -> None:
                         saved = await log_message_historic(
                             eid, bot_phone, phone, contact_name,
                             body, msg["timestamp"], outbound,
+                            replace_audio=True,
                         )
                         if saved:
                             total += 1

@@ -171,13 +171,20 @@ async def log_message(bot_id: str, bot_phone: str, phone: str, name: str | None,
         return result.lastrowid
 
 
+_AUDIO_PLACEHOLDERS = ("[audio]", "[media]", "[audio — sin blob]", "[audio — error al transcribir]")
+
+
 async def log_message_historic(
     bot_id: str, bot_phone: str, phone: str, name: str | None,
-    body: str, timestamp: str, outbound: int = 0
+    body: str, timestamp: str, outbound: int = 0,
+    replace_audio: bool = False,
 ) -> bool:
     """
     Inserta un mensaje con timestamp específico (para sync histórico).
-    Retorna True si fue insertado, False si ya existía (dedup por bot+phone+body+minuto).
+    Retorna True si fue insertado/actualizado, False si ya existía igual.
+
+    Si replace_audio=True y el body es una transcripción real (no placeholder),
+    elimina cualquier fila [audio]/[media] previa con el mismo minuto antes de insertar.
     """
     async with AsyncSessionLocal() as session:
         existing = (await session.execute(
@@ -191,6 +198,19 @@ async def log_message_historic(
         )).fetchone()
         if existing:
             return False
+
+        # Si es transcripción real, reemplazar el placeholder [audio]/[media] previo
+        if replace_audio and body not in _AUDIO_PLACEHOLDERS:
+            await session.execute(
+                text("""
+                    DELETE FROM messages
+                    WHERE bot_id=:bot_id AND phone=:phone
+                    AND body IN ('[audio]', '[media]')
+                    AND strftime('%Y-%m-%d %H:%M', timestamp) = strftime('%Y-%m-%d %H:%M', :ts)
+                """),
+                {"bot_id": bot_id, "phone": phone, "ts": timestamp},
+            )
+
         await session.execute(
             text("INSERT INTO messages (bot_id, bot_phone, phone, name, body, timestamp, outbound) "
                  "VALUES (:bot_id, :bot_phone, :phone, :name, :body, :timestamp, :outbound)"),

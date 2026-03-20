@@ -600,10 +600,10 @@ class WhatsAppSession(BrowserAutomation):
 
                     // Blob no cargado: intentar clickear el play para forzar descarga
                     const playBtn = msgs[i].querySelector(
-                        '[data-testid="audio-play"], [data-icon="audio-play"], ' +
-                        'button[aria-label*="Play"], button[aria-label*="play"], ' +
-                        'button[aria-label*="Reproducir"], button[aria-label*="reproducir"], ' +
-                        'button[aria-label*="Escuchar"], button[aria-label*="Voice"]'
+                        'button[aria-label*="voz"], button[aria-label*="voice"], ' +
+                        'button[aria-label*="Voice"], button[aria-label*="Reproducir"], ' +
+                        'button[aria-label*="reproducir"], button[aria-label*="Escuchar"], ' +
+                        '[data-icon="ptt-status"], [data-testid="audio-play"], [data-icon="audio-play"]'
                     );
                     if (playBtn) {
                         playBtn.click();
@@ -700,10 +700,10 @@ class WhatsAppSession(BrowserAutomation):
 
                 // Blob no cargado: clickear play y esperar hasta 8s
                 const playBtn = parent.querySelector(
-                    '[data-testid="audio-play"], [data-icon="audio-play"], ' +
-                    '[data-icon="ptt-play"], button[aria-label*="Play"], ' +
-                    'button[aria-label*="Reproducir"], button[aria-label*="Escuchar"], ' +
-                    'button[aria-label*="Voice"]'
+                    'button[aria-label*="voz"], button[aria-label*="voice"], ' +
+                    'button[aria-label*="Voice"], button[aria-label*="Reproducir"], ' +
+                    'button[aria-label*="reproducir"], button[aria-label*="Escuchar"], ' +
+                    '[data-icon="ptt-status"], [data-testid="audio-play"], [data-icon="audio-play"]'
                 );
                 if (playBtn) {{
                     playBtn.click();
@@ -739,6 +739,250 @@ class WhatsAppSession(BrowserAutomation):
 
         except Exception as e:
             logger.warning(f"[{session_id}] _download_audio_blob_at_index[{raw_idx}] error: {e}")
+            return None
+
+    async def _download_audio_blob_by_preplain(
+        self, page, session_id: str, pre_plain: str
+    ) -> str | None:
+        """
+        Descarga el blob de un mensaje de voz buscando por el valor exacto del
+        atributo data-pre-plain-text. Más robusto que _download_audio_blob_at_index
+        porque no depende del índice DOM (que cambia con el virtual DOM de WA Web).
+        """
+        import time
+        import base64 as _b64
+
+        try:
+            blob_b64 = await page.evaluate("""
+            async (prePlain) => {
+                const tryFetch = async (audio) => {
+                    if (!audio || !audio.src || !audio.src.startsWith('blob:')) return null;
+                    try {
+                        const resp = await fetch(audio.src);
+                        const buf = await resp.arrayBuffer();
+                        const bytes = new Uint8Array(buf);
+                        let bin = '';
+                        for (let b of bytes) bin += String.fromCharCode(b);
+                        return btoa(bin);
+                    } catch(e) { return null; }
+                };
+
+                // Buscar el elemento por valor exacto de data-pre-plain-text
+                let el = null;
+                for (const e of document.querySelectorAll('[data-pre-plain-text]')) {
+                    if (e.getAttribute('data-pre-plain-text') === prePlain) { el = e; break; }
+                }
+                if (!el) return null;
+
+                // Scroll al elemento para que WA cargue el player de audio
+                el.scrollIntoView({ block: 'center', behavior: 'instant' });
+                await new Promise(r => setTimeout(r, 1800));
+
+                const parent = el.parentElement || el;
+                let audio = el.querySelector('audio') || parent.querySelector('audio');
+
+                // Si no hay audio blob todavía, buscar el botón play y clickear
+                if (!audio || !audio.src?.startsWith('blob:')) {
+                    const playBtn = parent.querySelector(
+                        'button[aria-label*="voz"], button[aria-label*="voice"], ' +
+                        'button[aria-label*="Reproducir"], button[aria-label*="reproducir"], ' +
+                        'button[aria-label*="Escuchar"], [data-icon="ptt-status"]'
+                    );
+                    if (playBtn) {
+                        playBtn.click();
+                        await new Promise(resolve => {
+                            let elapsed = 0;
+                            const iv = setInterval(() => {
+                                elapsed += 200;
+                                audio = el.querySelector('audio') || parent.querySelector('audio');
+                                if ((audio?.src?.startsWith('blob:')) || elapsed >= 8000) {
+                                    clearInterval(iv); resolve();
+                                }
+                            }, 200);
+                        });
+                    } else if (!audio) {
+                        return null;
+                    }
+                }
+
+                const b64 = await tryFetch(audio);
+                if (b64) {
+                    try { audio.pause(); } catch(e) {}
+                    return b64;
+                }
+                return null;
+            }
+            """, pre_plain)
+
+            if not blob_b64:
+                logger.debug(f"[{session_id}] _download_audio_blob_by_preplain: sin blob para '{pre_plain[:50]}'")
+                return None
+
+            path = f"/tmp/pulpo_audio_{int(time.time() * 1000)}.ogg"
+            with open(path, "wb") as f:
+                f.write(_b64.b64decode(blob_b64))
+            logger.info(f"[{session_id}] Audio (preplain) guardado en {path}")
+            return path
+
+        except Exception as e:
+            logger.warning(f"[{session_id}] _download_audio_blob_by_preplain error: {e}")
+            return None
+
+    async def _install_blob_interceptor(self, page) -> None:
+        """
+        Inyecta un interceptor de URL.createObjectURL en la página para capturar
+        blobs de audio (PTT) en el momento exacto que WA Web los crea.
+        Los blobs capturados se acumulan en window.__capturedAudioBlobsB64 como base64.
+        Solo se instala una vez por página.
+        """
+        await page.evaluate("""
+        () => {
+            if (window.__blobInterceptorInstalled) return;
+            window.__blobInterceptorInstalled = true;
+            window.__capturedAudioBlobsB64 = [];
+            const _orig = URL.createObjectURL.bind(URL);
+            URL.createObjectURL = function(obj) {
+                const url = _orig(obj);
+                // Capturar solo Blobs de audio (PTT) — típicamente ogg/opus, >1KB
+                if (obj instanceof Blob && obj.size > 500 &&
+                    (obj.type.includes('audio') || obj.type.includes('ogg') || obj.type === '')) {
+                    const reader = new FileReader();
+                    reader.readAsDataURL(obj);
+                    reader.onloadend = () => {
+                        const b64 = reader.result.split(',')[1];
+                        if (b64) window.__capturedAudioBlobsB64.push(b64);
+                    };
+                }
+                return url;
+            };
+        }
+        """)
+
+    async def _download_visible_ptt_blob(
+        self, page, session_id: str, prePlain_key: str
+    ) -> str | None:
+        """
+        Descarga el blob de un PTT clickeando su botón play.
+        Usa el interceptor de URL.createObjectURL para capturar el blob
+        en el momento exacto que WA Web lo crea (evita race conditions).
+        """
+        import base64 as _b64
+        import time as _time
+
+        try:
+            # Encontrar el contenedor PTT por key, scrollear, y hacer click play
+            found = await page.evaluate("""
+            (prePlainKey) => {
+                const buildKey = (c) => {
+                    let msgTime = '';
+                    const w = document.createTreeWalker(c, NodeFilter.SHOW_TEXT, null);
+                    let n;
+                    while (n = w.nextNode()) {
+                        const t = n.textContent.trim();
+                        if (/^\d{1,2}:\d{2}(\s*(a|p)[\.\s]*m\.?)?$/i.test(t)) msgTime = t;
+                    }
+                    let msgDate = '';
+                    let anc = c.parentElement;
+                    for (let j = 0; j < 12 && anc; j++) {
+                        const pp = anc.querySelector('[data-pre-plain-text]');
+                        if (pp) {
+                            const m = pp.getAttribute('data-pre-plain-text').match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
+                            if (m) { msgDate = m[1]; break; }
+                        }
+                        anc = anc.parentElement;
+                    }
+                    const timeText = (msgTime && msgDate) ? msgTime + ', ' + msgDate : msgTime;
+                    const sEl = c.querySelector('span[aria-label$=":"]');
+                    const sender = sEl ? (sEl.getAttribute('aria-label') || '').replace(/:$/, '').trim() : '';
+                    return '[' + timeText + '] ' + (sender ? sender + ': ' : '');
+                };
+
+                // Solo buscar ptt-status (no reproduciendo aún) para evitar toggle play/stop
+                for (const ptt of document.querySelectorAll('[data-icon="ptt-status"]')) {
+                    let c = ptt;
+                    for (let i=0;i<15;i++){if(!c.parentElement)break;c=c.parentElement;if(c.classList.contains('message-in')||c.classList.contains('message-out'))break;}
+                    if (buildKey(c) !== prePlainKey) continue;
+
+                    const btn = c.querySelector(
+                        'button[aria-label*="voz"],button[aria-label*="voice"],' +
+                        'button[aria-label*="Reproducir"],button[aria-label*="reproducir"],' +
+                        'button[aria-label*="Escuchar"]'
+                    ) || ptt.closest('button') || ptt.parentElement?.querySelector('button');
+
+                    if (!btn) return 'noBtn';
+
+                    // Limpiar cola de blobs previos y scrollear
+                    if (window.__capturedAudioBlobsB64) window.__capturedAudioBlobsB64 = [];
+                    btn.scrollIntoView({ block: 'center', behavior: 'instant' });
+                    btn.click();
+                    return 'clicked';
+                }
+                return null;
+            }
+            """, prePlain_key)
+
+            if not found:
+                logger.debug(f"[{session_id}] ptt_blob: no encontrado '{prePlain_key[:50]}'")
+                return None
+            if found == "noBtn":
+                logger.debug(f"[{session_id}] ptt_blob: sin botón play para '{prePlain_key[:50]}'")
+                return None
+
+            # Esperar a que el interceptor capture el blob (hasta 30s)
+            # También intentar fetch directo del blob URL del elemento <audio>
+            blob_b64 = None
+            for _ in range(150):
+                await page.wait_for_timeout(200)
+                # Método 1: interceptor URL.createObjectURL
+                blob_b64 = await page.evaluate(
+                    "() => window.__capturedAudioBlobsB64?.shift() || null"
+                )
+                if blob_b64:
+                    logger.debug(f"[{session_id}] ptt_blob: capturado via interceptor")
+                    break
+                # Método 2: fetch directo del blob URL en el elemento <audio>
+                blob_b64 = await page.evaluate("""
+                async () => {
+                    const audio = document.querySelector('audio[src^="blob:"]');
+                    if (!audio) return null;
+                    try {
+                        const resp = await fetch(audio.src);
+                        if (!resp.ok) return null;
+                        const blob = await resp.blob();
+                        if (blob.size < 500) return null;
+                        return await new Promise(resolve => {
+                            const reader = new FileReader();
+                            reader.readAsDataURL(blob);
+                            reader.onloadend = () => resolve(reader.result ? reader.result.split(',')[1] : null);
+                        });
+                    } catch(e) { return null; }
+                }
+                """)
+                if blob_b64:
+                    logger.debug(f"[{session_id}] ptt_blob: capturado via audio.src fetch")
+                    break
+
+            if not blob_b64:
+                logger.info(f"[{session_id}] ptt_blob: no capturado en 30s para '{prePlain_key[:50]}'")
+                # Parar el audio si está reproduciendo
+                await page.evaluate("""
+                () => { try { document.querySelector('audio')?.pause(); } catch(e) {} }
+                """)
+                return None
+
+            # Parar el audio
+            await page.evaluate("""
+            () => { try { document.querySelector('audio')?.pause(); } catch(e) {} }
+            """)
+
+            path = f"/tmp/pulpo_audio_{int(_time.time() * 1000)}.ogg"
+            with open(path, "wb") as f:
+                f.write(_b64.b64decode(blob_b64))
+            logger.info(f"[{session_id}] PTT blob capturado: {path}")
+            return path
+
+        except Exception as e:
+            logger.warning(f"[{session_id}] _download_visible_ptt_blob error: {e}")
             return None
 
     # ------------------------------------------------------------------
@@ -796,6 +1040,9 @@ class WhatsAppSession(BrowserAutomation):
             await row_handle.click()
             await page.wait_for_timeout(2000)
 
+            # Instalar interceptor de blobs de audio antes de iniciar el scroll
+            await self._install_blob_interceptor(page)
+
             # 2. Scroll hacia arriba hasta que no aparezcan mensajes nuevos
             # WA Web carga más mensajes cuando llegás al tope del panel
             prev_count = 0
@@ -835,52 +1082,183 @@ class WhatsAppSession(BrowserAutomation):
                 prev_count = cur_count
             logger.info(f"[{session_id}] scrape '{contact_name}': {prev_count} msgs en DOM tras scroll")
 
-            # 3. Extraer todos los mensajes con su metadata
-            # data-pre-plain-text está en DIV (no span) — usar selector genérico
-            # idx: índice en querySelectorAll — necesario para el segundo pasaje de audio
-            raw_msgs = await page.evaluate("""
-            () => {
-                const msgs = [];
-                const els = document.querySelectorAll('[data-pre-plain-text]');
-                for (let idx = 0; idx < els.length; idx++) {
-                    const el = els[idx];
-                    const prePlain = el.getAttribute('data-pre-plain-text') || '';
-
-                    // Texto: buscar dentro del mismo div
-                    const textEl = el.querySelector('span.copyable-text, [data-testid="msg-text"]');
-                    const body = textEl ? textEl.innerText.trim() : '';
-
-                    // Audio: data-testid^="audio" captura audio-play, audio-duration,
-                    // audio-waveform, etc. — algunos siempre están en el DOM aunque el
-                    // player esté lazy. Buscar también en el padre por si WA Web anida distinto.
-                    const parent = el.parentElement || el;
-                    const hasAudio = !!el.querySelector('audio, [data-testid^="audio"]')
-                                  || !!parent.querySelector('audio, [data-testid^="audio"]')
-                                  || !!parent.querySelector('[data-icon="audio-play"], [data-icon="ptt-play"]');
-                    const hasMedia = !!el.querySelector('img[src^="blob:"], video')
-                                  || !!parent.querySelector('img[src^="blob:"], video');
-
-                    if (!body && !hasAudio && !hasMedia) continue;
-
-                    // Outbound: el div padre suele tener clase message-out
-                    const isOut = !!el.closest('.message-out')
-                               || !!el.querySelector('[data-icon^="msg-dblcheck"], [data-icon="msg-check"], [data-icon="msg-time"]');
-
-                    // Si es audio, el body puede ser la duración ("0:01") — ignorarla
-                    // y marcar como [audio] para el pasaje de transcripción posterior.
-                    const effectiveBody = hasAudio ? '[audio]' : (body || '[media]');
-                    if (!body && !hasAudio && !hasMedia) continue;
-
-                    msgs.push({
-                        idx,
-                        prePlain,
-                        body: effectiveBody,
-                        isOut,
-                    });
+            # 3. Extraer PARTE A: mensajes de texto (data-pre-plain-text).
+            # DEBE ocurrir aquí, con el DOM al tope (mensajes históricos cargados).
+            # Después del scroll hacia adelante WA Web virtualiza y borra estos nodos.
+            def _extract_text_msgs_js():
+                return """
+                () => {
+                    const msgs = [];
+                    const textEls = document.querySelectorAll('[data-pre-plain-text]');
+                    for (let idx = 0; idx < textEls.length; idx++) {
+                        const el = textEls[idx];
+                        const prePlain = el.getAttribute('data-pre-plain-text') || '';
+                        const textEl = el.querySelector('span.copyable-text, [data-testid="msg-text"]');
+                        const body = textEl ? textEl.innerText.trim() : '';
+                        const parent = el.parentElement || el;
+                        const hasAudio = !!el.querySelector('audio, [data-testid^="audio"]')
+                                      || !!parent.querySelector('audio, [data-testid^="audio"]')
+                                      || !!parent.querySelector('[data-icon="audio-play"], [data-icon="ptt-play"], [data-icon="ptt-status"], [data-icon="media-play"]');
+                        const isOut = !!el.closest('.message-out')
+                                   || !!el.querySelector('[data-icon^="msg-dblcheck"], [data-icon="msg-check"], [data-icon="msg-time"]');
+                        const effectiveBody = hasAudio ? '[audio]' : (body || '[media]');
+                        msgs.push({ source: 'text', idx, prePlain, body: effectiveBody, isOut });
+                    }
+                    return msgs;
                 }
-                return msgs;
+                """
+
+            def _extract_audio_msgs_js():
+                """Busca mensajes de voz que NO usan data-pre-plain-text.
+                Selectores confirmados inspeccionando DOM real de WA Web (es-AR):
+                  - [data-icon="ptt-status"]  → ícono dentro del player PTT
+                  - button[aria-label*="voz"] → botón play (locale es-AR)
+                  - button[aria-label*="voice"] → botón play (locale en)
+                """
+                return """
+                () => {
+                    const msgs = [];
+                    const seen = new Set();
+                    // Combinar todos los posibles indicadores de audio/PTT
+                    const indSet = new Set();
+                    for (const el of document.querySelectorAll(
+                        '[data-icon="ptt-status"], [data-icon="media-play"], ' +
+                        'button[aria-label*="voz"], button[aria-label*="voice"], ' +
+                        'button[aria-label*="Voice"], button[aria-label*="audio"], ' +
+                        '[data-icon="ptt-play"], [data-icon="audio-play"], audio'
+                    )) { indSet.add(el); }
+                    const audioIndicators = [...indSet];
+                    for (const indicator of audioIndicators) {
+                        let msgContainer = indicator;
+                        for (let i = 0; i < 15; i++) {
+                            if (!msgContainer.parentElement) break;
+                            msgContainer = msgContainer.parentElement;
+                            if (msgContainer.getAttribute('role') === 'row' ||
+                                msgContainer.classList.contains('message-in') ||
+                                msgContainer.classList.contains('message-out')) break;
+                        }
+                        // Saltar si tiene data-pre-plain-text: ya fue capturado por Part A
+                        if (msgContainer.querySelector('[data-pre-plain-text]')) continue;
+
+                        // Timestamp — WA Web ya no usa data-testid="msg-meta" en PTT.
+                        // Estrategia: (1) último text-node que parece hora en el contenedor,
+                        //             (2) fecha del data-pre-plain-text más cercano en DOM.
+                        let msgTime = '';
+                        const walker = document.createTreeWalker(msgContainer, NodeFilter.SHOW_TEXT, null);
+                        let node2;
+                        while (node2 = walker.nextNode()) {
+                            const t = node2.textContent.trim();
+                            // Horas con a.m./p.m. (formato 12h) o 2 dígitos HH:MM (formato 24h)
+                            if (/^\d{1,2}:\d{2}(\s*(a|p)[\.\s]*m\.?)?$/i.test(t)) msgTime = t;
+                        }
+
+                        let msgDate = '';
+                        let anc = msgContainer.parentElement;
+                        for (let j = 0; j < 12 && anc; j++) {
+                            const ppEl = anc.querySelector('[data-pre-plain-text]');
+                            if (ppEl) {
+                                const m = ppEl.getAttribute('data-pre-plain-text').match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
+                                if (m) { msgDate = m[1]; break; }
+                            }
+                            anc = anc.parentElement;
+                        }
+
+                        let timeText = '';
+                        if (msgTime && msgDate)       timeText = msgTime + ', ' + msgDate;
+                        else if (msgTime)              timeText = msgTime;
+                        if (!timeText) continue;
+
+                        // Sender: span[aria-label="Name:"] (grupos) o data-testid="author"
+                        const senderAriaEl = msgContainer.querySelector('span[aria-label$=":"]');
+                        const senderTestEl = msgContainer.querySelector('[data-testid="author"]');
+                        const senderEl = senderAriaEl || senderTestEl
+                                      || msgContainer.querySelector('span[style*="color"]');
+                        let sender = '';
+                        if (senderAriaEl) {
+                            sender = (senderAriaEl.getAttribute('aria-label') || '').replace(/:$/, '').trim();
+                        } else if (senderTestEl) {
+                            sender = senderTestEl.innerText.trim();
+                        } else if (senderEl) {
+                            sender = senderEl.innerText.trim();
+                        }
+
+                        // Dedup por (timeText, sender)
+                        const key = timeText + '|' + sender;
+                        if (seen.has(key)) continue;
+                        seen.add(key);
+
+                        const isOut = !!msgContainer.closest('.message-out') ||
+                                      msgContainer.classList.contains('message-out');
+                        const prePlain = '[' + timeText + '] ' + (sender ? sender + ': ' : '');
+                        msgs.push({ source: 'audio', idx: -1, prePlain, body: '[audio]', isOut });
+                    }
+                    return msgs;
+                }
+                """
+
+            raw_msgs_text = await page.evaluate(_extract_text_msgs_js())
+            logger.info(f"[{session_id}] scrape '{contact_name}': {len(raw_msgs_text)} msgs texto en DOM")
+
+            # 3b. Scroll lento hacia abajo para forzar render de mensajes de voz.
+            # WA Web virtualiza: los mensajes de texto (ya capturados) pueden desaparecer.
+            # Mientras scrolleamos, capturamos audios (Part B) en cada paso.
+            total_height = await page.evaluate("""
+            () => {
+                for (const el of document.querySelectorAll('#main div')) {
+                    if (el && el.scrollHeight > el.clientHeight && el.scrollHeight > 500)
+                        return el.scrollHeight;
+                }
+                return 0;
             }
             """)
+            raw_msgs_audio = []
+            seen_audio_keys: set[str] = set()
+            step = 400
+            for pos in range(0, total_height + step, step):
+                await page.evaluate(f"""
+                () => {{
+                    for (const el of document.querySelectorAll('#main div')) {{
+                        if (el && el.scrollHeight > el.clientHeight && el.scrollHeight > 500) {{
+                            el.scrollTop = {pos};
+                            return;
+                        }}
+                    }}
+                }}
+                """)
+                await page.wait_for_timeout(350)
+                # Capturar audios visibles + descargar blob inline para PTT de grupos
+                step_audios = await page.evaluate(_extract_audio_msgs_js())
+                for a in step_audios:
+                    key = a["prePlain"]
+                    if key not in seen_audio_keys:
+                        seen_audio_keys.add(key)
+                        # Intentar descargar blob mientras está en DOM
+                        if a.get("body") == "[audio]":
+                            import os as _os
+                            audio_path = await self._download_visible_ptt_blob(page, session_id, key)
+                            if audio_path:
+                                try:
+                                    from tools import transcription as _tr
+                                    text = await _tr.transcribe(audio_path)
+                                    a["body"] = text
+                                    logger.info(f"[{session_id}] PTT histórico transcrito inline: {text[:60]}")
+                                except Exception as exc:
+                                    logger.warning(f"[{session_id}] Error transcribiendo PTT inline: {exc}")
+                                finally:
+                                    try:
+                                        _os.unlink(audio_path)
+                                    except Exception:
+                                        pass
+                        raw_msgs_audio.append(a)
+
+            logger.info(
+                f"[{session_id}] scrape '{contact_name}': "
+                f"scroll completo ({total_height}px), "
+                f"{len(raw_msgs_audio)} msgs audio/voz encontrados"
+            )
+
+            # Combinar ambas partes
+            raw_msgs = raw_msgs_text + raw_msgs_audio
 
             # 4. Parsear timestamps del atributo data-pre-plain-text
             # Formatos reales (locale es-AR):
@@ -955,36 +1333,54 @@ class WhatsAppSession(BrowserAutomation):
                     "body": body,
                     "is_outbound": m["isOut"],
                     "_raw_idx": m["idx"],
+                    "_pre_plain": m.get("prePlain", ""),
                 })
 
             logger.info(f"[{session_id}] scrape_full_history '{contact_name}': {len(parsed)} mensajes extraídos")
 
             # 5. Transcribir audios históricos (segundo pasaje: scroll al elemento, esperar blob)
-            audio_entries = [(i, msg) for i, msg in enumerate(parsed) if msg["body"] == "[audio]"]
+            # Incluye [audio] (detectado en DOM) y [media] (vacío off-screen, puede ser audio)
+            # Los mensajes de Parte B (source='audio', _raw_idx=-1) se guardan como [audio]
+            # ya que el scroll lento ya los cargó — transcripción por índice no aplica.
+            audio_entries = [(i, msg) for i, msg in enumerate(parsed) if msg["body"] in ("[audio]", "[media]")]
             if audio_entries:
                 import os
-                from transcription import transcription as _transcription
+                from tools import transcription as _transcription
                 logger.info(f"[{session_id}] Transcribiendo {len(audio_entries)} audios históricos de '{contact_name}'...")
                 for parsed_idx, msg in audio_entries:
+                    pre_plain = msg.get("_pre_plain", "")
                     raw_idx = msg["_raw_idx"]
-                    audio_path = await self._download_audio_blob_at_index(page, session_id, raw_idx)
+                    original_body = msg["body"]
+                    # Mensajes de Parte B (sin data-pre-plain-text real) tienen idx=-1
+                    # y prePlain manufacturado — el inline download debería haberlos captado.
+                    # Si inline falló, no podemos hacer nada más por ellos.
+                    if raw_idx == -1:
+                        continue
+                    # Parte A: buscar por data-pre-plain-text (robusto ante virtual DOM)
+                    if not pre_plain:
+                        continue
+                    audio_path = await self._download_audio_blob_by_preplain(page, session_id, pre_plain)
                     if audio_path:
                         try:
                             text = await _transcription.transcribe(audio_path)
                             parsed[parsed_idx]["body"] = text
-                            logger.info(f"[{session_id}] Audio histórico [{raw_idx}] transcrito: {text[:60]}")
+                            logger.info(f"[{session_id}] Audio histórico transcrito: {text[:60]}")
                         except Exception as exc:
                             parsed[parsed_idx]["body"] = "[audio — error al transcribir]"
-                            logger.warning(f"[{session_id}] Error transcribiendo audio histórico [{raw_idx}]: {exc}")
+                            logger.warning(f"[{session_id}] Error transcribiendo audio histórico: {exc}")
                         finally:
                             try:
                                 os.unlink(audio_path)
                             except Exception:
                                 pass
+                    else:
+                        if original_body == "[audio]":
+                            parsed[parsed_idx]["body"] = "[audio — sin blob]"
 
-            # Limpiar campo interno antes de retornar
+            # Limpiar campos internos antes de retornar
             for msg in parsed:
                 msg.pop("_raw_idx", None)
+                msg.pop("_pre_plain", None)
 
             return parsed
 
