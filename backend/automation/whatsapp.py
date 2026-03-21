@@ -867,6 +867,103 @@ class WhatsAppSession(BrowserAutomation):
             logger.warning(f"[{session_id}] _download_audio_blob_by_preplain error: {e}")
             return None
 
+    async def _fetch_audio_idb_keys(self, page, session_id: str) -> list[dict]:
+        """
+        Lee todos los mensajes PTT/audio del IndexedDB de WA Web.
+        Retorna lista de {t, mediaKey, directPath, duration, type}.
+        Fallback para cuando el blob DOM no está disponible (audio histórico).
+        """
+        js = """
+        () => new Promise((resolve) => {
+            const toB64 = (buf) => {
+                if (typeof buf === 'string') return buf;
+                const bytes = new Uint8Array(buf instanceof ArrayBuffer ? buf : buf.buffer || buf);
+                let s = '';
+                for (let i = 0; i < bytes.byteLength; i++) s += String.fromCharCode(bytes[i]);
+                return btoa(s);
+            };
+
+            const tryRead = (dbName) => new Promise((res) => {
+                const req = indexedDB.open(dbName);
+                req.onerror = () => res([]);
+                req.onsuccess = (e) => {
+                    const db = e.target.result;
+                    const storeNames = Array.from(db.objectStoreNames);
+                    const msgStore = storeNames.find(s => s === 'message' || s === 'msg' || s === 'messages');
+                    if (!msgStore) { db.close(); res([]); return; }
+                    const tx = db.transaction([msgStore], 'readonly');
+                    const store = tx.objectStore(msgStore);
+                    const results = [];
+                    store.openCursor().onsuccess = (e) => {
+                        const cursor = e.target.result;
+                        if (cursor) {
+                            const msg = cursor.value;
+                            if (msg && msg.mediaKey && msg.directPath &&
+                                (msg.type === 'ptt' || msg.type === 'audio')) {
+                                try {
+                                    // WA Web puede almacenar t en milisegundos; normalizar a segundos
+                                    const tSec = msg.t > 1e10 ? Math.floor(msg.t / 1000) : msg.t;
+                                    results.push({
+                                        t: tSec,
+                                        mediaKey: toB64(msg.mediaKey),
+                                        directPath: msg.directPath,
+                                        duration: msg.duration || 0,
+                                        type: msg.type,
+                                    });
+                                } catch (_) {}
+                            }
+                            cursor.continue();
+                        } else {
+                            db.close();
+                            res(results);
+                        }
+                    };
+                    tx.onerror = () => { db.close(); res([]); };
+                };
+            });
+
+            (async () => {
+                let candidates = ['model-storage', 'wawc', 'wa-1', 'wawcV2', 'hammerhead'];
+                try {
+                    const dbs = await indexedDB.databases();
+                    const found = dbs.map(d => d.name).filter(Boolean);
+                    candidates = [...new Set([...found, ...candidates])];
+                } catch(_) {}
+
+                for (const name of candidates) {
+                    const r = await tryRead(name);
+                    if (r.length > 0) { resolve(r); return; }
+                }
+                resolve([]);
+            })();
+        })
+        """
+        try:
+            keys = await page.evaluate(js)
+            logger.info(f"[{session_id}] IDB: {len(keys)} mensajes PTT/audio encontrados")
+            return keys
+        except Exception as e:
+            logger.warning(f"[{session_id}] IDB read error: {e}")
+            return []
+
+    async def _download_decrypt_audio_cdn(
+        self, direct_path: str, media_key_b64: str, session_id: str
+    ) -> str | None:
+        """
+        Descarga y descifra un audio PTT de WA vía CDN usando directPath + mediaKey del IDB.
+        Fallback cuando el blob DOM no está disponible.
+        """
+        import time as _time
+        try:
+            from tools.wa_decrypt import download_and_decrypt
+            path = f"/tmp/pulpo_audio_{int(_time.time() * 1000)}.ogg"
+            await download_and_decrypt(direct_path, media_key_b64, path)
+            logger.info(f"[{session_id}] CDN decrypt OK → {path}")
+            return path
+        except Exception as e:
+            logger.warning(f"[{session_id}] CDN decrypt fallido: {e}")
+            return None
+
     async def _install_blob_interceptor(self, page) -> None:
         """
         Inyecta un interceptor de URL.createObjectURL en la página para capturar
@@ -1495,6 +1592,63 @@ class WhatsAppSession(BrowserAutomation):
             # Marcar como audio antes de que el body sea reemplazado por la transcripción
             for _, _am in audio_entries:
                 _am["msg_type"] = "audio"
+            # Cargar claves IDB una sola vez como fallback cuando el blob DOM no esté visible.
+            # Indexar por unix timestamp para búsqueda rápida (tolerancia ±120s).
+            idb_audio_keys = await self._fetch_audio_idb_keys(page, session_id)
+            idb_by_ts: list[dict] = sorted(idb_audio_keys, key=lambda k: k["t"])
+
+            async def _transcribe_path(audio_path: str, parsed_idx: int, label: str) -> None:
+                """Transcribe audio_path y actualiza parsed[parsed_idx]["body"]. Borra el tmp."""
+                import os as _os2
+                try:
+                    text = await _transcription.transcribe(audio_path)
+                    parsed[parsed_idx]["body"] = text
+                    logger.info(f"[{session_id}] {label}: {text[:60]}")
+                except Exception as exc:
+                    parsed[parsed_idx]["body"] = "[audio — error al transcribir]"
+                    logger.warning(f"[{session_id}] Error transcribiendo {label}: {exc}")
+                finally:
+                    try:
+                        _os2.unlink(audio_path)
+                    except Exception:
+                        pass
+
+            async def _try_idb_fallback(msg: dict, parsed_idx: int, label: str) -> bool:
+                """Intenta CDN decrypt usando IDB. Retorna True si tuvo éxito."""
+                from datetime import datetime as _dt
+                ts = msg.get("timestamp")  # string como "2026-03-17 11:41:00"
+                if not ts or not idb_by_ts:
+                    return False
+                try:
+                    ts_unix = int(_dt.strptime(ts, "%Y-%m-%d %H:%M:%S").timestamp())
+                except Exception:
+                    return False
+                # Búsqueda exacta (±120s)
+                idb_match = next(
+                    (k for k in idb_by_ts if abs(k["t"] - ts_unix) < 120),
+                    None,
+                )
+                # Fallback: coincidencia por hora del día (±120s mod 86400)
+                # Cubre el caso de fecha incorrecta en prePlain (heredada de mensaje anterior)
+                if not idb_match:
+                    ts_tod = ts_unix % 86400
+                    idb_match = next(
+                        (k for k in idb_by_ts if abs((k["t"] % 86400) - ts_tod) < 120),
+                        None,
+                    )
+                    if idb_match:
+                        logger.info(f"[{session_id}] IDB: coincidencia por hora del día para ts={ts} → idb t={idb_match['t']}")
+                if not idb_match:
+                    logger.debug(f"[{session_id}] IDB: sin coincidencia para ts={ts_unix}")
+                    return False
+                audio_path = await self._download_decrypt_audio_cdn(
+                    idb_match["directPath"], idb_match["mediaKey"], session_id
+                )
+                if not audio_path:
+                    return False
+                await _transcribe_path(audio_path, parsed_idx, f"{label} (IDB CDN)")
+                return True
+
             if audio_entries:
                 import os
                 from tools import transcription as _transcription
@@ -1503,31 +1657,23 @@ class WhatsAppSession(BrowserAutomation):
                     pre_plain = msg.get("_pre_plain", "")
                     raw_idx = msg["_raw_idx"]
                     original_body = msg["body"]
-                    # Mensajes de Parte B (sin data-pre-plain-text real) tienen idx=-1
-                    # y prePlain manufacturado — el inline download debería haberlos captado.
-                    # Si inline falló, no podemos hacer nada más por ellos.
+                    # Parte B (inline download ya intentado durante scroll): solo IDB fallback.
                     if raw_idx == -1:
+                        if not await _try_idb_fallback(msg, parsed_idx, "Audio PTT Parte B"):
+                            if original_body == "[audio]":
+                                parsed[parsed_idx]["body"] = "[audio — sin blob]"
                         continue
                     # Parte A: buscar por data-pre-plain-text (robusto ante virtual DOM)
                     if not pre_plain:
                         continue
                     audio_path = await self._download_audio_blob_by_preplain(page, session_id, pre_plain)
                     if audio_path:
-                        try:
-                            text = await _transcription.transcribe(audio_path)
-                            parsed[parsed_idx]["body"] = text
-                            logger.info(f"[{session_id}] Audio histórico transcrito: {text[:60]}")
-                        except Exception as exc:
-                            parsed[parsed_idx]["body"] = "[audio — error al transcribir]"
-                            logger.warning(f"[{session_id}] Error transcribiendo audio histórico: {exc}")
-                        finally:
-                            try:
-                                os.unlink(audio_path)
-                            except Exception:
-                                pass
+                        await _transcribe_path(audio_path, parsed_idx, "Audio histórico DOM")
                     else:
-                        if original_body == "[audio]":
-                            parsed[parsed_idx]["body"] = "[audio — sin blob]"
+                        # DOM blob no disponible: fallback a IDB + CDN decrypt
+                        if not await _try_idb_fallback(msg, parsed_idx, "Audio histórico"):
+                            if original_body == "[audio]":
+                                parsed[parsed_idx]["body"] = "[audio — sin blob]"
 
             # Asignar msg_type="text" a los que no sean audio
             for msg in parsed:

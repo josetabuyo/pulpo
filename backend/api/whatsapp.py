@@ -302,6 +302,46 @@ async def get_screenshot(session_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/debug/idb/{session_id}", dependencies=[Depends(require_admin)])
+async def debug_idb(session_id: str):
+    """Diagnóstico temporal: qué databases y stores existen en el IndexedDB de la página WA."""
+    page = wa_session._pages.get(session_id)
+    if not page:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+    result = await page.evaluate("""
+    () => new Promise((resolve) => {
+        (async () => {
+            let info = { databases: [], error: null };
+            try {
+                const dbs = await indexedDB.databases();
+                info.databases = dbs.map(d => d.name);
+            } catch(e) {
+                info.error = String(e);
+                info.databases = ['(no indexedDB.databases() support)'];
+            }
+            // Intentar abrir cada candidato y listar stores + contar audios
+            const details = [];
+            const candidates = [...new Set([...info.databases, 'wawc', 'wa-1', 'wawcV2'])];
+            for (const name of candidates) {
+                await new Promise(res => {
+                    const req = indexedDB.open(name);
+                    req.onerror = () => { details.push({name, error: 'open failed'}); res(); };
+                    req.onsuccess = (e) => {
+                        const db = e.target.result;
+                        const stores = Array.from(db.objectStoreNames);
+                        details.push({name, stores});
+                        db.close();
+                        res();
+                    };
+                });
+            }
+            resolve({databases: info.databases, details});
+        })();
+    })
+    """)
+    return result
+
+
 @router.post("/full-sync", dependencies=[Depends(require_admin)])
 async def full_sync(background_tasks: BackgroundTasks):
     """
