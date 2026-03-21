@@ -442,6 +442,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [refreshLabel, setRefreshLabel] = useState('↺ Refresh')
   const [syncLabel, setSyncLabel] = useState('⟳ Re-Sync')
+  const [recentSyncLabel, setRecentSyncLabel] = useState('↑ Actualizar')
   const [simMode, setSimMode] = useState(false)
 
   // Modales
@@ -502,6 +503,13 @@ export default function DashboardPage() {
     await call('POST', '/full-sync')
     setSyncLabel('✓ Sync iniciado')
     setTimeout(() => setSyncLabel('⟳ Re-Sync'), 4000)
+  }
+
+  async function handleRecentSync() {
+    setRecentSyncLabel('Actualizando...')
+    await call('POST', '/recent-sync')
+    setRecentSyncLabel('✓ Listo')
+    setTimeout(() => setRecentSyncLabel('↑ Actualizar'), 4000)
   }
 
   function copyLink() {
@@ -645,6 +653,9 @@ export default function DashboardPage() {
         <div className="header-actions">
           <button className="btn-ghost btn-sm" onClick={handleRefresh} disabled={refreshLabel !== '↺ Refresh'}>
             {refreshLabel}
+          </button>
+          <button className="btn-ghost btn-sm" onClick={handleRecentSync} disabled={recentSyncLabel === 'Actualizando...'} title="Captura los mensajes recientes visibles en cada chat (sin scroll histórico). Ideal tras un reinicio.">
+            {recentSyncLabel}
           </button>
           <button className="btn-ghost btn-sm" onClick={handleFullSync} disabled={syncLabel !== '⟳ Re-Sync'} title="Scrapea historial completo de todos los contactos WA">
             {syncLabel}

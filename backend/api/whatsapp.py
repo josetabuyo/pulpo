@@ -349,8 +349,19 @@ async def full_sync(background_tasks: BackgroundTasks):
     y guarda los mensajes históricos en la DB (idempotente — no duplica).
     Corre en background; retorna inmediatamente.
     """
-    background_tasks.add_task(_run_full_sync)
+    background_tasks.add_task(_run_sync, scroll_rounds=50)
     return {"ok": True, "message": "Full sync iniciado en background"}
+
+
+@router.post("/recent-sync", dependencies=[Depends(require_admin)])
+async def recent_sync(background_tasks: BackgroundTasks):
+    """
+    Captura solo los mensajes visibles actualmente en cada chat (sin scroll histórico).
+    Ideal para ponerse al día después de un reinicio. El dedup evita duplicados.
+    Corre en background; retorna inmediatamente.
+    """
+    background_tasks.add_task(_run_sync, scroll_rounds=0)
+    return {"ok": True, "message": "Recent sync iniciado en background"}
 
 
 async def _contact_has_summarizer(empresa_id: str, contact_id: int, contact_name: str) -> bool:
@@ -378,21 +389,22 @@ async def _contact_has_summarizer(empresa_id: str, contact_id: int, contact_name
     return False
 
 
-_full_sync_running = False
+_sync_running = False
 
 
-async def _run_full_sync() -> None:
-    global _full_sync_running
+async def _run_sync(scroll_rounds: int = 50) -> None:
+    global _sync_running
     import logging
     from db import log_message_historic, get_contacts
     from config import get_empresas_for_bot
 
     _log = logging.getLogger(__name__)
-    if _full_sync_running:
-        _log.info("[full-sync] Ya hay un sync en curso, ignorando.")
+    mode = "full-sync" if scroll_rounds > 0 else "recent-sync"
+    if _sync_running:
+        _log.info(f"[{mode}] Ya hay un sync en curso, ignorando.")
         return
-    _full_sync_running = True
-    _log.info("[full-sync] Iniciando sync completo de historial WA...")
+    _sync_running = True
+    _log.info(f"[{mode}] Iniciando...")
     try:
         total = 0
 
@@ -400,7 +412,7 @@ async def _run_full_sync() -> None:
             if state.get("type") != "whatsapp":
                 continue
             if state.get("status") != "ready":
-                _log.info(f"[full-sync] Sesión {session_id} no está lista, saltando.")
+                _log.info(f"[{mode}] Sesión {session_id} no está lista, saltando.")
                 continue
 
             bot_phone = session_id
@@ -419,7 +431,7 @@ async def _run_full_sync() -> None:
                             continue
                         has_sum = await _contact_has_summarizer(eid, contact["id"], contact["name"])
                         if not has_sum:
-                            _log.info(f"[full-sync] Saltando '{contact['name']}' — sin summarizer activo.")
+                            _log.info(f"[{mode}] Saltando '{contact['name']}' — sin summarizer activo.")
                             continue
                         seen_contact_names.add(contact["name"])
                         contacts_to_sync.append({"contact": contact, "empresa_ids": empresa_ids, "summarizer_eid": eid})
@@ -441,11 +453,11 @@ async def _run_full_sync() -> None:
                 contact_name = contact["name"]
                 wa_channels = [ch for ch in contact.get("channels", []) if ch["type"] == "whatsapp"]
 
-                _log.info(f"[full-sync] Scraping '{contact_name}'...")
+                _log.info(f"[{mode}] Scraping '{contact_name}'...")
                 # Carpeta para adjuntos: usa el primer canal WA del contacto
                 _first_phone = wa_channels[0]["value"] if wa_channels else None
                 _doc_dir = _summarizer.get_attachments_dir(item["summarizer_eid"], _first_phone) if _first_phone else None
-                messages = await wa_session.scrape_full_history(session_id, contact_name, doc_save_dir=_doc_dir)
+                messages = await wa_session.scrape_full_history(session_id, contact_name, scroll_rounds=scroll_rounds, doc_save_dir=_doc_dir)
                 # Ordenar cronológicamente antes de acumular: el scrape devuelve
                 # textos (Part A) + audios (Part B) concatenados, no mezclados por fecha.
                 messages.sort(key=lambda m: m.get("timestamp") or "")
@@ -495,11 +507,11 @@ async def _run_full_sync() -> None:
                                     timestamp=ts_dt,
                                 )
 
-        _log.info(f"[full-sync] Completado. {total} mensajes nuevos importados.")
+        _log.info(f"[{mode}] Completado. {total} mensajes nuevos importados.")
     except Exception as _e:
-        _log.exception(f"[full-sync] Error inesperado: {_e}")
+        _log.exception(f"[{mode}] Error inesperado: {_e}")
     finally:
-        _full_sync_running = False
+        _sync_running = False
 
 
 @router.post("/refresh", dependencies=[Depends(require_admin)])
