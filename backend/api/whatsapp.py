@@ -353,83 +353,83 @@ async def _run_full_sync() -> None:
         return
     _full_sync_running = True
     _log.info("[full-sync] Iniciando sync completo de historial WA...")
-    total = 0
+    try:
+        total = 0
 
-    for session_id, state in list(clients.items()):
-        if state.get("type") != "whatsapp":
-            continue
-        if state.get("status") != "ready":
-            _log.info(f"[full-sync] Sesión {session_id} no está lista, saltando.")
-            continue
+        for session_id, state in list(clients.items()):
+            if state.get("type") != "whatsapp":
+                continue
+            if state.get("status") != "ready":
+                _log.info(f"[full-sync] Sesión {session_id} no está lista, saltando.")
+                continue
 
-        bot_phone = session_id
-        empresa_ids = get_empresas_for_bot(bot_phone)
-        if not empresa_ids:
-            empresa_ids = [state.get("bot_id", "")]
+            bot_phone = session_id
+            empresa_ids = get_empresas_for_bot(bot_phone)
+            if not empresa_ids:
+                empresa_ids = [state.get("bot_id", "")]
 
-        # Solo contactos WA que tienen al menos una tool summarizer activa
-        seen_contact_names: set[str] = set()
-        contacts_to_sync: list[dict] = []
-        for eid in empresa_ids:
-            for contact in await get_contacts(eid):
-                if contact["name"] not in seen_contact_names:
-                    wa_chs = [ch for ch in contact.get("channels", []) if ch["type"] == "whatsapp"]
-                    if not wa_chs:
-                        continue
-                    has_sum = await _contact_has_summarizer(eid, contact["id"], contact["name"])
-                    if not has_sum:
-                        _log.info(f"[full-sync] Saltando '{contact['name']}' — sin summarizer activo.")
-                        continue
-                    seen_contact_names.add(contact["name"])
-                    contacts_to_sync.append({"contact": contact, "empresa_ids": empresa_ids, "summarizer_eid": eid})
+            # Solo contactos WA que tienen al menos una tool summarizer activa
+            seen_contact_names: set[str] = set()
+            contacts_to_sync: list[dict] = []
+            for eid in empresa_ids:
+                for contact in await get_contacts(eid):
+                    if contact["name"] not in seen_contact_names:
+                        wa_chs = [ch for ch in contact.get("channels", []) if ch["type"] == "whatsapp"]
+                        if not wa_chs:
+                            continue
+                        has_sum = await _contact_has_summarizer(eid, contact["id"], contact["name"])
+                        if not has_sum:
+                            _log.info(f"[full-sync] Saltando '{contact['name']}' — sin summarizer activo.")
+                            continue
+                        seen_contact_names.add(contact["name"])
+                        contacts_to_sync.append({"contact": contact, "empresa_ids": empresa_ids, "summarizer_eid": eid})
 
-        # Limpiar dedup en memoria antes de acumular (evita falsos positivos por caché stale)
-        from tools import summarizer as _summarizer
-        for item in contacts_to_sync:
-            eid = item["summarizer_eid"]
-            for ch in [c for c in item["contact"].get("channels", []) if c["type"] == "whatsapp"]:
-                _summarizer.clear_contact(empresa_id=eid, contact_phone=ch["value"])
+            # Limpiar dedup en memoria antes de acumular (evita falsos positivos por caché stale)
+            from tools import summarizer as _summarizer
+            for item in contacts_to_sync:
+                eid = item["summarizer_eid"]
+                for ch in [c for c in item["contact"].get("channels", []) if c["type"] == "whatsapp"]:
+                    _summarizer.clear_contact(empresa_id=eid, contact_phone=ch["value"])
 
-        for item in contacts_to_sync:
-            contact = item["contact"]
-            eids = item["empresa_ids"]
-            contact_name = contact["name"]
-            wa_channels = [ch for ch in contact.get("channels", []) if ch["type"] == "whatsapp"]
+            for item in contacts_to_sync:
+                contact = item["contact"]
+                eids = item["empresa_ids"]
+                contact_name = contact["name"]
+                wa_channels = [ch for ch in contact.get("channels", []) if ch["type"] == "whatsapp"]
 
-            _log.info(f"[full-sync] Scraping '{contact_name}'...")
-            messages = await wa_session.scrape_full_history(session_id, contact_name)
-            # Ordenar cronológicamente antes de acumular: el scrape devuelve
-            # textos (Part A) + audios (Part B) concatenados, no mezclados por fecha.
-            messages.sort(key=lambda m: m.get("timestamp") or "")
+                _log.info(f"[full-sync] Scraping '{contact_name}'...")
+                messages = await wa_session.scrape_full_history(session_id, contact_name)
+                # Ordenar cronológicamente antes de acumular: el scrape devuelve
+                # textos (Part A) + audios (Part B) concatenados, no mezclados por fecha.
+                messages.sort(key=lambda m: m.get("timestamp") or "")
 
-            for msg in messages:
-                for ch in wa_channels:
-                    phone = ch["value"]
-                    is_group = ch.get("is_group", False)
+                for msg in messages:
+                    for ch in wa_channels:
+                        phone = ch["value"]
+                        is_group = ch.get("is_group", False)
 
-                    # Para grupos: guardar "Sender: body" si hay sender
-                    if is_group and msg.get("sender"):
-                        body = f"{msg['sender']}: {msg['body']}"
-                    else:
-                        body = msg["body"]
+                        # Para grupos: guardar "Sender: body" si hay sender
+                        if is_group and msg.get("sender"):
+                            body = f"{msg['sender']}: {msg['body']}"
+                        else:
+                            body = msg["body"]
 
-                    outbound = 1 if msg.get("is_outbound") else 0
+                        outbound = 1 if msg.get("is_outbound") else 0
 
-                    for eid in eids:
-                        saved = await log_message_historic(
-                            eid, bot_phone, phone, contact_name,
-                            body, msg["timestamp"], outbound,
-                            replace_audio=True,
-                        )
-                        if saved:
-                            total += 1
+                        for eid in eids:
+                            saved = await log_message_historic(
+                                eid, bot_phone, phone, contact_name,
+                                body, msg["timestamp"], outbound,
+                                replace_audio=True,
+                            )
+                            if saved:
+                                total += 1
 
-                        # Alimentar summarizer: entrantes siempre; salientes solo en grupos
-                        # (en grupos todos los participantes son relevantes, incluido el bot)
-                        include_in_summary = (not outbound) or (is_group and outbound)
-                        if include_in_summary and eid == item["summarizer_eid"]:
-                            from datetime import datetime as _dt
-                            if True:  # ya verificado al armar contacts_to_sync
+                            # Alimentar summarizer: entrantes siempre; salientes solo en grupos
+                            # (en grupos todos los participantes son relevantes, incluido el bot)
+                            include_in_summary = (not outbound) or (is_group and outbound)
+                            if include_in_summary and eid == item["summarizer_eid"]:
+                                from datetime import datetime as _dt
                                 try:
                                     ts_dt = _dt.strptime(msg["timestamp"], "%Y-%m-%d %H:%M:%S")
                                 except (ValueError, TypeError):
@@ -446,8 +446,11 @@ async def _run_full_sync() -> None:
                                     timestamp=ts_dt,
                                 )
 
-    _log.info(f"[full-sync] Completado. {total} mensajes nuevos importados.")
-    _full_sync_running = False
+        _log.info(f"[full-sync] Completado. {total} mensajes nuevos importados.")
+    except Exception as _e:
+        _log.exception(f"[full-sync] Error inesperado: {_e}")
+    finally:
+        _full_sync_running = False
 
 
 @router.post("/refresh", dependencies=[Depends(require_admin)])

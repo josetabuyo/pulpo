@@ -1301,11 +1301,15 @@ class WhatsAppSession(BrowserAutomation):
                 """
 
             raw_msgs_text = await page.evaluate(_extract_text_msgs_js())
-            logger.info(f"[{session_id}] scrape '{contact_name}': {len(raw_msgs_text)} msgs texto en DOM")
-            # DEBUG temporal: ver entradas de Santiago
-            # 3b. Scroll lento hacia abajo para forzar render de mensajes de voz.
-            # WA Web virtualiza: los mensajes de texto (ya capturados) pueden desaparecer.
-            # Mientras scrolleamos, capturamos audios (Part B) en cada paso.
+            logger.info(f"[{session_id}] scrape '{contact_name}': {len(raw_msgs_text)} msgs texto en DOM (top)")
+            # Dedup por (prePlain, body): al scrollear hacia abajo aparecen mensajes
+            # recientes virtualizados. Incluir body evita descartar mensajes distintos
+            # del mismo sender en el mismo minuto (mismo prePlain, diferente contenido).
+            seen_text_keys: set[str] = {m["prePlain"] + "|" + m["body"] for m in raw_msgs_text}
+
+            # 3b. Scroll lento hacia abajo para forzar render de mensajes de voz Y
+            # capturar mensajes de texto recientes que estaban virtualizados al tope.
+            # WA Web virtualiza: los mensajes del tope pueden desaparecer del DOM.
             total_height = await page.evaluate("""
             () => {
                 for (const el of document.querySelectorAll('#main div')) {
@@ -1330,6 +1334,13 @@ class WhatsAppSession(BrowserAutomation):
                 }}
                 """)
                 await page.wait_for_timeout(350)
+                # Capturar textos nuevos visibles en este paso (mensajes recientes)
+                step_texts = await page.evaluate(_extract_text_msgs_js())
+                for t in step_texts:
+                    key = t["prePlain"] + "|" + t["body"]
+                    if key not in seen_text_keys:
+                        seen_text_keys.add(key)
+                        raw_msgs_text.append(t)
                 # Capturar audios visibles + descargar blob inline para PTT de grupos
                 step_audios = await page.evaluate(_extract_audio_msgs_js())
                 for a in step_audios:
@@ -1359,8 +1370,40 @@ class WhatsAppSession(BrowserAutomation):
             logger.info(
                 f"[{session_id}] scrape '{contact_name}': "
                 f"scroll completo ({total_height}px), "
+                f"{len(raw_msgs_text)} msgs texto total, "
                 f"{len(raw_msgs_audio)} msgs audio/voz encontrados"
             )
+
+            # Scroll al fondo absoluto para asegurar que mensajes recientes
+            # (que WA Web puede virtualizar durante el scroll-up) aparezcan en DOM.
+            await page.evaluate("""
+            () => {
+                for (const el of document.querySelectorAll('#main div')) {
+                    if (el && el.scrollHeight > el.clientHeight && el.scrollHeight > 500) {
+                        el.scrollTop = el.scrollHeight;
+                        return;
+                    }
+                }
+            }
+            """)
+            await page.wait_for_timeout(1500)
+            bottom_texts = await page.evaluate(_extract_text_msgs_js())
+            bottom_audios = await page.evaluate(_extract_audio_msgs_js())
+            added_bottom = 0
+            for t in bottom_texts:
+                key = t["prePlain"] + "|" + t["body"]
+                if key not in seen_text_keys:
+                    seen_text_keys.add(key)
+                    raw_msgs_text.append(t)
+                    added_bottom += 1
+            for a in bottom_audios:
+                key = a["prePlain"]
+                if key not in seen_audio_keys:
+                    seen_audio_keys.add(key)
+                    raw_msgs_audio.append(a)
+                    added_bottom += 1
+            if added_bottom:
+                logger.info(f"[{session_id}] scrape '{contact_name}': {added_bottom} msgs adicionales al scrollear al fondo")
 
             # Combinar ambas partes
             raw_msgs = raw_msgs_text + raw_msgs_audio

@@ -6,6 +6,22 @@
 - Para código, logs o texto largo: solo texto, sin voz
 - Trabajar un problema a la vez
 
+## Comandos Bash — siempre simples y auditables
+
+**Regla obligatoria:** cada llamada al Bash tool debe hacer **una sola cosa**.
+
+- ✅ `grep "full-sync" backend.log`
+- ✅ `tail -20 backend.log`
+- ✅ `curl -s http://localhost:8000/health`
+- ❌ `grep X | awk | xargs rm` — demasiado en un solo comando
+- ❌ `kill $(ps aux | grep ... | awk ...)` — encadenar kill con subshell es peligroso
+
+**Por qué:** el usuario puede aprobar/rechazar cada comando individualmente.
+Si un comando hace A+B+C en un pipe, no puede aprobar A sin B.
+Comandos simples = auditoría real.
+
+**Cuando necesites encadenar:** pedir aprobación explícita o dividir en pasos separados.
+
 ---
 
 ## Rol de Claude en este proyecto
@@ -79,7 +95,7 @@ FRONTEND_PORT=517X
 
 ## Stack actual (Python backend)
 
-- **Backend**: FastAPI + uvicorn (`--reload`)
+- **Backend**: FastAPI + uvicorn (sin `--reload` en producción, con `--reload` en worktrees dev)
 - **Frontend**: React + Vite
 - **DB**: SQLite (`data/messages.db`)
 - **Config**: `phones.json` (gitignoreado)
@@ -99,12 +115,33 @@ FRONTEND_PORT=517X
 - `data/sessions/` — perfiles Chrome persistentes por sesión WA
 - `management/` — documentos de planificación y visión
 
-## Comandos frecuentes
+## Scripts y aliases — la única forma correcta de operar el servidor
+
+Todos se corren parados en la raíz del worktree (`_/` para producción).
+**Nunca usar comandos manuales de uvicorn ni matar procesos a mano.**
+
+### Scripts (en disco, ya aprobados)
 ```bash
-./start.sh          # levanta back + front (detecta worktree automáticamente)
-log_back            # tail en vivo del backend
-log_front           # tail en vivo del frontend
+./start.sh            # levanta back + front
+./start.sh back       # solo backend (si ya corre, no lo reinicia)
+./start.sh front      # solo frontend
+./stop-backend.sh     # detiene el backend con SIGTERM (seguro para WA)
+./restart-backend.sh  # stop + sleep 3 + start back (safe: WA reconnecta sola)
 ```
+
+### Aliases en ~/.zshrc (correr desde la raíz del worktree)
+```bash
+start       # alias de ./start.sh
+log_back    # tail -f ./monitor/backend.log
+log_front   # tail -f ./monitor/frontend.log
+qdb "SQL"   # query directo sobre data/messages.db de producción
+```
+
+### ⚠️ Regla de logs
+`log_back` solo muestra logs cuando el servidor fue iniciado vía `./start.sh`
+(que redirige stdout a `monitor/backend.log`).
+Si el servidor se inició a mano en una terminal, los logs van a esa terminal — no al archivo.
+**Siempre arrancar con `./start.sh` para que `log_back` funcione.**
 
 ## Flujo de desarrollo — Tests primero
 
