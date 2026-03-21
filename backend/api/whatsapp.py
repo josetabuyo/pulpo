@@ -424,12 +424,16 @@ async def _run_full_sync() -> None:
                         seen_contact_names.add(contact["name"])
                         contacts_to_sync.append({"contact": contact, "empresa_ids": empresa_ids, "summarizer_eid": eid})
 
-            # Limpiar dedup en memoria antes de acumular (evita falsos positivos por caché stale)
+            # Resetear dedup en memoria antes de acumular (evita falsos positivos por
+            # caché stale). NO borrar el .md — preservar mensajes históricos que ya no
+            # están en la ventana de scroll de WA Web.
             from tools import summarizer as _summarizer
             for item in contacts_to_sync:
                 eid = item["summarizer_eid"]
                 for ch in [c for c in item["contact"].get("channels", []) if c["type"] == "whatsapp"]:
-                    _summarizer.clear_contact(empresa_id=eid, contact_phone=ch["value"])
+                    key = (eid, ch["value"])
+                    _summarizer._dedup_loaded.discard(key)
+                    _summarizer._dedup.pop(key, None)
 
             for item in contacts_to_sync:
                 contact = item["contact"]
