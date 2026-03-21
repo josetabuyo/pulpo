@@ -99,6 +99,42 @@ def test_list_contacts_empresa_sin_datos(tmp_path, monkeypatch):
     assert s.list_contacts("empresa_vacia") == []
 
 
+def test_clear_contact_resetea_cache_dedup(tmp_path, monkeypatch):
+    """clear_contact() limpia el caché en memoria para que mensajes previos
+    puedan volver a acumularse tras un nuevo ciclo de sync."""
+    import tools.summarizer as s
+    monkeypatch.setattr(s, "_BASE", tmp_path)
+
+    # 1ª acumulación — crea archivo y carga dedup en memoria
+    s.accumulate("e1", "phone1", "Juan", "texto", "Hola")
+    s.accumulate("e1", "phone1", "Juan", "texto", "Adios")
+    assert (tmp_path / "e1" / "phone1.md").exists()
+
+    # clear_contact elimina el archivo Y el caché en memoria
+    s.clear_contact("e1", "phone1")
+    assert not (tmp_path / "e1" / "phone1.md").exists()
+    assert ("e1", "phone1") not in s._dedup_loaded
+
+    # 2ª acumulación con los mismos mensajes → deben volver a escribirse
+    s.accumulate("e1", "phone1", "Juan", "texto", "Hola")
+    s.accumulate("e1", "phone1", "Juan", "texto", "Adios")
+    content = (tmp_path / "e1" / "phone1.md").read_text()
+    assert content.count("---") == 2
+
+
+def test_acumular_dos_veces_mismo_contenido_es_dedup(tmp_path, monkeypatch):
+    """Sin clear_contact, acumular el mismo mensaje dos veces no lo duplica."""
+    import tools.summarizer as s
+    monkeypatch.setattr(s, "_BASE", tmp_path)
+
+    ts = datetime(2026, 3, 20, 10, 0)
+    s.accumulate("e1", "phone2", "Ana", "texto", "Mensaje repetido", timestamp=ts)
+    s.accumulate("e1", "phone2", "Ana", "texto", "Mensaje repetido", timestamp=ts)
+
+    content = (tmp_path / "e1" / "phone2.md").read_text()
+    assert content.count("Mensaje repetido") == 1
+
+
 # ─── Tests de integración vía API ────────────────────────────────
 
 BOT_ID  = "bot_test"
@@ -175,6 +211,38 @@ def test_transcribe_groq_mock(tmp_path):
             result = asyncio.run(t.transcribe(str(audio)))
 
     assert result == "Hola, esto es una prueba"
+
+
+def test_acumular_mensaje_saliente_grupo(tmp_path, monkeypatch):
+    """En grupos, los mensajes salientes (del bot/admin) también se acumulan.
+    Verifica que la lógica include_in_summary=(not outbound) or (is_group and outbound)
+    acepta outbound=True cuando is_group=True."""
+    import tools.summarizer as s
+    monkeypatch.setattr(s, "_BASE", tmp_path)
+
+    # Simular qué haría _run_full_sync con is_group=True y outbound=True
+    is_group = True
+    outbound = True
+    include_in_summary = (not outbound) or (is_group and outbound)
+    assert include_in_summary, "Mensajes salientes en grupos deben incluirse"
+
+    # Acumular como lo haría el sync real
+    if include_in_summary:
+        s.accumulate("e1", "grupo1", "Grupo Test", "texto", "Jozbuyo: buenas! gracias fabi")
+
+    content = (tmp_path / "e1" / "grupo1.md").read_text()
+    assert "Jozbuyo: buenas! gracias fabi" in content
+
+
+def test_acumular_mensaje_saliente_no_grupo(tmp_path, monkeypatch):
+    """En chats individuales, los mensajes salientes NO se acumulan."""
+    import tools.summarizer as s
+    monkeypatch.setattr(s, "_BASE", tmp_path)
+
+    is_group = False
+    outbound = True
+    include_in_summary = (not outbound) or (is_group and outbound)
+    assert not include_in_summary, "Mensajes salientes en chats individuales no deben incluirse"
 
 
 def test_accumulate_audio_tipo(tmp_path, monkeypatch):

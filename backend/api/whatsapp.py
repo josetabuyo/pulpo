@@ -421,8 +421,10 @@ async def _run_full_sync() -> None:
                         if saved:
                             total += 1
 
-                        # Alimentar summarizer (solo mensajes entrantes, solo la empresa correcta)
-                        if not outbound and eid == item["summarizer_eid"]:
+                        # Alimentar summarizer: entrantes siempre; salientes solo en grupos
+                        # (en grupos todos los participantes son relevantes, incluido el bot)
+                        include_in_summary = (not outbound) or (is_group and outbound)
+                        if include_in_summary and eid == item["summarizer_eid"]:
                             from datetime import datetime as _dt
                             if True:  # ya verificado al armar contacts_to_sync
                                 try:
