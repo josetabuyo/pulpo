@@ -242,12 +242,16 @@ class WhatsAppSession(BrowserAutomation):
         recent_msgs: set[tuple[str, str]] = set()  # dedup entre JS y Python poll
 
         async def _on_message(phone: str, name: str, body: str, from_poll: bool = False, wa_ts_str: str = "") -> None:
-            # Dedup: mismo (name, body) ya procesado recientemente
+            # Dedup: mismo (name, body) ya procesado recientemente.
+            # from_poll=True viene del polling Python (sidebar preview): no agrega al
+            # dedup compartido para no bloquear al listener JS que puede llegar después
+            # con el cuerpo completo del mensaje (y sí debe pasar al summarizer).
             pair = (name, body)
             if pair in recent_msgs:
                 return
-            recent_msgs.add(pair)
-            asyncio.get_event_loop().call_later(60, lambda: recent_msgs.discard(pair))
+            if not from_poll:
+                recent_msgs.add(pair)
+                asyncio.get_event_loop().call_later(60, lambda: recent_msgs.discard(pair))
 
             logger.info(f"[{session_id}] Mensaje de {name} ({phone}): {body[:60]}")
 
