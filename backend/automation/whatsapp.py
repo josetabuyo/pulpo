@@ -1337,7 +1337,6 @@ class WhatsAppSession(BrowserAutomation):
                   - button[aria-label*="voice"] → botón play (locale en)
                 """
                 return """
-                () => {
                     const msgs = [];
                     const seen = new Set();
                     // Combinar todos los posibles indicadores de audio/PTT
@@ -1439,11 +1438,12 @@ class WhatsAppSession(BrowserAutomation):
                         else if (msgTime)              timeText = msgTime;
                         if (!timeText) continue;
 
-                        // Sender: span[aria-label="Name:"] (grupos) o data-testid="author"
-                        // Sender: priorizar data-testid="author", luego aria-label, luego color
+                        // Sender: priorizar data-testid="author", luego aria-label, luego color,
+                        // luego el span de nombre en grupos PTT (._ak4h span / span._ao3e[dir])
                         const senderTestEl = msgContainer.querySelector('[data-testid="author"]');
                         const senderAriaEl = msgContainer.querySelector('span[aria-label$=":"]');
                         const senderColorEl = msgContainer.querySelector('span[style*="color:#"], span[style*="color: #"]');
+                        const senderHeaderEl = msgContainer.querySelector('._ak4h span[dir="auto"]');
                         let sender = '';
                         if (senderTestEl) {
                             sender = senderTestEl.innerText.trim();
@@ -1451,6 +1451,8 @@ class WhatsAppSession(BrowserAutomation):
                             sender = (senderAriaEl.getAttribute('aria-label') || '').replace(/:$/, '').trim();
                         } else if (senderColorEl) {
                             sender = senderColorEl.innerText.trim();
+                        } else if (senderHeaderEl) {
+                            sender = senderHeaderEl.innerText.trim();
                         }
 
                         // Dedup por (timeText, sender)
@@ -1461,10 +1463,9 @@ class WhatsAppSession(BrowserAutomation):
                         const isOut = !!msgContainer.closest('.message-out') ||
                                       msgContainer.classList.contains('message-out');
                         const prePlain = '[' + timeText + '] ' + (sender ? sender + ': ' : '');
-                        msgs.push({ source: 'audio', idx: -1, prePlain, body: '[audio]', isOut });
+                        msgs.push({ source: 'audio', idx: -1, prePlain, body: '[audio]', isOut, msgTime, msgDate, sender });
                     }
                     return msgs;
-                }
                 """
 
             def _extract_document_msgs_js():
@@ -1628,7 +1629,7 @@ class WhatsAppSession(BrowserAutomation):
                         seen_text_keys.add(key)
                         raw_msgs_text.append(t)
                 # Capturar audios visibles + descargar blob inline para PTT de grupos
-                step_audios = await page.evaluate(_extract_audio_msgs_js())
+                step_audios = await page.evaluate(f"() => {{ {_extract_audio_msgs_js()} }}")
                 for a in step_audios:
                     key = a["prePlain"]
                     if key not in seen_audio_keys:
@@ -1688,7 +1689,7 @@ class WhatsAppSession(BrowserAutomation):
             """)
             await page.wait_for_timeout(1500)
             bottom_texts = await page.evaluate(_extract_text_msgs_js())
-            bottom_audios = await page.evaluate(_extract_audio_msgs_js())
+            bottom_audios = await page.evaluate(f"() => {{ {_extract_audio_msgs_js()} }}")
             bottom_docs = await page.evaluate(_extract_document_msgs_js())
             added_bottom = 0
             for t in bottom_texts:
