@@ -241,7 +241,7 @@ class WhatsAppSession(BrowserAutomation):
 
         recent_msgs: set[tuple[str, str]] = set()  # dedup entre JS y Python poll
 
-        async def _on_message(phone: str, name: str, body: str) -> None:
+        async def _on_message(phone: str, name: str, body: str, from_poll: bool = False, wa_ts_str: str = "") -> None:
             # Dedup: mismo (name, body) ya procesado recientemente
             pair = (name, body)
             if pair in recent_msgs:
@@ -281,8 +281,8 @@ class WhatsAppSession(BrowserAutomation):
                         body = parts[1].strip()
                         logger.debug(f"[{session_id}] Grupo '{name}' — remitente: {sender_in_group}")
 
-            # Acumular en summarizers activos
-            if summarizers:
+            # Acumular en summarizers activos (solo mensajes reales, no previews del poll)
+            if summarizers and not from_poll:
                 from tools import summarizer as summarizer_mod
                 from datetime import datetime
 
@@ -321,6 +321,28 @@ class WhatsAppSession(BrowserAutomation):
                         return f"{sender_in_group}: {raw}"
                     return raw
 
+                # Parsear timestamp real de WA si fue pasado desde el poller JS
+                _acc_ts = datetime.now()
+                if wa_ts_str:
+                    import re as _re2
+                    _ts_norm = wa_ts_str.replace("\xa0", " ")
+                    _dm = _re2.search(
+                        r"(\d{1,2}):(\d{2})(?:\s*([ap])\.?\s*m\.?)?,\s*(\d{1,2})/(\d{1,2})/(\d{4})",
+                        _ts_norm, _re2.IGNORECASE,
+                    )
+                    if _dm:
+                        _h, _mi, _ampm, _d, _mo, _y = _dm.groups()
+                        _h, _mi, _d, _mo, _y = int(_h), int(_mi), int(_d), int(_mo), int(_y)
+                        if _ampm:
+                            if _ampm.lower() == "p" and _h != 12:
+                                _h += 12
+                            elif _ampm.lower() == "a" and _h == 12:
+                                _h = 0
+                        try:
+                            _acc_ts = datetime(_y, _mo, _d, _h, _mi)
+                        except ValueError:
+                            pass
+
                 for s_tool in summarizers:
                     if is_audio:
                         summarizer_mod.accumulate(
@@ -329,7 +351,7 @@ class WhatsAppSession(BrowserAutomation):
                             contact_name=name,
                             msg_type="audio",
                             content=_group_content(audio_content),
-                            timestamp=datetime.now(),
+                            timestamp=_acc_ts,
                         )
                     else:
                         summarizer_mod.accumulate(
@@ -338,7 +360,7 @@ class WhatsAppSession(BrowserAutomation):
                             contact_name=name,
                             msg_type="text",
                             content=_group_content(body),
-                            timestamp=datetime.now(),
+                            timestamp=_acc_ts,
                         )
 
             if not tool:
@@ -443,9 +465,26 @@ class WhatsAppSession(BrowserAutomation):
                 const isOutgoing = !!lastMsg.querySelector('[data-icon^="msg-"]');
                 if (isOutgoing) return;
 
-                const bodyEl = lastMsg.querySelector('span.copyable-text, [data-testid="msg-text"]');
-                const body = (bodyEl?.textContent || '').trim();
+                // Extracción con soporte de replies (mismo patrón que full-sync)
+                const ppEl = lastMsg.querySelector('[data-pre-plain-text]');
+                const msgRoot = ppEl || lastMsg;
+                const children = [...msgRoot.children];
+                let body = '';
+                if (children.length >= 2) {
+                    const realEl = children[children.length - 1].querySelector('span.copyable-text, [data-testid="selectable-text"]');
+                    body = realEl ? realEl.innerText.trim() : '';
+                    const quotedText = children[0].querySelector('span.copyable-text, [data-testid="selectable-text"]');
+                    const quotedBody = quotedText ? quotedText.innerText.trim() : '';
+                    if (quotedBody) body = body + '\\n> ↩ ' + quotedBody;
+                } else {
+                    const textEl = msgRoot.querySelector('span.copyable-text, [data-testid="msg-text"]');
+                    body = textEl ? textEl.innerText.trim() : '';
+                }
                 if (!body) return;
+
+                // Timestamp real del mensaje (para dedup persistente en summarizer)
+                const ppEl2 = lastMsg.querySelector('[data-pre-plain-text]');
+                const waTs = ppEl2 ? (ppEl2.getAttribute('data-pre-plain-text').match(/\[([^\]]+)\]/) || [])[1] || '' : '';
 
                 // Key por conteo + texto: detecta mensajes nuevos aunque el texto sea igual
                 const key = 'open|' + name + '|' + allMsgs.length + '|' + body;
@@ -456,7 +495,7 @@ class WhatsAppSession(BrowserAutomation):
                 seen.add(key);
                 setTimeout(() => seen.delete(key), 60000);
 
-                try { await __waOnMessage('', name, body); }
+                try { await __waOnMessage('', name, body, waTs); }
                 catch(e) { console.error('[Bot] Error (open chat):', e); }
             }
 
@@ -538,7 +577,7 @@ class WhatsAppSession(BrowserAutomation):
                         continue
                     seen_pairs.add(pair)
                     logger.debug(f"[{session_id}] open-chat detectó: {name} ({phone}) → {body[:40]}")
-                    await on_message(phone, name, body)
+                    await on_message(phone, name, body, from_poll=True)
 
             except Exception as e:
                 if "closed" in str(e).lower() or "target" in str(e).lower():
@@ -1093,8 +1132,23 @@ class WhatsAppSession(BrowserAutomation):
                     for (let idx = 0; idx < textEls.length; idx++) {
                         const el = textEls[idx];
                         const prePlain = el.getAttribute('data-pre-plain-text') || '';
-                        const textEl = el.querySelector('span.copyable-text, [data-testid="msg-text"]');
-                        const body = textEl ? textEl.innerText.trim() : '';
+                        // Estructura reply: primer hijo = bloque citado, último hijo = mensaje real
+                        // Si hay un solo hijo directo, es un mensaje normal (sin reply)
+                        const children = [...el.children];
+                        let body = '';
+                        let quotedBody = '';
+                        if (children.length >= 2) {
+                            // Mensaje con reply: el mensaje real está en el último hijo
+                            const realEl = children[children.length - 1].querySelector('span.copyable-text, [data-testid="selectable-text"]');
+                            body = realEl ? realEl.innerText.trim() : '';
+                            // El bloque citado está en el primer hijo
+                            const quotedText = children[0].querySelector('span.copyable-text, [data-testid="selectable-text"]');
+                            quotedBody = quotedText ? quotedText.innerText.trim() : '';
+                        } else {
+                            const textEl = el.querySelector('span.copyable-text, [data-testid="msg-text"]');
+                            body = textEl ? textEl.innerText.trim() : '';
+                        }
+                        if (quotedBody) body = body + '\\n> ↩ ' + quotedBody;
                         const parent = el.parentElement || el;
                         const hasAudio = !!el.querySelector('audio, [data-testid^="audio"]')
                                       || !!parent.querySelector('audio, [data-testid^="audio"]')
@@ -1169,17 +1223,17 @@ class WhatsAppSession(BrowserAutomation):
                         if (!timeText) continue;
 
                         // Sender: span[aria-label="Name:"] (grupos) o data-testid="author"
-                        const senderAriaEl = msgContainer.querySelector('span[aria-label$=":"]');
+                        // Sender: priorizar data-testid="author", luego aria-label, luego color
                         const senderTestEl = msgContainer.querySelector('[data-testid="author"]');
-                        const senderEl = senderAriaEl || senderTestEl
-                                      || msgContainer.querySelector('span[style*="color"]');
+                        const senderAriaEl = msgContainer.querySelector('span[aria-label$=":"]');
+                        const senderColorEl = msgContainer.querySelector('span[style*="color:#"], span[style*="color: #"]');
                         let sender = '';
-                        if (senderAriaEl) {
-                            sender = (senderAriaEl.getAttribute('aria-label') || '').replace(/:$/, '').trim();
-                        } else if (senderTestEl) {
+                        if (senderTestEl) {
                             sender = senderTestEl.innerText.trim();
-                        } else if (senderEl) {
-                            sender = senderEl.innerText.trim();
+                        } else if (senderAriaEl) {
+                            sender = (senderAriaEl.getAttribute('aria-label') || '').replace(/:$/, '').trim();
+                        } else if (senderColorEl) {
+                            sender = senderColorEl.innerText.trim();
                         }
 
                         // Dedup por (timeText, sender)
@@ -1198,7 +1252,7 @@ class WhatsAppSession(BrowserAutomation):
 
             raw_msgs_text = await page.evaluate(_extract_text_msgs_js())
             logger.info(f"[{session_id}] scrape '{contact_name}': {len(raw_msgs_text)} msgs texto en DOM")
-
+            # DEBUG temporal: ver entradas de Santiago
             # 3b. Scroll lento hacia abajo para forzar render de mensajes de voz.
             # WA Web virtualiza: los mensajes de texto (ya capturados) pueden desaparecer.
             # Mientras scrolleamos, capturamos audios (Part B) en cada paso.
@@ -1234,6 +1288,7 @@ class WhatsAppSession(BrowserAutomation):
                         seen_audio_keys.add(key)
                         # Intentar descargar blob mientras está en DOM
                         if a.get("body") == "[audio]":
+                            a["msg_type"] = "audio"  # marcar antes de que body cambie
                             import os as _os
                             audio_path = await self._download_visible_ptt_blob(page, session_id, key)
                             if audio_path:
@@ -1334,6 +1389,7 @@ class WhatsAppSession(BrowserAutomation):
                     "is_outbound": m["isOut"],
                     "_raw_idx": m["idx"],
                     "_pre_plain": m.get("prePlain", ""),
+                    "msg_type": m.get("msg_type", "text"),
                 })
 
             logger.info(f"[{session_id}] scrape_full_history '{contact_name}': {len(parsed)} mensajes extraídos")
@@ -1343,6 +1399,9 @@ class WhatsAppSession(BrowserAutomation):
             # Los mensajes de Parte B (source='audio', _raw_idx=-1) se guardan como [audio]
             # ya que el scroll lento ya los cargó — transcripción por índice no aplica.
             audio_entries = [(i, msg) for i, msg in enumerate(parsed) if msg["body"] in ("[audio]", "[media]")]
+            # Marcar como audio antes de que el body sea reemplazado por la transcripción
+            for _, _am in audio_entries:
+                _am["msg_type"] = "audio"
             if audio_entries:
                 import os
                 from tools import transcription as _transcription
@@ -1376,6 +1435,10 @@ class WhatsAppSession(BrowserAutomation):
                     else:
                         if original_body == "[audio]":
                             parsed[parsed_idx]["body"] = "[audio — sin blob]"
+
+            # Asignar msg_type="text" a los que no sean audio
+            for msg in parsed:
+                msg.setdefault("msg_type", "text")
 
             # Limpiar campos internos antes de retornar
             for msg in parsed:

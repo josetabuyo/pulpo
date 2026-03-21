@@ -338,12 +338,20 @@ async def _contact_has_summarizer(empresa_id: str, contact_id: int, contact_name
     return False
 
 
+_full_sync_running = False
+
+
 async def _run_full_sync() -> None:
+    global _full_sync_running
     import logging
     from db import log_message_historic, get_contacts
     from config import get_empresas_for_bot
 
     _log = logging.getLogger(__name__)
+    if _full_sync_running:
+        _log.info("[full-sync] Ya hay un sync en curso, ignorando.")
+        return
+    _full_sync_running = True
     _log.info("[full-sync] Iniciando sync completo de historial WA...")
     total = 0
 
@@ -373,7 +381,14 @@ async def _run_full_sync() -> None:
                         _log.info(f"[full-sync] Saltando '{contact['name']}' — sin summarizer activo.")
                         continue
                     seen_contact_names.add(contact["name"])
-                    contacts_to_sync.append({"contact": contact, "empresa_ids": empresa_ids})
+                    contacts_to_sync.append({"contact": contact, "empresa_ids": empresa_ids, "summarizer_eid": eid})
+
+        # Limpiar dedup en memoria antes de acumular (evita falsos positivos por caché stale)
+        from tools import summarizer as _summarizer
+        for item in contacts_to_sync:
+            eid = item["summarizer_eid"]
+            for ch in [c for c in item["contact"].get("channels", []) if c["type"] == "whatsapp"]:
+                _summarizer.clear_contact(empresa_id=eid, contact_phone=ch["value"])
 
         for item in contacts_to_sync:
             contact = item["contact"]
@@ -406,7 +421,28 @@ async def _run_full_sync() -> None:
                         if saved:
                             total += 1
 
+                        # Alimentar summarizer (solo mensajes entrantes, solo la empresa correcta)
+                        if not outbound and eid == item["summarizer_eid"]:
+                            from datetime import datetime as _dt
+                            if True:  # ya verificado al armar contacts_to_sync
+                                try:
+                                    ts_dt = _dt.strptime(msg["timestamp"], "%Y-%m-%d %H:%M:%S")
+                                except (ValueError, TypeError):
+                                    ts_dt = _dt.now()
+                                sum_body = body
+                                if sum_body in ("[audio]", "[media]"):
+                                    sum_body = "[audio — sin blob, requiere descarga manual]"
+                                _summarizer.accumulate(
+                                    empresa_id=eid,
+                                    contact_phone=phone,
+                                    contact_name=contact_name,
+                                    msg_type=msg.get("msg_type", "text"),
+                                    content=sum_body,
+                                    timestamp=ts_dt,
+                                )
+
     _log.info(f"[full-sync] Completado. {total} mensajes nuevos importados.")
+    _full_sync_running = False
 
 
 @router.post("/refresh", dependencies=[Depends(require_admin)])
