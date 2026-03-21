@@ -29,10 +29,10 @@ La tool sumarizadora es **pasiva**: no responde al contacto, solo registra.
 |------|-----------------|--------|
 | Texto | string | Volcar directo al MD |
 | Audio/voz | `.ogg` (opus codec) | Descargar → transcribir → volcar texto al MD |
+| Documento | `.pdf/.docx/.sql/.pptx/etc.` | Mínimo: mencionar en MD. Máximo: descargar. Ver spec abajo. |
 | Imagen | `.jpg/.png` | (futuro) OCR o descripción |
-| Documento | `.pdf/.docx` | (futuro) |
 
-**Fase 1 solo maneja texto y audio.**
+**Fase 1 maneja texto, audio y documentos (mención). Fase 2 suma transcripción de audio. Fase 3 descarga de documentos.**
 
 ### Dónde se guardan los documentos
 
@@ -66,6 +66,171 @@ Cada contacto tiene su propio archivo. El archivo crece append-only — nunca se
 ## 2026-03-18 14:41
 
 **[texto]** Perfecto, te mando la dirección por acá
+
+---
+
+## 2026-03-20 16:59
+
+**[documento]** `Agregar Módulo en menú principal.sql` (SQL · 3 kB) — Fabian Miranda
+
+---
+
+## 2026-03-21 08:47
+
+**[documento]** `Pantallas Telefono y Mails en Datos Personales de la Web.pptx` (PPTX · 300 kB) — Fabian Miranda
+```
+
+---
+
+## Spec: Mensajes de documento en WA Web
+
+### Hallazgo DOM (inspeccionado 2026-03-21 con MCP en conversación real)
+
+Los mensajes de documento **NO tienen `data-pre-plain-text`** — son invisibles para el extractor actual (Part A y Part B en `whatsapp.py`). Quedan completamente perdidos.
+
+**Estructura del nodo en el DOM:**
+
+```
+.message-in / .message-out
+  └── div[role="button"][tabindex="0"][title='Descargar "filename.ext"']
+        innerText: "SQL\nAgregar Módulo en menú principal.sql\nSQL•3 kB"
+        innerText: "P\nPantallas Telefono y Mails en Datos Personales de la Web.pptx\nPPTX•300 kB"
+```
+
+- `title` del botón: `Descargar "nombre-del-archivo.ext"` → filename completo
+- `innerText` del botón: `TIPO\nnombre-del-archivo.ext\nTIPO•TAMAÑO`
+- El SVG tiene `data-icon="document-SQL-icon"`, `data-icon="document-P-icon"`, etc.
+- No hay `data-pre-plain-text` ni en el elemento ni en sus ancestros
+
+**Selector confiable:**
+```js
+div[role="button"][title^="Descargar"]
+```
+
+**Extracción de metadata:**
+```js
+const title = docBtn.title;  // 'Descargar "archivo.sql"'
+const filename = title.replace(/^Descargar\s*"?/, '').replace(/"$/, '');
+// innerText = "SQL\narchivo.sql\nSQL•3 kB"
+const parts = docBtn.innerText.split('\n');
+const sizeLine = parts[2] || '';  // "SQL•3 kB"
+const size = sizeLine.split('•')[1]?.trim() || '';  // "3 kB"
+const ext = filename.split('.').pop().toUpperCase();  // "SQL"
+```
+
+---
+
+### Implementación mínima: mencionar el archivo en el resumen
+
+**Qué se registra en el `.md`:**
+```markdown
+## 2026-03-20 16:59
+**[documento]** `Agregar Módulo en menú principal.sql` (SQL · 3 kB) — Fabian Miranda
+```
+
+**Dónde implementar:** `_extract_text_msgs_js` en `whatsapp.py` ya tiene Part A (texto) y Part B (audio). Hay que agregar **Part C — documentos**:
+
+```python
+def _extract_document_msgs_js():
+    """Busca mensajes de documento que NO usan data-pre-plain-text.
+    Selector confirmado inspeccionando DOM real de WA Web: div[role="button"][title^="Descargar"]
+    """
+    return """
+    () => {
+        const msgs = [];
+        const seen = new Set();
+        for (const docBtn of document.querySelectorAll('div[role="button"][title^="Descargar"]')) {
+            // Subir al contenedor de mensaje
+            let msgContainer = docBtn;
+            for (let i = 0; i < 15; i++) {
+                if (!msgContainer.parentElement) break;
+                msgContainer = msgContainer.parentElement;
+                if (msgContainer.classList.contains('message-in') ||
+                    msgContainer.classList.contains('message-out')) break;
+            }
+
+            // Extraer filename y tamaño
+            const titleAttr = docBtn.title;  // 'Descargar "archivo.ext"'
+            const filename = titleAttr.replace(/^Descargar\\s*"?/, '').replace(/"$/, '').trim();
+            const innerParts = (docBtn.innerText || '').split('\\n');
+            const sizeLine = innerParts[2] || '';
+            const size = sizeLine.split('•')[1]?.trim() || '';
+
+            // Timestamp — mismo algoritmo que Part B
+            let msgTime = '';
+            const walker = document.createTreeWalker(msgContainer, NodeFilter.SHOW_TEXT, null);
+            let node2;
+            while (node2 = walker.nextNode()) {
+                const t = node2.textContent.trim();
+                if (/^\\d{1,2}:\\d{2}(\\s*(a|p)[\\.]?\\s*m\\.?)?$/i.test(t)) msgTime = t;
+            }
+
+            // Sender — span con color (grupos) o texto visible más cercano
+            const senderEl = msgContainer.querySelector('span[style*="color:#"], span[style*="color: #"]');
+            const sender = senderEl ? senderEl.innerText.trim() : '';
+
+            // Fecha — usar separador de día WA (igual a Part B)
+            // [Mismo bloque de resolución de fecha que Part B — reutilizar función helper]
+            const isOut = msgContainer.classList.contains('message-out');
+
+            if (!msgTime) continue;
+            const key = msgTime + '|' + sender + '|' + filename;
+            if (seen.has(key)) continue;
+            seen.add(key);
+
+            msgs.push({ source: 'document', filename, size, sender, msgTime, isOut });
+        }
+        return msgs;
+    }
+    """
+```
+
+En el acumulador, el formato en el MD:
+```python
+if msg['msg_type'] == 'document':
+    label = f"[documento] `{msg['filename']}`"
+    if msg.get('size'):
+        label += f" ({msg['size']})"
+    body = label
+```
+
+---
+
+### Implementación máxima: descargar el archivo
+
+**Opción A — Click en el botón de descarga vía Playwright:**
+- Playwright hace `.click()` en `div[role="button"][title^="Descargar ..."}`
+- WA Web descarga el archivo al directorio de descargas del perfil Chrome
+- Problema: el directorio de descarga por defecto varía, y el timing es incierto
+
+**Opción B — Interceptar descarga con Playwright:**
+```python
+async with page.expect_download() as download_info:
+    await page.click(f'div[role="button"][title="Descargar \\"{filename}\\""]')
+download = await download_info.value
+await download.save_as(f"data/summaries/{empresa_id}/docs/{filename}")
+```
+- Esta API de Playwright maneja el timing automáticamente
+- Requiere que el botón sea clickeable (el mensaje debe estar visible en el DOM)
+- Limitación: solo funciona en el momento que llega el mensaje (durante el listener activo), no en full-sync histórico
+
+**Opción C — IndexedDB (misma técnica que audios PTT):**
+- WA Web cachea todos los medios en IndexedDB
+- Se puede recuperar el blob por `mediaKey` o `directPath` del mensaje
+- Más robusto que el click, funciona también en full-sync histórico
+- Requiere el mismo tipo de investigación DOM que se hizo para audios
+
+**Recomendación para Fase 3:** usar Opción B (Playwright download) para mensajes recibidos en tiempo real. Opción C para full-sync histórico.
+
+**Destino de archivos descargados:**
+```
+data/summaries/{empresa_id}/docs/{contact_phone}/{filename}
+```
+
+**Qué registra en el MD cuando hay descarga:**
+```markdown
+## 2026-03-20 16:59
+**[documento]** `Agregar Módulo en menú principal.sql` (SQL · 3 kB) — descargado en `docs/5491155612767/Agregar Módulo en menú principal.sql`
 ```
 
 ---
@@ -195,10 +360,18 @@ GROQ_API_KEY=...       # obtener gratis en console.groq.com
 
 ## Estado
 
-- [ ] Fase 1 — Tool pasiva acumula texto, endpoint API, UI mínima
+- [x] Fase 1 — Tool pasiva acumula texto + documentos (mención), endpoint API, UI mínima
+  - [x] Part A: mensajes de texto (ya implementado en whatsapp.py)
+  - [x] Part C nueva: documentos — `_extract_document_msgs_js()` en `whatsapp.py` (2026-03-21)
+  - [x] Real-time: `pollOpenChat` JS detecta `div[role="button"][title^="Descargar"]` → `[doc:filename|EXT·size]`
+  - [x] Real-time Python: detecta `[doc:` prefix → `accumulate(msg_type="document")`
+  - [x] Acumulador `tool_summarizer.py` con soporte para msg_type=`document` (ya funciona por diseño)
+  - [x] Endpoint GET para ver el MD (ya existía)
+  - [x] Botón "Ver resúmenes" en EmpresaPage (ya existía)
 - [ ] Fase 2 — Descarga y transcripción de audios (Groq + fallback whisper.cpp)
-- [ ] Fase 3 — Procesamiento IA para informe elaborado
-- [ ] Fase 4 — Tests completos
+- [ ] Fase 3 — Descarga de documentos adjuntos (Playwright download API para tiempo real, IndexedDB para histórico)
+- [ ] Fase 4 — Procesamiento IA para informe elaborado
+- [ ] Fase 5 — Tests completos
 
 ---
 

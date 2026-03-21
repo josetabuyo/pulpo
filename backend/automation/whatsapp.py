@@ -293,6 +293,18 @@ class WhatsAppSession(BrowserAutomation):
                 import re as _re
                 is_audio = any(m in body for m in _AUDIO_MARKERS) or bool(_re.match(r'^\d{1,2}:\d{2}$', body))
 
+                # Detectar documento compartido (body inyectado por pollOpenChat JS)
+                # Formato: "[doc:nombre.ext|EXT·tamaño]"
+                _is_document = body.startswith('[doc:')
+                _doc_content: str | None = None
+                if _is_document:
+                    inner = body[5:].rstrip(']')  # strip "[doc:" prefix and trailing "]"
+                    if '|' in inner:
+                        fn, rest = inner.split('|', 1)
+                        _doc_content = f'`{fn}` ({rest.replace("·", " · ")})'
+                    else:
+                        _doc_content = f'`{inner}`'
+
                 if is_audio:
                     audio_path = await self._download_audio_blob(page, name, session_id)
                     if audio_path:
@@ -351,6 +363,21 @@ class WhatsAppSession(BrowserAutomation):
                             contact_name=name,
                             msg_type="audio",
                             content=_group_content(audio_content),
+                            timestamp=_acc_ts,
+                        )
+                    elif _is_document:
+                        # Descargar el archivo adjunto (el botón sigue visible en DOM)
+                        _doc_fn = body[5:].rstrip(']').split('|')[0] if '|' in body[5:].rstrip(']') else body[5:].rstrip(']')
+                        if _doc_fn:
+                            from tools.summarizer import get_attachments_dir as _get_att_dir
+                            _att_dir = _get_att_dir(s_tool["empresa_id"], sender)
+                            await self._download_document_from_page(page, _doc_fn, _att_dir / _doc_fn)
+                        summarizer_mod.accumulate(
+                            empresa_id=s_tool["empresa_id"],
+                            contact_phone=sender,
+                            contact_name=name,
+                            msg_type="document",
+                            content=_doc_content or body,
                             timestamp=_acc_ts,
                         )
                     else:
@@ -479,6 +506,17 @@ class WhatsAppSession(BrowserAutomation):
                 } else {
                     const textEl = msgRoot.querySelector('span.copyable-text, [data-testid="msg-text"]');
                     body = textEl ? textEl.innerText.trim() : '';
+                }
+                // Si body vacío, verificar si es un documento compartido
+                if (!body) {
+                    const docBtn = lastMsg.querySelector('div[role="button"][title^="Descargar"]');
+                    if (docBtn) {
+                        const fn = docBtn.title.replace(/^Descargar\\s*"?/, '').replace(/"$/, '').trim();
+                        const inner = (docBtn.innerText || '').split('\\n');
+                        const sz = (inner[2] || '').split('•')[1]?.trim() || '';
+                        const ext = fn.split('.').pop().toUpperCase();
+                        body = sz ? '[doc:' + fn + '|' + ext + '·' + sz + ']' : '[doc:' + fn + ']';
+                    }
                 }
                 if (!body) return;
 
@@ -1121,12 +1159,40 @@ class WhatsAppSession(BrowserAutomation):
             logger.warning(f"[{session_id}] _download_visible_ptt_blob error: {e}")
             return None
 
+    async def _download_document_from_page(self, page, filename: str, save_path: Path) -> bool:
+        """
+        Descarga un documento de WA Web haciendo click en su botón Descargar.
+        Dedup por existencia del archivo en disco. Retorna True si descargó o ya existía.
+        """
+        if save_path.exists():
+            return True
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            async with page.expect_download(timeout=20_000) as dl_info:
+                clicked = await page.evaluate("""(fn) => {
+                    const btn = [...document.querySelectorAll('div[role="button"][title]')]
+                        .find(b => b.title.includes(fn));
+                    if (btn) { btn.click(); return true; }
+                    return false;
+                }""", filename)
+            if not clicked:
+                logger.debug(f"[doc] Botón no encontrado en DOM para '{filename}'")
+                return False
+            dl = await dl_info.value
+            await dl.save_as(str(save_path))
+            logger.info(f"[doc] Descargado: {save_path}")
+            return True
+        except Exception as e:
+            logger.warning(f"[doc] Error descargando '{filename}': {e}")
+            return False
+
     # ------------------------------------------------------------------
     # Scraping histórico
     # ------------------------------------------------------------------
 
     async def scrape_full_history(
-        self, session_id: str, contact_name: str, scroll_rounds: int = 50
+        self, session_id: str, contact_name: str, scroll_rounds: int = 50,
+        doc_save_dir: "Path | None" = None,
     ) -> list[dict]:
         """
         Abre el chat del contacto/grupo en WA Web, hace scroll hacia arriba
@@ -1397,6 +1463,123 @@ class WhatsAppSession(BrowserAutomation):
                 }
                 """
 
+            def _extract_document_msgs_js():
+                """Busca mensajes de documento que NO usan data-pre-plain-text.
+                Selector confirmado inspeccionando DOM real de WA Web:
+                  - div[role="button"][title^="Descargar"] → botón de descarga del doc
+                  - title: 'Descargar "nombre.ext"'
+                  - innerText: 'EXT\\nnombre.ext\\nEXT•tamaño'
+                """
+                return """
+                () => {
+                    const msgs = [];
+                    const seen = new Set();
+                    const _monthES = {
+                        'enero':1,'febrero':2,'marzo':3,'abril':4,'mayo':5,'junio':6,
+                        'julio':7,'agosto':8,'septiembre':9,'octubre':10,'noviembre':11,'diciembre':12
+                    };
+                    const _dayES = {
+                        'domingo':0,'lunes':1,'martes':2,
+                        'miercoles':3,'miércoles':3,'jueves':4,'viernes':5,
+                        'sabado':6,'sábado':6
+                    };
+                    const _today = new Date();
+
+                    for (const docBtn of document.querySelectorAll('div[role="button"][title^="Descargar"]')) {
+                        // Subir al contenedor del mensaje
+                        let msgContainer = docBtn;
+                        for (let i = 0; i < 15; i++) {
+                            if (!msgContainer.parentElement) break;
+                            msgContainer = msgContainer.parentElement;
+                            if (msgContainer.classList.contains('message-in') ||
+                                msgContainer.classList.contains('message-out')) break;
+                        }
+
+                        // Filename del title: 'Descargar "archivo.ext"'
+                        const filename = docBtn.title.replace(/^Descargar\s*"?/, '').replace(/"$/, '').trim();
+                        if (!filename) continue;
+
+                        // Tamaño del innerText (3 líneas): EXT / nombre.ext / EXT•3 kB
+                        const innerParts = (docBtn.innerText || '').split('\\n');
+                        const sizeLine = innerParts[2] || '';
+                        const sizeMatch = sizeLine.match(/•\s*([\d.,]+\s*[kKmMgG]?[bB])/);
+                        const size = sizeMatch ? sizeMatch[1].trim() : '';
+                        const ext = filename.split('.').pop().toUpperCase();
+
+                        // Timestamp — caminar nodos de texto buscando hora
+                        let msgTime = '';
+                        const walker = document.createTreeWalker(msgContainer, NodeFilter.SHOW_TEXT, null);
+                        let node2;
+                        while (node2 = walker.nextNode()) {
+                            const t = node2.textContent.trim();
+                            if (/^\d{1,2}:\d{2}(\s*(a|p)[\.\s]*m\.?)?$/i.test(t)) msgTime = t;
+                        }
+                        if (!msgTime) continue;
+
+                        // Fecha — igual que Part B: último data-pre-plain-text antes del doc,
+                        // luego separadores de día WA (hoy / ayer / nombre de día / fecha completa)
+                        let msgDate = '';
+                        let lastPPEl = null;
+                        for (const el of document.querySelectorAll('[data-pre-plain-text]')) {
+                            if (!(msgContainer.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING)) break;
+                            const m = el.getAttribute('data-pre-plain-text').match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
+                            if (m) { lastPPEl = el; msgDate = m[1]; }
+                        }
+                        for (const el of document.querySelectorAll('span')) {
+                            if (lastPPEl && !(lastPPEl.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
+                            if (!(msgContainer.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING)) break;
+                            const ownTxt = [...el.childNodes]
+                                .filter(n => n.nodeType === 3)
+                                .map(n => n.textContent.trim()).join('').trim();
+                            if (!ownTxt || ownTxt.length > 60) continue;
+                            const low = ownTxt.toLowerCase()
+                                .replace(/\u00e9/g,'e').replace(/\u00e1/g,'a')
+                                .replace(/\u00f3/g,'o').replace(/\u00fa/g,'u');
+                            let sepDate = null;
+                            const fd = ownTxt.match(/(\d{1,2})\s+de\s+(\w+)\s+de\s+(\d{4})/i);
+                            if (fd) {
+                                const d=parseInt(fd[1]), mo=_monthES[fd[2].toLowerCase()]||0, y=parseInt(fd[3]);
+                                if (mo) sepDate = d+'/'+mo+'/'+y;
+                            } else if (low === 'hoy') {
+                                sepDate = _today.getDate()+'/'+(_today.getMonth()+1)+'/'+_today.getFullYear();
+                            } else if (low === 'ayer') {
+                                const d2 = new Date(_today); d2.setDate(d2.getDate()-1);
+                                sepDate = d2.getDate()+'/'+( d2.getMonth()+1)+'/'+d2.getFullYear();
+                            } else if (_dayES[low] !== undefined) {
+                                const target = _dayES[low];
+                                let ago = (_today.getDay() - target + 7) % 7;
+                                if (ago === 0) ago = 7;
+                                const d3 = new Date(_today); d3.setDate(d3.getDate() - ago);
+                                sepDate = d3.getDate()+'/'+( d3.getMonth()+1)+'/'+d3.getFullYear();
+                            }
+                            if (sepDate) { msgDate = sepDate; break; }
+                        }
+
+                        let timeText = '';
+                        if (msgTime && msgDate)  timeText = msgTime + ', ' + msgDate;
+                        else if (msgTime)         timeText = msgTime;
+                        if (!timeText) continue;
+
+                        // Sender (grupos)
+                        const senderColorEl = msgContainer.querySelector('span[style*="color:#"], span[style*="color: #"]');
+                        const senderAriaEl  = msgContainer.querySelector('span[aria-label$=":"]');
+                        let sender = '';
+                        if (senderColorEl) sender = senderColorEl.innerText.trim();
+                        else if (senderAriaEl) sender = (senderAriaEl.getAttribute('aria-label') || '').replace(/:$/, '').trim();
+
+                        const isOut = msgContainer.classList.contains('message-out');
+                        const body = size ? '`' + filename + '` (' + ext + ' · ' + size + ')' : '`' + filename + '`';
+                        const prePlain = '[' + timeText + '] ' + (sender ? sender + ': ' : '');
+                        const key = prePlain + '|' + filename;
+                        if (seen.has(key)) continue;
+                        seen.add(key);
+
+                        msgs.push({ source: 'document', idx: -1, prePlain, body, isOut, msg_type: 'document' });
+                    }
+                    return msgs;
+                }
+                """
+
             raw_msgs_text = await page.evaluate(_extract_text_msgs_js())
             logger.info(f"[{session_id}] scrape '{contact_name}': {len(raw_msgs_text)} msgs texto en DOM (top)")
             # Dedup por (prePlain, body): al scrollear hacia abajo aparecen mensajes
@@ -1418,6 +1601,8 @@ class WhatsAppSession(BrowserAutomation):
             """)
             raw_msgs_audio = []
             seen_audio_keys: set[str] = set()
+            raw_msgs_docs = []
+            seen_doc_keys: set[str] = set()
             step = 400
             for pos in range(0, total_height + step, step):
                 await page.evaluate(f"""
@@ -1463,12 +1648,26 @@ class WhatsAppSession(BrowserAutomation):
                                     except Exception:
                                         pass
                         raw_msgs_audio.append(a)
+                # Capturar documentos visibles en este paso
+                step_docs = await page.evaluate(_extract_document_msgs_js())
+                for d in step_docs:
+                    key = d["prePlain"] + "|" + d["body"]
+                    if key not in seen_doc_keys:
+                        seen_doc_keys.add(key)
+                        raw_msgs_docs.append(d)
+                        # Descargar mientras el botón está en DOM
+                        if doc_save_dir:
+                            fn_m = re.search(r'`([^`]+)`', d["body"])
+                            if fn_m:
+                                fn = fn_m.group(1)
+                                await self._download_document_from_page(page, fn, doc_save_dir / fn)
 
             logger.info(
                 f"[{session_id}] scrape '{contact_name}': "
                 f"scroll completo ({total_height}px), "
                 f"{len(raw_msgs_text)} msgs texto total, "
-                f"{len(raw_msgs_audio)} msgs audio/voz encontrados"
+                f"{len(raw_msgs_audio)} msgs audio/voz encontrados, "
+                f"{len(raw_msgs_docs)} msgs documento encontrados"
             )
 
             # Scroll al fondo absoluto para asegurar que mensajes recientes
@@ -1486,6 +1685,7 @@ class WhatsAppSession(BrowserAutomation):
             await page.wait_for_timeout(1500)
             bottom_texts = await page.evaluate(_extract_text_msgs_js())
             bottom_audios = await page.evaluate(_extract_audio_msgs_js())
+            bottom_docs = await page.evaluate(_extract_document_msgs_js())
             added_bottom = 0
             for t in bottom_texts:
                 key = t["prePlain"] + "|" + t["body"]
@@ -1499,11 +1699,17 @@ class WhatsAppSession(BrowserAutomation):
                     seen_audio_keys.add(key)
                     raw_msgs_audio.append(a)
                     added_bottom += 1
+            for d in bottom_docs:
+                key = d["prePlain"] + "|" + d["body"]
+                if key not in seen_doc_keys:
+                    seen_doc_keys.add(key)
+                    raw_msgs_docs.append(d)
+                    added_bottom += 1
             if added_bottom:
                 logger.info(f"[{session_id}] scrape '{contact_name}': {added_bottom} msgs adicionales al scrollear al fondo")
 
-            # Combinar ambas partes
-            raw_msgs = raw_msgs_text + raw_msgs_audio
+            # Combinar las tres partes: texto + audio + documentos
+            raw_msgs = raw_msgs_text + raw_msgs_audio + raw_msgs_docs
 
             # 4. Parsear timestamps del atributo data-pre-plain-text
             # Formatos reales (locale es-AR):

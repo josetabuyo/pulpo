@@ -281,15 +281,15 @@ function QRModal({ open, number, onClose, pwd, onConnected }) {
       })
     } catch {}
     if (titleIntervalRef.current) clearInterval(titleIntervalRef.current)
-    const orig = document.title
+    const base = 'Pulpo — Dashboard'
     let on = true
     titleIntervalRef.current = setInterval(() => {
-      document.title = on ? '📱 QR listo!' : orig
+      document.title = on ? '📱 QR listo!' : base
       on = !on
     }, 800)
     window.addEventListener('focus', () => {
       clearQRNotify()
-      document.title = orig
+      document.title = base
     }, { once: true })
   }
 
@@ -455,6 +455,8 @@ export default function DashboardPage() {
   const [monitorCollapsed,  setMonitorCollapsed]  = useState(false)
   const [companiesCollapsed, setCompaniesCollapsed] = useState(false)
 
+  useEffect(() => { document.title = 'Pulpo — Dashboard' }, [])
+
   // Redirect si no hay pwd
   useEffect(() => {
     if (!pwd) navigate('/')
@@ -498,7 +500,8 @@ export default function DashboardPage() {
   async function handleFullSync() {
     setSyncLabel('Sincronizando...')
     await call('POST', '/full-sync')
-    setSyncLabel('⟳ Re-Sync')
+    setSyncLabel('✓ Sync iniciado')
+    setTimeout(() => setSyncLabel('⟳ Re-Sync'), 4000)
   }
 
   function copyLink() {

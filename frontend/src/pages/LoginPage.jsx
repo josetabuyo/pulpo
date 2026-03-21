@@ -8,6 +8,8 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
 
+  useEffect(() => { document.title = 'Pulpo — Admin' }, [])
+
   // Auto-login si hay contraseña guardada
   useEffect(() => {
     const saved = sessionStorage.getItem('admin_pwd')

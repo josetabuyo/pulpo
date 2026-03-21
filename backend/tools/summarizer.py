@@ -108,3 +108,10 @@ def clear_contact(empresa_id: str, contact_phone: str) -> None:
     key = (empresa_id, contact_phone)
     _dedup_loaded.discard(key)
     _dedup.pop(key, None)
+
+
+def get_attachments_dir(empresa_id: str, contact_phone: str) -> Path:
+    """Carpeta para archivos adjuntos del contacto (junto al .md, mismo nombre sin extensión)."""
+    d = _BASE / empresa_id / contact_phone
+    d.mkdir(parents=True, exist_ok=True)
+    return d

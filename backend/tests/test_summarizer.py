@@ -257,6 +257,34 @@ def test_accumulate_audio_tipo(tmp_path, monkeypatch):
     assert "transcripción de prueba" in content
 
 
+def test_accumulate_document_tipo(tmp_path, monkeypatch):
+    """accumulate() con msg_type='document' registra filename y tamaño correctamente."""
+    import tools.summarizer as s
+    monkeypatch.setattr(s, "_BASE", tmp_path)
+
+    s.accumulate("e1", "5491100011", "Fabi", "document", "`Agregar Módulo en menú principal.sql` (SQL · 3 kB)")
+
+    content = (tmp_path / "e1" / "5491100011.md").read_text()
+    assert "**[document]**" in content
+    assert "Agregar Módulo en menú principal.sql" in content
+    assert "SQL · 3 kB" in content
+
+
+def test_accumulate_document_dedup(tmp_path, monkeypatch):
+    """El mismo documento no se acumula dos veces en el mismo timestamp."""
+    import tools.summarizer as s
+    from datetime import datetime
+    monkeypatch.setattr(s, "_BASE", tmp_path)
+
+    ts = datetime(2026, 3, 20, 16, 59)
+    content_str = "`archivo.sql` (SQL · 3 kB)"
+    s.accumulate("e1", "5491100012", "Fabi", "document", content_str, timestamp=ts)
+    s.accumulate("e1", "5491100012", "Fabi", "document", content_str, timestamp=ts)
+
+    md = (tmp_path / "e1" / "5491100012.md").read_text()
+    assert md.count("archivo.sql") == 1
+
+
 def test_sim_receive_con_audio_path(tmp_path, monkeypatch):
     """sim_receive con audio_path transcribe y acumula con tipo 'audio'."""
     import tools.summarizer as s

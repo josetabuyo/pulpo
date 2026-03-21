@@ -438,7 +438,10 @@ async def _run_full_sync() -> None:
                 wa_channels = [ch for ch in contact.get("channels", []) if ch["type"] == "whatsapp"]
 
                 _log.info(f"[full-sync] Scraping '{contact_name}'...")
-                messages = await wa_session.scrape_full_history(session_id, contact_name)
+                # Carpeta para adjuntos: usa el primer canal WA del contacto
+                _first_phone = wa_channels[0]["value"] if wa_channels else None
+                _doc_dir = _summarizer.get_attachments_dir(item["summarizer_eid"], _first_phone) if _first_phone else None
+                messages = await wa_session.scrape_full_history(session_id, contact_name, doc_save_dir=_doc_dir)
                 # Ordenar cronológicamente antes de acumular: el scrape devuelve
                 # textos (Part A) + audios (Part B) concatenados, no mezclados por fecha.
                 messages.sort(key=lambda m: m.get("timestamp") or "")
@@ -475,13 +478,15 @@ async def _run_full_sync() -> None:
                                 except (ValueError, TypeError):
                                     ts_dt = _dt.now()
                                 sum_body = body
+                                sum_type = msg.get("msg_type", "text")
                                 if sum_body in ("[audio]", "[media]"):
                                     sum_body = "[audio — sin blob, requiere descarga manual]"
+                                    sum_type = "audio"
                                 _summarizer.accumulate(
                                     empresa_id=eid,
                                     contact_phone=phone,
                                     contact_name=contact_name,
-                                    msg_type=msg.get("msg_type", "text"),
+                                    msg_type=sum_type,
                                     content=sum_body,
                                     timestamp=ts_dt,
                                 )

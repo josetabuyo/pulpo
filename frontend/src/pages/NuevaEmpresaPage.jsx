@@ -297,6 +297,8 @@ export default function NuevaEmpresaPage() {
   const [step, setStep]       = useState('datos')
   const [session, setSession] = useState(null)
 
+  useEffect(() => { document.title = 'Pulpo — Nueva empresa' }, [])
+
   function handleCreated(sess) {
     setSession(sess)
     setStep('conexiones')

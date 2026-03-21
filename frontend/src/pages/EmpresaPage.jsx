@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import StatusBadge from '../components/StatusBadge.jsx'
 import ChatWidget from '../components/ChatWidget.jsx'
@@ -651,6 +651,25 @@ function SummaryModal({ botId, tool, onClose }) {
     }
   }
 
+  const [syncMsg, setSyncMsg] = React.useState('')
+  async function handleSyncWithFeedback() {
+    setSyncMsg('')
+    setSyncing(true)
+    const body = selected ? { contact_phone: selected } : {}
+    const res = await empresaApi('POST', `/summarizer/${botId}/sync`, body).catch(() => null)
+    setSyncing(false)
+    if (res?.synced != null) {
+      setSyncMsg(`✓ ${res.synced} msgs sincronizados`)
+      setTimeout(() => setSyncMsg(''), 4000)
+      loadContacts()
+      if (!selected) { setSelected(null); setContent('') }
+      else viewContact(selected)
+    } else {
+      setSyncMsg('✗ Error al sincronizar')
+      setTimeout(() => setSyncMsg(''), 4000)
+    }
+  }
+
   async function viewContact(phone) {
     setSelected(phone); setLoading(true); setContent('')
     const res = await fetch(`/api/summarizer/${botId}/${phone}`, {
@@ -695,9 +714,12 @@ function SummaryModal({ botId, tool, onClose }) {
               </div>
         }
         <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <button className="btn-ghost btn-sm" onClick={handleSync} disabled={syncing}>
-            {syncing ? 'Sincronizando...' : selected ? `↺ Re-sync ${selected}` : '↺ Sincronizar todos'}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button className="btn-ghost btn-sm" onClick={handleSyncWithFeedback} disabled={syncing}>
+              {syncing ? 'Sincronizando...' : selected ? `↺ Re-sync ${selected}` : '↺ Sincronizar todos'}
+            </button>
+            {syncMsg && <span style={{ fontSize: 12, color: syncMsg.startsWith('✓') ? '#16a34a' : '#dc2626' }}>{syncMsg}</span>}
+          </div>
           <button className="btn-ghost btn-sm" onClick={onClose}>Cerrar</button>
         </div>
       </div>
@@ -1188,6 +1210,8 @@ function EmpresaLogin({ onLogin }) {
 
 export default function EmpresaPage() {
   const [session, setSession] = useState(null)
+
+  useEffect(() => { document.title = 'Pulpo — Mi empresa' }, [])
 
   useEffect(() => {
     const token = getAccessToken()
