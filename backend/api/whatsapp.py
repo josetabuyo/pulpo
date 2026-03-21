@@ -398,6 +398,9 @@ async def _run_full_sync() -> None:
 
             _log.info(f"[full-sync] Scraping '{contact_name}'...")
             messages = await wa_session.scrape_full_history(session_id, contact_name)
+            # Ordenar cronológicamente antes de acumular: el scrape devuelve
+            # textos (Part A) + audios (Part B) concatenados, no mezclados por fecha.
+            messages.sort(key=lambda m: m.get("timestamp") or "")
 
             for msg in messages:
                 for ch in wa_channels:

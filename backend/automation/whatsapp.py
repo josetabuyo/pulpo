@@ -1207,14 +1207,64 @@ class WhatsAppSession(BrowserAutomation):
                         }
 
                         let msgDate = '';
-                        let anc = msgContainer.parentElement;
-                        for (let j = 0; j < 12 && anc; j++) {
-                            const ppEl = anc.querySelector('[data-pre-plain-text]');
-                            if (ppEl) {
-                                const m = ppEl.getAttribute('data-pre-plain-text').match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
-                                if (m) { msgDate = m[1]; break; }
+                        // Estrategia de fecha en dos pasos:
+                        // 1) Último data-pre-plain-text con fecha antes del audio
+                        // 2) Separador de día WA (SPAN con "martes", "ayer", "17 de marzo…")
+                        //    que aparezca DESPUÉS del último PP y ANTES del audio.
+                        //    WA usa nombres de día (lunes…domingo / hoy / ayer) para la semana
+                        //    actual y fecha completa para semanas anteriores.
+                        const _monthES = {
+                            'enero':1,'febrero':2,'marzo':3,'abril':4,'mayo':5,'junio':6,
+                            'julio':7,'agosto':8,'septiembre':9,'octubre':10,'noviembre':11,'diciembre':12
+                        };
+                        // JS getDay(): 0=Dom,1=Lun,2=Mar,3=Mié,4=Jue,5=Vie,6=Sáb
+                        const _dayES = {
+                            'domingo':0,'lunes':1,'martes':2,
+                            'miercoles':3,'miércoles':3,'jueves':4,'viernes':5,
+                            'sabado':6,'sábado':6
+                        };
+                        // Paso 1: último data-pre-plain-text con fecha antes del audio
+                        let lastPPEl = null;
+                        for (const el of document.querySelectorAll('[data-pre-plain-text]')) {
+                            if (!(msgContainer.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING)) break;
+                            const m = el.getAttribute('data-pre-plain-text').match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
+                            if (m) { lastPPEl = el; msgDate = m[1]; }
+                        }
+                        // Paso 2: buscar separador de día WA entre lastPPEl y el audio
+                        const _today = new Date();
+                        for (const el of document.querySelectorAll('span')) {
+                            // solo elementos que vienen DESPUÉS de lastPPEl en el DOM
+                            if (lastPPEl && !(lastPPEl.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
+                            // parar cuando lleguemos al audio
+                            if (!(msgContainer.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING)) break;
+                            // texto directo del span (no descendientes) — los separadores son nodos texto simples
+                            const ownTxt = [...el.childNodes]
+                                .filter(n => n.nodeType === 3)
+                                .map(n => n.textContent.trim()).join('').trim();
+                            if (!ownTxt || ownTxt.length > 60) continue;
+                            const low = ownTxt.toLowerCase()
+                                .replace(/\u00e9/g,'e').replace(/\u00e1/g,'a')
+                                .replace(/\u00f3/g,'o').replace(/\u00fa/g,'u');
+                            let sepDate = null;
+                            // Fecha completa "17 de marzo de 2026"
+                            const fd = ownTxt.match(/(\d{1,2})\s+de\s+(\w+)\s+de\s+(\d{4})/i);
+                            if (fd) {
+                                const d=parseInt(fd[1]), mo=_monthES[fd[2].toLowerCase()]||0, y=parseInt(fd[3]);
+                                if (mo) sepDate = d+'/'+mo+'/'+y;
+                            } else if (low === 'hoy') {
+                                sepDate = _today.getDate()+'/'+(_today.getMonth()+1)+'/'+_today.getFullYear();
+                            } else if (low === 'ayer') {
+                                const d2 = new Date(_today); d2.setDate(d2.getDate()-1);
+                                sepDate = d2.getDate()+'/'+( d2.getMonth()+1)+'/'+d2.getFullYear();
+                            } else if (_dayES[low] !== undefined) {
+                                // Nombre de día: encontrar la ocurrencia más reciente antes de hoy
+                                const target = _dayES[low];
+                                let ago = (_today.getDay() - target + 7) % 7;
+                                if (ago === 0) ago = 7; // mismo día de semana = semana pasada
+                                const d3 = new Date(_today); d3.setDate(d3.getDate() - ago);
+                                sepDate = d3.getDate()+'/'+( d3.getMonth()+1)+'/'+d3.getFullYear();
                             }
-                            anc = anc.parentElement;
+                            if (sepDate) { msgDate = sepDate; break; }
                         }
 
                         let timeText = '';
