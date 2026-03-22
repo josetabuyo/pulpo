@@ -1,15 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, connectAndPoll } from '../api.js'
-import SimChat from '../SimChat.jsx'
 import MonitorPanel from '../components/MonitorPanel.jsx'
-
-const STATUS_LABELS = {
-  ready: 'Conectado', qr_ready: 'Esperando escaneo',
-  connecting: 'Conectando', authenticated: 'Autenticando',
-  disconnected: 'Desconectado', failed: 'Error', stopped: 'Sin iniciar',
-  qr_needed: 'Sin iniciar',
-}
+import EmpresaCard, { normalizeBot } from '../components/EmpresaCard.jsx'
 
 // ─── Modales inline ────────────────────────────────────────────────────────────
 
@@ -35,20 +28,18 @@ function BotModal({ open, onClose, editBot, onSave }) {
   const isEdit = !!editBot
   const [id, setId] = useState('')
   const [name, setName] = useState('')
-  const [message, setMessage] = useState('')
 
   useEffect(() => {
     if (open) {
       setId(editBot?.id ?? '')
       setName(editBot?.name ?? '')
-      setMessage(editBot?.autoReplyMessage ?? '')
     }
   }, [open, editBot])
 
   function handleSave() {
-    if (!name.trim() || !message.trim()) return alert('Nombre y mensaje son requeridos.')
+    if (!name.trim()) return alert('Nombre requerido.')
     if (!isEdit && !id.trim()) return alert('ID es requerido.')
-    onSave({ id: id.trim(), name: name.trim(), autoReplyMessage: message.trim() })
+    onSave({ id: id.trim(), name: name.trim() })
   }
 
   return (
@@ -64,10 +55,6 @@ function BotModal({ open, onClose, editBot, onSave }) {
         <label>Nombre de la empresa</label>
         <input value={name} onChange={e => setName(e.target.value)} placeholder="Herrería García" />
       </div>
-      <div className="fg">
-        <label>Mensaje de respuesta automática</label>
-        <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Hola! Estamos fuera de horario..." />
-      </div>
       <div className="modal-actions">
         <button className="btn-ghost" onClick={onClose}>Cancelar</button>
         <button className="btn-primary" onClick={handleSave}>Guardar</button>
@@ -76,35 +63,24 @@ function BotModal({ open, onClose, editBot, onSave }) {
   )
 }
 
-function PhoneModal({ open, onClose, editPhone, botId, allBots, onSave }) {
-  const isEdit = !!editPhone
+function PhoneModal({ open, onClose, botId, newBotData, onSave }) {
   const [number, setNumber] = useState('')
-  const [message, setMessage] = useState('')
 
   useEffect(() => {
-    if (open) {
-      setNumber(editPhone?.number ?? '')
-      setMessage(editPhone?.autoReplyMessage ?? '')
-    }
-  }, [open, editPhone])
+    if (open) setNumber('')
+  }, [open])
 
   function handleSave() {
-    if (!isEdit && !number.trim()) return alert('Número requerido.')
-    onSave({ number: number.trim(), autoReplyMessage: message.trim(), botId })
+    if (!number.trim()) return alert('Número requerido.')
+    onSave({ number: number.trim(), botId })
   }
 
   return (
     <Modal open={open} onClose={onClose}>
-      <h3>{isEdit ? 'Editar teléfono' : 'Agregar teléfono'}</h3>
-      {!isEdit && (
-        <div className="fg">
-          <label>Número (sin +)</label>
-          <input type="tel" value={number} onChange={e => setNumber(e.target.value)} placeholder="5491155612767" />
-        </div>
-      )}
+      <h3>Agregar teléfono</h3>
       <div className="fg">
-        <label>Mensaje personalizado (opcional)</label>
-        <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Dejar vacío para usar el de la empresa" />
+        <label>Número (sin +)</label>
+        <input type="tel" value={number} onChange={e => setNumber(e.target.value)} placeholder="5491155612767" />
       </div>
       <div className="modal-actions">
         <button className="btn-ghost" onClick={onClose}>Cancelar</button>
@@ -114,35 +90,24 @@ function PhoneModal({ open, onClose, editPhone, botId, allBots, onSave }) {
   )
 }
 
-function TelegramModal({ open, onClose, editTg, botId, onSave }) {
-  const isEdit = !!editTg
+function TelegramModal({ open, onClose, botId, onSave }) {
   const [token, setToken] = useState('')
-  const [message, setMessage] = useState('')
 
   useEffect(() => {
-    if (open) {
-      setToken('')
-      setMessage(editTg?.autoReplyMessage ?? '')
-    }
-  }, [open, editTg])
+    if (open) setToken('')
+  }, [open])
 
   function handleSave() {
-    if (!isEdit && !token.trim()) return alert('Token requerido.')
-    onSave({ token: token.trim(), autoReplyMessage: message.trim(), botId, tokenId: editTg?.tokenId })
+    if (!token.trim()) return alert('Token requerido.')
+    onSave({ token: token.trim(), botId })
   }
 
   return (
     <Modal open={open} onClose={onClose}>
-      <h3>{isEdit ? 'Editar Bot de Telegram' : 'Agregar Bot de Telegram'}</h3>
-      {!isEdit && (
-        <div className="fg">
-          <label>Token del bot (de @BotFather)</label>
-          <input value={token} onChange={e => setToken(e.target.value)} placeholder="123456789:AAF..." />
-        </div>
-      )}
+      <h3>Agregar Bot de Telegram</h3>
       <div className="fg">
-        <label>Mensaje personalizado (opcional)</label>
-        <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Dejar vacío para usar el de la empresa" />
+        <label>Token del bot (de @BotFather)</label>
+        <input value={token} onChange={e => setToken(e.target.value)} placeholder="123456789:AAF..." />
       </div>
       <div className="modal-actions">
         <button className="btn-ghost" onClick={onClose}>Cancelar</button>
@@ -327,111 +292,6 @@ function QRModal({ open, number, onClose, pwd, onConnected }) {
   )
 }
 
-// ─── Filas de teléfono / telegram ─────────────────────────────────────────────
-
-function PhoneRow({ phone, botId, simMode, pwd, onConnect, onDisconnect, onEdit, onDelete, onMove, onScreenshot, onDragStart }) {
-  const needsQR = ['stopped', 'failed', 'disconnected', 'qr_needed', undefined, null].includes(phone.status)
-  const isReady = phone.status === 'ready'
-
-  return (
-    <div>
-      <div
-        className="phone-row"
-        draggable
-        onDragStart={e => {
-          e.dataTransfer.setData('number', phone.number)
-          e.dataTransfer.setData('sourceBotId', botId)
-          e.dataTransfer.setData('type', 'phone')
-          e.currentTarget.classList.add('dragging')
-          onDragStart?.()
-        }}
-        onDragEnd={e => e.currentTarget.classList.remove('dragging')}
-      >
-        <div className="phone-number">
-          <span className="wa-label">WA</span>
-          <span className="phone-id">(+{phone.number})</span>
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          {phone.autoReplyMessage && (
-            <div className="phone-msg-override">Mensaje propio: "{phone.autoReplyMessage}"</div>
-          )}
-        </div>
-        <div className="phone-actions">
-          {simMode && <span className="badge s-sim">SIM</span>}
-          <span className={`badge s-${phone.status}`}>
-            <span className="dot" />
-            {STATUS_LABELS[phone.status] || phone.status}
-          </span>
-          {needsQR && !simMode && (
-            <button className="btn-primary btn-sm" onClick={() => onConnect(phone.number)}>Vincular QR</button>
-          )}
-          {needsQR && simMode && (
-            <button className="btn-primary btn-sm" onClick={() => onConnect(phone.number)}>Conectar sim</button>
-          )}
-          {isReady && !simMode && (
-            <button className="btn-ghost btn-sm" onClick={() => onScreenshot(phone.number)} title="Ver browser headless">👁 Ver</button>
-          )}
-          {isReady && (
-            <button className="btn-danger btn-sm" onClick={() => onDisconnect(phone.number)}>Desconectar</button>
-          )}
-          <button className="btn-ghost btn-sm" onClick={() => onMove(phone.number, botId)}>Mover</button>
-          <button className="btn-ghost btn-sm" onClick={() => onEdit(phone)}>Editar</button>
-          <button className="btn-danger btn-sm" onClick={() => onDelete(phone.number)}>Eliminar</button>
-        </div>
-      </div>
-      {simMode && isReady && (
-        <SimChat number={phone.number} pwd={pwd} />
-      )}
-    </div>
-  )
-}
-
-function TelegramRow({ tg, botId, simMode, pwd, onEdit, onDelete, onReconnect, onDragStart }) {
-  const isReady = tg.status === 'ready'
-  const statusClass = isReady ? 's-tg-ready' : `s-${tg.status}`
-  const statusLabel = isReady ? 'Activo' : (STATUS_LABELS[tg.status] || tg.status)
-  const canReconnect = !simMode && ['stopped', 'failed', 'disconnected'].includes(tg.status)
-
-  return (
-    <>
-    <div
-      className="phone-row phone-row--tg"
-      draggable
-      onDragStart={e => {
-        e.dataTransfer.setData('tokenId', tg.tokenId)
-        e.dataTransfer.setData('sourceBotId', botId)
-        e.dataTransfer.setData('type', 'telegram')
-        e.currentTarget.classList.add('dragging')
-        onDragStart?.()
-      }}
-      onDragEnd={e => e.currentTarget.classList.remove('dragging')}
-    >
-      <div className="phone-number">
-        <span className="tg-label">TG</span>
-        <span className="phone-id">({tg.tokenId})</span>
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        {tg.autoReplyMessage && (
-          <div className="phone-msg-override">Mensaje propio: "{tg.autoReplyMessage}"</div>
-        )}
-      </div>
-      <div className="phone-actions">
-        <span className={`badge ${statusClass}`}>
-          <span className="dot" />
-          {statusLabel}
-        </span>
-        {canReconnect && (
-          <button className="btn-blue btn-sm" onClick={() => onReconnect(tg.tokenId)}>Reconectar</button>
-        )}
-        <button className="btn-ghost btn-sm" onClick={() => onEdit(tg)}>Editar</button>
-        <button className="btn-danger btn-sm" onClick={() => onDelete(tg.tokenId)}>Eliminar</button>
-      </div>
-    </div>
-    {simMode && isReady && <SimChat number={tg.sessionId} pwd={pwd} />}
-    </>
-  )
-}
-
 // ─── Dashboard principal ───────────────────────────────────────────────────────
 
 export default function DashboardPage() {
@@ -446,8 +306,8 @@ export default function DashboardPage() {
 
   // Modales
   const [botModal, setBotModal] = useState({ open: false, editBot: null })
-  const [phoneModal, setPhoneModal] = useState({ open: false, editPhone: null, botId: null })
-  const [tgModal, setTgModal] = useState({ open: false, editTg: null, botId: null })
+  const [phoneModal, setPhoneModal] = useState({ open: false, botId: null, newBotData: null })
+  const [tgModal, setTgModal] = useState({ open: false, botId: null })
   const [moveModal, setMoveModal] = useState({ open: false, number: null, sourceBotId: null })
   const [qrModal, setQrModal] = useState({ open: false, number: null })
   const [screenshotModal, setScreenshotModal] = useState({ open: false, number: null })
@@ -506,15 +366,15 @@ export default function DashboardPage() {
   }
 
   // ── Bot CRUD ──
-  async function handleSaveBot({ id, name, autoReplyMessage }) {
+  async function handleSaveBot({ id, name }) {
     const isEdit = !!botModal.editBot
     let res
     if (isEdit) {
-      res = await call('PUT', `/bots/${botModal.editBot.id}`, { name, autoReplyMessage })
+      res = await call('PUT', `/bots/${botModal.editBot.id}`, { name })
     } else {
       // Crear empresa requiere al menos un teléfono — abrimos modal de teléfono
       setBotModal({ open: false, editBot: null })
-      setPhoneModal({ open: true, editPhone: null, botId: id, newBotData: { name, autoReplyMessage } })
+      setPhoneModal({ open: true, botId: id, newBotData: { name } })
       return
     }
     if (res.error) return alert('Error: ' + res.error)
@@ -531,22 +391,12 @@ export default function DashboardPage() {
   }
 
   // ── Phone CRUD ──
-  async function handleSavePhone({ number, autoReplyMessage, botId }) {
-    const isEdit = !!phoneModal.editPhone
-    let res
-    if (isEdit) {
-      res = await call('PUT', `/phones/${phoneModal.editPhone.number}`, { autoReplyMessage })
-    } else {
-      const body = { botId, number }
-      if (autoReplyMessage) body.autoReplyMessage = autoReplyMessage
-      if (phoneModal.newBotData) {
-        body.botName = phoneModal.newBotData.name
-        if (!body.autoReplyMessage) body.autoReplyMessage = phoneModal.newBotData.autoReplyMessage
-      }
-      res = await call('POST', '/phones', body)
-    }
+  async function handleSavePhone({ number, botId }) {
+    const body = { botId, number }
+    if (phoneModal.newBotData) body.botName = phoneModal.newBotData.name
+    const res = await call('POST', '/phones', body)
     if (res.error) return alert('Error: ' + res.error)
-    setPhoneModal({ open: false, editPhone: null, botId: null })
+    setPhoneModal({ open: false, botId: null, newBotData: null })
     loadBots()
   }
 
@@ -558,18 +408,10 @@ export default function DashboardPage() {
   }
 
   // ── Telegram CRUD ──
-  async function handleSaveTg({ token, autoReplyMessage, botId, tokenId }) {
-    const isEdit = !!tgModal.editTg
-    let res
-    if (isEdit) {
-      res = await call('PUT', `/telegram/${tokenId}`, { autoReplyMessage })
-    } else {
-      const body = { botId, token }
-      if (autoReplyMessage) body.autoReplyMessage = autoReplyMessage
-      res = await call('POST', '/telegram', body)
-    }
+  async function handleSaveTg({ token, botId }) {
+    const res = await call('POST', '/telegram', { botId, token })
     if (res.error) return alert('Error: ' + res.error)
-    setTgModal({ open: false, editTg: null, botId: null })
+    setTgModal({ open: false, botId: null })
     loadBots()
   }
 
@@ -615,7 +457,7 @@ export default function DashboardPage() {
   // ── Drag & drop ──
   async function onDrop(e, targetBotId) {
     e.preventDefault()
-    document.querySelectorAll('.bot-block').forEach(el => el.classList.remove('drag-over'))
+    document.querySelectorAll('.ec-card').forEach(el => el.classList.remove('drag-over'))
     const type = e.dataTransfer.getData('type')
     const sourceBotId = e.dataTransfer.getData('sourceBotId')
     if (sourceBotId === targetBotId) return
@@ -715,84 +557,29 @@ export default function DashboardPage() {
           )}
 
           {bots.map(bot => (
-            <div
+            <EmpresaCard
               key={bot.id}
-              className="bot-block"
+              mode="admin"
+              bot={normalizeBot(bot)}
+              simMode={simMode}
+              apiCall={(method, path, body) => call(method, path, body)}
+              adminPwd={pwd}
+              onRefresh={loadBots}
+              onEditBot={b => setBotModal({ open: true, editBot: b })}
+              onDeleteBot={botId => handleDeleteBot(botId)}
+              onAddPhone={botId => setPhoneModal({ open: true, botId })}
+              onAddTelegram={botId => setTgModal({ open: true, botId })}
+              onDeletePhone={conn => handleDeletePhone(conn.number)}
+              onMovePhone={conn => setMoveModal({ open: true, number: conn.number, sourceBotId: bot.id })}
+              onDeleteTelegram={conn => handleDeleteTg(conn.number)}
+              onReconnectTg={conn => handleReconnectTg(conn.number)}
+              onConnectWA={conn => handleConnect(conn.number)}
+              onDisconnectWA={conn => handleDisconnect(conn.number)}
+              onScreenshot={conn => setScreenshotModal({ open: true, number: conn.number })}
               onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('drag-over') }}
               onDragLeave={e => e.currentTarget.classList.remove('drag-over')}
               onDrop={e => onDrop(e, bot.id)}
-            >
-              <div className="bot-header">
-                <div className="bot-header-info">
-                  <div className="bot-name">{bot.name}</div>
-                  <div className="bot-id">{bot.id}</div>
-                  <div className="bot-msg">{bot.autoReplyMessage}</div>
-                </div>
-                <div className="bot-header-actions">
-                  <button className="btn-ghost btn-sm" onClick={() => setBotModal({ open: true, editBot: bot })}>
-                    Editar
-                  </button>
-                  <button className="btn-danger btn-sm" onClick={() => handleDeleteBot(bot.id)}>
-                    Eliminar
-                  </button>
-                </div>
-              </div>
-
-              <div className="phones-table">
-                {bot.phones?.length === 0 && (bot.telegram?.length === 0) && (
-                  <div className="empty" style={{ padding: 12 }}>Sin canales configurados</div>
-                )}
-
-                {bot.phones?.length > 0 && (
-                  <>
-                    <div className="channel-header channel-header--wa">WhatsApp</div>
-                    {bot.phones.map(p => (
-                      <PhoneRow
-                        key={p.number}
-                        phone={p}
-                        botId={bot.id}
-                        simMode={simMode}
-                        pwd={pwd}
-                        onConnect={handleConnect}
-                        onDisconnect={handleDisconnect}
-                        onEdit={phone => setPhoneModal({ open: true, editPhone: phone, botId: bot.id })}
-                        onDelete={handleDeletePhone}
-                        onMove={(number, srcBotId) => setMoveModal({ open: true, number, sourceBotId: srcBotId })}
-                        onScreenshot={number => setScreenshotModal({ open: true, number })}
-                      />
-                    ))}
-                  </>
-                )}
-
-                {bot.telegram?.length > 0 && (
-                  <>
-                    <div className="channel-header channel-header--tg">Telegram</div>
-                    {bot.telegram.map(tg => (
-                      <TelegramRow
-                        key={tg.tokenId}
-                        tg={tg}
-                        botId={bot.id}
-                        simMode={simMode}
-                        pwd={pwd}
-                        onEdit={t => setTgModal({ open: true, editTg: t, botId: bot.id })}
-                        onDelete={handleDeleteTg}
-                        onReconnect={handleReconnectTg}
-                      />
-                    ))}
-                  </>
-                )}
-              </div>
-
-              <div className="add-phone-row">
-                <button className="btn-blue btn-sm" onClick={() => setPhoneModal({ open: true, editPhone: null, botId: bot.id })}>
-                  + WhatsApp
-                </button>
-                <button className="btn-sm" style={{ background: '#e3f2fd', color: '#0d47a1' }}
-                  onClick={() => setTgModal({ open: true, editTg: null, botId: bot.id })}>
-                  + Telegram
-                </button>
-              </div>
-            </div>
+            />
           ))}
         </div>
           )}
@@ -810,18 +597,16 @@ export default function DashboardPage() {
 
       <PhoneModal
         open={phoneModal.open}
-        editPhone={phoneModal.editPhone}
         botId={phoneModal.botId}
-        allBots={bots}
-        onClose={() => setPhoneModal({ open: false, editPhone: null, botId: null })}
+        newBotData={phoneModal.newBotData}
+        onClose={() => setPhoneModal({ open: false, botId: null, newBotData: null })}
         onSave={handleSavePhone}
       />
 
       <TelegramModal
         open={tgModal.open}
-        editTg={tgModal.editTg}
         botId={tgModal.botId}
-        onClose={() => setTgModal({ open: false, editTg: null, botId: null })}
+        onClose={() => setTgModal({ open: false, botId: null })}
         onSave={handleSaveTg}
       />
 

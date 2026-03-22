@@ -94,7 +94,7 @@ export function ConexionRow({ conn, botId, onDelete, onConnected }) {
 // ─── Paso 1: Datos de la empresa ─────────────────────────────────
 
 function StepDatos({ onCreated }) {
-  const [form, setForm] = useState({ name: '', password: '', confirm: '', autoReplyMessage: '' })
+  const [form, setForm] = useState({ name: '', password: '', confirm: '' })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -110,7 +110,7 @@ function StepDatos({ onCreated }) {
     const res = await fetch('/api/empresa/nueva', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: form.name, password: form.password, autoReplyMessage: form.autoReplyMessage }),
+      body: JSON.stringify({ name: form.name, password: form.password }),
     }).then(r => r.json()).catch(() => null)
     setLoading(false)
 
@@ -146,11 +146,6 @@ function StepDatos({ onCreated }) {
         <div className="fg">
           <label>Confirmar contraseña</label>
           <input type="password" value={form.confirm} onChange={set('confirm')} placeholder="Repetí la clave" />
-        </div>
-        <div className="fg">
-          <label>Mensaje de respuesta automática</label>
-          <textarea rows={4} value={form.autoReplyMessage} onChange={set('autoReplyMessage')}
-            placeholder="Ej: Hola, te responderemos a la brevedad." />
         </div>
         <button type="submit" className="btn-connect" disabled={loading}>
           {loading ? 'Creando...' : 'Continuar →'}

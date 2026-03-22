@@ -21,21 +21,31 @@ def test_sim_phones_have_ready_status(client):
 
 
 def test_sim_send_message(client):
-    """Enviar mensaje en simulador devuelve reply del bot."""
-    # Obtener el primer número disponible
+    """Enviar mensaje en simulador devuelve reply cuando hay una tool activa."""
     bots = client.get("/api/bots", headers=ADMIN).json()
+    bot_id = bots[0]["id"]
     number = bots[0]["phones"][0]["number"]
 
-    r = client.post(
-        f"/api/sim/send/{number}",
-        headers=ADMIN,
-        json={"from_name": "Test", "from_phone": "5400000001", "text": "hola test"},
-    )
-    assert r.status_code == 200
-    body = r.json()
-    assert body["ok"] is True
-    assert isinstance(body["reply"], str)
-    assert len(body["reply"]) > 0
+    # Crear tool temporal con mensaje fijo
+    REPLY = "Respuesta automática de test"
+    tool = client.post(f"/api/empresas/{bot_id}/tools", headers=ADMIN, json={
+        "nombre": "_test_sim_send", "tipo": "fixed_message",
+        "config": {"message": REPLY}, "incluir_desconocidos": True,
+    }).json()
+    tool_id = tool["id"]
+
+    try:
+        r = client.post(
+            f"/api/sim/send/{number}",
+            headers=ADMIN,
+            json={"from_name": "Test", "from_phone": "5400000001", "text": "hola test"},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["ok"] is True
+        assert body["reply"] == REPLY
+    finally:
+        client.delete(f"/api/tools/{tool_id}", headers=ADMIN)
 
 
 def test_sim_send_appears_in_log(client):
@@ -55,19 +65,28 @@ def test_sim_send_appears_in_log(client):
 
 
 def test_sim_reply_appears_in_log(client):
-    """El REPLY del bot también debe quedar en el log."""
+    """El REPLY del bot debe quedar en el log cuando hay una tool activa."""
     bots = client.get("/api/bots", headers=ADMIN).json()
+    bot_id = bots[0]["id"]
     number = bots[0]["phones"][0]["number"]
 
-    client.post(
-        f"/api/sim/send/{number}",
-        headers=ADMIN,
-        json={"from_name": "ReplyTest", "from_phone": "5400000003", "text": "reply check"},
-    )
+    tool = client.post(f"/api/empresas/{bot_id}/tools", headers=ADMIN, json={
+        "nombre": "_test_sim_log", "tipo": "fixed_message",
+        "config": {"message": "reply log test"}, "incluir_desconocidos": True,
+    }).json()
+    tool_id = tool["id"]
 
-    logs = client.get("/api/logs/latest?source=backend&lines=50", headers=ADMIN).json()
-    reply_lines = [l for l in logs["lines"] if "[sim] REPLY" in l and number in l]
-    assert len(reply_lines) > 0, "El REPLY no apareció en el log del backend"
+    try:
+        client.post(
+            f"/api/sim/send/{number}",
+            headers=ADMIN,
+            json={"from_name": "ReplyTest", "from_phone": "5400000003", "text": "reply check"},
+        )
+        logs = client.get("/api/logs/latest?source=backend&lines=50", headers=ADMIN).json()
+        reply_lines = [l for l in logs["lines"] if "[sim] REPLY" in l and number in l]
+        assert len(reply_lines) > 0, "El REPLY no apareció en el log del backend"
+    finally:
+        client.delete(f"/api/tools/{tool_id}", headers=ADMIN)
 
 
 def test_sim_connect_disconnect(client):

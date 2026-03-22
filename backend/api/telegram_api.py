@@ -12,7 +12,6 @@ router = APIRouter()
 class TelegramCreate(BaseModel):
     botId: str
     token: str
-    autoReplyMessage: str | None = None
 
 
 @router.post("/telegram", dependencies=[Depends(require_admin)], status_code=201)
@@ -32,10 +31,7 @@ def add_telegram(body: TelegramCreate):
     if any(t["token"].split(":")[0] == token_id for t in bot["telegram"]):
         raise HTTPException(status_code=409, detail="Este token ya está registrado")
 
-    entry: dict = {"token": body.token}
-    if body.autoReplyMessage:
-        entry["autoReplyMessage"] = body.autoReplyMessage
-    bot["telegram"].append(entry)
+    bot["telegram"].append({"token": body.token})
     save_config(config)
 
     session_id = f"{body.botId}-tg-{token_id}"
@@ -43,25 +39,6 @@ def add_telegram(body: TelegramCreate):
 
     return {"ok": True, "tokenId": token_id, "sessionId": session_id}
 
-
-class TelegramUpdate(BaseModel):
-    autoReplyMessage: str | None = None
-
-
-@router.put("/telegram/{token_id}", dependencies=[Depends(require_admin)])
-def update_telegram(token_id: str, body: TelegramUpdate):
-    config = load_config()
-    for bot in config.get("bots", []):
-        tg = next((t for t in bot.get("telegram", []) if t["token"].split(":")[0] == token_id), None)
-        if tg:
-            if body.autoReplyMessage is not None:
-                if body.autoReplyMessage:
-                    tg["autoReplyMessage"] = body.autoReplyMessage
-                else:
-                    tg.pop("autoReplyMessage", None)
-            save_config(config)
-            return {"ok": True}
-    raise HTTPException(status_code=404, detail="Token no encontrado")
 
 
 @router.delete("/telegram/{token_id}", dependencies=[Depends(require_admin)])

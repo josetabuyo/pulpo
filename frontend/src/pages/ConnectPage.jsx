@@ -57,9 +57,6 @@ function ClientPortal({ number, pwd, onLogout }) {
   const [info, setInfo] = useState(null)
   const [conversations, setConversations] = useState([]) // últimos mensajes agrupados por contacto
   const [activeContact, setActiveContact] = useState(null)
-  const [replyMsg, setReplyMsg] = useState('')
-  const [savingMsg, setSavingMsg] = useState(false)
-  const [saveResult, setSaveResult] = useState(null)
 
   // QR inline
   const [showQr, setShowQr] = useState(false)
@@ -71,7 +68,6 @@ function ClientPortal({ number, pwd, onLogout }) {
     const res = await api('GET', `/client/${number}`, null, pwd).catch(() => null)
     if (!res || res.detail) return
     setInfo(res)
-    setReplyMsg(prev => prev === '' ? (res.autoReplyMessage ?? '') : prev)
   }, [number, pwd])
 
   // Agrupa los últimos 30 mensajes por contacto → una fila por contacto
@@ -114,15 +110,6 @@ function ClientPortal({ number, pwd, onLogout }) {
     loadInfo()
   }
 
-  async function handleSaveMessage() {
-    setSavingMsg(true); setSaveResult(null)
-    const res = await api('PUT', `/client/${number}`, { autoReplyMessage: replyMsg }, pwd).catch(() => null)
-    setSavingMsg(false)
-    setSaveResult(res?.ok ? 'ok' : 'error')
-    if (res?.ok) loadInfo()
-    setTimeout(() => setSaveResult(null), 3000)
-  }
-
   const isConnected  = info?.status === 'ready'
   const isConnecting = ['connecting', 'qr_ready', 'authenticated'].includes(info?.status)
   const isTelegram   = info?.type === 'telegram'
@@ -163,26 +150,7 @@ function ClientPortal({ number, pwd, onLogout }) {
           )}
         </div>
 
-        {/* ── Card 2: Mensaje automático ── */}
-        <div className="card">
-          <div className="card-title">Mensaje de respuesta automática</div>
-          {info && !info.hasOwnMessage && (
-            <p className="portal-inherited-hint">Heredado de la empresa. Podés personalizar este mensaje.</p>
-          )}
-          <div className="fg">
-            <textarea rows={8} value={replyMsg} onChange={e => setReplyMsg(e.target.value)}
-              placeholder="Ej: Hola, te responderemos a la brevedad." />
-          </div>
-          <div className="portal-save-row">
-            <button className="btn-primary btn-sm" onClick={handleSaveMessage} disabled={savingMsg}>
-              {savingMsg ? 'Guardando...' : 'Guardar'}
-            </button>
-            {saveResult === 'ok'    && <span className="portal-save-ok">✓ Guardado</span>}
-            {saveResult === 'error' && <span className="portal-save-err">Error al guardar</span>}
-          </div>
-        </div>
-
-        {/* ── Card 3: Conversaciones / Chat ── */}
+        {/* ── Card 2: Conversaciones / Chat ── */}
         <div className="card">
           <div className="section-header">
             <h2>Conversaciones</h2>
