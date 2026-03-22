@@ -34,38 +34,14 @@ def get_client(number: str):
         raise HTTPException(status_code=404, detail="Número no encontrado")
 
     status = clients.get(canonical, {}).get("status", "stopped")
-    has_own = "autoReplyMessage" in item
-    auto_reply = item.get("autoReplyMessage") or bot.get("autoReplyMessage", "")
 
     return {
         "number": canonical,
         "botName": bot["name"],
         "status": status,
-        "autoReplyMessage": auto_reply,
-        "hasOwnMessage": has_own,
-        "botDefaultMessage": bot.get("autoReplyMessage", ""),
         "type": kind,
     }
 
-
-class ClientUpdate(BaseModel):
-    autoReplyMessage: str
-
-
-@router.put("/client/{number}", dependencies=[Depends(require_client)])
-def update_client(number: str, body: ClientUpdate):
-    config = load_config()
-    _, item, _, _ = _find_session(config, number)
-    if not item:
-        raise HTTPException(status_code=404, detail="Número no encontrado")
-
-    if body.autoReplyMessage.strip():
-        item["autoReplyMessage"] = body.autoReplyMessage
-    else:
-        item.pop("autoReplyMessage", None)
-
-    save_config(config)
-    return {"ok": True}
 
 
 @router.get("/client/{number}/messages", dependencies=[Depends(require_client)])

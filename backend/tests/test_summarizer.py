@@ -318,11 +318,8 @@ def test_sim_receive_con_audio_path(tmp_path, monkeypatch):
             None,
         )
 
-    async def fake_get_config(*args):
-        return {"bot_id": "e_test", "auto_reply": ""}
-
     monkeypatch.setattr(sim_engine, "resolve_tools", fake_resolve_tools)
-    monkeypatch.setattr(sim_engine, "_get_phone_config", lambda sid: {"bot_id": "e_test", "auto_reply": ""})
+    monkeypatch.setattr(sim_engine, "_get_phone_config", lambda sid: {"bot_id": "e_test"})
 
     async def run():
         from unittest.mock import AsyncMock

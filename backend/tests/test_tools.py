@@ -212,8 +212,8 @@ def test_resolution_with_tool(client):
     client.delete(f"/api/contacts/{c['id']}", headers=auth)
 
 
-def test_resolution_fallback_auto_reply(client):
-    """Sin herramientas en DB activas, el sim usa auto_reply del JSON."""
+def test_resolution_no_tools_no_reply(client):
+    """Sin herramientas en DB activas, el sim no envía respuesta."""
     auth = get_empresa_token(BOT_ID, BOT_PWD, client)
     session_id = _get_exclusive_session_id(client)
     if not session_id:
@@ -231,8 +231,8 @@ def test_resolution_fallback_auto_reply(client):
         "text": "Test fallback",
     })
     assert r.status_code == 200
-    # Con herramientas desactivadas → responde con auto_reply del JSON (o None si no hay)
-    assert "reply" in r.json()
+    # Con herramientas desactivadas → sin respuesta
+    assert r.json().get("reply") is None
 
     # Reactivar
     for tid in active_ids:

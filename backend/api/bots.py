@@ -18,7 +18,6 @@ def get_bots():
             session_id = phone["number"]
             phones.append({
                 "number": phone["number"],
-                "autoReplyMessage": phone.get("autoReplyMessage"),
                 "sessionId": session_id,
                 "status": clients.get(session_id, {}).get("status", "stopped"),
             })
@@ -28,14 +27,12 @@ def get_bots():
             session_id = f"{bot['id']}-tg-{token_id}"
             telegram.append({
                 "tokenId": token_id,
-                "autoReplyMessage": tg.get("autoReplyMessage"),
                 "sessionId": session_id,
                 "status": clients.get(session_id, {}).get("status", "stopped"),
             })
         result.append({
             "id": bot["id"],
             "name": bot["name"],
-            "autoReplyMessage": bot.get("autoReplyMessage"),
             "phones": phones,
             "telegram": telegram,
         })
@@ -44,7 +41,6 @@ def get_bots():
 
 class BotUpdate(BaseModel):
     name: str | None = None
-    autoReplyMessage: str | None = None
 
 
 @router.put("/bots/{bot_id}", dependencies=[Depends(require_admin)])
@@ -55,8 +51,6 @@ def update_bot(bot_id: str, body: BotUpdate):
         raise HTTPException(status_code=404, detail="Bot no encontrado")
     if body.name:
         bot["name"] = body.name
-    if body.autoReplyMessage:
-        bot["autoReplyMessage"] = body.autoReplyMessage
     save_config(config)
     return {"ok": True}
 

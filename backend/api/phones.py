@@ -19,7 +19,6 @@ def get_phones():
                 "botId": bot["id"],
                 "botName": bot["name"],
                 "number": phone["number"],
-                "autoReplyMessage": phone.get("autoReplyMessage") or bot.get("autoReplyMessage"),
                 "sessionId": session_id,
                 "status": clients.get(session_id, {}).get("status", "stopped"),
             })
@@ -30,7 +29,6 @@ class PhoneCreate(BaseModel):
     botId: str
     botName: str | None = None
     number: str
-    autoReplyMessage: str | None = None
 
 
 @router.post("/phones", dependencies=[Depends(require_admin)], status_code=201)
@@ -42,42 +40,20 @@ def create_phone(body: PhoneCreate):
     bot = next((b for b in config.get("bots", []) if b["id"] == body.botId), None)
 
     if not bot:
-        if not body.botName or not body.autoReplyMessage:
-            raise HTTPException(status_code=400, detail="Bot nuevo requiere botName y autoReplyMessage")
-        bot = {"id": body.botId, "name": body.botName, "autoReplyMessage": body.autoReplyMessage, "phones": []}
+        if not body.botName:
+            raise HTTPException(status_code=400, detail="Bot nuevo requiere botName")
+        bot = {"id": body.botId, "name": body.botName, "phones": []}
         config.setdefault("bots", []).append(bot)
 
     for b in config.get("bots", []):
         if any(p["number"] == body.number for p in b.get("phones", [])):
             raise HTTPException(status_code=409, detail=f'El número ya está en la empresa "{b["name"]}". Movelo desde ahí.')
 
-    entry: dict = {"number": body.number}
-    if body.autoReplyMessage:
-        entry["autoReplyMessage"] = body.autoReplyMessage
-    bot.setdefault("phones", []).append(entry)
+    bot.setdefault("phones", []).append({"number": body.number})
 
     save_config(config)
     return {"ok": True, "sessionId": body.number}
 
-
-class PhoneUpdate(BaseModel):
-    autoReplyMessage: str | None = None
-
-
-@router.put("/phones/{number}", dependencies=[Depends(require_admin)])
-def update_phone(number: str, body: PhoneUpdate):
-    config = load_config()
-    for bot in config.get("bots", []):
-        phone = next((p for p in bot.get("phones", []) if p["number"] == number), None)
-        if phone:
-            if body.autoReplyMessage is not None:
-                if body.autoReplyMessage:
-                    phone["autoReplyMessage"] = body.autoReplyMessage
-                else:
-                    phone.pop("autoReplyMessage", None)
-            save_config(config)
-            return {"ok": True}
-    raise HTTPException(status_code=404, detail="Número no encontrado")
 
 
 @router.delete("/phones/{number}", dependencies=[Depends(require_admin)])

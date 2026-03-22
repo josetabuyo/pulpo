@@ -170,15 +170,11 @@ async def sim_receive(
                 )
                 logger.info("[sim] SUMMARIZER '%s' acumuló de %s", s_tool["nombre"], from_phone)
 
+    reply = None
     if reply_tool:
         if reply_tool["tipo"] == "fixed_message":
             reply = reply_tool["config"].get("message", "")
-        else:
-            reply = None
         logger.info("[sim] TOOL '%s' → %s", reply_tool["nombre"], session_id)
-    else:
-        # Fallback: auto_reply del JSON
-        reply = cfg["auto_reply"]
 
     if reply:
         for mid in msg_ids.values():
@@ -201,16 +197,10 @@ def _get_phone_config(session_id: str) -> dict | None:
         # WhatsApp phones
         for phone in bot.get("phones", []):
             if phone["number"] == session_id:
-                return {
-                    "bot_id": bot["id"],
-                    "auto_reply": phone.get("autoReplyMessage") or bot.get("autoReplyMessage", ""),
-                }
+                return {"bot_id": bot["id"]}
         # Telegram bots — session_id = "{bot_id}-tg-{token_id}"
         for tg in bot.get("telegram", []):
             token_id = tg["token"].split(":")[0]
             if f"{bot['id']}-tg-{token_id}" == session_id:
-                return {
-                    "bot_id": bot["id"],
-                    "auto_reply": tg.get("autoReplyMessage") or bot.get("autoReplyMessage", ""),
-                }
+                return {"bot_id": bot["id"]}
     return None

@@ -80,8 +80,6 @@ def empresa_get(bot_id: str, bot: dict = Depends(_require_empresa)):
             "type": "whatsapp",
             "number": number,
             "status": status,
-            "autoReplyMessage": phone.get("autoReplyMessage") or bot.get("autoReplyMessage", ""),
-            "hasOwnMessage": "autoReplyMessage" in phone,
         })
 
     for tg in bot.get("telegram", []):
@@ -93,35 +91,13 @@ def empresa_get(bot_id: str, bot: dict = Depends(_require_empresa)):
             "type": "telegram",
             "number": session_id,
             "status": status,
-            "autoReplyMessage": tg.get("autoReplyMessage") or bot.get("autoReplyMessage", ""),
-            "hasOwnMessage": "autoReplyMessage" in tg,
         })
 
     return {
         "bot_id": bot["id"],
         "bot_name": bot["name"],
         "connections": connections,
-        "autoReplyMessage": bot.get("autoReplyMessage", ""),
     }
-
-
-# ─── Tools ───────────────────────────────────────────────────────
-
-class EmpresaToolsBody(BaseModel):
-    autoReplyMessage: str
-
-
-@router.put("/empresa/{bot_id}/tools")
-def empresa_put_tools(bot_id: str, body: EmpresaToolsBody, _: dict = Depends(_require_empresa)):
-
-    config = load_config()
-    bot = next((b for b in config.get("bots", []) if b["id"] == bot_id), None)
-    if not bot:
-        raise HTTPException(status_code=404, detail="Bot no encontrado")
-
-    bot["autoReplyMessage"] = body.autoReplyMessage
-    save_config(config)
-    return {"ok": True}
 
 
 # ─── Connect / QR / Disconnect ───────────────────────────────────
@@ -289,7 +265,6 @@ async def empresa_chat_send(bot_id: str, number: str, contact: str,
 class NuevaEmpresaBody(BaseModel):
     name: str
     password: str
-    autoReplyMessage: str = ""
 
 
 @router.post("/empresa/nueva")
@@ -308,7 +283,6 @@ def empresa_nueva(body: NuevaEmpresaBody):
         "id": bot_id,
         "name": body.name.strip(),
         "password": body.password,
-        "autoReplyMessage": body.autoReplyMessage,
         "phones": [],
         "telegram": [],
     }
@@ -322,7 +296,6 @@ def empresa_nueva(body: NuevaEmpresaBody):
 class EmpresaConfigBody(BaseModel):
     name: str | None = None
     password: str | None = None
-    autoReplyMessage: str | None = None
 
 
 @router.put("/empresa/{bot_id}/config")
@@ -345,9 +318,6 @@ def empresa_put_config(bot_id: str, body: EmpresaConfigBody, _: dict = Depends(_
             if b["id"] != bot_id and b.get("password") == body.password:
                 raise HTTPException(status_code=409, detail="Esa contraseña ya está en uso")
         bot["password"] = body.password
-
-    if body.autoReplyMessage is not None:
-        bot["autoReplyMessage"] = body.autoReplyMessage
 
     save_config(config)
     return {"ok": True, "bot_id": bot_id, "bot_name": bot["name"]}
@@ -436,7 +406,7 @@ async def empresa_add_telegram(bot_id: str, body: AddTelegramBody, _: dict = Dep
         try:
             from bots.telegram_bot import build_telegram_app
             from main import _tg_apps
-            cfg = {"bot_id": bot_id, "token": token, "reply_message": bot.get("autoReplyMessage", "")}
+            cfg = {"bot_id": bot_id, "token": token}
             tg_app = build_telegram_app(cfg)
             await tg_app.initialize()
             await tg_app.start()

@@ -78,19 +78,10 @@ def get_empresas_for_bot(bot_id: str) -> list[str]:
 
 
 def get_telegram_bots(config: dict) -> list[dict]:
-    """
-    Devuelve una lista de configs de bots de Telegram:
-    [{ bot_id, token, reply_message }, ...]
-    """
+    """Devuelve una lista de configs de bots de Telegram: [{ bot_id, token }, ...]"""
     result = []
     for bot in config.get("bots", []):
         bot_id = bot["id"]
-        bot_reply = bot.get("autoReplyMessage", "")
         for tg in bot.get("telegram", []):
-            reply = tg.get("autoReplyMessage") or bot_reply
-            result.append({
-                "bot_id": bot_id,
-                "token": tg["token"],
-                "reply_message": reply,
-            })
+            result.append({"bot_id": bot_id, "token": tg["token"]})
     return result

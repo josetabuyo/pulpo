@@ -77,7 +77,6 @@ def test_empresa_get_ok(client):
     assert body["bot_id"] == BOT_ID
     assert isinstance(body["bot_name"], str)
     assert isinstance(body["connections"], list)
-    assert isinstance(body["autoReplyMessage"], str)
 
 
 def test_empresa_get_connections_structure(client):
@@ -89,7 +88,6 @@ def test_empresa_get_connections_structure(client):
         assert "id" in c
         assert c["type"] in ("whatsapp", "telegram")
         assert "status" in c
-        assert "autoReplyMessage" in c
 
 
 def test_empresa_get_wrong_auth(client):
@@ -108,29 +106,6 @@ def test_empresa_get_no_auth(client):
     r = client.get(f"/api/empresa/{BOT_ID}")
     assert r.status_code == 401
 
-
-def test_empresa_put_tools_ok(client):
-    token = _get_token(client)
-    headers = _auth(token)
-
-    original = client.get(f"/api/empresa/{BOT_ID}", headers=headers).json()["autoReplyMessage"]
-
-    new_msg = "Mensaje de prueba automatizado"
-    r = client.put(f"/api/empresa/{BOT_ID}/tools", json={"autoReplyMessage": new_msg}, headers=headers)
-    assert r.status_code == 200
-    assert r.json()["ok"] is True
-
-    updated = client.get(f"/api/empresa/{BOT_ID}", headers=headers).json()["autoReplyMessage"]
-    assert updated == new_msg
-
-    client.put(f"/api/empresa/{BOT_ID}/tools", json={"autoReplyMessage": original}, headers=headers)
-
-
-def test_empresa_put_tools_wrong_auth(client):
-    r = client.put(f"/api/empresa/{BOT_ID}/tools",
-                   json={"autoReplyMessage": "algo"},
-                   headers={"Authorization": "Bearer INVALID"})
-    assert r.status_code == 401
 
 
 def test_empresa_connect_sim(client):

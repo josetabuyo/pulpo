@@ -4,7 +4,9 @@ empresa_id == bot_id del bot en phones.json.
 Las conexiones de una empresa son sus números WA + session_ids TG.
 """
 import json
-from fastapi import APIRouter, HTTPException, Depends
+import os
+from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import Header
 from pydantic import BaseModel
 from typing import Optional
 from sqlalchemy import text
@@ -12,20 +14,35 @@ from sqlalchemy import text
 import db
 from db import AsyncSessionLocal
 from config import load_config
-from middleware_auth import require_empresa_auth
+from middleware_auth import get_empresa_bot_id
 
 router = APIRouter()
 
+_ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin")
 
-# ─── Auth empresa ────────────────────────────────────────────────
 
-def _require_empresa(empresa_id: str, token_bot_id: str = Depends(require_empresa_auth)) -> dict:
-    if token_bot_id != empresa_id:
-        raise HTTPException(status_code=403, detail="No autorizado para esta empresa")
+# ─── Auth empresa (acepta JWT empresa O x-password admin) ────────
+
+def _require_empresa(
+    empresa_id: str,
+    request: Request,
+    x_password: Optional[str] = Header(None),
+) -> dict:
     config = load_config()
     bot = next((b for b in config.get("bots", []) if b["id"] == empresa_id), None)
     if not bot:
         raise HTTPException(status_code=404, detail="Empresa no encontrada")
+
+    # Admin con x-password: acceso total
+    if x_password and x_password == _ADMIN_PASSWORD:
+        return bot
+
+    # JWT empresa: debe coincidir con la empresa solicitada
+    token_bot_id = get_empresa_bot_id(request)
+    if not token_bot_id:
+        raise HTTPException(status_code=401, detail="Token requerido o inválido")
+    if token_bot_id != empresa_id:
+        raise HTTPException(status_code=403, detail="No autorizado para esta empresa")
     return bot
 
 
@@ -108,23 +125,33 @@ async def create_tool(empresa_id: str, body: ToolIn, _: dict = Depends(_require_
     return await db.get_tool(tool_id)
 
 
+def _resolve_caller(request: Request, x_password: Optional[str] = Header(None)) -> str | None:
+    """Retorna bot_id del JWT empresa, o None si es admin con x-password."""
+    if x_password and x_password == _ADMIN_PASSWORD:
+        return None  # admin: sin restricción de empresa
+    return get_empresa_bot_id(request)
+
+
+def _check_tool_access(tool: dict, caller: str | None):
+    if caller is not None and tool["empresa_id"] != caller:
+        raise HTTPException(403, "No autorizado para esta herramienta")
+
+
 @router.get("/tools/{tool_id}")
-async def get_tool(tool_id: int, token_bot_id: str = Depends(require_empresa_auth)):
+async def get_tool(tool_id: int, request: Request, x_password: Optional[str] = Header(None)):
     tool = await db.get_tool(tool_id)
     if not tool:
         raise HTTPException(404, "Herramienta no encontrada")
-    if tool["empresa_id"] != token_bot_id:
-        raise HTTPException(403, "No autorizado para esta herramienta")
+    _check_tool_access(tool, _resolve_caller(request, x_password))
     return tool
 
 
 @router.put("/tools/{tool_id}")
-async def update_tool(tool_id: int, body: ToolUpdate, token_bot_id: str = Depends(require_empresa_auth)):
+async def update_tool(tool_id: int, body: ToolUpdate, request: Request, x_password: Optional[str] = Header(None)):
     tool = await db.get_tool(tool_id)
     if not tool:
         raise HTTPException(404, "Herramienta no encontrada")
-    if tool["empresa_id"] != token_bot_id:
-        raise HTTPException(403, "No autorizado para esta herramienta")
+    _check_tool_access(tool, _resolve_caller(request, x_password))
 
     updates = {}
     if body.nombre is not None:
@@ -151,22 +178,20 @@ async def update_tool(tool_id: int, body: ToolUpdate, token_bot_id: str = Depend
 
 
 @router.delete("/tools/{tool_id}", status_code=204)
-async def delete_tool(tool_id: int, token_bot_id: str = Depends(require_empresa_auth)):
+async def delete_tool(tool_id: int, request: Request, x_password: Optional[str] = Header(None)):
     tool = await db.get_tool(tool_id)
     if not tool:
         raise HTTPException(404, "Herramienta no encontrada")
-    if tool["empresa_id"] != token_bot_id:
-        raise HTTPException(403, "No autorizado para esta herramienta")
+    _check_tool_access(tool, _resolve_caller(request, x_password))
     await db.delete_tool(tool_id)
 
 
 @router.post("/tools/{tool_id}/toggle")
-async def toggle_tool(tool_id: int, token_bot_id: str = Depends(require_empresa_auth)):
+async def toggle_tool(tool_id: int, request: Request, x_password: Optional[str] = Header(None)):
     tool = await db.get_tool(tool_id)
     if not tool:
         raise HTTPException(404, "Herramienta no encontrada")
-    if tool["empresa_id"] != token_bot_id:
-        raise HTTPException(403, "No autorizado para esta herramienta")
+    _check_tool_access(tool, _resolve_caller(request, x_password))
     await db.update_tool(tool_id, activa=not tool["activa"])
     return await db.get_tool(tool_id)
 
