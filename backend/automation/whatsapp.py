@@ -305,6 +305,9 @@ class WhatsAppSession(BrowserAutomation):
                 # Detectar documento compartido (body inyectado por pollOpenChat JS)
                 # Formato: "[doc:nombre.ext|EXT·tamaño]"
                 _is_document = body.startswith('[doc:')
+
+                # Detectar imagen (body inyectado por pollOpenChat JS)
+                _is_image = body == '[img:]'
                 _doc_content: str | None = None
                 if _is_document:
                     inner = body[5:].rstrip(']')  # strip "[doc:" prefix and trailing "]"
@@ -387,6 +390,26 @@ class WhatsAppSession(BrowserAutomation):
                             contact_name=name,
                             msg_type="document",
                             content=_doc_content or body,
+                            timestamp=_acc_ts,
+                        )
+                    elif _is_image:
+                        img_path = await self._download_image_blob(page, name, session_id)
+                        if img_path:
+                            from tools.summarizer import get_attachments_dir as _get_att_dir
+                            import shutil as _shutil
+                            _att_dir = _get_att_dir(s_tool["empresa_id"], sender)
+                            _att_dir.mkdir(parents=True, exist_ok=True)
+                            dest = _att_dir / img_path.name
+                            _shutil.move(str(img_path), str(dest))
+                            img_content = f"[imagen: {dest.name}]"
+                        else:
+                            img_content = "[imagen — no disponible]"
+                        summarizer_mod.accumulate(
+                            empresa_id=s_tool["empresa_id"],
+                            contact_phone=sender,
+                            contact_name=name,
+                            msg_type="image",
+                            content=_group_content(img_content),
                             timestamp=_acc_ts,
                         )
                     else:
@@ -540,6 +563,13 @@ class WhatsAppSession(BrowserAutomation):
                         const sz = (inner[2] || '').split('•')[1]?.trim() || '';
                         const ext = fn.split('.').pop().toUpperCase();
                         body = sz ? '[doc:' + fn + '|' + ext + '·' + sz + ']' : '[doc:' + fn + ']';
+                    }
+                }
+                // Si body vacío, verificar si es una imagen
+                if (!body) {
+                    const imgEl = lastMsg.querySelector('img[src^="blob:"]');
+                    if (imgEl) {
+                        body = '[img:]';
                     }
                 }
                 if (!body) return;
@@ -743,6 +773,52 @@ class WhatsAppSession(BrowserAutomation):
 
         except Exception as e:
             logger.warning(f"[{session_id}] _download_audio_blob error: {e}")
+            return None
+
+    async def _download_image_blob(
+        self, page, sender_name: str, session_id: str
+    ) -> "Path | None":
+        """
+        Localiza el último mensaje de imagen en el chat abierto y descarga el blob.
+        Retorna Path de un archivo temporal /tmp/pulpo_img_*.jpg, o None si falla.
+        El caller es responsable de mover o eliminar el archivo.
+        """
+        import base64 as _b64
+        import time
+        from pathlib import Path
+
+        try:
+            blob_b64 = await page.evaluate("""
+            async () => {
+                const msgs = document.querySelectorAll('[data-testid="msg-container"]');
+                for (let i = msgs.length - 1; i >= 0; i--) {
+                    const img = msgs[i].querySelector('img[src^="blob:"]');
+                    if (!img) continue;
+                    try {
+                        const resp = await fetch(img.src);
+                        if (!resp.ok) continue;
+                        const buf = await resp.arrayBuffer();
+                        const bytes = new Uint8Array(buf);
+                        let bin = '';
+                        for (let b of bytes) bin += String.fromCharCode(b);
+                        return btoa(bin);
+                    } catch(e) { continue; }
+                }
+                return null;
+            }
+            """)
+
+            if not blob_b64:
+                logger.debug(f"[{session_id}] _download_image_blob: sin blob para {sender_name}")
+                return None
+
+            path = Path(f"/tmp/pulpo_img_{int(time.time() * 1000)}.jpg")
+            path.write_bytes(_b64.b64decode(blob_b64))
+            logger.info(f"[{session_id}] Imagen guardada en {path}")
+            return path
+
+        except Exception as e:
+            logger.warning(f"[{session_id}] _download_image_blob error: {e}")
             return None
 
     async def _download_audio_blob_at_index(
@@ -1605,6 +1681,93 @@ class WhatsAppSession(BrowserAutomation):
                 }
                 """
 
+            def _extract_image_msgs_js():
+                """Busca mensajes de imagen sin caption (sin data-pre-plain-text).
+                Las imágenes CON caption ya las captura _extract_text_msgs_js como texto.
+                """
+                return """
+                () => {
+                    const msgs = [];
+                    const seen = new Set();
+                    const _monthES = {
+                        'enero':1,'febrero':2,'marzo':3,'abril':4,'mayo':5,'junio':6,
+                        'julio':7,'agosto':8,'septiembre':9,'octubre':10,'noviembre':11,'diciembre':12
+                    };
+                    const _dayES = {
+                        'domingo':0,'lunes':1,'martes':2,
+                        'miercoles':3,'miércoles':3,'jueves':4,'viernes':5,
+                        'sabado':6,'sábado':6
+                    };
+                    const _today = new Date();
+
+                    // Imágenes sin caption: no tienen data-pre-plain-text en su contenedor
+                    const allMsgContainers = document.querySelectorAll('.message-in, .message-out');
+                    for (const msgContainer of allMsgContainers) {
+                        if (msgContainer.querySelector('[data-pre-plain-text]')) continue;
+                        const imgEl = msgContainer.querySelector('img[src^="blob:"]');
+                        if (!imgEl) continue;
+
+                        // Timestamp
+                        let msgTime = '';
+                        const walker = document.createTreeWalker(msgContainer, NodeFilter.SHOW_TEXT, null);
+                        let node;
+                        while (node = walker.nextNode()) {
+                            const t = node.textContent.trim();
+                            if (/^\\d{1,2}:\\d{2}(\\s*(a|p)[\\.\\s]*m\\.?)?$/i.test(t)) msgTime = t;
+                        }
+                        if (!msgTime) continue;
+
+                        // Fecha
+                        let msgDate = '';
+                        let lastPPEl = null;
+                        for (const el of document.querySelectorAll('[data-pre-plain-text]')) {
+                            if (!(msgContainer.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING)) break;
+                            const m = el.getAttribute('data-pre-plain-text').match(/(\\d{1,2}\\/\\d{1,2}\\/\\d{4})/);
+                            if (m) { lastPPEl = el; msgDate = m[1]; }
+                        }
+                        for (const el of document.querySelectorAll('span')) {
+                            if (lastPPEl && !(lastPPEl.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
+                            if (!(msgContainer.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING)) break;
+                            const ownTxt = [...el.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent.trim()).join('').trim();
+                            if (!ownTxt || ownTxt.length > 60) continue;
+                            const low = ownTxt.toLowerCase()
+                                .replace(/\\u00e9/g,'e').replace(/\\u00e1/g,'a')
+                                .replace(/\\u00f3/g,'o').replace(/\\u00fa/g,'u');
+                            let sepDate = null;
+                            const fd = ownTxt.match(/(\\d{1,2})\\s+de\\s+(\\w+)\\s+de\\s+(\\d{4})/i);
+                            if (fd) {
+                                const d=parseInt(fd[1]), mo=_monthES[fd[2].toLowerCase()]||0, y=parseInt(fd[3]);
+                                if (mo) sepDate = d+'/'+mo+'/'+y;
+                            } else if (low === 'hoy') {
+                                sepDate = _today.getDate()+'/'+(_today.getMonth()+1)+'/'+_today.getFullYear();
+                            } else if (low === 'ayer') {
+                                const d2 = new Date(_today); d2.setDate(d2.getDate()-1);
+                                sepDate = d2.getDate()+'/'+(d2.getMonth()+1)+'/'+d2.getFullYear();
+                            } else if (_dayES[low] !== undefined) {
+                                const target = _dayES[low];
+                                let ago = (_today.getDay() - target + 7) % 7;
+                                if (ago === 0) ago = 7;
+                                const d3 = new Date(_today); d3.setDate(d3.getDate() - ago);
+                                sepDate = d3.getDate()+'/'+(d3.getMonth()+1)+'/'+d3.getFullYear();
+                            }
+                            if (sepDate) { msgDate = sepDate; break; }
+                        }
+
+                        const timeText = msgTime && msgDate ? msgTime + ', ' + msgDate : msgTime;
+                        if (!timeText) continue;
+
+                        const isOut = msgContainer.classList.contains('message-out');
+                        const prePlain = '[' + timeText + '] ';
+                        const key = prePlain + '|img';
+                        if (seen.has(key)) continue;
+                        seen.add(key);
+
+                        msgs.push({ source: 'image', idx: -1, prePlain, body: '[imagen]', isOut, msg_type: 'image' });
+                    }
+                    return msgs;
+                }
+                """
+
             raw_msgs_text = await page.evaluate(_extract_text_msgs_js())
             logger.info(f"[{session_id}] scrape '{contact_name}': {len(raw_msgs_text)} msgs texto en DOM (top)")
             # Dedup por (prePlain, body): al scrollear hacia abajo aparecen mensajes
@@ -1628,6 +1791,8 @@ class WhatsAppSession(BrowserAutomation):
             seen_audio_keys: set[str] = set()
             raw_msgs_docs = []
             seen_doc_keys: set[str] = set()
+            raw_msgs_images = []
+            seen_img_keys: set[str] = set()
             step = 400
             for pos in range(0, total_height + step, step):
                 await page.evaluate(f"""
@@ -1686,13 +1851,21 @@ class WhatsAppSession(BrowserAutomation):
                             if fn_m:
                                 fn = fn_m.group(1)
                                 await self._download_document_from_page(page, fn, doc_save_dir / fn)
+                # Capturar imágenes visibles en este paso
+                step_imgs = await page.evaluate(_extract_image_msgs_js())
+                for img in step_imgs:
+                    key = img["prePlain"] + "|img"
+                    if key not in seen_img_keys:
+                        seen_img_keys.add(key)
+                        raw_msgs_images.append(img)
 
             logger.info(
                 f"[{session_id}] scrape '{contact_name}': "
                 f"scroll completo ({total_height}px), "
                 f"{len(raw_msgs_text)} msgs texto total, "
                 f"{len(raw_msgs_audio)} msgs audio/voz encontrados, "
-                f"{len(raw_msgs_docs)} msgs documento encontrados"
+                f"{len(raw_msgs_docs)} msgs documento encontrados, "
+                f"{len(raw_msgs_images)} imgs encontradas"
             )
 
             # Scroll al fondo absoluto para asegurar que mensajes recientes
@@ -1711,6 +1884,7 @@ class WhatsAppSession(BrowserAutomation):
             bottom_texts = await page.evaluate(_extract_text_msgs_js())
             bottom_audios = await page.evaluate(f"() => {{ {_extract_audio_msgs_js()} }}")
             bottom_docs = await page.evaluate(_extract_document_msgs_js())
+            bottom_imgs = await page.evaluate(_extract_image_msgs_js())
             added_bottom = 0
             for t in bottom_texts:
                 key = t["prePlain"] + "|" + t["body"]
@@ -1730,11 +1904,17 @@ class WhatsAppSession(BrowserAutomation):
                     seen_doc_keys.add(key)
                     raw_msgs_docs.append(d)
                     added_bottom += 1
+            for img in bottom_imgs:
+                key = img["prePlain"] + "|img"
+                if key not in seen_img_keys:
+                    seen_img_keys.add(key)
+                    raw_msgs_images.append(img)
+                    added_bottom += 1
             if added_bottom:
                 logger.info(f"[{session_id}] scrape '{contact_name}': {added_bottom} msgs adicionales al scrollear al fondo")
 
-            # Combinar las tres partes: texto + audio + documentos
-            raw_msgs = raw_msgs_text + raw_msgs_audio + raw_msgs_docs
+            # Combinar: texto + audio + documentos + imágenes
+            raw_msgs = raw_msgs_text + raw_msgs_audio + raw_msgs_docs + raw_msgs_images
 
             # 4. Parsear timestamps del atributo data-pre-plain-text
             # Formatos reales (locale es-AR):
