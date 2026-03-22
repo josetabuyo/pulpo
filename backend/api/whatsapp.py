@@ -342,6 +342,12 @@ async def debug_idb(session_id: str):
     return result
 
 
+@router.get("/sync-status", dependencies=[Depends(require_admin)])
+async def sync_status():
+    """Retorna si hay un sync en curso."""
+    return {"running": _sync_running}
+
+
 @router.post("/full-sync", dependencies=[Depends(require_admin)])
 async def full_sync(background_tasks: BackgroundTasks):
     """

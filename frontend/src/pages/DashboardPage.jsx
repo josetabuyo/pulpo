@@ -302,6 +302,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [refreshLabel, setRefreshLabel] = useState('↺ Refresh')
   const [syncLabel, setSyncLabel] = useState('⟳ Re-Sync')
+  const [syncRunning, setSyncRunning] = useState(false)
   const [recentSyncLabel, setRecentSyncLabel] = useState('↑ Actualizar')
   const [simMode, setSimMode] = useState(false)
 
@@ -341,7 +342,21 @@ export default function DashboardPage() {
     })
     loadBots()
     const interval = setInterval(loadBots, 6000)
-    return () => clearInterval(interval)
+
+    // Polling del estado de sync para mantener botón deshabilitado mientras corre
+    const syncInterval = setInterval(async () => {
+      const s = await api('GET', '/sync-status', null, pwd).catch(() => null)
+      if (!s) return
+      setSyncRunning(prev => {
+        if (prev && !s.running) {
+          setSyncLabel('✓ Listo')
+          setTimeout(() => setSyncLabel('⟳ Re-Sync'), 3000)
+        }
+        return s.running
+      })
+    }, 3000)
+
+    return () => { clearInterval(interval); clearInterval(syncInterval) }
   }, [loadBots, pwd])
 
   function logout() {
@@ -360,9 +375,8 @@ export default function DashboardPage() {
 
   async function handleFullSync() {
     setSyncLabel('Sincronizando...')
+    setSyncRunning(true)
     await call('POST', '/full-sync')
-    setSyncLabel('✓ Sync iniciado')
-    setTimeout(() => setSyncLabel('⟳ Re-Sync'), 4000)
   }
 
   async function handleRecentSync() {
@@ -499,7 +513,7 @@ export default function DashboardPage() {
           <button className="btn-ghost btn-sm" onClick={handleRecentSync} disabled={recentSyncLabel === 'Actualizando...'} title="Captura los mensajes recientes visibles en cada chat (sin scroll histórico). Ideal tras un reinicio.">
             {recentSyncLabel}
           </button>
-          <button className="btn-ghost btn-sm" onClick={handleFullSync} disabled={syncLabel !== '⟳ Re-Sync'} title="Scrapea historial completo de todos los contactos WA">
+          <button className="btn-ghost btn-sm" onClick={handleFullSync} disabled={syncRunning} title="Scrapea historial completo de todos los contactos WA">
             {syncLabel}
           </button>
           <button className="btn-ghost btn-sm" onClick={logout}>Salir</button>
