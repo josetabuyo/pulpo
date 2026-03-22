@@ -8,14 +8,27 @@ from pydantic import BaseModel
 from sqlalchemy import text
 
 from db import AsyncSessionLocal
-from middleware_auth import require_empresa_auth
+from middleware_auth import get_empresa_bot_id
+from api.deps import ADMIN_PASSWORD
 from tools import summarizer
+from fastapi import Request, Header
 
 router = APIRouter()
 
+_ADMIN_SENTINEL = "__admin__"
 
-def _check_auth(empresa_id: str, token_bot_id: str = Depends(require_empresa_auth)) -> str:
-    if token_bot_id != empresa_id:
+
+def _require_empresa_or_admin(request: Request, x_password: str = Header(default=None)) -> str:
+    if x_password == ADMIN_PASSWORD:
+        return _ADMIN_SENTINEL
+    bot_id = get_empresa_bot_id(request)
+    if not bot_id:
+        raise HTTPException(status_code=401, detail="Token requerido o inválido")
+    return bot_id
+
+
+def _check_auth(empresa_id: str, token_bot_id: str = Depends(_require_empresa_or_admin)) -> str:
+    if token_bot_id != _ADMIN_SENTINEL and token_bot_id != empresa_id:
         raise HTTPException(status_code=403, detail="No autorizado para esta empresa")
     return token_bot_id
 

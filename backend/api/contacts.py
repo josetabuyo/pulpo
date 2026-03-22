@@ -1,13 +1,26 @@
 import re
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request, Header
 from pydantic import BaseModel
 from sqlalchemy import text
 
 import db
 from db import AsyncSessionLocal
-from middleware_auth import require_empresa_auth
+from middleware_auth import get_empresa_bot_id
+from api.deps import ADMIN_PASSWORD
 
 router = APIRouter()
+
+_ADMIN_SENTINEL = "__admin__"
+
+
+def _require_empresa_or_admin(request: Request, x_password: str = Header(default=None)) -> str:
+    """Acepta admin x-password o JWT de empresa. Retorna bot_id o '__admin__'."""
+    if x_password == ADMIN_PASSWORD:
+        return _ADMIN_SENTINEL
+    bot_id = get_empresa_bot_id(request)
+    if not bot_id:
+        raise HTTPException(status_code=401, detail="Token requerido o inválido")
+    return bot_id
 
 
 # ─── Validaciones ────────────────────────────────────────────────
@@ -46,18 +59,20 @@ class ContactUpdate(BaseModel):
 # ─── Endpoints ───────────────────────────────────────────────────
 
 def _check_auth(bot_id: str, token_bot_id: str):
+    if token_bot_id == _ADMIN_SENTINEL:
+        return  # admin puede acceder a cualquier empresa
     if token_bot_id != bot_id:
         raise HTTPException(403, "No autorizado para esta empresa")
 
 
 @router.get("/bots/{bot_id}/contacts")
-async def list_contacts(bot_id: str, token_bot_id: str = Depends(require_empresa_auth)):
+async def list_contacts(bot_id: str, token_bot_id: str = Depends(_require_empresa_or_admin)):
     _check_auth(bot_id, token_bot_id)
     return await db.get_contacts(bot_id)
 
 
 @router.post("/bots/{bot_id}/contacts", status_code=201)
-async def create_contact(bot_id: str, body: ContactIn, token_bot_id: str = Depends(require_empresa_auth)):
+async def create_contact(bot_id: str, body: ContactIn, token_bot_id: str = Depends(_require_empresa_or_admin)):
     _check_auth(bot_id, token_bot_id)
     name = body.name.strip()
     if not name:
@@ -82,7 +97,7 @@ async def create_contact(bot_id: str, body: ContactIn, token_bot_id: str = Depen
 
 
 @router.get("/contacts/{contact_id}")
-async def get_contact(contact_id: int, token_bot_id: str = Depends(require_empresa_auth)):
+async def get_contact(contact_id: int, token_bot_id: str = Depends(_require_empresa_or_admin)):
     contact = await db.get_contact(contact_id)
     if not contact:
         raise HTTPException(404, "Contacto no encontrado")
@@ -91,7 +106,7 @@ async def get_contact(contact_id: int, token_bot_id: str = Depends(require_empre
 
 
 @router.put("/contacts/{contact_id}")
-async def update_contact(contact_id: int, body: ContactUpdate, token_bot_id: str = Depends(require_empresa_auth)):
+async def update_contact(contact_id: int, body: ContactUpdate, token_bot_id: str = Depends(_require_empresa_or_admin)):
     contact = await db.get_contact(contact_id)
     if not contact:
         raise HTTPException(404, "Contacto no encontrado")
@@ -104,7 +119,7 @@ async def update_contact(contact_id: int, body: ContactUpdate, token_bot_id: str
 
 
 @router.delete("/contacts/{contact_id}", status_code=204)
-async def delete_contact(contact_id: int, token_bot_id: str = Depends(require_empresa_auth)):
+async def delete_contact(contact_id: int, token_bot_id: str = Depends(_require_empresa_or_admin)):
     contact = await db.get_contact(contact_id)
     if not contact:
         raise HTTPException(404, "Contacto no encontrado")
@@ -113,7 +128,7 @@ async def delete_contact(contact_id: int, token_bot_id: str = Depends(require_em
 
 
 @router.post("/contacts/{contact_id}/channels", status_code=201)
-async def add_channel(contact_id: int, body: ChannelIn, token_bot_id: str = Depends(require_empresa_auth)):
+async def add_channel(contact_id: int, body: ChannelIn, token_bot_id: str = Depends(_require_empresa_or_admin)):
     contact = await db.get_contact(contact_id)
     if not contact:
         raise HTTPException(404, "Contacto no encontrado")
@@ -131,14 +146,14 @@ async def add_channel(contact_id: int, body: ChannelIn, token_bot_id: str = Depe
 
 
 @router.delete("/contact-channels/{channel_id}", status_code=204)
-async def delete_channel(channel_id: int, token_bot_id: str = Depends(require_empresa_auth)):
+async def delete_channel(channel_id: int, token_bot_id: str = Depends(_require_empresa_or_admin)):
     ok = await db.delete_channel(channel_id)
     if not ok:
         raise HTTPException(404, "Canal no encontrado")
 
 
 @router.get("/bots/{bot_id}/contacts/suggested")
-async def suggested_contacts(bot_id: str, token_bot_id: str = Depends(require_empresa_auth)):
+async def suggested_contacts(bot_id: str, token_bot_id: str = Depends(_require_empresa_or_admin)):
     _check_auth(bot_id, token_bot_id)
     """Senders que escribieron pero no están en contact_channels (whatsapp)."""
     async with AsyncSessionLocal() as session:

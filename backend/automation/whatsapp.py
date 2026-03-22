@@ -240,6 +240,11 @@ class WhatsAppSession(BrowserAutomation):
         from config import get_empresas_for_bot
 
         recent_msgs: set[tuple[str, str]] = set()  # dedup entre JS y Python poll
+        # Cooldown de auto-reply: (session_id, sender) → timestamp del último envío.
+        # Previene mandar el fixed_message más de una vez por contacto en 24h.
+        import time as _time
+        _reply_cooldown: dict[tuple[str, str], float] = {}
+        _COOLDOWN_SECS = 86400  # 24 horas
 
         async def _on_message(phone: str, name: str, body: str, from_poll: bool = False, wa_ts_str: str = "") -> None:
             # Dedup: mismo (name, body) ya procesado recientemente.
@@ -406,6 +411,15 @@ class WhatsAppSession(BrowserAutomation):
             if not reply or body.strip() == reply.strip():
                 return
 
+            # Cooldown: no reenviar el auto-reply al mismo contacto en 24h
+            cooldown_key = (session_id, sender)
+            now = _time.time()
+            last_sent = _reply_cooldown.get(cooldown_key, 0)
+            if now - last_sent < _COOLDOWN_SECS:
+                logger.debug(f"[{session_id}] Cooldown activo para '{name}' — omitiendo reply")
+                return
+            _reply_cooldown[cooldown_key] = now
+
             # Enviamos en página temporal para no interrumpir el observer
             target = phone if phone else name
             ok = await self.send_message(session_id, target, reply)
@@ -428,7 +442,11 @@ class WhatsAppSession(BrowserAutomation):
             const seen = new Set();
             let lastOpenChatKey = '';
             const lastPreview = {};   // name → último body visto en sidebar
-            let sidebarReady = false; // primera pasada solo inicializa, no dispara
+            // Warmup: no disparar mensajes durante los primeros 30s tras arranque.
+            // sidebarReady=false inicializa lastPreview sin disparar.
+            // readyAt es el timestamp a partir del cual sí se procesan.
+            let sidebarReady = false;
+            const readyAt = Date.now() + 30000;
 
             function extractPhone(el) {
                 const anchor = el.closest('[data-id]') || el.closest('a[href]');
@@ -452,8 +470,10 @@ class WhatsAppSession(BrowserAutomation):
                     const body = spans[1].getAttribute('title').replace(/[\\u202a\\u202c]/g, '').trim();
                     if (!name || !body) continue;
 
-                    // Primera pasada: solo registrar estado, no disparar
-                    if (!sidebarReady) { lastPreview[name] = body; continue; }
+                    // Durante warmup: solo registrar estado, no disparar nunca.
+                    // Después del warmup: detectar cambios reales (mensajes nuevos).
+                    const inWarmup = !sidebarReady || Date.now() < readyAt;
+                    if (inWarmup) { lastPreview[name] = body; continue; }
 
                     const changed = lastPreview[name] !== body;
                     lastPreview[name] = body;
