@@ -281,6 +281,13 @@ class WhatsAppSession(BrowserAutomation):
             if summarizers or tool:
                 from db import find_contact_by_channel
                 contact = await find_contact_by_channel("whatsapp", sender)
+                # Si se resolvió por nombre (phone vacío), usar el teléfono real del canal
+                # para que el archivo del summarizer se nombre por teléfono, no por nombre.
+                if contact and not phone:
+                    _wa = next((c for c in contact.get("channels", [])
+                                if c["type"] == "whatsapp" and not c.get("is_group")), None)
+                    if _wa:
+                        sender = _wa["value"]
                 if contact:
                     ch = next((c for c in contact.get("channels", [])
                                if c["type"] == "whatsapp" and c.get("is_group")), None)
@@ -296,7 +303,9 @@ class WhatsAppSession(BrowserAutomation):
                 from datetime import datetime
 
                 # Detectar si es un audio (el sidebar WA Web muestra 🎵, 🎤 o "Audio")
-                _AUDIO_MARKERS = ("🎵", "🎤", "Audio", "audio", "Voice message")
+                # En español: "Mensaje de audio", "Mensaje de voz"; pollOpenChat inyecta "[audio:]"
+                _AUDIO_MARKERS = ("🎵", "🎤", "Audio", "audio", "Voice message",
+                                  "Mensaje de audio", "Mensaje de voz", "[audio:]")
                 # WA Web muestra la duración del audio ("0:01", "1:23") cuando el
                 # player no está cargado — mismo patrón que en scrape_full_history
                 import re as _re
@@ -570,6 +579,18 @@ class WhatsAppSession(BrowserAutomation):
                     const imgEl = lastMsg.querySelector('img[src^="blob:"]');
                     if (imgEl) {
                         body = '[img:]';
+                    }
+                }
+                // Si body vacío, verificar si es un audio/PTT
+                if (!body) {
+                    const audioEl = lastMsg.querySelector(
+                        '[data-icon="audio-play"], [data-icon="ptt-status"], ' +
+                        '[data-testid="audio-play"], [data-testid="ptt-status"]'
+                    );
+                    if (audioEl) {
+                        const durEl = lastMsg.querySelector('[data-testid="audio-duration"], span[aria-label]');
+                        const dur = durEl?.textContent?.trim() || '';
+                        body = /^\d{1,2}:\d{2}$/.test(dur) ? dur : '[audio:]';
                     }
                 }
                 if (!body) return;
