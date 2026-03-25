@@ -247,6 +247,11 @@ class WhatsAppSession(BrowserAutomation):
         _COOLDOWN_SECS = 86400  # 24 horas
 
         async def _on_message(phone: str, name: str, body: str, from_poll: bool = False, wa_ts_str: str = "") -> None:
+            # Filtrar placeholders de carga de WA Web ("Cargando...", etc.)
+            _LOADING_BODIES = {"Cargando...", "Loading...", "Cargando…", "Loading…"}
+            if body.strip() in _LOADING_BODIES:
+                return
+
             # Dedup: mismo (name, body) ya procesado recientemente.
             # from_poll=True viene del polling Python (sidebar preview): no agrega al
             # dedup compartido para no bloquear al listener JS que puede llegar después
@@ -521,7 +526,7 @@ class WhatsAppSession(BrowserAutomation):
                     seen.add(key);
                     setTimeout(() => seen.delete(key), 60000);
 
-                    try { await __waOnMessage('', name, body); }
+                    try { await __waOnMessage('', name, body, true); }
                     catch(e) { console.error('[Bot] Error (sidebar):', e); }
                 }
 
@@ -608,7 +613,7 @@ class WhatsAppSession(BrowserAutomation):
                 seen.add(key);
                 setTimeout(() => seen.delete(key), 60000);
 
-                try { await __waOnMessage('', name, body, waTs); }
+                try { await __waOnMessage('', name, body, false, waTs); }
                 catch(e) { console.error('[Bot] Error (open chat):', e); }
             }
 
