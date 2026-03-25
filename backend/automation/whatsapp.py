@@ -1743,7 +1743,13 @@ class WhatsAppSession(BrowserAutomation):
                     const _today = new Date();
 
                     // Imágenes sin caption: no tienen data-pre-plain-text en su contenedor
-                    const allMsgContainers = document.querySelectorAll('.message-in, .message-out');
+                    // Solo procesar elementos en el viewport actual para evitar re-detección de
+                    // mensajes viejos que siguen en el DOM mientras se scrollea a fechas más recientes.
+                    const allMsgContainers = [...document.querySelectorAll('.message-in, .message-out')]
+                        .filter(m => {
+                            const r = m.getBoundingClientRect();
+                            return r.bottom > -200 && r.top < window.innerHeight + 200;
+                        });
                     for (const msgContainer of allMsgContainers) {
                         if (msgContainer.querySelector('[data-pre-plain-text]')) continue;
                         const imgEl = msgContainer.querySelector('img[src^="blob:"]');
@@ -1849,6 +1855,7 @@ class WhatsAppSession(BrowserAutomation):
             seen_doc_keys: set[str] = set()
             raw_msgs_images = []
             seen_img_keys: set[str] = set()
+            seen_img_hashes: set[str] = set()  # dedup por contenido binario
             step = 400
             for pos in range(0, total_height + step, step):
                 await page.evaluate(f"""
@@ -1934,22 +1941,34 @@ class WhatsAppSession(BrowserAutomation):
                                 """, img_src)
                             except Exception:
                                 blob_b64 = None
-                        # Guardar imagen en disco
+                        # Guardar imagen en disco (con dedup por contenido)
                         if blob_b64:
                             import base64 as _b64_img
                             import time as _time_img
+                            import hashlib as _hashlib_img
+                            _img_bytes = _b64_img.b64decode(blob_b64)
+                            _img_hash = _hashlib_img.sha256(_img_bytes).hexdigest()
+                            if _img_hash in seen_img_hashes:
+                                logger.debug(f"[{session_id}] Imagen duplicada (mismo contenido) omitida: {img['prePlain']}")
+                                continue
+                            seen_img_hashes.add(_img_hash)
+                            # Filename estable basado en hash: el mismo archivo siempre
+                            # tiene el mismo nombre → el dedup del summarizer lo detecta
+                            # en syncs futuros sin limpiar el .md.
+                            _img_fn = f"img_{_img_hash[:16]}.jpg"
                             _img_dir = doc_save_dir if doc_save_dir else None
                             if _img_dir:
-                                _img_fn = f"img_{int(_time_img.time() * 1000)}.jpg"
                                 _img_path = _img_dir / _img_fn
-                                _img_path.write_bytes(_b64_img.b64decode(blob_b64))
+                                if not _img_path.exists():
+                                    _img_path.write_bytes(_img_bytes)
                                 img["body"] = f"[imagen guardada: {_img_fn}]"
                             else:
                                 import os as _os_img
-                                _img_path = f"/tmp/pulpo_img_{int(_time_img.time() * 1000)}.jpg"
-                                with open(_img_path, "wb") as _f:
-                                    _f.write(_b64_img.b64decode(blob_b64))
-                                img["body"] = f"[imagen guardada: {_os_img.path.basename(_img_path)}]"
+                                _img_path_str = f"/tmp/pulpo_img_{_img_fn}"
+                                if not _os_img.path.exists(_img_path_str):
+                                    with open(_img_path_str, "wb") as _f:
+                                        _f.write(_img_bytes)
+                                img["body"] = f"[imagen guardada: {_img_fn}]"
                             logger.info(f"[{session_id}] Imagen histórica descargada: {img['body']}")
                         else:
                             img["body"] = "[imagen — no disponible]"
