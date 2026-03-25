@@ -8,6 +8,7 @@ ya existe (previene duplicados por restarts o full-sync repetidos).
 """
 import hashlib
 import logging
+import shutil
 from pathlib import Path
 from datetime import datetime
 
@@ -89,12 +90,17 @@ def list_contacts(empresa_id: str) -> list[str]:
 
 
 def clear_empresa(empresa_id: str) -> None:
-    """Elimina todos los archivos .md de una empresa (para re-sync)."""
+    """Mueve todos los .md de una empresa a un backup (reemplaza el anterior)."""
     d = _BASE / empresa_id
     if not d.exists():
         return
+    bak = _BASE / f"{empresa_id}.bak"
+    if bak.exists():
+        shutil.rmtree(bak)
+    shutil.copytree(d, bak)
     for f in d.glob("*.md"):
         f.unlink()
+    logger.info("[summarizer] backup empresa %s → %s", empresa_id, bak)
     # Resetear dedup en memoria para esta empresa
     keys_to_remove = [k for k in _dedup_loaded if k[0] == empresa_id]
     for k in keys_to_remove:
@@ -103,8 +109,13 @@ def clear_empresa(empresa_id: str) -> None:
 
 
 def clear_contact(empresa_id: str, contact_phone: str) -> None:
-    """Elimina el archivo .md de un contacto específico."""
-    _path(empresa_id, contact_phone).unlink(missing_ok=True)
+    """Mueve el .md de un contacto a backup (reemplaza el anterior)."""
+    src = _path(empresa_id, contact_phone)
+    if src.exists():
+        bak = src.with_suffix(".bak.md")
+        shutil.copy2(src, bak)
+        src.unlink()
+        logger.info("[summarizer] backup contacto %s/%s → %s", empresa_id, contact_phone, bak)
     key = (empresa_id, contact_phone)
     _dedup_loaded.discard(key)
     _dedup.pop(key, None)
