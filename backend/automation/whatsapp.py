@@ -814,7 +814,7 @@ class WhatsAppSession(BrowserAutomation):
         from pathlib import Path
 
         try:
-            blob_b64 = await page.evaluate("""
+            _fetch_img_js = """
             async () => {
                 const msgs = document.querySelectorAll('[data-testid="msg-container"]');
                 for (let i = msgs.length - 1; i >= 0; i--) {
@@ -832,7 +832,15 @@ class WhatsAppSession(BrowserAutomation):
                 }
                 return null;
             }
-            """)
+            """
+            blob_b64 = None
+            for _attempt in range(2):
+                blob_b64 = await page.evaluate(_fetch_img_js)
+                if blob_b64:
+                    break
+                if _attempt == 0:
+                    logger.debug(f"[{session_id}] Imagen retry 2/2 para {sender_name}")
+                    await asyncio.sleep(1.5)
 
             if not blob_b64:
                 logger.debug(f"[{session_id}] _download_image_blob: sin blob para {sender_name}")
@@ -956,8 +964,10 @@ class WhatsAppSession(BrowserAutomation):
         import base64 as _b64
 
         try:
-            blob_b64 = await page.evaluate("""
-            async (prePlain) => {
+            blob_b64 = None
+            for _attempt in range(2):
+              blob_b64 = await page.evaluate("""
+              async (prePlain) => {
                 const tryFetch = async (audio) => {
                     if (!audio || !audio.src || !audio.src.startsWith('blob:')) return null;
                     try {
@@ -1015,7 +1025,12 @@ class WhatsAppSession(BrowserAutomation):
                 }
                 return null;
             }
-            """, pre_plain)
+              """, pre_plain)
+              if blob_b64:
+                  break
+              if _attempt == 0:
+                  logger.debug(f"[{session_id}] Audio preplain retry 2/2 para '{pre_plain[:40]}'")
+                  await asyncio.sleep(1.5)
 
             if not blob_b64:
                 logger.debug(f"[{session_id}] _download_audio_blob_by_preplain: sin blob para '{pre_plain[:50]}'")
@@ -1710,9 +1725,10 @@ class WhatsAppSession(BrowserAutomation):
             def _extract_image_msgs_js():
                 """Busca mensajes de imagen sin caption (sin data-pre-plain-text).
                 Las imágenes CON caption ya las captura _extract_text_msgs_js como texto.
+                Descarga el blob inline (async) y devuelve blobB64 + imgSrc para retry en Python.
                 """
                 return """
-                () => {
+                async () => {
                     const msgs = [];
                     const seen = new Set();
                     const _monthES = {
@@ -1788,7 +1804,21 @@ class WhatsAppSession(BrowserAutomation):
                         if (seen.has(key)) continue;
                         seen.add(key);
 
-                        msgs.push({ source: 'image', idx: -1, prePlain, body: '[imagen]', isOut, msg_type: 'image' });
+                        // Intentar descargar el blob inline mientras el elemento está visible
+                        let blobB64 = null;
+                        const imgSrc = imgEl.src;
+                        try {
+                            const resp = await fetch(imgEl.src);
+                            if (resp.ok) {
+                                const buf = await resp.arrayBuffer();
+                                const bytes = new Uint8Array(buf);
+                                let bin = '';
+                                for (let b of bytes) bin += String.fromCharCode(b);
+                                blobB64 = btoa(bin);
+                            }
+                        } catch(e) {}
+
+                        msgs.push({ source: 'image', idx: -1, prePlain, body: '[imagen]', isOut, msg_type: 'image', blobB64, imgSrc });
                     }
                     return msgs;
                 }
@@ -1877,12 +1907,53 @@ class WhatsAppSession(BrowserAutomation):
                             if fn_m:
                                 fn = fn_m.group(1)
                                 await self._download_document_from_page(page, fn, doc_save_dir / fn)
-                # Capturar imágenes visibles en este paso
+                # Capturar imágenes visibles en este paso y descargar blob inline
                 step_imgs = await page.evaluate(_extract_image_msgs_js())
                 for img in step_imgs:
                     key = img["prePlain"] + "|img"
                     if key not in seen_img_keys:
                         seen_img_keys.add(key)
+                        blob_b64 = img.get("blobB64")
+                        img_src = img.get("imgSrc")
+                        # Retry: si el blob no cargó aún, esperar y reintentar con la URL guardada
+                        if not blob_b64 and img_src:
+                            await page.wait_for_timeout(1500)
+                            try:
+                                blob_b64 = await page.evaluate("""
+                                async (src) => {
+                                    try {
+                                        const resp = await fetch(src);
+                                        if (!resp.ok) return null;
+                                        const buf = await resp.arrayBuffer();
+                                        const bytes = new Uint8Array(buf);
+                                        let bin = '';
+                                        for (let b of bytes) bin += String.fromCharCode(b);
+                                        return btoa(bin);
+                                    } catch(e) { return null; }
+                                }
+                                """, img_src)
+                            except Exception:
+                                blob_b64 = None
+                        # Guardar imagen en disco
+                        if blob_b64:
+                            import base64 as _b64_img
+                            import time as _time_img
+                            _img_dir = doc_save_dir if doc_save_dir else None
+                            if _img_dir:
+                                _img_fn = f"img_{int(_time_img.time() * 1000)}.jpg"
+                                _img_path = _img_dir / _img_fn
+                                _img_path.write_bytes(_b64_img.b64decode(blob_b64))
+                                img["body"] = f"[imagen guardada: {_img_fn}]"
+                            else:
+                                import os as _os_img
+                                _img_path = f"/tmp/pulpo_img_{int(_time_img.time() * 1000)}.jpg"
+                                with open(_img_path, "wb") as _f:
+                                    _f.write(_b64_img.b64decode(blob_b64))
+                                img["body"] = f"[imagen guardada: {_os_img.path.basename(_img_path)}]"
+                            logger.info(f"[{session_id}] Imagen histórica descargada: {img['body']}")
+                        else:
+                            img["body"] = "[imagen — no disponible]"
+                            logger.debug(f"[{session_id}] Imagen histórica: blob no accesible")
                         raw_msgs_images.append(img)
 
             logger.info(

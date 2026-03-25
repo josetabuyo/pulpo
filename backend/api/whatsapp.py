@@ -499,11 +499,18 @@ async def _run_sync(scroll_rounds: int = 50) -> None:
                                     ts_dt = _dt.strptime(msg["timestamp"], "%Y-%m-%d %H:%M:%S")
                                 except (ValueError, TypeError):
                                     ts_dt = _dt.now()
+                                # Validación: descartar body vacío o placeholder puro
+                                if not body or not body.strip():
+                                    continue
                                 sum_body = body
                                 sum_type = msg.get("msg_type", "text")
                                 if sum_body in ("[audio]", "[media]"):
                                     sum_body = "[audio — sin blob, requiere descarga manual]"
                                     sum_type = "audio"
+                                elif sum_body == "[imagen]":
+                                    # Imagen sin descarga (debería no ocurrir con el nuevo pipeline)
+                                    sum_body = "[imagen — no disponible]"
+                                    sum_type = "image"
                                 _summarizer.accumulate(
                                     empresa_id=eid,
                                     contact_phone=phone,
