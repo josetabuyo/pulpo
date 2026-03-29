@@ -89,7 +89,7 @@ async def init_db():
                 id                   INTEGER PRIMARY KEY AUTOINCREMENT,
                 empresa_id           TEXT NOT NULL,
                 nombre               TEXT NOT NULL,
-                tipo                 TEXT NOT NULL CHECK(tipo IN ('fixed_message', 'summarizer')),
+                tipo                 TEXT NOT NULL CHECK(tipo IN ('fixed_message', 'summarizer', 'assistant', 'flow')),
                 config               TEXT NOT NULL,
                 incluir_desconocidos INTEGER NOT NULL DEFAULT 0,
                 exclusiva            INTEGER NOT NULL DEFAULT 0,
@@ -97,18 +97,18 @@ async def init_db():
                 created_at           DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """))
-        # Migración: si la tabla existe con el CHECK antiguo (sin 'summarizer'), recrearla
+        # Migración: si la tabla existe sin 'assistant'/'summarizer'/'flow' en el CHECK, recrearla
         schema_row = (await conn.execute(
             text("SELECT sql FROM sqlite_master WHERE type='table' AND name='tools'")
         )).fetchone()
-        if schema_row and "'summarizer'" not in schema_row[0]:
+        if schema_row and ("'assistant'" not in schema_row[0] or "'summarizer'" not in schema_row[0] or "'flow'" not in schema_row[0]):
             await conn.execute(text("ALTER TABLE tools RENAME TO _tools_bak"))
             await conn.execute(text("""
                 CREATE TABLE tools (
                     id                   INTEGER PRIMARY KEY AUTOINCREMENT,
                     empresa_id           TEXT NOT NULL,
                     nombre               TEXT NOT NULL,
-                    tipo                 TEXT NOT NULL CHECK(tipo IN ('fixed_message', 'summarizer')),
+                    tipo                 TEXT NOT NULL CHECK(tipo IN ('fixed_message', 'summarizer', 'assistant', 'flow')),
                     config               TEXT NOT NULL,
                     incluir_desconocidos INTEGER NOT NULL DEFAULT 0,
                     exclusiva            INTEGER NOT NULL DEFAULT 0,
@@ -147,6 +147,56 @@ async def init_db():
                 PRIMARY KEY (tool_id, contact_id)
             )
         """))
+
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS jobs (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                empresa_id        TEXT NOT NULL,
+                cliente_phone     TEXT NOT NULL,
+                cliente_name      TEXT,
+                canal             TEXT NOT NULL,
+                oficio            TEXT NOT NULL,
+                trabajador_id     TEXT,
+                trabajador_nombre TEXT,
+                status            TEXT NOT NULL DEFAULT 'pending',
+                created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_jobs_empresa_id ON jobs(empresa_id)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)"
+        ))
+
+async def create_job(
+    empresa_id: str,
+    cliente_phone: str,
+    canal: str,
+    oficio: str,
+    trabajador_id: str | None = None,
+    trabajador_nombre: str | None = None,
+    cliente_name: str | None = None,
+) -> int:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            text("""
+                INSERT INTO jobs (empresa_id, cliente_phone, cliente_name, canal, oficio, trabajador_id, trabajador_nombre)
+                VALUES (:empresa_id, :cliente_phone, :cliente_name, :canal, :oficio, :trabajador_id, :trabajador_nombre)
+            """),
+            {
+                "empresa_id": empresa_id,
+                "cliente_phone": cliente_phone,
+                "cliente_name": cliente_name,
+                "canal": canal,
+                "oficio": oficio,
+                "trabajador_id": trabajador_id,
+                "trabajador_nombre": trabajador_nombre,
+            },
+        )
+        await session.commit()
+        return result.lastrowid
 
 async def log_message(bot_id: str, bot_phone: str, phone: str, name: str | None, body: str) -> int:
     async with AsyncSessionLocal() as session:

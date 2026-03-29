@@ -1,0 +1,63 @@
+{
+  "empresa_id": "luganense",
+  "oficios": {
+    "herrero": [
+      {
+        "id": "gm_herreria_gregorio",
+        "nombre": "Gregorio (GM Herrería)",
+        "telegram_id": null,
+        "whatsapp": "5491124778975",
+        "zona": "Villa Lugano",
+        "activo": true
+      },
+      {
+        "id": "gm_herreria_milito",
+        "nombre": "Milito (GM Herrería)",
+        "telegram_id": null,
+        "whatsapp": "5491171876959",
+        "zona": "Villa Lugano",
+        "activo": true
+      }
+    ],
+    "electricista": [
+      {
+        "id": "gm_electrico_gregorio",
+        "nombre": "Gregorio (GM Electricidad)",
+        "telegram_id": null,
+        "whatsapp": "5491124778975",
+        "zona": "Villa Lugano",
+        "activo": true
+      }
+    ],
+    "albanil": [
+      {
+        "id": "albanil_lugano_1",
+        "nombre": "Carlos Pérez",
+        "telegram_id": null,
+        "whatsapp": null,
+        "zona": "Villa Lugano",
+        "activo": false
+      }
+    ],
+    "plomero": [
+      {
+        "id": "plomero_lugano_1",
+        "nombre": "Roberto Gómez",
+        "telegram_id": null,
+        "whatsapp": null,
+        "zona": "Villa Lugano",
+        "activo": false
+      }
+    ],
+    "pintor": [
+      {
+        "id": "pintor_lugano_1",
+        "nombre": "Miguel Torres",
+        "telegram_id": null,
+        "whatsapp": null,
+        "zona": "Villa Lugano",
+        "activo": false
+      }
+    ]
+  }
+}

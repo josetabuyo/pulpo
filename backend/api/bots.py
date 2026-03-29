@@ -8,6 +8,30 @@ from state import clients
 router = APIRouter()
 
 
+class BotCreate(BaseModel):
+    id: str
+    name: str
+    password: str
+
+
+@router.post("/bots", dependencies=[Depends(require_admin)], status_code=201)
+def create_bot(body: BotCreate):
+    if not body.id.strip() or not body.name.strip() or not body.password.strip():
+        raise HTTPException(status_code=400, detail="id, name y password son requeridos")
+    config = load_config()
+    if any(b["id"] == body.id for b in config.get("bots", [])):
+        raise HTTPException(status_code=409, detail="Ya existe una empresa con ese id")
+    config.setdefault("bots", []).append({
+        "id": body.id,
+        "name": body.name,
+        "password": body.password,
+        "phones": [],
+        "telegram": [],
+    })
+    save_config(config)
+    return {"ok": True, "id": body.id}
+
+
 @router.get("/bots", dependencies=[Depends(require_admin)])
 def get_bots():
     config = load_config()
