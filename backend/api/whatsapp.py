@@ -9,8 +9,11 @@ Flujo de "Vincular QR":
   3. GET  /status/{session_id} → estado actual de la sesión
 """
 import base64
+from datetime import date
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+from pydantic import BaseModel
 
 from api.deps import require_admin, require_client
 from config import load_config
@@ -348,26 +351,23 @@ async def sync_status():
     return {"running": _sync_running}
 
 
+class FullSyncBody(BaseModel):
+    from_date: Optional[date] = None
+    contact_phone: Optional[str] = None
+
+
 @router.post("/full-sync", dependencies=[Depends(require_admin)])
-async def full_sync(background_tasks: BackgroundTasks):
+async def full_sync(background_tasks: BackgroundTasks, body: FullSyncBody = None):
     """
     Scrapea el historial completo de todos los contactos/grupos WA registrados
     y guarda los mensajes históricos en la DB (idempotente — no duplica).
+    Acepta from_date y contact_phone opcionales para limitar el scope.
     Corre en background; retorna inmediatamente.
     """
-    background_tasks.add_task(_run_sync, scroll_rounds=50)
+    if body is None:
+        body = FullSyncBody()
+    background_tasks.add_task(_run_sync, from_date=body.from_date, contact_phone=body.contact_phone)
     return {"ok": True, "message": "Full sync iniciado en background"}
-
-
-@router.post("/recent-sync", dependencies=[Depends(require_admin)])
-async def recent_sync(background_tasks: BackgroundTasks):
-    """
-    Captura solo los mensajes visibles actualmente en cada chat (sin scroll histórico).
-    Ideal para ponerse al día después de un reinicio. El dedup evita duplicados.
-    Corre en background; retorna inmediatamente.
-    """
-    background_tasks.add_task(_run_sync, scroll_rounds=0)
-    return {"ok": True, "message": "Recent sync iniciado en background"}
 
 
 async def _contact_has_summarizer(empresa_id: str, contact_id: int, contact_name: str) -> bool:
@@ -398,14 +398,14 @@ async def _contact_has_summarizer(empresa_id: str, contact_id: int, contact_name
 _sync_running = False
 
 
-async def _run_sync(scroll_rounds: int = 50) -> None:
+async def _run_sync(from_date: "date | None" = None, contact_phone: "str | None" = None, scroll_rounds: int = 50) -> None:
     global _sync_running
     import logging
     from db import log_message_historic, get_contacts
     from config import get_empresas_for_bot
 
     _log = logging.getLogger(__name__)
-    mode = "full-sync" if scroll_rounds > 0 else "recent-sync"
+    mode = "full-sync"
     if _sync_running:
         _log.info(f"[{mode}] Ya hay un sync en curso, ignorando.")
         return
@@ -435,6 +435,9 @@ async def _run_sync(scroll_rounds: int = 50) -> None:
                         wa_chs = [ch for ch in contact.get("channels", []) if ch["type"] == "whatsapp"]
                         if not wa_chs:
                             continue
+                        # Filtrar por contact_phone si se especificó
+                        if contact_phone and not any(ch["value"] == contact_phone for ch in wa_chs):
+                            continue
                         has_sum = await _contact_has_summarizer(eid, contact["id"], contact["name"])
                         if not has_sum:
                             _log.info(f"[{mode}] Saltando '{contact['name']}' — sin summarizer activo.")
@@ -463,7 +466,7 @@ async def _run_sync(scroll_rounds: int = 50) -> None:
                 # Carpeta para adjuntos: usa el primer canal WA del contacto
                 _first_phone = wa_channels[0]["value"] if wa_channels else None
                 _doc_dir = _summarizer.get_attachments_dir(item["summarizer_eid"], _first_phone) if _first_phone else None
-                messages = await wa_session.scrape_full_history(session_id, contact_name, scroll_rounds=scroll_rounds, doc_save_dir=_doc_dir)
+                messages = await wa_session.scrape_full_history(session_id, contact_name, scroll_rounds=scroll_rounds, doc_save_dir=_doc_dir, from_date=from_date)
                 # Ordenar cronológicamente antes de acumular: el scrape devuelve
                 # textos (Part A) + audios (Part B) concatenados, no mezclados por fecha.
                 messages.sort(key=lambda m: m.get("timestamp") or "")
@@ -480,47 +483,159 @@ async def _run_sync(scroll_rounds: int = 50) -> None:
                             body = msg["body"]
 
                         outbound = 1 if msg.get("is_outbound") else 0
+                        eid = item["summarizer_eid"]
 
-                        for eid in eids:
-                            saved = await log_message_historic(
-                                eid, bot_phone, phone, contact_name,
-                                body, msg["timestamp"], outbound,
-                                replace_audio=True,
+                        saved = await log_message_historic(
+                            eid, bot_phone, phone, contact_name,
+                            body, msg["timestamp"], outbound,
+                            replace_audio=True,
+                        )
+                        if saved:
+                            total += 1
+
+                        if body and body.strip():
+                            from datetime import datetime as _dt
+                            try:
+                                ts_dt = _dt.strptime(msg["timestamp"], "%Y-%m-%d %H:%M:%S")
+                            except (ValueError, TypeError):
+                                ts_dt = _dt.now()
+                            sum_body = body
+                            sum_type = msg.get("msg_type", "text")
+                            if sum_body in ("[audio]", "[media]"):
+                                sum_body = "[audio — sin blob, requiere descarga manual]"
+                                sum_type = "audio"
+                            elif sum_body == "[imagen]":
+                                sum_body = "[imagen — no disponible]"
+                                sum_type = "image"
+                            _summarizer.accumulate(
+                                empresa_id=eid,
+                                contact_phone=phone,
+                                contact_name=contact_name,
+                                msg_type=sum_type,
+                                content=sum_body,
+                                timestamp=ts_dt,
                             )
-                            if saved:
-                                total += 1
-
-                            # Alimentar summarizer: entrantes siempre; salientes solo en grupos
-                            # (en grupos todos los participantes son relevantes, incluido el bot)
-                            include_in_summary = (not outbound) or (is_group and outbound)
-                            if include_in_summary and eid == item["summarizer_eid"]:
-                                from datetime import datetime as _dt
-                                try:
-                                    ts_dt = _dt.strptime(msg["timestamp"], "%Y-%m-%d %H:%M:%S")
-                                except (ValueError, TypeError):
-                                    ts_dt = _dt.now()
-                                # Validación: descartar body vacío o placeholder puro
-                                if not body or not body.strip():
-                                    continue
-                                sum_body = body
-                                sum_type = msg.get("msg_type", "text")
-                                if sum_body in ("[audio]", "[media]"):
-                                    sum_body = "[audio — sin blob, requiere descarga manual]"
-                                    sum_type = "audio"
-                                elif sum_body == "[imagen]":
-                                    # Imagen sin descarga (debería no ocurrir con el nuevo pipeline)
-                                    sum_body = "[imagen — no disponible]"
-                                    sum_type = "image"
-                                _summarizer.accumulate(
-                                    empresa_id=eid,
-                                    contact_phone=phone,
-                                    contact_name=contact_name,
-                                    msg_type=sum_type,
-                                    content=sum_body,
-                                    timestamp=ts_dt,
-                                )
 
         _log.info(f"[{mode}] Completado. {total} mensajes nuevos importados.")
+    except Exception as _e:
+        _log.exception(f"[{mode}] Error inesperado: {_e}")
+    finally:
+        _sync_running = False
+
+
+async def _run_delta_sync(contact_phone: "str | None" = None) -> None:
+    """
+    Sync incremental: para cada contacto con summarizer activo, escanea mensajes
+    de más nuevo a más viejo y para en cuanto encuentra uno ya guardado en DB.
+    No resetea el .md ni los sumarios — solo agrega lo nuevo.
+    Reporta por contacto: cuántos nuevos, dónde paró.
+    """
+    global _sync_running
+    import logging
+    from db import log_message_historic, get_contacts
+    from config import get_empresas_for_bot
+
+    _log = logging.getLogger(__name__)
+    mode = "delta-sync"
+    if _sync_running:
+        _log.info(f"[{mode}] Ya hay un sync en curso, ignorando.")
+        return
+    _sync_running = True
+    _log.info(f"[{mode}] Iniciando...")
+    try:
+        for session_id, state in list(clients.items()):
+            if state.get("type") != "whatsapp":
+                continue
+            if state.get("status") != "ready":
+                _log.info(f"[{mode}] Sesión {session_id} no está lista, saltando.")
+                continue
+
+            bot_phone = session_id
+            empresa_ids = get_empresas_for_bot(bot_phone)
+            if not empresa_ids:
+                empresa_ids = [state.get("bot_id", "")]
+
+            contacts_to_sync: list[dict] = []
+            seen_contact_names: set[str] = set()
+            for eid in empresa_ids:
+                for contact in await get_contacts(eid):
+                    if contact["name"] in seen_contact_names:
+                        continue
+                    wa_chs = [ch for ch in contact.get("channels", []) if ch["type"] == "whatsapp"]
+                    if not wa_chs:
+                        continue
+                    if contact_phone and not any(ch["value"] == contact_phone for ch in wa_chs):
+                        continue
+                    has_sum = await _contact_has_summarizer(eid, contact["id"], contact["name"])
+                    if not has_sum:
+                        continue
+                    seen_contact_names.add(contact["name"])
+                    contacts_to_sync.append({"contact": contact, "empresa_ids": empresa_ids, "summarizer_eid": eid})
+
+            for item in contacts_to_sync:
+                contact = item["contact"]
+                eids = item["empresa_ids"]
+                contact_name = contact["name"]
+                wa_channels = [ch for ch in contact.get("channels", []) if ch["type"] == "whatsapp"]
+
+                from tools import summarizer as _summarizer
+                _first_phone = wa_channels[0]["value"] if wa_channels else None
+                _doc_dir = _summarizer.get_attachments_dir(item["summarizer_eid"], _first_phone) if _first_phone else None
+
+                _log.info(f"[{mode}] Escaneando '{contact_name}'...")
+                # Scrapear con scroll limitado (delta, no full-history)
+                messages = await wa_session.scrape_full_history(
+                    session_id, contact_name, scroll_rounds=10, doc_save_dir=_doc_dir
+                )
+                # Ordenar de más nuevo a más viejo para parar en el primer existente
+                messages.sort(key=lambda m: m.get("timestamp") or "", reverse=True)
+
+                new_count = 0
+                stop_ts = None
+                for msg in messages:
+                    for ch in wa_channels:
+                        phone = ch["value"]
+                        is_group = ch.get("is_group", False)
+                        if is_group and msg.get("sender"):
+                            body = f"{msg['sender']}: {msg['body']}"
+                        else:
+                            body = msg["body"]
+                        outbound = 1 if msg.get("is_outbound") else 0
+
+                        # Intentar guardar en el primer empresa_id con summarizer
+                        eid = item["summarizer_eid"]
+                        saved = await log_message_historic(
+                            eid, bot_phone, phone, contact_name,
+                            body, msg["timestamp"], outbound,
+                            replace_audio=True,
+                        )
+                        if not saved:
+                            # Primer mensaje ya existente → este es el punto de corte
+                            stop_ts = msg["timestamp"]
+                            break
+                        new_count += 1
+
+                        if body and body.strip():
+                            from datetime import datetime as _dt
+                            try:
+                                ts_dt = _dt.strptime(msg["timestamp"], "%Y-%m-%d %H:%M:%S")
+                            except (ValueError, TypeError):
+                                ts_dt = _dt.now()
+                            _summarizer.accumulate(
+                                empresa_id=eid,
+                                contact_phone=phone,
+                                contact_name=contact_name,
+                                msg_type=msg.get("msg_type", "text"),
+                                content=body,
+                                timestamp=ts_dt,
+                            )
+                    else:
+                        continue
+                    break  # parar en cuanto un canal encuentra el primer existente
+
+                _log.info(f"[{mode}] '{contact_name}': {new_count} nuevos, paró en {stop_ts or 'tope del chat'}")
+
+        _log.info(f"[{mode}] Completado.")
     except Exception as _e:
         _log.exception(f"[{mode}] Error inesperado: {_e}")
     finally:

@@ -15,6 +15,7 @@ from bots.telegram_bot import build_telegram_app
 from state import clients, wa_session
 from api.whatsapp import _connect_and_get_qr, _get_wa_config
 
+from api.whatsapp import _run_delta_sync
 from api.auth import router as auth_router
 from api.auth_empresa import router as auth_empresa_router, limiter as empresa_limiter
 from api.bots import router as bots_router
@@ -103,6 +104,13 @@ async def lifespan(app: FastAPI):
                     asyncio.create_task(_connect_and_get_qr(number, bot["id"]))
                 else:
                     logger.info(f"[{number}] Sin perfil guardado — esperando escaneo de QR manual.")
+
+        # Delta sync al arrancar: captura mensajes perdidos desde el último reinicio
+        async def _startup_delta_sync():
+            await asyncio.sleep(15)  # esperar que los bots reconecten
+            await _run_delta_sync()
+
+        asyncio.create_task(_startup_delta_sync())
 
     yield
 

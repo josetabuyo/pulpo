@@ -94,9 +94,15 @@ async def init_db():
                 incluir_desconocidos INTEGER NOT NULL DEFAULT 0,
                 exclusiva            INTEGER NOT NULL DEFAULT 0,
                 activa               INTEGER NOT NULL DEFAULT 1,
-                created_at           DATETIME DEFAULT CURRENT_TIMESTAMP
+                created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
+                activated_at         DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """))
+        # Migración: agregar activated_at si no existe en tabla tools existente
+        cols = [r[1] for r in (await conn.execute(text("PRAGMA table_info(tools)"))).fetchall()]
+        if "activated_at" not in cols:
+            await conn.execute(text("ALTER TABLE tools ADD COLUMN activated_at DATETIME"))
+            await conn.execute(text("UPDATE tools SET activated_at = created_at WHERE activated_at IS NULL"))
         # Migración: si la tabla existe con el CHECK antiguo (sin 'summarizer'), recrearla
         schema_row = (await conn.execute(
             text("SELECT sql FROM sqlite_master WHERE type='table' AND name='tools'")
@@ -470,6 +476,7 @@ def _tool_row_to_dict(row, details: dict) -> dict:
         "exclusiva": bool(row[6]),
         "activa": bool(row[7]),
         "created_at": str(row[8]),
+        "activated_at": str(row[9]) if len(row) > 9 and row[9] else str(row[8]),
         **d,
     }
 
@@ -490,7 +497,7 @@ async def create_tool(empresa_id: str, nombre: str, tipo: str, config: dict,
 async def get_tools(empresa_id: str) -> list[dict]:
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(
-            text("SELECT id,empresa_id,nombre,tipo,config,incluir_desconocidos,exclusiva,activa,created_at "
+            text("SELECT id,empresa_id,nombre,tipo,config,incluir_desconocidos,exclusiva,activa,created_at,activated_at "
                  "FROM tools WHERE empresa_id=:e ORDER BY id"),
             {"e": empresa_id},
         )).fetchall()
@@ -503,7 +510,7 @@ async def get_tools(empresa_id: str) -> list[dict]:
 async def get_tool(tool_id: int) -> dict | None:
     async with AsyncSessionLocal() as session:
         row = (await session.execute(
-            text("SELECT id,empresa_id,nombre,tipo,config,incluir_desconocidos,exclusiva,activa,created_at "
+            text("SELECT id,empresa_id,nombre,tipo,config,incluir_desconocidos,exclusiva,activa,created_at,activated_at "
                  "FROM tools WHERE id=:id"),
             {"id": tool_id},
         )).fetchone()
@@ -523,6 +530,11 @@ async def update_tool(tool_id: int, **kwargs) -> bool:
     for k in ("incluir_desconocidos", "exclusiva", "activa"):
         if k in updates:
             updates[k] = int(updates[k])
+    # Actualizar activated_at cuando la tool se activa o se modifica su scope
+    _triggers_activation = {"activa", "incluir_desconocidos", "exclusiva"}
+    if _triggers_activation & set(updates.keys()):
+        from datetime import datetime as _dt
+        updates["activated_at"] = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
     set_clause = ", ".join(f"{k}=:{k}" for k in updates)
     updates["id"] = tool_id
     async with AsyncSessionLocal() as session:
@@ -531,6 +543,17 @@ async def update_tool(tool_id: int, **kwargs) -> bool:
         )
         await session.commit()
         return result.rowcount > 0
+
+
+async def get_last_message_body(bot_id: str, phone: str) -> str | None:
+    """Retorna el body del mensaje más reciente guardado para este contacto en este bot."""
+    async with AsyncSessionLocal() as session:
+        row = (await session.execute(
+            text("SELECT body FROM messages WHERE bot_id=:bot_id AND phone=:phone "
+                 "ORDER BY timestamp DESC LIMIT 1"),
+            {"bot_id": bot_id, "phone": phone},
+        )).fetchone()
+        return row[0] if row else None
 
 
 async def delete_tool(tool_id: int) -> bool:
@@ -579,7 +602,7 @@ async def get_active_tools_for_bot(bot_id: str, empresa_id: str) -> list[dict]:
         rows = (await session.execute(
             text("""
                 SELECT DISTINCT t.id,t.empresa_id,t.nombre,t.tipo,t.config,
-                       t.incluir_desconocidos,t.exclusiva,t.activa,t.created_at
+                       t.incluir_desconocidos,t.exclusiva,t.activa,t.created_at,t.activated_at
                 FROM tools t
                 LEFT JOIN tool_connections tc ON tc.tool_id = t.id
                 WHERE t.empresa_id = :empresa_id

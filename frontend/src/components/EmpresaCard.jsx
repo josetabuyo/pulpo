@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import SimChat from '../SimChat.jsx'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────
@@ -68,25 +68,68 @@ function Toggle({ checked, onChange, disabled }) {
 
 // ─── SummaryModal ─────────────────────────────────────────────────────────────
 
-function SummaryModal({ botId, tool, apiCall, adminPwd, onClose }) {
-  const [contacts, setContacts] = useState(null)
+function SummaryModal({ botId, tool, allContacts, apiCall, adminPwd, onClose }) {
+  const [phones, setPhones] = useState(null)
   const [selected, setSelected] = useState(null)
   const [content, setContent] = useState('')
   const [loading, setLoading] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const defaultFromDate = (() => {
+    const d = new Date(); d.setDate(d.getDate() - 30)
+    return d.toISOString().split('T')[0]
+  })()
+  const [fromDate, setFromDate] = useState(defaultFromDate)
+
+  // Mapeo identificador (phone / telegram id) → nombre de contacto
+  const phoneToName = useMemo(() => {
+    const map = {}
+    for (const c of (allContacts || [])) {
+      for (const ch of (c.channels || [])) {
+        if (ch.type === 'whatsapp' || ch.type === 'telegram') map[ch.value] = c.name
+      }
+    }
+    return map
+  }, [allContacts])
+
+  // IDs de contacto de esta herramienta (vacío = todos)
+  const toolContactIds = useMemo(() =>
+    new Set((tool.contactos_incluidos || []).map(String)),
+    [tool]
+  )
+
+  // Teléfonos de los contactos de esta herramienta
+  const toolPhones = useMemo(() => {
+    if (toolContactIds.size === 0) return null // null = sin filtro
+    const set = new Set()
+    for (const c of (allContacts || [])) {
+      if (toolContactIds.has(String(c.id))) {
+        for (const ch of (c.channels || [])) {
+          if (ch.type === 'whatsapp') set.add(ch.value)
+        }
+      }
+    }
+    return set
+  }, [allContacts, toolContactIds])
 
   const loadList = useCallback(() => {
     apiCall('GET', `/summarizer/${botId}`, null)
-      .then(r => setContacts(r?.contacts ?? []))
-      .catch(() => setContacts([]))
-  }, [botId, apiCall])
+      .then(r => {
+        const all = r?.contacts ?? []
+        // Filtrar por contactos de esta herramienta si corresponde
+        const filtered = toolPhones ? all.filter(p => toolPhones.has(p)) : all
+        setPhones(filtered)
+      })
+      .catch(() => setPhones([]))
+  }, [botId, apiCall, toolPhones])
 
   useEffect(() => { loadList() }, [loadList])
 
   async function handleSync() {
     setSyncing(true)
-    const body = selected ? { contact_phone: selected } : {}
-    await apiCall('POST', `/summarizer/${botId}/sync`, body).catch(() => null)
+    const body = {}
+    if (selected) body.contact_phone = selected
+    if (fromDate) body.from_date = fromDate
+    await apiCall('POST', `/full-sync`, body).catch(() => null)
     setSyncing(false)
     loadList()
     if (selected) viewContact(selected)
@@ -109,6 +152,8 @@ function SummaryModal({ botId, tool, apiCall, adminPwd, onClose }) {
     setLoading(false)
   }
 
+  const selectedName = selected ? (phoneToName[selected] || selected) : null
+
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal-box" style={{ width: 620 }}>
@@ -116,19 +161,22 @@ function SummaryModal({ botId, tool, apiCall, adminPwd, onClose }) {
           <span>Resúmenes — {tool.nombre}</span>
           <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
         </div>
-        {contacts === null
+        {phones === null
           ? <div className="empty">Cargando...</div>
-          : contacts.length === 0
+          : phones.length === 0
             ? <div className="empty" style={{ padding: 20 }}>Sin resúmenes acumulados aún</div>
             : (
               <div style={{ display: 'flex', gap: 12, minHeight: 200 }}>
                 <div style={{ width: 160, flexShrink: 0, borderRight: '1px solid #eee', paddingRight: 8 }}>
-                  {contacts.map(phone => (
+                  {phones.map(phone => (
                     <button key={phone}
                       className={`btn-ghost btn-sm${selected === phone ? ' ec-btn-active' : ''}`}
-                      style={{ display: 'block', width: '100%', textAlign: 'left', marginBottom: 4 }}
+                      style={{ display: 'block', width: '100%', textAlign: 'left', marginBottom: 4, lineHeight: 1.3 }}
                       onClick={() => viewContact(phone)}
-                    >{phone}</button>
+                    >
+                      <span style={{ display: 'block' }}>{phoneToName[phone] || phone}</span>
+                      {phoneToName[phone] && <span style={{ display: 'block', fontSize: 10, color: '#aaa' }}>({phone})</span>}
+                    </button>
                   ))}
                 </div>
                 <div style={{ flex: 1, overflow: 'auto', maxHeight: 400 }}>
@@ -142,10 +190,19 @@ function SummaryModal({ botId, tool, apiCall, adminPwd, onClose }) {
               </div>
             )
         }
-        <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between' }}>
-          <button className="btn-ghost btn-sm" onClick={handleSync} disabled={syncing}>
-            {syncing ? 'Sincronizando...' : selected ? `↺ Re-sync ${selected}` : '↺ Sincronizar todos'}
-          </button>
+        <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <label style={{ fontSize: 12, color: '#64748b', whiteSpace: 'nowrap' }}>Desde:</label>
+            <input
+              type="date"
+              value={fromDate}
+              onChange={e => setFromDate(e.target.value)}
+              style={{ fontSize: 12, padding: '3px 6px', border: '1px solid #e2e8f0', borderRadius: 6, color: '#1e293b' }}
+            />
+            <button className="btn-ghost btn-sm" onClick={handleSync} disabled={syncing}>
+              {syncing ? '⟳ Sincronizando...' : selected ? `⟳ Re-Sync ${selectedName}` : '⟳ Re-Sync todos'}
+            </button>
+          </div>
           <button className="btn-ghost btn-sm" onClick={onClose}>Cerrar</button>
         </div>
       </div>
@@ -1022,6 +1079,7 @@ export default function EmpresaCard({
         <SummaryModal
           botId={botId}
           tool={summaryModal}
+          allContacts={contacts}
           apiCall={apiCall}
           adminPwd={adminPwd}
           onClose={() => setSummaryModal(null)}

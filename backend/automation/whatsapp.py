@@ -263,6 +263,16 @@ class WhatsAppSession(BrowserAutomation):
                 recent_msgs.add(pair)
                 asyncio.get_event_loop().call_later(60, lambda: recent_msgs.discard(pair))
 
+            # Motor de resolución: herramientas en DB
+            # WA usa el nombre como identificador (phone suele llegar vacío del scraper)
+            sender = phone or name
+            summarizers, tool = await resolve_tools(session_id, sender, "whatsapp")
+
+            # Solo procesar contactos que tienen al menos una tool activa.
+            # Mensajes de contactos no configurados se ignoran silenciosamente.
+            if not summarizers and not tool:
+                return
+
             logger.info(f"[{session_id}] Mensaje de {name} ({phone}): {body[:60]}")
 
             # Dispatch multi-empresa: loguar bajo todos los bots que tienen esta conexión
@@ -274,11 +284,6 @@ class WhatsAppSession(BrowserAutomation):
             for eid in empresa_ids:
                 mid = await log_message(eid, bot_phone, phone or name, name, body)
                 msg_ids[eid] = mid
-
-            # Motor de resolución: herramientas en DB
-            # WA usa el nombre como identificador (phone suele llegar vacío del scraper)
-            sender = phone or name
-            summarizers, tool = await resolve_tools(session_id, sender, "whatsapp")
 
             # Si el contacto es un grupo, parsear "Integrante: mensaje"
             # El sidebar de WA Web muestra el body como "NombreRemitente: texto"
@@ -447,6 +452,35 @@ class WhatsAppSession(BrowserAutomation):
 
             if not reply or body.strip() == reply.strip():
                 return
+
+            # Guard retroactivo: no responder a mensajes anteriores al created_at de la tool.
+            # Evita que al activar una tool con incluir_desconocidos se dispare una ráfaga
+            # de respuestas a todos los mensajes históricos del chat abierto en el poller.
+            if wa_ts_str:
+                import re as _re_guard
+                from datetime import datetime as _dt_guard
+                _ts_norm_g = wa_ts_str.replace("\xa0", " ")
+                _dm_g = _re_guard.search(
+                    r"(\d{1,2}):(\d{2})(?:\s*([ap])\.?\s*m\.?)?,\s*(\d{1,2})/(\d{1,2})/(\d{4})",
+                    _ts_norm_g, _re_guard.IGNORECASE,
+                )
+                if _dm_g:
+                    _h, _mi, _ampm, _d, _mo, _y = _dm_g.groups()
+                    _h, _mi = int(_h), int(_mi)
+                    if _ampm and _ampm.lower() == "p" and _h != 12:
+                        _h += 12
+                    elif _ampm and _ampm.lower() == "a" and _h == 12:
+                        _h = 0
+                    _msg_dt = _dt_guard(int(_y), int(_mo), int(_d), _h, _mi)
+                    _tool_created = tool.get("activated_at") or tool.get("created_at", "")
+                    if _tool_created:
+                        try:
+                            _tc_dt = _dt_guard.fromisoformat(str(_tool_created).replace(" ", "T").split(".")[0])
+                            if _msg_dt < _tc_dt:
+                                logger.debug(f"[{session_id}] Mensaje anterior a tool created_at — omitiendo reply para '{name}'")
+                                return
+                        except (ValueError, TypeError):
+                            pass
 
             # Cooldown: no reenviar el auto-reply al mismo contacto en 24h
             cooldown_key = (session_id, sender)
@@ -632,6 +666,7 @@ class WhatsAppSession(BrowserAutomation):
         # Polling Python: detecta el último mensaje del chat abierto
         # Más robusto que el JS inyectado — usa evaluate() con múltiples fallbacks
         asyncio.create_task(self._poll_open_chat(session_id, page, _on_message))
+        asyncio.create_task(self._poll_sidebar_for_delta(session_id, page, bot_id, bot_phone))
 
     async def _poll_open_chat(self, session_id: str, page, on_message) -> None:
         """
@@ -695,12 +730,109 @@ class WhatsAppSession(BrowserAutomation):
                         continue
                     seen_pairs.add(pair)
                     logger.debug(f"[{session_id}] open-chat detectó: {name} ({phone}) → {body[:40]}")
-                    await on_message(phone, name, body, from_poll=True)
+                    await on_message(phone, name, body, from_poll=False)
 
             except Exception as e:
                 if "closed" in str(e).lower() or "target" in str(e).lower():
                     break
                 logger.info(f"[{session_id}] _poll_open_chat error: {e}")
+
+    async def _poll_sidebar_for_delta(
+        self, session_id: str, page, bot_id: str, bot_phone: str
+    ) -> None:
+        """
+        Corre cada 10s: lee el preview del sidebar para cada contacto monitoreado
+        y lo compara con el último mensaje guardado en DB.
+        Si difiere → dispara _run_delta_sync para ese contacto.
+        Captura tanto mensajes entrantes (sin badge si ya leídos) como salientes
+        (enviados desde otro dispositivo/WA Desktop).
+        """
+        from db import get_last_message_body, get_contacts
+        from config import get_empresas_for_bot
+
+        # Previews que ya triggereamos delta-sync: evita disparar dos veces el mismo cambio
+        _triggered: dict[str, str] = {}  # phone → preview que disparó el último sync
+
+        while True:
+            await asyncio.sleep(10)
+            try:
+                if page.is_closed():
+                    break
+
+                # Leer previews del sidebar incluyendo mensajes salientes
+                chats = await page.evaluate("""
+                () => {
+                    const grid = document.querySelector('[role="grid"]');
+                    if (!grid) return [];
+                    const result = [];
+                    for (const row of grid.querySelectorAll('[role="row"]')) {
+                        const spans = row.querySelectorAll('span[title]');
+                        if (spans.length < 2) continue;
+                        const name = spans[0].getAttribute('title').trim();
+                        const preview = spans[1].getAttribute('title')
+                            .replace(/[\u202a\u202c\u200e\u200f]/g, '').trim();
+                        if (!name || !preview) continue;
+                        const withId = row.closest('[data-id]') || row.querySelector('[data-id]');
+                        const rawId = withId ? withId.getAttribute('data-id') : '';
+                        const phoneMatch = rawId ? rawId.match(/(\d{8,15})/) : null;
+                        const phone = phoneMatch ? phoneMatch[1] : '';
+                        result.push({ name, preview, phone });
+                    }
+                    return result;
+                }
+                """)
+
+                if not chats:
+                    continue
+
+                empresa_ids = get_empresas_for_bot(bot_phone) or [bot_id]
+                eid = empresa_ids[0]
+
+                for chat in chats:
+                    name = chat["name"]
+                    preview_raw = chat["preview"]
+                    phone = chat.get("phone", "")
+                    if not phone:
+                        continue
+
+                    # Verificar si este contacto tiene summarizer activo
+                    from sim import resolve_tools
+                    summarizers, _ = await resolve_tools(session_id, phone, "whatsapp")
+                    if not summarizers:
+                        continue
+
+                    # Normalizar preview: quitar prefijo "Tú: " (mensaje saliente)
+                    preview_norm = preview_raw
+                    for prefix in ("Tú: ", "Tu: ", "You: "):
+                        if preview_norm.startswith(prefix):
+                            preview_norm = preview_norm[len(prefix):]
+                            break
+
+                    # Truncar a 35 chars para comparación robusta
+                    preview_trunc = preview_norm[:35].strip()
+
+                    # Comparar con último body en DB
+                    last_body = await get_last_message_body(eid, phone) or ""
+                    last_trunc = last_body[:35].strip()
+
+                    if preview_trunc == last_trunc:
+                        continue  # sin cambios
+
+                    # Si ya triggereamos sync para este mismo preview, no repetir
+                    if _triggered.get(phone) == preview_trunc:
+                        continue
+
+                    _triggered[phone] = preview_trunc
+                    logger.info(
+                        f"[{session_id}] sidebar-delta: '{name}' cambió preview → disparando delta-sync"
+                    )
+                    from api.whatsapp import _run_delta_sync
+                    asyncio.create_task(_run_delta_sync(contact_phone=phone))
+
+            except Exception as e:
+                if "closed" in str(e).lower() or "target" in str(e).lower():
+                    break
+                logger.debug(f"[{session_id}] _poll_sidebar_for_delta error: {e}")
 
     # ------------------------------------------------------------------
     # Descarga de audio desde WA Web
@@ -1334,6 +1466,7 @@ class WhatsAppSession(BrowserAutomation):
     async def scrape_full_history(
         self, session_id: str, contact_name: str, scroll_rounds: int = 50,
         doc_save_dir: "Path | None" = None,
+        from_date: "date | None" = None,
     ) -> list[dict]:
         """
         Abre el chat del contacto/grupo en WA Web, hace scroll hacia arriba
@@ -2210,6 +2343,21 @@ class WhatsAppSession(BrowserAutomation):
             for msg in parsed:
                 msg.pop("_raw_idx", None)
                 msg.pop("_pre_plain", None)
+
+            # Filtrar por from_date si se especificó
+            if from_date is not None:
+                from datetime import datetime as _dt
+                cutoff = _dt.combine(from_date, _dt.min.time())
+                def _msg_date(m):
+                    ts = m.get("timestamp")
+                    if not ts:
+                        return None
+                    try:
+                        return _dt.strptime(ts, "%Y-%m-%d %H:%M:%S")
+                    except (ValueError, TypeError):
+                        return None
+                parsed = [m for m in parsed if (_msg_date(m) is None or _msg_date(m) >= cutoff)]
+                logger.info(f"[{session_id}] scrape '{contact_name}': {len(parsed)} mensajes tras filtro from_date={from_date}")
 
             return parsed
 

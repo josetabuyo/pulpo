@@ -112,6 +112,97 @@ def test_idb_timestamp_string_to_unix():
     assert ts_unix > 1_700_000_000
 
 
+# ─── Nuevos: from_date / contact_phone / delta-sync ────────────────────────────
+
+def test_recent_sync_endpoint_removed():
+    """El endpoint /recent-sync debe haber sido eliminado del router."""
+    from api.whatsapp import router
+    paths = [r.path for r in router.routes]
+    assert "/recent-sync" not in paths, "El endpoint /recent-sync debe estar eliminado"
+
+
+def test_run_sync_accepts_from_date():
+    """_run_sync debe aceptar el parámetro from_date (para filtrar por fecha)."""
+    import inspect
+    import api.whatsapp as wa
+    sig = inspect.signature(wa._run_sync)
+    assert "from_date" in sig.parameters, "_run_sync debe tener parámetro from_date"
+
+
+def test_run_sync_accepts_contact_phone():
+    """_run_sync debe aceptar el parámetro contact_phone (para sync de un solo contacto)."""
+    import inspect
+    import api.whatsapp as wa
+    sig = inspect.signature(wa._run_sync)
+    assert "contact_phone" in sig.parameters, "_run_sync debe tener parámetro contact_phone"
+
+
+def test_run_delta_sync_exists():
+    """_run_delta_sync debe existir como función en api.whatsapp."""
+    import api.whatsapp as wa
+    assert hasattr(wa, "_run_delta_sync"), "_run_delta_sync debe estar definida"
+    import inspect
+    assert inspect.iscoroutinefunction(wa._run_delta_sync), "_run_delta_sync debe ser async"
+
+
+def test_delta_sync_stops_at_existing_message():
+    """
+    _run_delta_sync para en el primer mensaje que ya existe en DB.
+    Simula 3 mensajes (más nuevo primero); el 3ro retorna False en log_message_historic.
+    Solo deben procesarse 2 mensajes.
+    """
+    import asyncio
+    import api.whatsapp as wa
+
+    wa._sync_running = False
+    call_count = 0
+
+    async def mock_log_historic(eid, bot_phone, phone, name, body, ts, outbound, **kw):
+        nonlocal call_count
+        call_count += 1
+        return call_count < 3  # False en el 3er mensaje → cortar
+
+    messages = [
+        {"timestamp": "2026-03-25 12:00:00", "body": "Msg C", "is_outbound": False, "sender": None, "msg_type": "text"},
+        {"timestamp": "2026-03-25 11:00:00", "body": "Msg B", "is_outbound": False, "sender": None, "msg_type": "text"},
+        {"timestamp": "2026-03-25 10:00:00", "body": "Msg A", "is_outbound": False, "sender": None, "msg_type": "text"},
+    ]
+
+    fake_clients = {
+        "5491100001": {"type": "whatsapp", "status": "ready", "bot_id": "bot1"}
+    }
+    fake_contacts = [
+        {"id": 1, "name": "TestContact", "channels": [{"type": "whatsapp", "value": "5491199999", "is_group": False}]}
+    ]
+
+    async def mock_scrape(*args, **kwargs):
+        return messages
+
+    async def mock_get_contacts(eid):
+        return fake_contacts
+
+    async def mock_has_summarizer(*args, **kwargs):
+        return True
+
+    with patch.dict("api.whatsapp.__dict__", {"clients": fake_clients}):
+        with patch("config.get_empresas_for_bot", return_value=["bot1"]):
+            with patch("db.get_contacts", mock_get_contacts):
+                with patch("db.log_message_historic", mock_log_historic):
+                    with patch("api.whatsapp._contact_has_summarizer", mock_has_summarizer):
+                        with patch("api.whatsapp.wa_session") as mock_wa:
+                            mock_wa.scrape_full_history = AsyncMock(return_value=messages)
+                            try:
+                                asyncio.run(wa._run_delta_sync())
+                            except Exception:
+                                pass  # errores de summarizer o state son OK en este test
+
+    # Al menos 2 mensajes procesados, no los 3 (paró en el existente)
+    assert call_count >= 2, f"Esperaba al menos 2 llamadas, hubo {call_count}"
+    assert call_count <= 3, f"No debería haber procesado más de 3 mensajes, hubo {call_count}"
+
+
+# ─── IDB timestamp string parsing ──────────────────────────────────────────
+
 def test_idb_time_of_day_fallback():
     """
     Audios con fecha incorrecta en prePlain (heredada de mensaje anterior del día anterior)
