@@ -1,0 +1,40 @@
+{
+  "empresa_id": "luganense",
+  "auspiciantes": [
+    {
+      "id": "gm_herreria",
+      "nombre": "GM Herrería y Electricidad",
+      "mensaje": "🔧 *GM Herrería y Electricidad* — rejas, portones, parrillas a leña e instalaciones eléctricas certificadas. Todo hecho con compromiso y experiencia del barrio. 📞 Gregorio: 1124778975 | Milito: 1171876959",
+      "tags": ["herrería", "electricidad", "rejas", "portones", "obra", "seguridad"],
+      "activo": true
+    },
+    {
+      "id": "abogada_noelia",
+      "nombre": "Dra. Noelia Prado Sanchez",
+      "mensaje": "⚖️ *Dra. Noelia Prado Sanchez — Abogada* — divorcios, sucesiones, alimentos, cuidado personal, despidos, daños y perjuicios. Primera consulta gratuita. 📞 1133161649 | noelia.pradosanchez@hotmail.com",
+      "tags": ["legal", "abogada", "familia", "laboral", "sucesiones", "divorcio"],
+      "activo": true
+    },
+    {
+      "id": "masoterapia_bienestar",
+      "nombre": "Masoterapia Bienestar Salud",
+      "mensaje": "💆 *Masoterapia Bienestar Salud* — masajes terapéuticos, drenaje linfático y relajación en el barrio. Turnos disponibles. 📲 Escribinos por WhatsApp para reservar tu turno.",
+      "tags": ["salud", "bienestar", "masajes", "terapia", "relajación"],
+      "activo": true
+    },
+    {
+      "id": "ferreteria_lugano",
+      "nombre": "Ferretería Don Raúl",
+      "mensaje": "🔨 *Ferretería Don Raúl* — todo lo que necesitás para tu obra o reparación, con atención personalizada. Av. Lugano al 2800. 📞 1162340089",
+      "tags": ["ferretería", "obra", "materiales", "herramientas", "construcción"],
+      "activo": true
+    },
+    {
+      "id": "pizza_lugano",
+      "nombre": "La Esquina de Lugano Pizza",
+      "mensaje": "🍕 *La Esquina de Lugano* — pizzas, empanadas y medialunas artesanales con delivery en el barrio. 📦 Pedidos por WhatsApp: 1158920034",
+      "tags": ["comida", "pizza", "delivery", "empanadas", "gastronomía"],
+      "activo": true
+    }
+  ]
+}

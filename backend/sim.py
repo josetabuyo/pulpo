@@ -174,6 +174,23 @@ async def sim_receive(
     if reply_tool:
         if reply_tool["tipo"] == "fixed_message":
             reply = reply_tool["config"].get("message", "")
+        elif reply_tool["tipo"] == "assistant":
+            context = reply_tool["config"].get("prompt", "")
+            if context:
+                from tools import assistant as assistant_mod
+                bot_name = cfg.get("bot_name", "el asistente")
+                reply = await assistant_mod.ask(context, text, bot_name)
+        elif reply_tool["tipo"] == "flow":
+            graph_name = reply_tool["config"].get("graph", "")
+            if graph_name == "luganense":
+                from graphs import luganense as luganense_graph
+                bot_name = cfg.get("bot_name", "el asistente")
+                prompt = reply_tool["config"].get("prompt", "")
+                empresa_id = reply_tool.get("empresa_id", "")
+                reply = await luganense_graph.invoke(
+                    text, prompt, bot_name, empresa_id,
+                    cliente_phone=from_phone, canal=channel_type,
+                )
         logger.info("[sim] TOOL '%s' → %s", reply_tool["nombre"], session_id)
 
     if reply:
@@ -197,10 +214,10 @@ def _get_phone_config(session_id: str) -> dict | None:
         # WhatsApp phones
         for phone in bot.get("phones", []):
             if phone["number"] == session_id:
-                return {"bot_id": bot["id"]}
+                return {"bot_id": bot["id"], "bot_name": bot.get("name", bot["id"])}
         # Telegram bots — session_id = "{bot_id}-tg-{token_id}"
         for tg in bot.get("telegram", []):
             token_id = tg["token"].split(":")[0]
             if f"{bot['id']}-tg-{token_id}" == session_id:
-                return {"bot_id": bot["id"]}
+                return {"bot_id": bot["id"], "bot_name": bot.get("name", bot["id"])}
     return None

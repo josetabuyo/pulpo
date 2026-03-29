@@ -94,6 +94,32 @@ def build_telegram_app(bot_config: dict):
 
         if tool["tipo"] == "fixed_message":
             reply = tool["config"].get("message", "")
+        elif tool["tipo"] == "assistant":
+            context = tool["config"].get("prompt", "")
+            if context:
+                from tools import assistant as assistant_mod
+                from config import load_config
+                cfg = load_config()
+                bot_entry = next((b for b in cfg.get("bots", []) if b["id"] == bot_id), {})
+                reply = await assistant_mod.ask(context, text, bot_entry.get("name", bot_id)) or ""
+            else:
+                reply = ""
+        elif tool["tipo"] == "flow":
+            graph_name = tool["config"].get("graph", "")
+            if graph_name == "luganense":
+                from graphs import luganense as luganense_graph
+                from config import load_config
+                cfg = load_config()
+                bot_entry = next((b for b in cfg.get("bots", []) if b["id"] == bot_id), {})
+                bot_name = bot_entry.get("name", bot_id)
+                prompt = tool["config"].get("prompt", "")
+                empresa_id = tool.get("empresa_id", "")
+                reply = await luganense_graph.invoke(
+                    text, prompt, bot_name, empresa_id,
+                    cliente_phone=sender_id, canal="telegram",
+                )
+            else:
+                reply = ""
         else:
             reply = ""
 
