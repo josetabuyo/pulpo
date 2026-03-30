@@ -128,8 +128,9 @@ def build_telegram_app(bot_config: dict):
 
         try:
             await msg.reply_text(reply)
-            for mid in msg_ids.values():
+            for eid, mid in msg_ids.items():
                 await mark_answered(mid)
+                await log_message(eid, token_id, sender_id, "Bot", reply, outbound=True)
             logger.info(f"{label}   → Respuesta enviada")
         except Exception as e:
             logger.error(f"{label}   → Error al responder: {e}")

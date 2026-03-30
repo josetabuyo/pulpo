@@ -205,7 +205,7 @@ async def create_job(
         await session.commit()
         return result.lastrowid
 
-async def log_message(bot_id: str, bot_phone: str, phone: str, name: str | None, body: str) -> int:
+async def log_message(bot_id: str, bot_phone: str, phone: str, name: str | None, body: str, outbound: bool = False) -> int:
     async with AsyncSessionLocal() as session:
         # Dedup: evitar loguear el mismo mensaje si ya existe en los últimos 10 minutos
         # (cubre el caso de reinicios del servidor que vacían el seen_pairs en memoria)
@@ -221,8 +221,8 @@ async def log_message(bot_id: str, bot_phone: str, phone: str, name: str | None,
         if existing:
             return existing[0]
         result = await session.execute(
-            text("INSERT INTO messages (bot_id, bot_phone, phone, name, body) VALUES (:bot_id, :bot_phone, :phone, :name, :body)"),
-            {"bot_id": bot_id, "bot_phone": bot_phone, "phone": phone, "name": name, "body": body},
+            text("INSERT INTO messages (bot_id, bot_phone, phone, name, body, outbound) VALUES (:bot_id, :bot_phone, :phone, :name, :body, :outbound)"),
+            {"bot_id": bot_id, "bot_phone": bot_phone, "phone": phone, "name": name, "body": body, "outbound": 1 if outbound else 0},
         )
         await session.commit()
         return result.lastrowid
