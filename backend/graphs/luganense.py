@@ -15,11 +15,17 @@ logger = logging.getLogger(__name__)
 
 _MODEL = "llama-3.3-70b-versatile"
 
+_NOTICIAS_SYSTEM = """Sos el asistente de Luganense, el portal comunitario de Villa Lugano (Buenos Aires).
+Respondé preguntas de vecinos usando las herramientas disponibles para buscar información real de Facebook.
+Si no encontrás info relevante, decilo honestamente.
+Respondé siempre en español, claro y directo."""
+
 _ROUTER_SYSTEM = """Sos un clasificador de mensajes para un bot de barrio.
 Dado un mensaje de un vecino, clasificalo en UNA de estas dos categorías:
-- noticias: el vecino pregunta sobre el barrio, noticias, eventos, actividades, novedades, info general
-- oficio: el vecino busca un servicio o trabajador (herrero, electricista, plomero, pintor, gasista, carpintero, mecánico, etc.)
+- noticias: el vecino pregunta sobre el barrio, noticias, eventos, actividades, novedades, adopciones de mascotas, info general, preguntas sobre la comunidad
+- oficio: el vecino busca contratar un servicio o trabajador con oficio específico (herrero, electricista, plomero, pintor, gasista, carpintero, mecánico, albanil, etc.)
 
+En caso de duda, clasificar como "noticias".
 Respondé SOLO con una palabra: "noticias" o "oficio". Sin explicaciones."""
 
 
@@ -64,34 +70,56 @@ def _route(state: LuganenseState) -> Literal["handle_noticias", "handle_oficio"]
 
 async def handle_noticias(state: LuganenseState) -> dict:
     """
-    Responde sobre el barrio usando contexto dinámico de Facebook.
-    Si el scraping falla o no hay credenciales, cae al prompt estático.
-    Agrega un auspiciante al final.
+    Responde sobre el barrio usando Groq + contexto de Facebook.
+    Estrategia: fetch posts por query + posts recientes → LLM responde con ese contexto.
+    Fallback a prompt estático si no hay credenciales o falla el scraping.
     """
     from graphs import auspiciantes as auspiciantes_mod
     from nodes import fetch_facebook
 
-    # Intentar contexto dinámico desde Facebook
-    fb_context = await fetch_facebook.fetch(
-        page_id="luganense",
-        query=state["message"],
-    )
+    api_key = os.getenv("GROQ_API_KEY")
 
-    if fb_context:
+    # Siempre intentar obtener contexto de Facebook
+    fb_context = await fetch_facebook.fetch("luganense", state["message"])
+
+    if not api_key:
+        logger.error("[luganense] GROQ_API_KEY no configurada — fallback a prompt estático")
+        from tools import assistant as assistant_mod
         context = (
-            "Sos el asistente de Luganense, el portal comunitario de Villa Lugano. "
-            "Respondé en base a estas publicaciones recientes del barrio:\n\n"
-            + fb_context
+            "Sos el asistente de Luganense. Respondé en base a estas publicaciones:\n\n" + fb_context
+            if fb_context else state["prompt"]
         )
-        logger.info("[luganense] handle_noticias: usando contexto de Facebook (%d chars)", len(fb_context))
+        reply = await assistant_mod.ask(context, state["message"], state["bot_name"])
+        reply = reply or ""
     else:
-        # Fallback: prompt estático de la tool config
-        context = state["prompt"]
-        logger.info("[luganense] handle_noticias: fallback a prompt estático")
+        try:
+            from langchain_groq import ChatGroq
 
-    from tools import assistant as assistant_mod
-    reply = await assistant_mod.ask(context, state["message"], state["bot_name"])
-    reply = reply or ""
+            system = _NOTICIAS_SYSTEM
+            if fb_context:
+                system = (
+                    _NOTICIAS_SYSTEM
+                    + "\n\nPublicaciones recientes de la página:\n\n"
+                    + fb_context
+                )
+
+            llm = ChatGroq(model=_MODEL, api_key=api_key, temperature=0.3)
+            result = await llm.ainvoke([
+                {"role": "system", "content": system},
+                {"role": "user", "content": state["message"]},
+            ])
+            reply = result.content or ""
+            logger.info("[luganense] handle_noticias: respuesta generada (%d chars)", len(reply))
+
+        except Exception as e:
+            logger.error("[luganense] Error en Groq: %s — fallback a assistant.ask", e)
+            from tools import assistant as assistant_mod
+            context = (
+                "Sos el asistente de Luganense. Respondé en base a estas publicaciones:\n\n" + fb_context
+                if fb_context else state["prompt"]
+            )
+            reply = await assistant_mod.ask(context, state["message"], state["bot_name"])
+            reply = reply or ""
 
     sponsor_msg = auspiciantes_mod.get_random(state.get("empresa_id", ""))
     if sponsor_msg:

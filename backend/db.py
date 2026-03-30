@@ -119,7 +119,8 @@ async def init_db():
                     incluir_desconocidos INTEGER NOT NULL DEFAULT 0,
                     exclusiva            INTEGER NOT NULL DEFAULT 0,
                     activa               INTEGER NOT NULL DEFAULT 1,
-                    created_at           DATETIME DEFAULT CURRENT_TIMESTAMP
+                    created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    activated_at         DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             """))
             await conn.execute(text(

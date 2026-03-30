@@ -1,8 +1,287 @@
-# NEXT SESSION — feat-empresa-card
+# NEXT_SESSION — Summarizer online automático + full-sync con fecha desde
 
-## Contexto
-Worktree de desarrollo para **rediseño de UI: componente EmpresaCard unificado**.
-Backend en :8001, Frontend en :5174. `ENABLE_BOTS=false` — usar simuladores.
+**Worktree:** `_` (master / producción) — necesita WA Web real para testear scraping.
+**Rama:** master
+**Prioridad:** alta
+
+---
+
+## Pedido del usuario (resumen exacto)
+
+> "poder indicar un parametro de fecha desde para el full sync, y dejar el botón de full sync normalizado en todas las ui, no quiero otro botón, el otro evento debería ser automático, cuando el servidor arranca y en cada momento del pulling, deberíamos tomar todos los mensajes desde el ultimo que capturamos hasta el ultimo de los nuevos que entraron, es siempre ese método el 'online' del summarizer, y el otro método es el full-sync, no quiero otro, borremos basura"
+
+---
+
+## Estado actual (lo que existe hoy)
+
+### Endpoints de sync (`backend/api/whatsapp.py`)
+- `POST /wa/full-sync` → `_run_sync(scroll_rounds=50)` — scrapea historial completo
+- `POST /wa/recent-sync` → `_run_sync(scroll_rounds=0)` — scrapea solo vista actual ← **BORRAR**
+- `GET /wa/sync-status` → `{"running": bool}`
+- `_run_sync(scroll_rounds)` — función compartida que itera contactos, llama `scrape_full_history`
+
+### UI (EmpresaCard.jsx — botón "Re-Sync" en SummaryModal)
+- El modal del summarizer tiene un botón "Re-Sync {nombre}" o "Re-Sync todos"
+- Actualmente llama `POST /api/summarizer/{empresa_id}/sync` (sync de DB, no WA scraping)
+- Hay que unificarlo con `/api/wa/full-sync` (scraping WA Web real)
+
+### Polling online (whatsapp.py)
+- `_poll_open_chat` Python: cada 3s escanea sidebar → detecta mensajes nuevos → `_on_message(from_poll=False)` → acumula en summarizer (fix reciente, 2026-03-25)
+- `pollSidebar` JS: cada 2s observa cambios en sidebar → `from_poll=True` (solo loguea en DB)
+- `pollOpenChat` JS: cada 2s → solo si el chat está abierto → `from_poll=False`
+
+**Limitación del poller actual**: lee `span[title]` del sidebar (preview posiblemente truncado, sin timestamp real, no detecta audios ni imágenes).
+
+---
+
+## Lo que hay que hacer
+
+### 1. Borrar `/wa/recent-sync`
+El endpoint `/wa/recent-sync` desaparece. `_run_sync` ya no necesita el parámetro `scroll_rounds=0`.
+Verificar que no haya botón en la UI para "recent-sync".
+
+### 2. Full-sync con `from_date` y `contact_phone` opcionales
+
+**API:** `POST /wa/full-sync`
+```json
+{
+  "from_date": "2026-03-01",     // opcional, ISO date — para de scrollear antes de esta fecha
+  "contact_phone": "5491100000000"  // opcional — sincronizar solo este contacto
+}
+```
+
+**`_run_sync(from_date: date | None = None, contact_phone: str | None = None)`**
+
+Cuando `from_date` está presente, `scrape_full_history` para de scrollear cuando todos los
+mensajes del batch son anteriores a `from_date`. Esto reduce los scrolls necesarios.
+
+### 3. Auto-sync al arrancar el servidor — algoritmo de delta incremental
+
+**NO usar fecha hardcodeada.** El criterio es por contenido: avanzar del mensaje más nuevo
+al más viejo y parar en el primero que ya esté guardado en DB.
+
+**Algoritmo (delta scan):**
+```
+Para cada contacto con summarizer activo:
+  Abrir el chat en WA Web
+  Leer batch de mensajes visibles (sin scroll adicional primero)
+  Para cada mensaje, de más nuevo a más viejo:
+    ¿Está ya en DB? (check por timestamp + body + phone)
+      SÍ → stop — ya estamos al día para este contacto
+      NO → guardar en DB + acumular en summarizer
+  Si todos los mensajes del batch eran nuevos → scrollear un paso hacia arriba y repetir
+  Si llegamos al tope del chat (no hay más) → stop
+Reportar: contacto X — N mensajes nuevos procesados, M ya existían, paró en [timestamp]
+```
+
+**¿Por qué este criterio?**
+- No asume ningún rango de fechas — siempre encuentra el límite exacto
+- Funciona correctamente tras reinicios cortos (pocas horas) o largos (días)
+- Para automáticamente al llegar al primer mensaje ya procesado → eficiente
+- Equivale a "dame todo lo que me perdí, sin importar cuánto tiempo pasó"
+
+**Check de "ya está en DB":**
+```python
+# Usar log_message_historic que ya retorna False si el mensaje existe
+saved = await log_message_historic(eid, bot_phone, phone, name, body, timestamp, outbound)
+if not saved:
+    break  # encontramos el primer mensaje ya existente → stop
+```
+
+`log_message_historic` ya hace upsert/dedup por `(bot_id, phone, timestamp, body)`.
+Si retorna `False` = ya existía → es el punto de corte.
+
+**Implementación en main.py:**
+```python
+async def _startup_sync():
+    await asyncio.sleep(15)  # esperar que los bots se reconecten
+    await _run_delta_sync()   # delta incremental, sin from_date
+
+asyncio.create_task(_startup_sync())
+```
+
+**`_run_delta_sync(contact_phone=None)`** — nueva función separada de `_run_sync`:
+- Igual que `_run_sync` pero en el loop de mensajes: si `log_message_historic` retorna False → break
+- Reporta por contacto: cuántos nuevos vs cuántos ya existían
+- No borra el .md (no resetea el summarizer, solo agrega lo nuevo)
+
+### 4. UI — date picker en SummaryModal
+
+- Input `type="date"` con default = hoy - 30 días
+- El botón "Re-Sync" pasa `from_date` y `contact_phone` en el body
+- La llamada debe ser a `/api/wa/full-sync` (scraping WA), no a `/api/summarizer/{id}/sync` (DB backfill)
+
+---
+
+## Arquitectura — cambios por archivo
+
+### `backend/api/whatsapp.py`
+```python
+# BORRAR:
+@router.post("/recent-sync", ...)
+
+# AGREGAR modelo:
+class FullSyncBody(BaseModel):
+    from_date: date | None = None
+    contact_phone: str | None = None
+
+# MODIFICAR endpoint:
+@router.post("/full-sync", ...)
+async def full_sync(body: FullSyncBody = FullSyncBody(), ...):
+    background_tasks.add_task(_run_sync, from_date=body.from_date, contact_phone=body.contact_phone)
+
+# MODIFICAR _run_sync:
+async def _run_sync(from_date: date | None = None, contact_phone: str | None = None) -> None:
+    # Si contact_phone → filtrar solo ese contacto en la iteración
+    # Pasa from_date a scrape_full_history
+```
+
+### `backend/automation/whatsapp.py`
+```python
+# En scrape_full_history: agregar from_date como parámetro de parada temprana
+async def scrape_full_history(self, session_id, contact_name, scroll_rounds=50,
+                               doc_save_dir=None, from_date: date | None = None):
+    # En el loop de scroll: si from_date y todos los msgs del batch son < from_date → break
+    # Reduce scrolls: en lugar de 50 fijos, para cuando ya tenemos todo lo necesario
+```
+
+### `backend/main.py`
+```python
+# En lifespan, después de restaurar sesiones WA:
+async def _startup_sync():
+    await asyncio.sleep(15)
+    await _run_delta_sync()  # delta incremental: más nuevo → más viejo, para en el primero ya guardado
+
+asyncio.create_task(_startup_sync())
+```
+
+### `backend/api/whatsapp.py` — nueva función `_run_delta_sync`
+```python
+async def _run_delta_sync(contact_phone: str | None = None) -> None:
+    """
+    Sync incremental: para cada contacto, escanea mensajes de más nuevo a más viejo
+    y para en cuanto encuentra uno ya guardado en DB.
+    No borra el .md — solo agrega lo nuevo.
+    Reporta: cuántos nuevos, cuántos ya existían, en qué timestamp paró.
+    """
+    global _sync_running
+    if _sync_running:
+        return
+    _sync_running = True
+    mode = "delta-sync"
+    try:
+        for session_id, state in list(clients.items()):
+            # ... iterar contactos con summarizer activo ...
+            messages = await wa_session.scrape_full_history(
+                session_id, contact_name,
+                scroll_rounds=10,  # máximo razonable, pero el break interno para antes
+                doc_save_dir=_doc_dir,
+            )
+            # Ordenar de más nuevo a más viejo
+            messages.sort(key=lambda m: m.get("timestamp") or "", reverse=True)
+            new_count = 0
+            stop_ts = None
+            for msg in messages:
+                saved = await log_message_historic(...)
+                if not saved:
+                    stop_ts = msg["timestamp"]
+                    break  # primer mensaje ya existente → stop
+                new_count += 1
+                # acumular en summarizer
+            _log.info(f"[{mode}] '{contact_name}': {new_count} nuevos, paró en {stop_ts or 'tope del chat'}")
+    finally:
+        _sync_running = False
+```
+
+### `frontend/src/components/EmpresaCard.jsx`
+- `SummaryModal`: agregar input `type="date"` encima del botón Re-Sync
+- Cambiar la llamada de `POST /api/summarizer/{id}/sync` a `POST /api/wa/full-sync`
+- Pasar `{ from_date, contact_phone }` en el body
+
+---
+
+## Tests TDD — orden obligatorio
+
+### 1. Correr tests existentes (línea de base)
+```bash
+cd /Users/josetabuyo/Development/pulpo/_/backend
+pytest tests/ -v
+```
+
+Ver `tests/test_whatsapp_sync.py` y `tests/test_summarizer.py`.
+
+### 2. Escribir tests nuevos ANTES de implementar
+
+**`tests/test_whatsapp_sync.py`** — agregar:
+```python
+# /wa/recent-sync ya no existe (404)
+async def test_recent_sync_removed(client):
+    r = await client.post("/api/wa/recent-sync")
+    assert r.status_code in (404, 405)
+
+# /wa/full-sync acepta from_date sin error
+async def test_full_sync_accepts_from_date(client):
+    r = await client.post("/api/wa/full-sync", json={"from_date": "2026-03-01"})
+    assert r.status_code == 200
+
+# /wa/full-sync acepta contact_phone sin error
+async def test_full_sync_accepts_contact_phone(client):
+    r = await client.post("/api/wa/full-sync", json={"contact_phone": "5491100000000"})
+    assert r.status_code == 200
+
+# /wa/sync-status sigue funcionando
+async def test_sync_status(client):
+    r = await client.get("/api/wa/sync-status")
+    assert r.status_code == 200
+    assert "running" in r.json()
+```
+
+### 3. Correr tests de nuevo (todo en verde)
+
+### 4. Reiniciar backend y verificar auto-sync en log
+```bash
+./restart-backend.sh
+# Esperar 15s y buscar:
+grep "startup.*sync\|Iniciando" monitor/backend.log | tail -5
+```
+
+---
+
+## Riesgos
+
+- **`log_message_historic` como señal de corte**: si retorna False por un motivo distinto a "ya existe" (ej. error de DB) → break prematuro. Verificar que la función retorna False estrictamente para "ya existía" y levanta excepción para errores.
+- **Mensajes sin timestamp**: si WA Web no provee timestamp para un mensaje → el match en DB puede fallar. Tratar `None` timestamp como "siempre nuevo" (no cortar).
+- **`from_date` en full-sync**: el scraper obtiene timestamps en formato WA ("HH:MM, DD/MM/YYYY") — parsear correctamente antes de comparar con `date`.
+- **Dedup**: el delta-sync de startup y el poller Python pueden correr simultáneamente → el `_sync_running` lock previene doble sync.
+- **Contacto sin mensajes en DB**: delta-sync va a procesar todo hasta el tope del chat (no hay punto de corte) → scroll_rounds=10 como límite superior razonable.
+
+---
+
+## Archivos clave a leer al iniciar la sesión
+
+1. `backend/api/whatsapp.py` (líneas 346–530)
+2. `backend/automation/whatsapp.py` (buscar `scrape_full_history`)
+3. `backend/tests/test_whatsapp_sync.py`
+4. `backend/main.py` (lifespan)
+5. `frontend/src/components/EmpresaCard.jsx` (SummaryModal, líneas 69–192)
+
+---
+
+## Checklist
+
+- [ ] Correr tests existentes (línea de base — tienen que estar verdes antes de tocar nada)
+- [ ] Escribir tests nuevos (TDD — en rojo primero):
+  - [ ] `test_recent_sync_removed` → 404
+  - [ ] `test_full_sync_accepts_from_date` → 200
+  - [ ] `test_full_sync_accepts_contact_phone` → 200
+  - [ ] `test_delta_sync_stops_at_existing` → mock `log_message_historic` retornando False en el 3er mensaje → verificar que solo se procesaron 2
+- [ ] Borrar `/wa/recent-sync`
+- [ ] Implementar `_run_delta_sync` con el algoritmo nuevo→viejo + break en primer existente
+- [ ] Agregar `from_date` y `contact_phone` a `_run_sync` y `scrape_full_history`
+- [ ] Auto-sync en startup (main.py lifespan → `_run_delta_sync`)
+- [ ] UI: date picker en SummaryModal + llamada a `/api/wa/full-sync`
+- [ ] Correr todos los tests (verde)
+- [ ] Reiniciar backend, esperar 15s, verificar en log: "delta-sync ... N nuevos, paró en ..."
 
 ## Estado: **LISTO PARA MERGE**
 

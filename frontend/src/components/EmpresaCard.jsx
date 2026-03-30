@@ -9,7 +9,7 @@ const STATUS_LABELS = {
   failed: 'Error', stopped: 'Sin iniciar', qr_needed: 'Sin iniciar',
 }
 
-const TIPO_LABELS = { fixed_message: 'Mensaje fijo', summarizer: 'Sumarizadora' }
+const TIPO_LABELS = { fixed_message: 'Mensaje fijo', summarizer: 'Sumarizadora', flow: 'Flow (grafo)' }
 
 const CHANNEL_LABELS = { whatsapp: '📱 WA', telegram: '✈️ TG' }
 function channelLabel(ch) { return ch.is_group ? '👥 Grupo WA' : (CHANNEL_LABELS[ch.type] || ch.type) }
@@ -292,6 +292,7 @@ function ToolForm({ botId, tool, apiCall, onClose, onSaved }) {
             <select value={form.tipo} onChange={setE('tipo')}>
               <option value="fixed_message">Mensaje fijo</option>
               <option value="summarizer">Sumarizadora (pasiva)</option>
+              <option value="flow">Flow (grafo)</option>
             </select>
           </div>
           {form.tipo === 'fixed_message' && (
@@ -303,6 +304,13 @@ function ToolForm({ botId, tool, apiCall, onClose, onSaved }) {
             <div className="fg">
               <div style={{ fontSize: 13, color: '#666', background: '#f5f5f5', padding: '8px 12px', borderRadius: 6 }}>
                 Acumula todos los mensajes en un archivo de texto. No envía respuestas automáticas.
+              </div>
+            </div>
+          )}
+          {form.tipo === 'flow' && (
+            <div className="fg">
+              <div style={{ fontSize: 13, color: '#666', background: '#f5f5f5', padding: '8px 12px', borderRadius: 6 }}>
+                Ejecuta un grafo LangGraph. La lógica del flow está definida en el backend.
               </div>
             </div>
           )}
