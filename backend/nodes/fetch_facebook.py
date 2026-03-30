@@ -242,6 +242,34 @@ _PAGE_NUMERIC_IDS: dict[str, str] = {
     "luganense": "100070998865103",
 }
 
+# Posts de reels que no se pueden scrapearse en headless.
+# Texto extraído manualmente vía MCP browser (2026-03-29).
+_STATIC_POSTS: dict[str, list[str]] = {
+    "luganense": [
+        # Reel /reel/2370482426798630 — Pollería Sabor Peruano (inauguración)
+        (
+            "🔥 ¡ATENCIÓN VILLA LUGANO!\n"
+            "🍗 ¡Llegó una nueva pollería peruana al barrio… y viene con OFERTAS de inauguración!\n"
+            "Este 14 de marzo abre sus puertas \"Sabor Peruano\", un nuevo restaurante–pollería en Villa Lugano.\n"
+            "👉 PROMO DE INAUGURACIÓN:\n"
+            "🍗 Pollo entero + papas + ensalada + cremas\n"
+            "🍚 Arroz chaufa o chola de oro\n"
+            "💰 $25.000\n"
+            "🔥 Oferta especial: POLLO BROASTER 3x2\n"
+            "📍 Dirección: Larraya 4258 (Pje. Hebe San Martín de Duprat)\n"
+            "🕚 Horario: de 11 a 23 hs\n"
+            "🚚 Envíos desde el lunes\n"
+            "💳 Efectivo y Mercado Pago\n"
+            "📲 Pedidos: 11 2323-2427\n"
+            "🥢 En el menú también vas a encontrar:\n"
+            "✔ Arroz chaufa ✔ Lomo saltado ✔ Tallarín saltado ✔ Mostrito ✔ Salchipapas "
+            "✔ Milanesa ✔ Lomito / Bife ✔ ¡Y más menú variado!\n"
+            "❤️ Vecinos de Villa Lugano, Lugano 1 y 2, Piedrabuena, Samoré y Nagera: "
+            "¡Una nueva opción gastronómica llega al barrio!"
+        ),
+    ],
+}
+
 _UI_NOISE = {
     "Me gusta", "Comentar", "Compartir", "Ver más", "Luganense",
     "Todo", "Publicaciones", "Información", "Fotos", "Seguidores", "Menciones",
@@ -425,14 +453,17 @@ async def _scrape_posts(page, page_id: str = "") -> list[str]:
     """
     Recolecta URLs de posts visibles en el perfil, navega a cada una
     individualmente y extrae el texto completo (sin "Ver más").
+    Incluye también posts estáticos (reels no scrapeables en headless).
     """
+    # Posts estáticos hardcodeados (reels, posts de video, etc.)
+    posts: list[str] = list(_STATIC_POSTS.get(page_id, []))
+
     urls = await _collect_post_urls(page, page_id)
     if not urls:
         logger.warning("[fetch_facebook] No se encontraron URLs de posts")
-        return []
+        return posts
 
     ctx = page.context
-    posts: list[str] = []
 
     for url in urls:
         text = await _scrape_post_page(ctx, url)
