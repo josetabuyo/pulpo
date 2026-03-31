@@ -2,7 +2,41 @@
 
 **Fecha:** 2026-03-30
 **Severidad:** Alta — afecta la propuesta de valor del bot
-**Estado:** Abierto
+**Estado:** En progreso — BUG 1 y BUG 3 resueltos, BUG 2 pendiente
+
+---
+
+## Bugs y mejoras identificados (2026-03-31)
+
+| ID | Descripción | Estado |
+|----|-------------|--------|
+| BUG 1 | Búsqueda headless no extrae contenido del feed | ✅ Resuelto |
+| BUG 2 | No expande queries — bot busca solo la frase exacta | ⏳ Pendiente |
+| BUG 3 | Mensajes outbound no se persisten en DB | ✅ Resuelto (commit 7f25786) |
+| MEJORA 1 | Logs con primeras líneas de cada post + filtro por palabra clave en dashboard | ⏳ Pendiente |
+| MEJORA 2 | Enviar imagen cuando el caso lo requiere (mascotas, noticias visuales) | ⏳ Pendiente |
+| MEJORA 3 | Más tools de scraping (Información, Comunidad, Menciones) | ⏳ Pendiente |
+
+---
+
+## Detalle BUG 1 — Búsqueda headless no extrae contenido (RESUELTO)
+
+**Causa raíz identificada (2026-03-31):** `_search_and_scrape` navegaba a la URL de búsqueda pero luego llamaba a `_scrape_posts`, que intenta recolectar links `/posts/pfbid` del DOM. Las páginas de búsqueda de Facebook no exponen esos links en el DOM — solo exponen links `/photo/?fbid=...`. Resultado: 0 URLs → 0 posts → respuesta vacía.
+
+**Fix aplicado:** nueva función `_scrape_search_feed(page)` que:
+1. Hace clic en todos los botones "Ver más" para expandir posts truncados
+2. Lee el texto directamente del `[role='feed']` de la página de búsqueda
+3. Retorna el contenido limpio (sin ruido UI) como contexto para el LLM
+
+**Verificado en MCP browser:** la búsqueda `?q=milanesas` en el perfil numérico de Luganense devuelve el post de Sabor Peruano con el menú completo incluyendo "Milanesa", dirección, horario y teléfono.
+
+---
+
+## Detalle BUG 2 — Sin query expansion (PENDIENTE)
+
+El grafo llama `fetch_facebook.fetch("luganense", state["message"])` con la frase exacta del usuario. Si el usuario pregunta "¿dónde como milanesas?" y el post dice "Milanesa", puede funcionar. Pero para queries ambiguas o con distancia semántica, sería mejor generar 2-3 términos de búsqueda alternativos con el LLM.
+
+**Solución propuesta:** agregar nodo `expand_query` antes de `handle_noticias` que genere términos alternativos y llame `fetch` con cada uno, consolidando el contexto.
 
 ---
 
