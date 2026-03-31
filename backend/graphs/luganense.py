@@ -80,6 +80,32 @@ def _route(state: LuganenseState) -> Literal["handle_noticias", "handle_oficio"]
     return "handle_noticias" if state["scope"] == "noticias" else "handle_oficio"
 
 
+_KEYWORD_SYSTEM = """Extraé 1 o 2 palabras clave para buscar en Facebook. Solo las palabras, sin signos de puntuación ni explicación. Ejemplos:
+- "¿dónde puedo comer milanesas?" → "milanesas"
+- "hay algo para hacer este fin de semana?" → "evento fin de semana"
+- "perdí un perro en el barrio" → "perro perdido"
+- "busco herrero" → "herrero"
+Respondé SOLO con las palabras clave."""
+
+
+async def _extract_keywords(message: str, api_key: str) -> str:
+    """Extrae 1-2 palabras clave del mensaje para mejorar la búsqueda en FB."""
+    try:
+        from langchain_groq import ChatGroq
+        llm = ChatGroq(model=_MODEL, api_key=api_key, max_tokens=15, temperature=0)
+        result = await llm.ainvoke([
+            {"role": "system", "content": _KEYWORD_SYSTEM},
+            {"role": "user", "content": message},
+        ])
+        keywords = result.content.strip()
+        if keywords:
+            logger.info("[luganense] query expandida: '%s' → '%s'", message[:50], keywords)
+            return keywords
+    except Exception as e:
+        logger.warning("[luganense] Error extrayendo keywords: %s — usando mensaje original", e)
+    return message
+
+
 async def handle_noticias(state: LuganenseState) -> dict:
     """
     Responde sobre el barrio usando Groq + contexto de Facebook.
@@ -91,8 +117,9 @@ async def handle_noticias(state: LuganenseState) -> dict:
 
     api_key = os.getenv("GROQ_API_KEY")
 
-    # Siempre intentar obtener contexto de Facebook
-    fb_context = await fetch_facebook.fetch("luganense", state["message"])
+    # Expandir el mensaje a palabras clave antes de buscar en FB
+    search_query = await _extract_keywords(state["message"], api_key) if api_key else state["message"]
+    fb_context = await fetch_facebook.fetch("luganense", search_query)
 
     if not api_key:
         logger.error("[luganense] GROQ_API_KEY no configurada — fallback a prompt estático")
