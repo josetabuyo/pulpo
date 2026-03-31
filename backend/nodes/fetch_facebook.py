@@ -191,11 +191,61 @@ async def _find_buscar_button(page):
     return None
 
 
+async def _scrape_search_feed(page) -> list[str]:
+    """
+    Extrae texto de posts directamente desde la página de resultados de búsqueda.
+    Los resultados de búsqueda de FB no exponen links /posts/pfbid en el DOM —
+    el contenido está inline en el feed. Esta función lo lee directamente.
+    """
+    # Expandir posts truncados: clicar todos los "Ver más" visibles
+    try:
+        buttons = await page.query_selector_all("button")
+        for btn in buttons:
+            try:
+                text = (await btn.inner_text()).strip()
+                if text == "Ver más":
+                    await btn.click()
+                    await page.wait_for_timeout(400)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    await page.wait_for_timeout(1_000)
+
+    # Leer el texto del feed de resultados
+    raw = ""
+    try:
+        feed = await page.query_selector("[role='feed']")
+        if feed:
+            raw = await feed.inner_text()
+    except Exception:
+        pass
+
+    if not raw.strip():
+        return []
+
+    lines = [
+        l.strip() for l in raw.split("\n")
+        if len(l.strip()) > 5
+        and l.strip() not in _UI_NOISE
+        and not l.strip().startswith("0:0")
+        and "Audio original" not in l
+    ]
+
+    if not lines:
+        return []
+
+    logger.info("[fetch_facebook] Search feed: %d líneas extraídas", len(lines))
+    return ["\n".join(lines[:150])]
+
+
 async def _search_and_scrape(page, query: str, page_id: str = "") -> list[str]:
     """
     Navega a la URL de búsqueda de la página directamente.
-    Requiere el ID numérico de FB en _PAGE_NUMERIC_IDS.
-    Fallback: scrapea todos los posts del feed.
+    Extrae el texto del feed de resultados (no navega a posts individuales,
+    porque las páginas de búsqueda de FB no exponen links /posts/pfbid en el DOM).
+    Fallback: scrapea el feed con seeds si la búsqueda no rinde resultados.
     """
     import urllib.parse
 
@@ -209,7 +259,7 @@ async def _search_and_scrape(page, query: str, page_id: str = "") -> list[str]:
             await page.goto(search_url, wait_until="domcontentloaded", timeout=30_000)
             await page.wait_for_timeout(5_000)
             logger.info("[fetch_facebook] Búsqueda directa: '%s' → %s", query, search_url)
-            results = await _scrape_posts(page, page_id)
+            results = await _scrape_search_feed(page)
             if results:
                 return results
             logger.info("[fetch_facebook] Búsqueda sin resultados, volviendo al feed")
@@ -277,6 +327,7 @@ _UI_NOISE = {
     "Iniciar sesión", "¿Olvidaste la cuenta?", "¿Olvidaste tu contraseña?",
     "Ve más en Facebook", "Crear cuenta nueva", "Audio original",
     "Correo electrónico o número de teléfono", "Contraseña",
+    "Indicador de estado online", "Activo", "Facebook",
 }
 
 _POST_URL_PATTERNS = ("/posts/", "/photo.php", "/reel/", "/videos/")
