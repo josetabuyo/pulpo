@@ -46,6 +46,14 @@ async def fetch(page_id: str, query: str = "") -> str:
         return cached[1]
 
     content = await _load(page_id, query)
+
+    # Los posts estáticos (reels y contenido no scrapeble en headless) se incluyen
+    # siempre, incluso si el browser falla o las cookies expiran.
+    static_posts = _STATIC_POSTS.get(page_id, [])
+    if static_posts:
+        static_text = "\n\n".join(static_posts)
+        content = static_text + ("\n\n" + content if content else "")
+
     if content:
         _cache[cache_key] = (time.time(), content)
     return content
@@ -504,10 +512,10 @@ async def _scrape_posts(page, page_id: str = "") -> list[str]:
     """
     Recolecta URLs de posts visibles en el perfil, navega a cada una
     individualmente y extrae el texto completo (sin "Ver más").
-    Incluye también posts estáticos (reels no scrapeables en headless).
+    Los posts estáticos (_STATIC_POSTS) se agregan en fetch() para que siempre
+    estén disponibles, incluso si el browser falla o las cookies expiran.
     """
-    # Posts estáticos hardcodeados (reels, posts de video, etc.)
-    posts: list[str] = list(_STATIC_POSTS.get(page_id, []))
+    posts: list[str] = []
 
     urls = await _collect_post_urls(page, page_id)
     if not urls:
