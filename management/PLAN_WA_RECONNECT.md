@@ -99,4 +99,4 @@ async def scan_unread_on_reconnect(self, session_id, bot_id, bot_phone, allowed_
 ---
 
 ## Estado
-- [ ] Pendiente — worktree no creado aún
+- [x] Cubierto — `_poll_sidebar_for_delta` (cada 10s) detecta cambios de preview al reconectar + `_startup_delta_sync` captura mensajes perdidos al reiniciar. El evento `window.online` explícito no se implementó pero el resultado es equivalente.
