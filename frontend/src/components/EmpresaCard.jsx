@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import SimChat from '../SimChat.jsx'
+import FlowCanvas from './FlowCanvas.jsx'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -840,6 +841,7 @@ export default function EmpresaCard({
     { id: 'connections', label: 'Conexiones', count: conns.length },
     { id: 'tools', label: 'Herramientas', count: toolsTabCount },
     { id: 'contacts', label: 'Contactos', count: contacts.length || null },
+    { id: 'flow', label: 'Flow', count: null },
     ...(mode === 'empresa' ? [{ id: 'config', label: 'Configurar', count: null }] : []),
   ]
 
@@ -1059,6 +1061,13 @@ export default function EmpresaCard({
             <div className="ec-add-row">
               <button className="btn-primary btn-sm" onClick={() => setContactModal('new')}>+ Nuevo contacto</button>
             </div>
+          </div>
+        )}
+
+        {/* ── Flow ── */}
+        {activeTab === 'flow' && (
+          <div style={{ padding: '16px 16px 8px' }}>
+            <FlowCanvas empresaId={botId} apiCall={apiCall} />
           </div>
         )}
 
