@@ -73,3 +73,34 @@ def test_flow_graph_luganense_edges_fork(client):
     data = r.json()
     from_router = [e for e in data["edges"] if e["source"] == "scope_router"]
     assert len(from_router) == 2
+
+
+def test_flow_graph_fixed_message(client):
+    """gm_herreria tiene tool_tipo=fixed_message → nodo reply."""
+    r = client.get("/api/empresas/gm_herreria/flow/graph", headers=ADMIN)
+    assert r.status_code == 200
+    data = r.json()
+    node_ids = [n["id"] for n in data["nodes"]]
+    assert "reply" in node_ids
+    types_by_id = {n["id"]: n["type"] for n in data["nodes"]}
+    assert types_by_id["reply"] == "reply"
+
+
+def test_flow_graph_summarizer(client):
+    """la_piquiteria tiene tool_tipo=summarizer → nodo summarize."""
+    r = client.get("/api/empresas/la_piquiteria/flow/graph", headers=ADMIN)
+    assert r.status_code == 200
+    data = r.json()
+    node_ids = [n["id"] for n in data["nodes"]]
+    assert "summarize" in node_ids
+    types_by_id = {n["id"]: n["type"] for n in data["nodes"]}
+    assert types_by_id["summarize"] == "summarize"
+
+
+def test_flow_graph_todos_tienen_start_end(client):
+    """Todos los grafos sintéticos tienen nodos __start__ y __end__."""
+    for empresa in ("gm_herreria", "la_piquiteria", "bot_test"):
+        r = client.get(f"/api/empresas/{empresa}/flow/graph", headers=ADMIN)
+        node_ids = [n["id"] for n in r.json()["nodes"]]
+        assert "__start__" in node_ids, f"{empresa} sin __start__"
+        assert "__end__" in node_ids, f"{empresa} sin __end__"

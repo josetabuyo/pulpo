@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi import Header
 from typing import Optional
 
+import db
 from config import load_config
 from middleware_auth import get_empresa_bot_id
 
@@ -141,8 +142,14 @@ async def get_flow_graph(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error al leer grafo: {e}")
 
-    # Sin flow_id → grafo sintético basado en el primer tool de la empresa
-    # (o fallback a "assistant" si no hay tools configuradas)
-    tool_tipo = bot.get("tool_tipo") or "assistant"
+    # Sin flow_id → grafo sintético
+    # 1. Buscar primera herramienta activa en DB
+    tools = await db.get_tools(empresa_id)
+    active = next((t for t in tools if t.get("activa")), None)
+    if active:
+        tool_tipo = active["tipo"]
+    else:
+        # 2. Fallback a phones.json (campo tool_tipo)
+        tool_tipo = bot.get("tool_tipo") or "assistant"
     graph = _SYNTHETIC.get(tool_tipo, _SYNTHETIC["assistant"])
     return graph
