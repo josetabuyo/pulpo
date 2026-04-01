@@ -5,6 +5,7 @@ Scope Router: clasifica el mensaje en "noticias" u "oficio" y lo rutea:
   - noticias → assistant (LLM con contexto del barrio)
   - oficio   → stub: "Estamos buscando, te avisamos"
 """
+import asyncio
 import logging
 import os
 from typing import TypedDict, Literal
@@ -80,35 +81,52 @@ def _route(state: LuganenseState) -> Literal["handle_noticias", "handle_oficio"]
     return "handle_noticias" if state["scope"] == "noticias" else "handle_oficio"
 
 
-_KEYWORD_SYSTEM = """Extraé 1 o 2 palabras clave para buscar en Facebook. Solo las palabras, sin signos de puntuación ni explicación.
-IMPORTANTE: si el mensaje contiene un nombre propio (persona, mascota, lugar, negocio), incluiló siempre en las keywords.
+_QUERIES_SYSTEM = """Generá una lista de búsquedas para encontrar en Facebook el contenido que pide el vecino.
+Devolvé entre 1 y 3 búsquedas, una por línea, sin numeración ni explicación.
+
+Reglas:
+- Si hay una intersección "A y B": generá tres líneas — "A y B", "A", "B"
+- Si hay un nombre propio (persona, mascota, negocio, lugar): incluilo en al menos una búsqueda
+- No repitas búsquedas equivalentes
+- Sé específico: preferí términos que aparecerían en un post de Facebook de barrio
+
 Ejemplos:
-- "¿dónde puedo comer milanesas?" → "milanesas"
-- "hay algo para hacer este fin de semana?" → "evento fin de semana"
-- "perdí un perro en el barrio" → "perro perdido"
-- "perro Loki" → "Loki"
-- "busco herrero" → "herrero"
-- "accidente en Riestra" → "Riestra accidente"
-- "abrió Sabor Peruano?" → "Sabor Peruano"
-Respondé SOLO con las palabras clave."""
+"¿dónde puedo comer milanesas?" →
+milanesas
+pollería
+
+"encontré un perro en Pola y Hubac" →
+Pola y Hubac
+Pola
+Hubac
+
+"perro Loki" →
+Loki
+perro perdido
+
+"accidente en Riestra" →
+Riestra accidente
+
+"abrió Sabor Peruano?" →
+Sabor Peruano"""
 
 
-async def _extract_keywords(message: str, api_key: str) -> str:
-    """Extrae 1-2 palabras clave del mensaje para mejorar la búsqueda en FB."""
+async def _expand_queries(message: str, api_key: str) -> list[str]:
+    """Genera 1-3 queries de búsqueda para FB a partir del mensaje del usuario."""
     try:
         from langchain_groq import ChatGroq
-        llm = ChatGroq(model=_MODEL, api_key=api_key, max_tokens=15, temperature=0)
+        llm = ChatGroq(model=_MODEL, api_key=api_key, max_tokens=40, temperature=0)
         result = await llm.ainvoke([
-            {"role": "system", "content": _KEYWORD_SYSTEM},
+            {"role": "system", "content": _QUERIES_SYSTEM},
             {"role": "user", "content": message},
         ])
-        keywords = result.content.strip()
-        if keywords:
-            logger.info("[luganense] query expandida: '%s' → '%s'", message[:50], keywords)
-            return keywords
+        lines = [l.strip() for l in result.content.strip().splitlines() if l.strip()]
+        if lines:
+            logger.info("[luganense] queries generadas: %s", lines)
+            return lines[:3]
     except Exception as e:
-        logger.warning("[luganense] Error extrayendo keywords: %s — usando mensaje original", e)
-    return message
+        logger.warning("[luganense] Error generando queries: %s — usando mensaje original", e)
+    return [message]
 
 
 async def handle_noticias(state: LuganenseState) -> dict:
@@ -122,9 +140,19 @@ async def handle_noticias(state: LuganenseState) -> dict:
 
     api_key = os.getenv("GROQ_API_KEY")
 
-    # Expandir el mensaje a palabras clave antes de buscar en FB
-    search_query = await _extract_keywords(state["message"], api_key) if api_key else state["message"]
-    fb_context = await fetch_facebook.fetch("luganense", search_query)
+    # Generar múltiples queries y correrlas en paralelo
+    queries = await _expand_queries(state["message"], api_key) if api_key else [state["message"]]
+    results = await asyncio.gather(*[fetch_facebook.fetch("luganense", q) for q in queries])
+
+    # Combinar resultados deduplicando líneas repetidas
+    seen: set[str] = set()
+    combined: list[str] = []
+    for block in results:
+        for line in block.splitlines():
+            if line not in seen:
+                seen.add(line)
+                combined.append(line)
+    fb_context = "\n".join(combined)
 
     if not api_key:
         logger.error("[luganense] GROQ_API_KEY no configurada — fallback a prompt estático")
