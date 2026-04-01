@@ -87,11 +87,16 @@ def _route(state: LuganenseState) -> Literal["handle_noticias", "handle_oficio"]
     return "handle_noticias" if state["scope"] == "noticias" else "handle_oficio"
 
 
-_KEYWORD_SYSTEM = """Extraé 1 o 2 palabras clave para buscar en Facebook. Solo las palabras, sin signos de puntuación ni explicación. Ejemplos:
+_KEYWORD_SYSTEM = """Extraé 1 o 2 palabras clave para buscar en Facebook. Solo las palabras, sin signos de puntuación ni explicación.
+IMPORTANTE: si el mensaje contiene un nombre propio (persona, mascota, lugar, negocio), incluiló siempre en las keywords.
+Ejemplos:
 - "¿dónde puedo comer milanesas?" → "milanesas"
 - "hay algo para hacer este fin de semana?" → "evento fin de semana"
 - "perdí un perro en el barrio" → "perro perdido"
+- "perro Loki" → "Loki"
 - "busco herrero" → "herrero"
+- "accidente en Riestra" → "Riestra accidente"
+- "abrió Sabor Peruano?" → "Sabor Peruano"
 Respondé SOLO con las palabras clave."""
 
 
