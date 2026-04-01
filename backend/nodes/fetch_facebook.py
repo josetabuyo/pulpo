@@ -51,6 +51,8 @@ async def fetch(page_id: str, query: str = "") -> str:
     # siempre, incluso si el browser falla o las cookies expiran.
     static_posts = _STATIC_POSTS.get(page_id, [])
     if static_posts:
+        for i, sp in enumerate(static_posts):
+            logger.info("[fetch_facebook] static %d: %s", i + 1, sp[:80].replace('\n', ' '))
         static_text = "\n\n".join(static_posts)
         content = static_text + ("\n\n" + content if content else "")
 
@@ -549,5 +551,6 @@ async def _scrape_posts(page, page_id: str = "") -> list[str]:
         text = await _scrape_post_page(ctx, url)
         if text:
             posts.append(text)
+            logger.info("[fetch_facebook] post %d: %s", len(posts), text[:80].replace('\n', ' '))
 
     return posts
