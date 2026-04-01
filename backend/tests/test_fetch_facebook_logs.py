@@ -11,6 +11,36 @@ from nodes import fetch_facebook
 
 
 @pytest.mark.asyncio
+async def test_get_last_image_vacio_si_no_hay():
+    """Sin scraping, get_last_image retorna cadena vacía."""
+    fetch_facebook._last_image.pop("sin_scraping", None)
+    assert fetch_facebook.get_last_image("sin_scraping") == ""
+
+
+@pytest.mark.asyncio
+async def test_get_last_image_persiste_tras_fetch():
+    """_last_image se popula cuando _load actualiza el dict (simula scraping con imagen)."""
+    fetch_facebook.invalidate("luganense_img_test")
+
+    async def mock_load_con_imagen(page_id, query):
+        fetch_facebook._last_image[page_id] = "https://scontent.fbcdn.net/v/fake_image.jpg"
+        return "Post de prueba con imagen"
+
+    with patch.object(fetch_facebook, "_load", new=mock_load_con_imagen):
+        await fetch_facebook.fetch("luganense_img_test", "mascota")
+
+    assert fetch_facebook.get_last_image("luganense_img_test") == "https://scontent.fbcdn.net/v/fake_image.jpg"
+
+
+@pytest.mark.asyncio
+async def test_invalidate_limpia_imagen():
+    """invalidate() debe limpiar también _last_image."""
+    fetch_facebook._last_image["luganense_inv"] = "https://scontent.fbcdn.net/v/some_image.jpg"
+    fetch_facebook.invalidate("luganense_inv")
+    assert fetch_facebook.get_last_image("luganense_inv") == ""
+
+
+@pytest.mark.asyncio
 async def test_static_posts_aparecen_en_logs(caplog):
     """Los static posts deben loguearse aunque el browser falle."""
     with patch.object(fetch_facebook, "_load", new=AsyncMock(return_value="")):

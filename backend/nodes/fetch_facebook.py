@@ -33,6 +33,14 @@ _UA = (
 # cache en memoria: page_id -> (timestamp, texto)
 _cache: dict[str, tuple[float, str]] = {}
 
+# última imagen capturada por scraping: page_id -> image_url
+_last_image: dict[str, str] = {}
+
+
+def get_last_image(page_id: str) -> str:
+    """Retorna la última imagen capturada para una página (og:image del último post scrapeado)."""
+    return _last_image.get(page_id, "")
+
 
 async def fetch(page_id: str, query: str = "") -> str:
     """
@@ -66,6 +74,7 @@ def invalidate(page_id: str) -> None:
     keys = [k for k in _cache if k.startswith(f"{page_id}:")]
     for k in keys:
         del _cache[k]
+    _last_image.pop(page_id, None)
     logger.info("[fetch_facebook] cache invalidada para '%s'", page_id)
 
 
@@ -201,11 +210,12 @@ async def _find_buscar_button(page):
     return None
 
 
-async def _scrape_search_feed(page) -> list[str]:
+async def _scrape_search_feed(page, page_id: str = "") -> list[str]:
     """
     Extrae texto de posts directamente desde la página de resultados de búsqueda.
     Los resultados de búsqueda de FB no exponen links /posts/pfbid en el DOM —
     el contenido está inline en el feed. Esta función lo lee directamente.
+    Si page_id se provee, captura la primera imagen de contenido del feed.
     """
     # Expandir posts truncados: clicar todos los "Ver más" visibles
     # En páginas de búsqueda, "Ver más" puede ser div[role='button'] o span, no solo <button>
@@ -260,6 +270,21 @@ async def _scrape_search_feed(page) -> list[str]:
         return []
 
     logger.info("[fetch_facebook] Search feed: %d líneas extraídas", len(lines))
+
+    # Capturar primera imagen de contenido del feed (no avatares)
+    if page_id and page_id not in _last_image:
+        try:
+            imgs = await page.query_selector_all("[role='feed'] img[src*='fbcdn.net']")
+            for img in imgs:
+                src = await img.get_attribute("src") or ""
+                # Las imágenes de contenido están en scontent-*.fbcdn.net
+                if src and "scontent" in src:
+                    _last_image[page_id] = src
+                    logger.info("[fetch_facebook] imagen capturada del feed de búsqueda para '%s'", page_id)
+                    break
+        except Exception:
+            pass
+
     return ["\n".join(lines[:150])]
 
 
@@ -290,7 +315,7 @@ async def _search_and_scrape(page, query: str, page_id: str = "") -> list[str]:
                 await page.screenshot(path=str(screenshot_path), full_page=False)
                 logger.info("[fetch_facebook] DEBUG screenshot → %s", screenshot_path)
 
-            results = await _scrape_search_feed(page)
+            results = await _scrape_search_feed(page, page_id)
             if results:
                 return results
             logger.info("[fetch_facebook] Búsqueda sin resultados, volviendo al feed")
@@ -485,15 +510,28 @@ async def _collect_post_urls(page, page_id: str) -> list[str]:
     return urls[:_MAX_POSTS]
 
 
-async def _scrape_post_page(ctx, url: str) -> str:
+async def _scrape_post_page(ctx, url: str, page_id: str = "") -> str:
     """
     Navega a un post individual y extrae el texto completo (sin truncar).
     Los posts individuales no tienen "Ver más" — carga el texto completo.
+    Si page_id se provee, captura og:image y lo guarda en _last_image[page_id].
     """
     try:
         post_page = await ctx.new_page()
         await post_page.goto(url, wait_until="domcontentloaded", timeout=20_000)
         await post_page.wait_for_timeout(2_000)
+
+        # Capturar og:image si aún no tenemos una para esta página
+        if page_id and page_id not in _last_image:
+            try:
+                meta = await post_page.query_selector("meta[property='og:image']")
+                if meta:
+                    img_url = await meta.get_attribute("content") or ""
+                    if img_url:
+                        _last_image[page_id] = img_url
+                        logger.info("[fetch_facebook] og:image capturada para '%s': %s", page_id, img_url[:60])
+            except Exception:
+                pass
 
         # Expandir texto truncado: clicar el botón "Ver más" si existe
         try:
@@ -548,7 +586,7 @@ async def _scrape_posts(page, page_id: str = "") -> list[str]:
     ctx = page.context
 
     for url in urls:
-        text = await _scrape_post_page(ctx, url)
+        text = await _scrape_post_page(ctx, url, page_id)
         if text:
             posts.append(text)
             logger.info("[fetch_facebook] post %d: %s", len(posts), text[:80].replace('\n', ' '))

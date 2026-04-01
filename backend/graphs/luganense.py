@@ -51,6 +51,7 @@ class LuganenseState(TypedDict):
     canal: str
     scope: str
     reply: str
+    image_url: str
 
 
 async def scope_router(state: LuganenseState) -> dict:
@@ -198,7 +199,12 @@ async def handle_noticias(state: LuganenseState) -> dict:
     if sponsor_msg:
         reply = f"{reply}\n\n---\n{sponsor_msg}"
 
-    return {"reply": reply}
+    # Capturar imagen del último post scrapeado (og:image)
+    image_url = fetch_facebook.get_last_image(state.get("empresa_id", "luganense"))
+    if image_url:
+        logger.info("[luganense] imagen disponible para enviar: %s", image_url[:60])
+
+    return {"reply": reply, "image_url": image_url}
 
 
 async def handle_oficio(state: LuganenseState) -> dict:
@@ -263,8 +269,11 @@ async def invoke(
     empresa_id: str = "",
     cliente_phone: str = "",
     canal: str = "telegram",
-) -> str:
-    """Punto de entrada principal para invocar el grafo."""
+) -> dict:
+    """
+    Punto de entrada principal para invocar el grafo.
+    Retorna dict con 'reply' (str) e 'image_url' (str, vacío si no hay imagen).
+    """
     result = await app.ainvoke({
         "message": message,
         "prompt": prompt,
@@ -274,5 +283,6 @@ async def invoke(
         "canal": canal,
         "scope": "",
         "reply": "",
+        "image_url": "",
     })
-    return result.get("reply", "")
+    return {"reply": result.get("reply", ""), "image_url": result.get("image_url", "")}
