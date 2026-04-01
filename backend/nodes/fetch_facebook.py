@@ -206,20 +206,33 @@ async def _scrape_search_feed(page) -> list[str]:
     el contenido está inline en el feed. Esta función lo lee directamente.
     """
     # Expandir posts truncados: clicar todos los "Ver más" visibles
+    # En páginas de búsqueda, "Ver más" puede ser div[role='button'] o span, no solo <button>
     try:
-        buttons = await page.query_selector_all("button")
-        for btn in buttons:
+        expandables = await page.query_selector_all("[role='button'], button, a")
+        clicked = 0
+        for el in expandables:
             try:
-                text = (await btn.inner_text()).strip()
-                if text == "Ver más":
-                    await btn.click()
+                text = (await el.inner_text()).strip()
+                if text in ("Ver más", "See more"):
+                    await el.click()
                     await page.wait_for_timeout(400)
+                    clicked += 1
             except Exception:
                 pass
+        if clicked:
+            logger.info("[fetch_facebook] Expandidos %d 'Ver más'", clicked)
+            await page.wait_for_timeout(1_000)
     except Exception:
         pass
 
     await page.wait_for_timeout(1_000)
+
+    if os.getenv("FB_DEBUG"):
+        debug_dir = Path(__file__).parent.parent.parent / "data" / "debug"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        after_path = debug_dir / "fb_search_after_expand.png"
+        await page.screenshot(path=str(after_path), full_page=False)
+        logger.info("[fetch_facebook] DEBUG after-expand screenshot → %s", after_path)
 
     # Leer el texto del feed de resultados
     raw = ""
@@ -267,6 +280,14 @@ async def _search_and_scrape(page, query: str, page_id: str = "") -> list[str]:
             await page.goto(search_url, wait_until="domcontentloaded", timeout=30_000)
             await page.wait_for_timeout(5_000)
             logger.info("[fetch_facebook] Búsqueda directa: '%s' → %s", query, search_url)
+
+            if os.getenv("FB_DEBUG"):
+                debug_dir = Path(__file__).parent.parent.parent / "data" / "debug"
+                debug_dir.mkdir(parents=True, exist_ok=True)
+                screenshot_path = debug_dir / f"fb_search_{page_id}_{query[:20].replace(' ', '_')}.png"
+                await page.screenshot(path=str(screenshot_path), full_page=False)
+                logger.info("[fetch_facebook] DEBUG screenshot → %s", screenshot_path)
+
             results = await _scrape_search_feed(page)
             if results:
                 return results
