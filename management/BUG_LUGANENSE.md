@@ -38,10 +38,22 @@ La calidad del query expansion y las respuestas mejorará significativamente con
 
 ---
 
+## Mejoras resueltas
+
+| ID | Descripción | Estado |
+|----|-------------|--------|
+| MEJORA 1 | Logs con primeras líneas de cada post scrapeado | ✅ Resuelto (commit 4ea4b7a) |
+
+### Cómo se resolvió MEJORA 1
+- `fetch_facebook.py`: loguea cada static post y cada post scrapeado (primeros 80 chars, sin newlines)
+- `luganense.py`: loguea `[luganense] contexto FB: N chars de M queries` tras consolidar resultados
+- Tests unitarios en `backend/tests/test_fetch_facebook_logs.py` (2 tests, ambos verdes)
+
+---
+
 ## Mejoras pendientes (baja prioridad)
 
 | ID | Descripción |
 |----|-------------|
-| MEJORA 1 | Logs con primeras líneas de cada post en el dashboard |
 | MEJORA 2 | Enviar imagen cuando el caso lo requiere (mascotas, noticias visuales) |
 | MEJORA 3 | Más tools de scraping (Información, Comunidad, Menciones de FB) |
