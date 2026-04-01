@@ -153,6 +153,7 @@ async def handle_noticias(state: LuganenseState) -> dict:
                 seen.add(line)
                 combined.append(line)
     fb_context = "\n".join(combined)
+    logger.info("[luganense] contexto FB: %d chars de %d queries", len(fb_context), len(queries))
 
     if not api_key:
         logger.error("[luganense] GROQ_API_KEY no configurada — fallback a prompt estático")
