@@ -18,14 +18,14 @@ def test_flow_graph_requiere_auth(client):
 
 
 def test_flow_graph_sintetico(client):
-    """bot_test no tiene flow_id → grafo sintético de assistant."""
+    """bot_test tiene tool_tipo=fixed_message → nodo reply."""
     r = client.get("/api/empresas/bot_test/flow/graph", headers=ADMIN)
     assert r.status_code == 200
     data = r.json()
     assert "nodes" in data
     assert "edges" in data
-    assert len(data["nodes"]) > 0
-    assert len(data["edges"]) > 0
+    node_ids = [n["id"] for n in data["nodes"]]
+    assert "reply" in node_ids
 
 
 def test_flow_graph_nodos_tienen_campos(client):
