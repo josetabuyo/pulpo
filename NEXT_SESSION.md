@@ -1,7 +1,7 @@
 # NEXT_SESSION — feat-flow-ui
 
 ## Estado actual
-**Fase 1 COMPLETADA** — tab "Flow" de solo lectura funcional.
+**Fase 1 COMPLETA y en producción** — tab "Flow" con grafo de agente, arquitectura SOLID.
 
 Plan completo en: `management/PLAN_WORKFLOW_AGENTES.md`
 
@@ -12,33 +12,48 @@ Plan completo en: `management/PLAN_WORKFLOW_AGENTES.md`
 
 ---
 
-## Lo que se implementó en este worktree
+## Arquitectura implementada
 
-### Backend
-- `backend/api/flows.py` — endpoint `GET /api/empresas/{empresa_id}/flow/graph`
-  - Empresas con `flow_id="luganense"` → extrae grafo real de LangGraph (`app.get_graph()`)
-  - Empresas sin `flow_id` → grafo sintético según `tool_tipo` (assistant por defecto)
-  - Auth: acepta JWT empresa O x-password admin
-- `backend/tests/test_flows.py` — 8 tests, todos pasando
+### Fuente de verdad: `backend/graphs/node_types.py`
+`NodeType` dataclass con `id`, `label`, `color`, `description`.
+Funciones `get(type_id)` y `classify(node_id)` usadas por todo el sistema.
+**Agregar un tipo nuevo = editar solo este archivo.**
 
-### Frontend
-- `frontend/src/components/FlowCanvas.jsx` — canvas React Flow con layout dagre automático
-  - Colores por tipo de nodo: start/end/router/fetch/llm/reply/notify/summarize/generic
-  - `@xyflow/react` + `dagre` instalados
-- `EmpresaCard.jsx` — nueva tab "Flow" visible para todas las empresas
+### Backend: `backend/api/flows.py`
+- `GET /api/flow/node-types` — catálogo público (sin auth)
+- `GET /api/empresas/{id}/flow/graph` — grafo de la empresa (auth requerida)
+  - Empresas con `flow_id` en phones.json → grafo LangGraph real
+  - Sin `flow_id` → busca herramienta activa en DB; si no hay, lee `tool_tipo` de phones.json
 
-### phones.json
-- `luganense` tiene `flow_id: "luganense"` para extraer su grafo LangGraph real
+### Frontend: `frontend/src/components/FlowCanvas.jsx`
+- Consume `/api/flow/node-types` para estilos y tooltips
+- Nodo custom con tooltip nativo (`title`) al hacer hover
+- Layout automático con dagre
+- Importado en `EmpresaCard.jsx`, tab "Flow"
+
+### phones.json (gitignoreado, editar en cada worktree y en `_`)
+```json
+{ "id": "gm_herreria",  "tool_tipo": "fixed_message" }
+{ "id": "la_piquiteria","tool_tipo": "summarizer" }
+{ "id": "bot_test",     "tool_tipo": "fixed_message" }
+{ "id": "luganense",    "flow_id":   "luganense" }
+```
+
+### Tests: `backend/tests/test_flows.py` — 21 tests
+- Unit: registro NodeType, classify(), get() fallback
+- HTTP: `/api/flow/node-types` (estructura, sin auth, consistencia con registro)
+- HTTP: `/api/empresas/{id}/flow/graph` (por empresa, tipos, edges)
 
 ---
 
 ## Pendiente (Fase 2 — worktree futuro)
 
 - Edición drag-drop: mover nodos, crear/eliminar edges desde la UI
-- Eliminar la pestaña "Herramientas" (cuando Flow la reemplace del todo)
+- Eliminar la pestaña "Herramientas" cuando Flow la reemplace del todo
 - Persistir topologías en DB
-- Grafos Python mínimos para fixed_message/summarizer/assistant (Opción A)
+- Grafos Python reales para fixed_message/summarizer/assistant (hoy son sintéticos)
 - Labels en edges condicionales (scope_router → "noticias" / "oficio")
+- Agregar flow_id a nuevos grafos LangGraph cuando se creen
 
 ---
 
@@ -46,4 +61,5 @@ Plan completo en: `management/PLAN_WORKFLOW_AGENTES.md`
 ```bash
 git merge feat-flow-ui
 git push origin master
+cd /Users/josetabuyo/Development/pulpo/_ && ./restart-backend.sh
 ```
