@@ -1,17 +1,28 @@
-# NEXT_SESSION — feat-flow-ui
+# NEXT_SESSION — Luganense: refactor grafo + imagen inteligente
 
+<<<<<<< HEAD
+## Contexto
+Worktree: `bug-luganense` | Backend: `:8002` | `ENABLE_BOTS=false`
+Arrancar: `./start.sh` desde la raíz de este worktree.
+=======
 ## Estado actual
 **Fase 1 COMPLETA y en producción** — tab "Flow" con grafo de agente, arquitectura SOLID.
 
 Plan completo en: `management/PLAN_WORKFLOW_AGENTES.md`
+>>>>>>> master
 
-## Servidor
-- Backend: `:8003` | Frontend: `:5178` | `ENABLE_BOTS=false`
-- Arrancar: `./start.sh`
-- Tests: `cd backend && /Users/josetabuyo/Development/pulpo/_/backend/.venv/bin/pytest tests/ -v`
+Doc de referencia: `management/BUG_LUGANENSE.md` (en master `_/`).
 
 ---
 
+<<<<<<< HEAD
+## Estado actual
+
+- Todos los bugs originales resueltos
+- MEJORA 1 (logs ricos) → en producción
+- MEJORA 2 (imagen básica) → implementado, pendiente refactor antes de mergear
+- feat-flow-ui → mergeado, el grafo descompuesto se verá en el visualizador
+=======
 ## Arquitectura implementada
 
 ### Fuente de verdad: `backend/graphs/node_types.py`
@@ -43,23 +54,34 @@ Funciones `get(type_id)` y `classify(node_id)` usadas por todo el sistema.
 - Unit: registro NodeType, classify(), get() fallback
 - HTTP: `/api/flow/node-types` (estructura, sin auth, consistencia con registro)
 - HTTP: `/api/empresas/{id}/flow/graph` (por empresa, tipos, edges)
+>>>>>>> master
 
 ---
 
-## Pendiente (Fase 2 — worktree futuro)
+## Regla de esta sesión
 
+<<<<<<< HEAD
+Al terminar: **commit en bug-luganense → merge a master → push → restart backend de producción**.
+=======
 - Edición drag-drop: mover nodos, crear/eliminar edges desde la UI
 - Eliminar la pestaña "Herramientas" cuando Flow la reemplace del todo
 - Persistir topologías en DB
 - Grafos Python reales para fixed_message/summarizer/assistant (hoy son sintéticos)
 - Labels en edges condicionales (scope_router → "noticias" / "oficio")
 - Agregar flow_id a nuevos grafos LangGraph cuando se creen
+>>>>>>> master
 
 ---
 
-## Para mergear desde `_`
+## Tests antes de empezar
+
 ```bash
+<<<<<<< HEAD
+cd /Users/josetabuyo/Development/pulpo/bug-luganense/backend
+/Users/josetabuyo/Development/pulpo/_/backend/.venv/bin/pytest tests/test_fetch_facebook_logs.py tests/test_summarizer.py -v
+=======
 git merge feat-flow-ui
 git push origin master
 cd /Users/josetabuyo/Development/pulpo/_ && ./restart-backend.sh
+>>>>>>> master
 ```
