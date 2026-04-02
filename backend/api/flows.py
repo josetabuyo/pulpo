@@ -66,6 +66,29 @@ def _build_synthetic(tool_tipo: str) -> dict:
     return {"nodes": nodes, "edges": edges}
 
 
+# ─── Helpers de etiquetas ────────────────────────────────────────────────────
+
+_ACRONYMS = {"fb", "llm", "api", "url", "id"}
+
+def _node_label(node_id: str) -> str:
+    """
+    Convierte un node_id de LangGraph en una etiqueta legible.
+    El node_id es la fuente de verdad del nombre del nodo — no el tipo genérico.
+      buscar_posts_fb   → "Buscar posts FB"
+      responder_noticias → "Responder noticias"
+      scope_router       → "Scope router"
+    """
+    if node_id == "__start__":
+        return "Inicio"
+    if node_id == "__end__":
+        return "Fin"
+    parts = node_id.split("_")
+    return " ".join(
+        w.upper() if w in _ACRONYMS else (w.capitalize() if i == 0 else w)
+        for i, w in enumerate(parts)
+    )
+
+
 # ─── Extractor de grafo LangGraph ────────────────────────────────────────────
 
 def _graph_from_module(flow_id: str) -> dict:
@@ -73,7 +96,12 @@ def _graph_from_module(flow_id: str) -> dict:
         from graphs.luganense import app
         g = app.get_graph()
         nodes = [
-            {"id": n, "label": classify(n).label, "type": classify(n).id}
+            {
+                "id": n,
+                "label": _node_label(n),
+                "type": classify(n).id,
+                "description": classify(n).description,
+            }
             for n in g.nodes
         ]
         edges = [

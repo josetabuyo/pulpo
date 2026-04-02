@@ -3,7 +3,7 @@ Grafo LangGraph para el bot Luganense.
 
 El agente tiene 3 fuentes de información y el scope_router decide cuál usar:
 
-  noticias    → expandir_consulta → buscar_posts_fb → responder_noticias → fetch_imagen?
+  noticias    → expandir_consulta → buscar_posts_fb → responder_noticias → obtener_imagen?
   oficio      → buscar_oficio → notificar_oficio
   auspiciante → buscar_auspiciante → responder_auspiciante
 
@@ -268,7 +268,7 @@ async def responder_noticias(state: LuganenseState) -> dict:
         return {"reply": reply, "needs_image": False, "source_post_index": -1}
 
 
-async def fetch_imagen(state: LuganenseState) -> dict:
+async def obtener_imagen(state: LuganenseState) -> dict:
     """
     Resuelve la URL de imagen del post indicado por source_post_index.
     Solo ejecuta si needs_image=True e image_enabled=True (routing condicional).
@@ -287,9 +287,9 @@ async def fetch_imagen(state: LuganenseState) -> dict:
                 break
 
     if image_url:
-        logger.info("[luganense] fetch_imagen: imagen disponible (%s...)", image_url[:60])
+        logger.info("[luganense] obtener_imagen: imagen disponible (%s...)", image_url[:60])
     else:
-        logger.info("[luganense] fetch_imagen: sin imagen en los posts")
+        logger.info("[luganense] obtener_imagen: sin imagen en los posts")
 
     return {"image_url": image_url}
 
@@ -406,14 +406,14 @@ def _route_scope(state: LuganenseState) -> Literal["expandir_consulta", "buscar_
     return "expandir_consulta"
 
 
-def _route_imagen(state: LuganenseState) -> Literal["fetch_imagen", "__end__"]:
-    """Ir a fetch_imagen solo si el LLM lo pidió, está habilitado, y hay imagen disponible."""
+def _route_imagen(state: LuganenseState) -> Literal["obtener_imagen", "__end__"]:
+    """Ir a obtener_imagen solo si el LLM lo pidió, está habilitado, y hay imagen disponible."""
     if not state.get("needs_image"):
         return "__end__"
     if not state.get("image_enabled", True):
         return "__end__"
     if any(p.get("image_url") for p in state.get("fb_posts", [])):
-        return "fetch_imagen"
+        return "obtener_imagen"
     return "__end__"
 
 
@@ -426,7 +426,7 @@ _builder.add_node("scope_router",         scope_router)
 _builder.add_node("expandir_consulta",    expandir_consulta)
 _builder.add_node("buscar_posts_fb",      buscar_posts_fb)
 _builder.add_node("responder_noticias",   responder_noticias)
-_builder.add_node("fetch_imagen",         fetch_imagen)
+_builder.add_node("obtener_imagen",         obtener_imagen)
 _builder.add_node("buscar_oficio",        buscar_oficio)
 _builder.add_node("notificar_oficio",     notificar_oficio)
 _builder.add_node("buscar_auspiciante",   buscar_auspiciante)
@@ -440,7 +440,7 @@ _builder.add_conditional_edges("scope_router", _route_scope)
 _builder.add_edge("expandir_consulta",  "buscar_posts_fb")
 _builder.add_edge("buscar_posts_fb",    "responder_noticias")
 _builder.add_conditional_edges("responder_noticias", _route_imagen)
-_builder.add_edge("fetch_imagen",       END)
+_builder.add_edge("obtener_imagen",       END)
 
 # Rama oficio
 _builder.add_edge("buscar_oficio",      "notificar_oficio")
