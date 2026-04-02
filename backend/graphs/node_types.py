@@ -113,7 +113,7 @@ def classify(node_id: str) -> NodeType:
     if "router" in node_id or "classify" in node_id:
         return NODE_TYPES["router"]
     # fetch externo antes que búsqueda interna
-    if "fetch" in node_id or "scrape" in node_id:
+    if "fetch" in node_id or "scrape" in node_id or "obtener" in node_id:
         return NODE_TYPES["fetch"]
     if "buscar" in node_id:
         if "fb" in node_id or "facebook" in node_id or "post" in node_id:
