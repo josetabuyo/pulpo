@@ -1,8 +1,8 @@
 """
 API REST de flows (grafos de agente).
 
-GET /api/empresas/{empresa_id}/flow/graph
-→ { nodes: [{id, label, type}], edges: [{source, target, label?}] }
+GET /api/flow/node-types          → catálogo de tipos de nodo (público)
+GET /api/empresas/{id}/flow/graph → grafo de la empresa (auth requerida)
 """
 import os
 from fastapi import APIRouter, HTTPException, Request
@@ -12,88 +12,68 @@ from typing import Optional
 import db
 from config import load_config
 from middleware_auth import get_empresa_bot_id
+from graphs.node_types import NODE_TYPES, get as get_node_type, classify
 
 router = APIRouter()
 
 _ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin")
 
-# ─── Grafos sintéticos (Opción B de Fase 1) ────────────────────────────────────
+# ─── Grafos sintéticos por tipo de tool ─────────────────────────────────────
+# Cada entrada: lista de (node_id, type_id). Labels y colores vienen del registro.
 
-_SYNTHETIC = {
-    "fixed_message": {
-        "nodes": [
-            {"id": "__start__", "label": "Inicio", "type": "start"},
-            {"id": "reply",     "label": "Mensaje fijo", "type": "reply"},
-            {"id": "__end__",   "label": "Fin", "type": "end"},
-        ],
-        "edges": [
-            {"source": "__start__", "target": "reply",   "label": None},
-            {"source": "reply",     "target": "__end__", "label": None},
-        ],
-    },
-    "summarizer": {
-        "nodes": [
-            {"id": "__start__",  "label": "Inicio",       "type": "start"},
-            {"id": "summarize",  "label": "Sumarizador",  "type": "summarize"},
-            {"id": "__end__",    "label": "Fin",          "type": "end"},
-        ],
-        "edges": [
-            {"source": "__start__", "target": "summarize", "label": None},
-            {"source": "summarize", "target": "__end__",   "label": None},
-        ],
-    },
-    "assistant": {
-        "nodes": [
-            {"id": "__start__",  "label": "Inicio",        "type": "start"},
-            {"id": "assistant",  "label": "Asistente LLM", "type": "llm"},
-            {"id": "__end__",    "label": "Fin",           "type": "end"},
-        ],
-        "edges": [
-            {"source": "__start__", "target": "assistant", "label": None},
-            {"source": "assistant", "target": "__end__",   "label": None},
-        ],
-    },
+_SYNTHETIC_TEMPLATES: dict[str, list[tuple[str, str]]] = {
+    "fixed_message": [
+        ("__start__", "start"),
+        ("reply",     "reply"),
+        ("__end__",   "end"),
+    ],
+    "summarizer": [
+        ("__start__",  "start"),
+        ("summarize",  "summarize"),
+        ("__end__",    "end"),
+    ],
+    "assistant": [
+        ("__start__",  "start"),
+        ("assistant",  "llm"),
+        ("__end__",    "end"),
+    ],
+    "flow": [
+        ("__start__",  "start"),
+        ("flow",       "generic"),
+        ("__end__",    "end"),
+    ],
 }
 
-# ─── Clasificador de nodos ──────────────────────────────────────────────────────
-
-def _classify_node(name: str) -> str:
-    if name in ("__start__",):
-        return "start"
-    if name in ("__end__",):
-        return "end"
-    if "router" in name or "classify" in name:
-        return "router"
-    if "fetch" in name or "scrape" in name:
-        return "fetch"
-    if "noticias" in name or "llm" in name or "respond" in name or "assistant" in name:
-        return "llm"
-    if "oficio" in name or "reply" in name or "fixed" in name:
-        return "reply"
-    if "notify" in name:
-        return "notify"
-    if "summar" in name:
-        return "summarize"
-    return "generic"
+_SYNTHETIC_EDGES: dict[str, list[tuple[str, str]]] = {
+    "fixed_message": [("__start__", "reply"),     ("reply",      "__end__")],
+    "summarizer":    [("__start__", "summarize"), ("summarize",  "__end__")],
+    "assistant":     [("__start__", "assistant"), ("assistant",  "__end__")],
+    "flow":          [("__start__", "flow"),      ("flow",       "__end__")],
+}
 
 
-def _node_label(name: str) -> str:
-    """Convierte node_id a etiqueta legible."""
-    if name == "__start__":
-        return "Inicio"
-    if name == "__end__":
-        return "Fin"
-    return name.replace("_", " ")
+def _build_synthetic(tool_tipo: str) -> dict:
+    template = _SYNTHETIC_TEMPLATES.get(tool_tipo, _SYNTHETIC_TEMPLATES["assistant"])
+    edge_defs = _SYNTHETIC_EDGES.get(tool_tipo, _SYNTHETIC_EDGES["assistant"])
+    nodes = [
+        {"id": nid, "label": get_node_type(ntype).label, "type": ntype}
+        for nid, ntype in template
+    ]
+    edges = [
+        {"source": src, "target": tgt, "label": None}
+        for src, tgt in edge_defs
+    ]
+    return {"nodes": nodes, "edges": edges}
 
 
-# ─── Extraer grafo desde módulo LangGraph ───────────────────────────────────────
+# ─── Extractor de grafo LangGraph ────────────────────────────────────────────
 
 def _graph_from_module(flow_id: str) -> dict:
     if flow_id == "luganense":
         from graphs.luganense import app
         g = app.get_graph()
         nodes = [
-            {"id": n, "label": _node_label(n), "type": _classify_node(n)}
+            {"id": n, "label": classify(n).label, "type": classify(n).id}
             for n in g.nodes
         ]
         edges = [
@@ -104,17 +84,15 @@ def _graph_from_module(flow_id: str) -> dict:
     raise ValueError(f"flow_id desconocido: {flow_id}")
 
 
-# ─── Auth helpers ───────────────────────────────────────────────────────────────
+# ─── Auth helpers ─────────────────────────────────────────────────────────────
 
 def _require_empresa(empresa_id: str, request: Request, x_password: Optional[str]) -> dict:
     config = load_config()
     bot = next((b for b in config.get("bots", []) if b["id"] == empresa_id), None)
     if not bot:
         raise HTTPException(status_code=404, detail="Empresa no encontrada")
-
     if x_password and x_password == _ADMIN_PASSWORD:
         return bot
-
     token_bot_id = get_empresa_bot_id(request)
     if not token_bot_id:
         raise HTTPException(status_code=401, detail="Token requerido o inválido")
@@ -123,7 +101,16 @@ def _require_empresa(empresa_id: str, request: Request, x_password: Optional[str
     return bot
 
 
-# ─── Endpoint ───────────────────────────────────────────────────────────────────
+# ─── Endpoints ───────────────────────────────────────────────────────────────
+
+@router.get("/flow/node-types")
+def list_node_types():
+    """Catálogo público de tipos de nodo: id, label, color, description."""
+    return [
+        {"id": nt.id, "label": nt.label, "color": nt.color, "description": nt.description}
+        for nt in NODE_TYPES.values()
+    ]
+
 
 @router.get("/empresas/{empresa_id}/flow/graph")
 async def get_flow_graph(
@@ -134,22 +121,13 @@ async def get_flow_graph(
     bot = _require_empresa(empresa_id, request, x_password)
 
     flow_id = bot.get("flow_id")
-
-    # Si la empresa tiene flow_id → extraer grafo real de LangGraph
     if flow_id:
         try:
             return _graph_from_module(flow_id)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error al leer grafo: {e}")
 
-    # Sin flow_id → grafo sintético
-    # 1. Buscar primera herramienta activa en DB
     tools = await db.get_tools(empresa_id)
     active = next((t for t in tools if t.get("activa")), None)
-    if active:
-        tool_tipo = active["tipo"]
-    else:
-        # 2. Fallback a phones.json (campo tool_tipo)
-        tool_tipo = bot.get("tool_tipo") or "assistant"
-    graph = _SYNTHETIC.get(tool_tipo, _SYNTHETIC["assistant"])
-    return graph
+    tool_tipo = active["tipo"] if active else bot.get("tool_tipo") or "assistant"
+    return _build_synthetic(tool_tipo)
