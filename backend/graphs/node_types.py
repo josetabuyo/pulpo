@@ -96,7 +96,8 @@ def classify(node_id: str) -> NodeType:
         return NODE_TYPES["router"]
     if "fetch" in node_id or "scrape" in node_id:
         return NODE_TYPES["fetch"]
-    if "noticias" in node_id or "llm" in node_id or "respond" in node_id or "assistant" in node_id:
+    if ("noticias" in node_id or "llm" in node_id or "respond" in node_id
+            or "assistant" in node_id or "generate" in node_id or "expand" in node_id):
         return NODE_TYPES["llm"]
     if "oficio" in node_id or "reply" in node_id or "fixed" in node_id:
         return NODE_TYPES["reply"]

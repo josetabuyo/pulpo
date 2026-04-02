@@ -114,9 +114,12 @@ def build_telegram_app(bot_config: dict):
                 bot_name = bot_entry.get("name", bot_id)
                 prompt = tool["config"].get("prompt", "")
                 empresa_id = tool.get("empresa_id", "")
+                flow_config = tool["config"].get("flow_config", {})
+                image_enabled = flow_config.get("image_enabled", True)
                 result = await luganense_graph.invoke(
                     text, prompt, bot_name, empresa_id,
                     cliente_phone=sender_id, canal="telegram",
+                    image_enabled=image_enabled,
                 )
                 reply = result.get("reply", "")
                 image_url = result.get("image_url", "")
