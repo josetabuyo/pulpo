@@ -1,9 +1,13 @@
 # NEXT_SESSION — feat-flow-ui
 
-## Estado actual
-**Fase 1 COMPLETA y en producción** — tab "Flow" con grafo de agente, arquitectura SOLID.
+## TL;DR
+**Lee el plan completo antes de arrancar:**
+`management/PLAN_FLOW_EDITOR.md`
 
-Plan completo en: `management/PLAN_WORKFLOW_AGENTES.md`
+El plan tiene la visión completa, el catálogo de nodos, el esquema de DB,
+la arquitectura frontend y la hoja de ruta por fases.
+
+---
 
 ## Servidor
 - Backend: `:8003` | Frontend: `:5178` | `ENABLE_BOTS=false`
@@ -12,54 +16,55 @@ Plan completo en: `management/PLAN_WORKFLOW_AGENTES.md`
 
 ---
 
-## Arquitectura implementada
+## Estado actual (Fase 0 completa)
 
-### Fuente de verdad: `backend/graphs/node_types.py`
-`NodeType` dataclass con `id`, `label`, `color`, `description`.
-Funciones `get(type_id)` y `classify(node_id)` usadas por todo el sistema.
-**Agregar un tipo nuevo = editar solo este archivo.**
+La Fase 0 está en producción:
+- Tab "Flow" en EmpresaCard con canvas React Flow + dagre
+- Grafo real de Luganense vía `app.get_graph()`
+- Grafos sintéticos para fixed_message/summarizer/assistant
+- Labels muestran nombre del nodo (no tipo genérico)
+- 21 tests pasando
 
-### Backend: `backend/api/flows.py`
-- `GET /api/flow/node-types` — catálogo público (sin auth)
-- `GET /api/empresas/{id}/flow/graph` — grafo de la empresa (auth requerida)
-  - Empresas con `flow_id` en phones.json → grafo LangGraph real
-  - Sin `flow_id` → busca herramienta activa en DB; si no hay, lee `tool_tipo` de phones.json
-
-### Frontend: `frontend/src/components/FlowCanvas.jsx`
-- Consume `/api/flow/node-types` para estilos y tooltips
-- Nodo custom con tooltip nativo (`title`) al hacer hover
-- Layout automático con dagre
-- Importado en `EmpresaCard.jsx`, tab "Flow"
-
-### phones.json (gitignoreado, editar en cada worktree y en `_`)
-```json
-{ "id": "gm_herreria",  "tool_tipo": "fixed_message" }
-{ "id": "la_piquiteria","tool_tipo": "summarizer" }
-{ "id": "bot_test",     "tool_tipo": "fixed_message" }
-{ "id": "luganense",    "flow_id":   "luganense" }
-```
-
-### Tests: `backend/tests/test_flows.py` — 21 tests
-- Unit: registro NodeType, classify(), get() fallback
-- HTTP: `/api/flow/node-types` (estructura, sin auth, consistencia con registro)
-- HTTP: `/api/empresas/{id}/flow/graph` (por empresa, tipos, edges)
+Archivos clave ya implementados:
+- `backend/api/flows.py` — GET /flow/node-types + GET grafo
+- `backend/graphs/node_types.py` — registro de tipos (fuente de verdad)
+- `frontend/src/components/FlowCanvas.jsx` — canvas read-only
 
 ---
 
-## Pendiente (Fase 2 — worktree futuro)
+## Próxima tarea: Fase 1 — DB + API de flows
 
-- Edición drag-drop: mover nodos, crear/eliminar edges desde la UI
-- Eliminar la pestaña "Herramientas" cuando Flow la reemplace del todo
-- Persistir topologías en DB
-- Grafos Python reales para fixed_message/summarizer/assistant (hoy son sintéticos)
-- Labels en edges condicionales (scope_router → "noticias" / "oficio")
-- Agregar flow_id a nuevos grafos LangGraph cuando se creen
+**Objetivo:** crear la infraestructura de persistencia para que los flows vivan en DB
+en lugar de estar hardcodeados en Python.
+
+### Pasos concretos
+
+1. **Migración DB** (`backend/db.py`)
+   - Crear tabla `flows` con columnas: `id, empresa_id, name, definition (JSON), connection_id, contact_phone, active, created_at, updated_at`
+   - La migration debe ser compatible con la DB existente (no romper tools todavía)
+
+2. **Endpoints CRUD** (`backend/api/flows.py`)
+   - `GET  /api/empresas/{id}/flows` — lista de flows de la empresa
+   - `POST /api/empresas/{id}/flows` — crear nuevo flow (con definition vacía o template)
+   - `GET  /api/empresas/{id}/flows/{flow_id}` — detalle con definition completa
+   - `PUT  /api/empresas/{id}/flows/{flow_id}` — guardar definition (topología + config de nodos)
+   - `DELETE /api/empresas/{id}/flows/{flow_id}` — eliminar
+
+3. **Migrar Luganense a DB**
+   - Crear un flow en DB para Luganense con la definition actual del grafo
+   - El endpoint GET grafo existente puede ahora leer de DB en lugar de hardcoded
+
+4. **Tests** (`backend/tests/test_flows.py`)
+   - Agregar tests para los nuevos endpoints CRUD
+   - Verificar que la migration no rompe los 21 tests existentes
+
+### Regla: backward-compat durante esta fase
+- La tabla `tools` sigue existiendo
+- El auto-reply sigue leyendo `tools` como antes
+- No tocar la lógica de ejecución todavía — solo persistencia
 
 ---
 
-## Para mergear desde `_`
-```bash
-git merge feat-flow-ui
-git push origin master
-cd /Users/josetabuyo/Development/pulpo/_ && ./restart-backend.sh
-```
+## Regla de esta sesión
+
+Al terminar: **commit en feat-flow-ui → avisar a la sesión de `_` para merge a master → push → restart backend de producción**.
