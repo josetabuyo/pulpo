@@ -114,20 +114,38 @@ def build_telegram_app(bot_config: dict):
                 bot_name = bot_entry.get("name", bot_id)
                 prompt = tool["config"].get("prompt", "")
                 empresa_id = tool.get("empresa_id", "")
-                reply = await luganense_graph.invoke(
+                flow_config = tool["config"].get("flow_config", {})
+                image_enabled = flow_config.get("image_enabled", True)
+                result = await luganense_graph.invoke(
                     text, prompt, bot_name, empresa_id,
                     cliente_phone=sender_id, canal="telegram",
+                    image_enabled=image_enabled,
                 )
+                reply = result.get("reply", "")
+                image_url = result.get("image_url", "")
             else:
                 reply = ""
+                image_url = ""
         else:
             reply = ""
+            image_url = ""
 
         if not reply or text == reply:
             return
 
         try:
-            await msg.reply_text(reply)
+            if image_url:
+                try:
+                    import urllib.request
+                    with urllib.request.urlopen(image_url, timeout=10) as resp:
+                        image_data = resp.read()
+                    await msg.reply_photo(image_data, caption=reply, parse_mode="Markdown")
+                    logger.info(f"{label}   → Respuesta con imagen enviada")
+                except Exception as img_err:
+                    logger.warning(f"{label}   → Error enviando imagen, fallback a texto: {img_err}")
+                    await msg.reply_text(reply)
+            else:
+                await msg.reply_text(reply)
             for eid, mid in msg_ids.items():
                 await mark_answered(mid)
                 await log_message(eid, token_id, sender_id, "Bot", reply, outbound=True)

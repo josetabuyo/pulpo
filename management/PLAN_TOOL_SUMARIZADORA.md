@@ -368,8 +368,8 @@ GROQ_API_KEY=...       # obtener gratis en console.groq.com
   - [x] Acumulador `tool_summarizer.py` con soporte para msg_type=`document` (ya funciona por diseño)
   - [x] Endpoint GET para ver el MD (ya existía)
   - [x] Botón "Ver resúmenes" en EmpresaPage (ya existía)
-- [ ] Fase 2 — Descarga y transcripción de audios (Groq + fallback whisper.cpp)
-- [ ] Fase 3 — Descarga de documentos adjuntos (Playwright download API para tiempo real, IndexedDB para histórico)
+- [x] Fase 2 — Descarga y transcripción de audios (Groq + fallback whisper.cpp) — implementado en whatsapp.py (tiempo real + full-sync IDB/DOM) y telegram_bot.py
+- [x] Fase 3 — Descarga de documentos adjuntos — implementado con `_download_document_from_page` (expect_download) en tiempo real y en full-sync histórico
 - [ ] Fase 4 — Procesamiento IA para informe elaborado
 - [ ] Fase 5 — Tests completos
 

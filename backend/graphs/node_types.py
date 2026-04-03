@@ -2,9 +2,9 @@
 Registro central de tipos de nodo para flows de agentes.
 
 Un NodeType define todo lo necesario para representar un nodo:
-  - id        → clave que viaja en el JSON entre backend y frontend
-  - label     → nombre visible en la UI
-  - color     → color del nodo en el grafo
+  - id          → clave que viaja en el JSON entre backend y frontend
+  - label       → nombre visible en la UI
+  - color       → color del nodo en el grafo
   - description → texto del tooltip al hacer hover
 
 Esta es la ÚNICA fuente de verdad. Ni el endpoint ni el frontend
@@ -42,13 +42,19 @@ NODE_TYPES: dict[str, NodeType] = {
     ),
     "fetch": NodeType(
         id="fetch",
-        label="Fetch",
+        label="Fetch externo",
         color="#1e40af",
         description="Consulta datos externos: Facebook, APIs o web scraping.",
     ),
+    "search": NodeType(
+        id="search",
+        label="Búsqueda interna",
+        color="#0f766e",
+        description="Consulta fuentes internas: lista de oficios, auspiciantes, trabajadores.",
+    ),
     "llm": NodeType(
         id="llm",
-        label="Asistente LLM",
+        label="Respuesta LLM",
         color="#6b21a8",
         description="Genera una respuesta usando un modelo de lenguaje (Groq / GPT).",
     ),
@@ -87,21 +93,42 @@ def get(type_id: str) -> NodeType:
 
 
 def classify(node_id: str) -> NodeType:
-    """Infiere el NodeType a partir del nombre del nodo LangGraph."""
+    """
+    Infiere el NodeType a partir del nombre del nodo LangGraph.
+    Convención de nombres:
+      scope_router, *_router   → router
+      fetch_*                  → fetch  (externo)
+      buscar_*_fb / *_facebook → fetch  (externo)
+      buscar_*                 → search (interno)
+      expandir_*, *_expand     → llm
+      responder_*, *_respond   → llm
+      *_llm, *_noticias        → llm
+      notificar_*, *_notify    → notify
+      *_summar*                → summarize
+    """
     if node_id == "__start__":
         return NODE_TYPES["start"]
     if node_id == "__end__":
         return NODE_TYPES["end"]
     if "router" in node_id or "classify" in node_id:
         return NODE_TYPES["router"]
-    if "fetch" in node_id or "scrape" in node_id:
+    # fetch externo antes que búsqueda interna
+    if "fetch" in node_id or "scrape" in node_id or "obtener" in node_id:
         return NODE_TYPES["fetch"]
-    if "noticias" in node_id or "llm" in node_id or "respond" in node_id or "assistant" in node_id:
+    if "buscar" in node_id:
+        if "fb" in node_id or "facebook" in node_id or "post" in node_id:
+            return NODE_TYPES["fetch"]
+        return NODE_TYPES["search"]
+    if ("expandir" in node_id or "expand" in node_id
+            or "responder" in node_id or "respond" in node_id
+            or "generar" in node_id or "generate" in node_id
+            or "noticias" in node_id or "llm" in node_id
+            or "assistant" in node_id):
         return NODE_TYPES["llm"]
-    if "oficio" in node_id or "reply" in node_id or "fixed" in node_id:
-        return NODE_TYPES["reply"]
-    if "notify" in node_id:
+    if "notificar" in node_id or "notify" in node_id:
         return NODE_TYPES["notify"]
     if "summar" in node_id:
         return NODE_TYPES["summarize"]
+    if "reply" in node_id or "fixed" in node_id:
+        return NODE_TYPES["reply"]
     return _FALLBACK
