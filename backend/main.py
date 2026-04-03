@@ -30,7 +30,7 @@ from api.empresa import router as empresa_router
 from api.contacts import router as contacts_router
 from api.tools import router as tools_router
 from api.summarizer import router as summarizer_router
-from api.flows import router as flows_router
+from api.flows import router as flows_router, seed_default_flows
 import sim as sim_engine
 
 logging.basicConfig(
@@ -49,6 +49,7 @@ _tg_apps: list[Application] = []
 async def lifespan(app: FastAPI):
     # Arranque
     await init_db()
+    await seed_default_flows()
     logger.info("DB lista.")
 
     if sim_engine.SIM_MODE:

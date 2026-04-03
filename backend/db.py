@@ -155,6 +155,24 @@ async def init_db():
             )
         """))
 
+        # ─── Flows ───────────────────────────────────────────────────
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS flows (
+                id            TEXT PRIMARY KEY,
+                empresa_id    TEXT NOT NULL,
+                name          TEXT NOT NULL,
+                definition    TEXT NOT NULL DEFAULT '{}',
+                connection_id TEXT DEFAULT NULL,
+                contact_phone TEXT DEFAULT NULL,
+                active        INTEGER NOT NULL DEFAULT 1,
+                created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_flows_empresa_id ON flows(empresa_id)"
+        ))
+
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS jobs (
                 id                INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -645,6 +663,120 @@ async def set_tool_contacts_excluded(tool_id: int, contact_ids: list[int]) -> No
                 {"tid": tool_id, "cid": cid},
             )
         await session.commit()
+
+
+# ─── Flows ───────────────────────────────────────────────────────
+
+import uuid as _uuid
+
+
+def _flow_row_to_dict(row, include_definition: bool = False) -> dict:
+    d = {
+        "id":            row[0],
+        "empresa_id":    row[1],
+        "name":          row[2],
+        "connection_id": row[4],
+        "contact_phone": row[5],
+        "active":        bool(row[6]),
+        "created_at":    str(row[7]),
+        "updated_at":    str(row[8]),
+    }
+    if include_definition:
+        raw = row[3]
+        d["definition"] = _json.loads(raw) if raw else {"nodes": [], "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1}}
+    return d
+
+
+async def create_flow(
+    empresa_id: str,
+    name: str,
+    definition: dict | None = None,
+    connection_id: str | None = None,
+    contact_phone: str | None = None,
+) -> str:
+    flow_id = str(_uuid.uuid4())
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            text("""
+                INSERT INTO flows (id, empresa_id, name, definition, connection_id, contact_phone)
+                VALUES (:id, :empresa_id, :name, :definition, :connection_id, :contact_phone)
+            """),
+            {
+                "id": flow_id,
+                "empresa_id": empresa_id,
+                "name": name,
+                "definition": _json.dumps(definition or {"nodes": [], "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1}}),
+                "connection_id": connection_id,
+                "contact_phone": contact_phone,
+            },
+        )
+        await session.commit()
+    return flow_id
+
+
+async def get_flows(empresa_id: str) -> list[dict]:
+    async with AsyncSessionLocal() as session:
+        rows = (await session.execute(
+            text("""
+                SELECT id, empresa_id, name, definition, connection_id, contact_phone, active, created_at, updated_at
+                FROM flows WHERE empresa_id = :e ORDER BY created_at
+            """),
+            {"e": empresa_id},
+        )).fetchall()
+    return [_flow_row_to_dict(r) for r in rows]
+
+
+async def get_flow(flow_id: str) -> dict | None:
+    async with AsyncSessionLocal() as session:
+        row = (await session.execute(
+            text("""
+                SELECT id, empresa_id, name, definition, connection_id, contact_phone, active, created_at, updated_at
+                FROM flows WHERE id = :id
+            """),
+            {"id": flow_id},
+        )).fetchone()
+    if not row:
+        return None
+    return _flow_row_to_dict(row, include_definition=True)
+
+
+async def update_flow(flow_id: str, **kwargs) -> bool:
+    allowed = {"name", "definition", "connection_id", "contact_phone", "active"}
+    updates = {k: v for k, v in kwargs.items() if k in allowed}
+    if not updates:
+        return False
+    if "definition" in updates:
+        updates["definition"] = _json.dumps(updates["definition"])
+    if "active" in updates:
+        updates["active"] = int(updates["active"])
+    from datetime import datetime as _dt
+    updates["updated_at"] = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
+    set_clause = ", ".join(f"{k}=:{k}" for k in updates)
+    updates["id"] = flow_id
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            text(f"UPDATE flows SET {set_clause} WHERE id=:id"), updates
+        )
+        await session.commit()
+    return result.rowcount > 0
+
+
+async def delete_flow(flow_id: str) -> bool:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            text("DELETE FROM flows WHERE id=:id"), {"id": flow_id}
+        )
+        await session.commit()
+    return result.rowcount > 0
+
+
+async def flow_exists_for_empresa(empresa_id: str) -> bool:
+    async with AsyncSessionLocal() as session:
+        row = (await session.execute(
+            text("SELECT id FROM flows WHERE empresa_id = :e LIMIT 1"),
+            {"e": empresa_id},
+        )).fetchone()
+    return row is not None
 
 
 async def get_active_tools_for_bot(bot_id: str, empresa_id: str) -> list[dict]:
