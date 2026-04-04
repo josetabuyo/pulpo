@@ -547,17 +547,17 @@ export default function DashboardPage() {
             <div>
               <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>Portal de empresa (acceso con contraseña)</div>
               <div className="share-row">
-                <input className="share-url" readOnly value={window.location.origin + '/empresa'} />
-                <button className="btn-blue" onClick={() => navigator.clipboard.writeText(window.location.origin + '/empresa')}>Copiar</button>
-                <button className="btn-ghost" onClick={() => window.open(window.location.origin + '/empresa')}>Abrir</button>
+                <input className="share-url" readOnly value={(import.meta.env.VITE_PUBLIC_URL || window.location.origin) + '/empresa'} />
+                <button className="btn-blue" onClick={() => navigator.clipboard.writeText((import.meta.env.VITE_PUBLIC_URL || window.location.origin) + '/empresa')}>Copiar</button>
+                <button className="btn-ghost" onClick={() => window.open((import.meta.env.VITE_PUBLIC_URL || window.location.origin) + '/empresa')}>Abrir</button>
               </div>
             </div>
             <div>
               <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>Alta nueva empresa (link en blanco)</div>
               <div className="share-row">
-                <input className="share-url" readOnly value={window.location.origin + '/empresa/nueva'} />
-                <button className="btn-blue" onClick={() => navigator.clipboard.writeText(window.location.origin + '/empresa/nueva')}>Copiar</button>
-                <button className="btn-ghost" onClick={() => window.open(window.location.origin + '/empresa/nueva')}>Abrir</button>
+                <input className="share-url" readOnly value={(import.meta.env.VITE_PUBLIC_URL || window.location.origin) + '/empresa/nueva'} />
+                <button className="btn-blue" onClick={() => navigator.clipboard.writeText((import.meta.env.VITE_PUBLIC_URL || window.location.origin) + '/empresa/nueva')}>Copiar</button>
+                <button className="btn-ghost" onClick={() => window.open((import.meta.env.VITE_PUBLIC_URL || window.location.origin) + '/empresa/nueva')}>Abrir</button>
               </div>
             </div>
           </div>
