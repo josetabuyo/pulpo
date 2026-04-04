@@ -563,6 +563,9 @@ class WhatsAppSession(BrowserAutomation):
         Cubre el caso de 'Message yourself' y chats que no tienen badge de no leídos.
         """
         seen_pairs: set[tuple[str, str]] = set()  # (name, body) ya procesados
+        import time as _pt
+        _poll_start = _pt.time()
+        _POLL_WARMUP_SECS = 30  # igual que el warmup del listener JS: no disparar al arranque
         logger.info(f"[{session_id}] _poll_open_chat iniciado.")
         while True:
             await asyncio.sleep(3)
@@ -611,12 +614,18 @@ class WhatsAppSession(BrowserAutomation):
                     continue
 
                 # Comparar cada chat con su último preview conocido
+                in_warmup = _pt.time() - _poll_start < _POLL_WARMUP_SECS
                 for chat in result["chats"]:
                     name, body, phone = chat["name"], chat["body"], chat.get("phone", "")
                     pair = (name, body)
                     if pair in seen_pairs:
                         continue
                     seen_pairs.add(pair)
+                    if in_warmup:
+                        # Warmup: registrar el estado inicial sin disparar auto-replies.
+                        # Evita responder mensajes que ya estaban en el chat al arrancar.
+                        logger.debug(f"[{session_id}] open-chat warmup: {name} → {body[:40]}")
+                        continue
                     logger.debug(f"[{session_id}] open-chat detectó: {name} ({phone}) → {body[:40]}")
                     await on_message(phone, name, body, from_poll=False)
 

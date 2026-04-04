@@ -10,6 +10,7 @@ Los adapters (WA, Telegram, Sim) normalizan el mensaje a FlowState
 y llaman a run_flows(). El engine no sabe nada de protocolos.
 """
 import logging
+from datetime import datetime
 from .nodes.state import FlowState
 from .nodes import NODE_REGISTRY
 
@@ -82,6 +83,20 @@ async def run_flows(
         flows = await resolve_flows(bot_id, state.contact_phone, empresa_id)
 
         for flow in flows:
+            # Guard: no responder mensajes anteriores a la creación del flow
+            # (equivalente al activated_at del sistema de herramientas)
+            if state.timestamp:
+                try:
+                    flow_created = datetime.strptime(flow["created_at"], "%Y-%m-%d %H:%M:%S")
+                    if state.timestamp < flow_created:
+                        logger.debug(
+                            "[engine] Mensaje anterior a flow '%s' (msg:%s < flow:%s) — skip",
+                            flow["name"], state.timestamp, flow_created,
+                        )
+                        continue
+                except (ValueError, KeyError):
+                    pass  # sin created_at o formato raro: ejecutar igual (safe default)
+
             state = await execute_flow(flow["definition"], state)
 
     return state

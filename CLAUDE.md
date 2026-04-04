@@ -54,8 +54,13 @@ Esto permite desarrollar y testear sin arriesgar la sesión de producción ni lo
 2. Crear worktree → git worktree add + setup completo + NEXT_SESSION.md
 3. Desarrollar → en la sesión Claude del worktree, modo simulado
 4. Mergear → desde la sesión de _, merge + push a origin
-5. Eliminar worktree → git worktree remove --force
+5. ⚠️ ANTES de eliminar: bajar el backend del worktree → ./stop-backend.sh (desde el directorio del worktree)
+6. Eliminar worktree → git worktree remove --force
 ```
+
+> **Por qué el paso 5 es crítico:** un backend activo en un worktree tiene bots WA conectados.
+> Si se elimina el worktree sin bajarlo, el proceso uvicorn queda huérfano corriendo en background,
+> con bots activos que pueden procesar y responder mensajes. Esto ocurrió en producción (incidente abril 2026).
 
 ---
 
