@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import SimChat from '../SimChat.jsx'
 import FlowCanvas from './FlowCanvas.jsx'
+import FlowList from './FlowList.jsx'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -1066,9 +1067,7 @@ export default function EmpresaCard({
 
         {/* ── Flow ── */}
         {activeTab === 'flow' && (
-          <div style={{ padding: '16px 16px 8px' }}>
-            <FlowCanvas empresaId={botId} apiCall={apiCall} />
-          </div>
+          <FlowList empresaId={botId} apiCall={apiCall} connections={conns} />
         )}
 
         {/* ── Config (empresa only) ── */}

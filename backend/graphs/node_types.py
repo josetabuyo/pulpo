@@ -76,6 +76,18 @@ NODE_TYPES: dict[str, NodeType] = {
         color="#14532d",
         description="Acumula mensajes del período y genera un resumen periódico.",
     ),
+    "llm_respond": NodeType(
+        id="llm_respond",
+        label="Respuesta LLM",
+        color="#6b21a8",
+        description="Genera una respuesta usando un modelo de lenguaje (Groq / Llama).",
+    ),
+    "luganense_flow": NodeType(
+        id="luganense_flow",
+        label="Flujo Luganense",
+        color="#1e40af",
+        description="Ejecuta el flujo completo de Luganense FC.",
+    ),
     "generic": NodeType(
         id="generic",
         label="Nodo",
