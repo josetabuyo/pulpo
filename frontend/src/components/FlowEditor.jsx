@@ -56,7 +56,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved 
   }, [setSelectedNodeId])
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(90vh - 220px)', minHeight: 480 }}>
       <FlowHeader
         flow={flow}
         connections={connections}
@@ -64,7 +64,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved 
         onBack={onBack}
         onSaved={onSaved}
       />
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
         <NodePalette apiCall={apiCall} typeMap={typeMap} />
         <FlowCanvas
           nodes={nodes}
