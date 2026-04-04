@@ -257,8 +257,8 @@ export default function MonitorPanel({ pwd, onAlertsChange }) {
   }, [lines, filter, levelFilter])
 
   useEffect(() => {
-    if (!paused && !userScrolled.current && bottomRef.current)
-      bottomRef.current.scrollIntoView({ behavior: 'smooth' })
+    if (!paused && !userScrolled.current && logRef.current)
+      logRef.current.scrollTop = logRef.current.scrollHeight
   }, [filtered.length, paused])
 
   function handleScroll(e) {

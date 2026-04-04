@@ -315,7 +315,7 @@ export default function DashboardPage() {
   const [screenshotModal, setScreenshotModal] = useState({ open: false, number: null })
   const [expandedBot, setExpandedBot] = useState(null)
   const [monitorAlerts,     setMonitorAlerts]     = useState(0)
-  const [monitorCollapsed,  setMonitorCollapsed]  = useState(false)
+  const [monitorCollapsed,  setMonitorCollapsed]  = useState(true)
   const [companiesCollapsed, setCompaniesCollapsed] = useState(false)
 
   useEffect(() => { document.title = 'Pulpo — Dashboard' }, [])
