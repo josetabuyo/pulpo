@@ -487,7 +487,12 @@ export default function EmpresaCard({
               <div className="ec-header-actions">
                 <button className="btn-ghost btn-sm" onClick={() => onExpand?.(bot)} title="Expandir">⤢</button>
                 <button className="btn-ghost btn-sm" onClick={() => onEditBot?.(bot)}>Editar</button>
-                <button className="btn-danger btn-sm" onClick={() => onDeleteBot?.(bot.id)}>Eliminar</button>
+                <button
+                  className="btn-danger btn-sm"
+                  onClick={() => onDeleteBot?.(bot.id)}
+                  title="Eliminar empresa (pedirá confirmación)"
+                  style={{ padding: '4px 7px', fontSize: 14 }}
+                >🗑</button>
               </div>
             )}
           </div>

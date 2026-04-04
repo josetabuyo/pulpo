@@ -670,7 +670,7 @@ export default function DashboardPage() {
           className="overlay open"
           onClick={e => e.target === e.currentTarget && setExpandedBot(null)}
         >
-          <div className="modal" style={{ width: '92vw', maxWidth: '1200px', maxHeight: '92vh', overflowY: 'auto', padding: 0 }}>
+          <div className="modal" style={{ width: '92vw', maxWidth: '1200px', maxHeight: '92vh', overflowY: 'auto', padding: 0, paddingTop: 40 }}>
             <button className="modal-close" onClick={() => setExpandedBot(null)}>✕</button>
             <EmpresaCard
               mode="admin"
