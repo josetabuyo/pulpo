@@ -317,16 +317,20 @@ PUT  /api/empresas/{id}/node-permissions    → habilitar/deshabilitar nodo (adm
 - Grafos sintéticos para fixed_message/summarizer/assistant
 - Labels con nombre de nodo (no tipo genérico)
 
-### 📋 Fase 1 — DB + API de flows (próxima sesión)
+### ✅ Fase 1 — DB + API de flows + Arquitectura de nodos (COMPLETA)
 
-**Scope mínimo:**
-- Crear tabla `flows` en DB con migration
+**Lo que se hizo:**
+- Tabla `flows` en DB con migration
 - Endpoints CRUD: GET list, POST, GET detail, PUT, DELETE
-- Migrar Luganense de phones.json a DB (su definition es el JSON del grafo actual)
-- Mantener backward compat con tools durante la transición
-- Tests para los endpoints
-
-**No incluye:** editor visual aún.
+- `seed_default_flows()` crea flows iniciales desde phones.json al arrancar
+- Arquitectura de nodos: `BaseNode`, `ReplyNode`, `LLMRespondNode`, `SummarizeNode`, `LuganenseFlowNode`
+- `FlowState` dataclass — entrada/salida normalizada para todos los nodos
+- `compiler.py` — `execute_flow()`, `resolve_flows()`, `run_flows()`
+- WA, Telegram y simulador reescritos para usar `run_flows`
+- Eliminado sistema "tools" completo (API, tabla DB, código, tests)
+- `LOGIN_RATE_LIMIT=1000/hour` en `.env` de worktree para tests sin throttling
+- Fix `delete_contact` para borrar channels explícitamente (aiosqlite no soporta event listeners)
+- **106 tests pasando**
 
 ### 📋 Fase 2 — Editor drag & drop
 
@@ -397,13 +401,19 @@ PUT  /api/empresas/{id}/node-permissions    → habilitar/deshabilitar nodo (adm
 
 | Archivo | Estado |
 |---------|--------|
-| `backend/api/flows.py` | Implementado (GET /flow/node-types + GET grafo por empresa) |
-| `backend/graphs/node_types.py` | Implementado — fuente de verdad de tipos |
-| `frontend/src/components/FlowCanvas.jsx` | Implementado — read-only, dagre layout |
-| `frontend/src/components/EmpresaCard.jsx` | Tab "Flow" activa |
-| `backend/tests/test_flows.py` | 21 tests pasando |
-| Tabla `flows` en DB | ❌ pendiente |
-| CRUD de flows | ❌ pendiente |
-| Editor drag & drop | ❌ pendiente |
-| NodeConfigPanel | ❌ pendiente |
-| Compilador JSON→LangGraph | ❌ pendiente |
+| `backend/api/flows.py` | ✅ CRUD completo + seed_default_flows |
+| `backend/graphs/node_types.py` | ✅ Fuente de verdad de tipos |
+| `backend/graphs/nodes/` | ✅ BaseNode, ReplyNode, LLMRespondNode, SummarizeNode, LuganenseFlowNode |
+| `backend/graphs/compiler.py` | ✅ execute_flow, resolve_flows, run_flows |
+| `backend/sim.py` | ✅ Usa run_flows |
+| `backend/bots/telegram_bot.py` | ✅ Usa run_flows |
+| `backend/automation/whatsapp.py` | ✅ Usa run_flows |
+| Tabla `flows` en DB | ✅ Con migration |
+| Tabla `tools` y relacionadas | ✅ Eliminadas |
+| `frontend/src/components/FlowCanvas.jsx` | ✅ Read-only, dagre layout |
+| `frontend/src/components/EmpresaCard.jsx` | ✅ Tab "Flow" activa |
+| `backend/tests/test_flows.py` | ✅ 106 tests totales pasando |
+| Editor drag & drop (Fase 2) | ❌ pendiente |
+| NodeConfigPanel (Fase 2) | ❌ pendiente |
+| FlowList.jsx (Fase 2) | ❌ pendiente |
+| Delta sync unificado (Fase 3) | ❌ pendiente |
