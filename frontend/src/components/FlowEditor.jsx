@@ -67,7 +67,6 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved 
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <NodePalette apiCall={apiCall} typeMap={typeMap} />
         <FlowCanvas
-          editable
           nodes={nodes}
           edges={edges}
           onNodesChange={onNodesChange}

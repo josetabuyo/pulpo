@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import SimChat from '../SimChat.jsx'
-import FlowCanvas from './FlowCanvas.jsx'
 import FlowList from './FlowList.jsx'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────

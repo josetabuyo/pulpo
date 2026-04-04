@@ -40,58 +40,6 @@ def sim_disconnect(session_id: str) -> None:
     _conversations.pop(session_id, None)
 
 
-def _tool_applies(tool: dict, contact_id: int | None) -> bool:
-    """¿Aplica esta herramienta a este contacto?"""
-    excluded_ids = [c["id"] for c in tool["contactos_excluidos"]]
-    included_ids = [c["id"] for c in tool["contactos_incluidos"]]
-
-    if contact_id and contact_id in excluded_ids:
-        return False
-    if contact_id and contact_id in included_ids:
-        return True
-    if contact_id is None and tool["incluir_desconocidos"]:
-        return True
-    if not included_ids and tool["incluir_desconocidos"]:
-        return True
-    return False
-
-
-async def resolve_tools(bot_id: str, sender: str, channel_type: str) -> tuple[list[dict], dict | None]:
-    """
-    Retorna (summarizers, reply_tool) para este (bot_id, sender).
-    - summarizers: lista de herramientas tipo 'summarizer' que aplican (para acumular)
-    - reply_tool: primera herramienta no-summarizer que aplica (para responder), o None
-    """
-    from config import get_empresas_for_bot
-    from db import find_contact_by_channel, get_active_tools_for_bot
-
-    empresa_ids = get_empresas_for_bot(bot_id)
-    if not empresa_ids:
-        return [], None
-
-    contact = await find_contact_by_channel(channel_type, sender)
-    contact_id = contact["id"] if contact else None
-
-    summarizers: list[dict] = []
-    reply_tool: dict | None = None
-
-    for empresa_id in empresa_ids:
-        tools = await get_active_tools_for_bot(bot_id, empresa_id)
-        for tool in tools:
-            if not _tool_applies(tool, contact_id):
-                continue
-            if tool["tipo"] == "summarizer":
-                summarizers.append(tool)
-            elif reply_tool is None:
-                reply_tool = tool
-
-    return summarizers, reply_tool
-
-
-async def resolve_tool(bot_id: str, sender: str, channel_type: str) -> dict | None:
-    """Compatibilidad: retorna solo la primera herramienta de respuesta (no summarizer)."""
-    _, reply_tool = await resolve_tools(bot_id, sender, channel_type)
-    return reply_tool
 
 
 async def sim_receive(
@@ -135,63 +83,28 @@ async def sim_receive(
     conv.append({"role": "user", "text": text, "from_name": from_name, "ts": ts})
     logger.info("[sim] MSG ← %s (%s) → %s: %s", from_name, from_phone, session_id, text)
 
-    # Motor de resolución: herramientas en DB
-    summarizers, reply_tool = await resolve_tools(session_id, from_phone, channel_type)
+    # Transcribir audio si se proporcionó
+    msg_type = "text"
+    if audio_path:
+        from tools import transcription as transcription_mod
+        text = await transcription_mod.transcribe(audio_path)
+        msg_type = "audio"
+        logger.info("[sim] AUDIO transcrito de %s: %s", from_phone, text[:80])
 
-    # Sumarizadoras: acumular bajo cada empresa que las define
-    if summarizers:
-        from tools import summarizer as summarizer_mod
+    # Flow engine
+    from graphs.compiler import run_flows
+    from graphs.nodes.state import FlowState
 
-        # Transcribir audio si se proporcionó
-        if audio_path:
-            from tools import transcription as transcription_mod
-            transcribed = await transcription_mod.transcribe(audio_path)
-            logger.info("[sim] AUDIO transcrito de %s: %s", from_phone, transcribed[:80])
-        else:
-            transcribed = None
-
-        for s_tool in summarizers:
-            if transcribed is not None:
-                summarizer_mod.accumulate(
-                    empresa_id=s_tool["empresa_id"],
-                    contact_phone=from_phone,
-                    contact_name=from_name,
-                    msg_type="audio",
-                    content=transcribed,
-                )
-                logger.info("[sim] SUMMARIZER '%s' acumuló audio de %s", s_tool["nombre"], from_phone)
-            else:
-                summarizer_mod.accumulate(
-                    empresa_id=s_tool["empresa_id"],
-                    contact_phone=from_phone,
-                    contact_name=from_name,
-                    msg_type="texto",
-                    content=text,
-                )
-                logger.info("[sim] SUMMARIZER '%s' acumuló de %s", s_tool["nombre"], from_phone)
-
-    reply = None
-    if reply_tool:
-        if reply_tool["tipo"] == "fixed_message":
-            reply = reply_tool["config"].get("message", "")
-        elif reply_tool["tipo"] == "assistant":
-            context = reply_tool["config"].get("prompt", "")
-            if context:
-                from tools import assistant as assistant_mod
-                bot_name = cfg.get("bot_name", "el asistente")
-                reply = await assistant_mod.ask(context, text, bot_name)
-        elif reply_tool["tipo"] == "flow":
-            graph_name = reply_tool["config"].get("graph", "")
-            if graph_name == "luganense":
-                from graphs import luganense as luganense_graph
-                bot_name = cfg.get("bot_name", "el asistente")
-                prompt = reply_tool["config"].get("prompt", "")
-                empresa_id = reply_tool.get("empresa_id", "")
-                reply = await luganense_graph.invoke(
-                    text, prompt, bot_name, empresa_id,
-                    cliente_phone=from_phone, canal=channel_type,
-                )
-        logger.info("[sim] TOOL '%s' → %s", reply_tool["nombre"], session_id)
+    state = FlowState(
+        message=text,
+        message_type=msg_type,
+        bot_name=cfg.get("bot_name", ""),
+        contact_phone=from_phone,
+        contact_name=from_name,
+        canal=channel_type,
+    )
+    state = await run_flows(state, bot_id=session_id)
+    reply = state.reply
 
     if reply:
         for mid in msg_ids.values():

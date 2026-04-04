@@ -138,6 +138,14 @@ def test_channel_validation_whatsapp(client):
 def test_create_group_channel(client):
     """Canal WhatsApp con is_group=True acepta nombre (no número)."""
     auth = get_empresa_token(BOT_ID, BOT_PWD, client)
+
+    # Limpiar dato stale de ejecuciones anteriores que no llegaron al delete
+    existing = client.get(f"/api/bots/{BOT_ID}/contacts", headers=auth).json()
+    for c in existing:
+        for ch in c.get("channels", []):
+            if ch.get("value") == "Desarrollo SIGIRH 2025":
+                client.delete(f"/api/contacts/{c['id']}", headers=auth)
+
     r = client.post(f"/api/bots/{BOT_ID}/contacts", json={
         "name": "Grupo SIGIRH 2025",
         "channels": [{"type": "whatsapp", "value": "Desarrollo SIGIRH 2025", "is_group": True}],

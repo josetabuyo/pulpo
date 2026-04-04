@@ -71,64 +71,21 @@ def build_telegram_app(bot_config: dict):
 
         logger.info(f"{label} Mensaje de {sender_name}: \"{text}\"")
 
-        # Motor de resolución: herramientas en DB
-        from sim import resolve_tools
-        from datetime import datetime
-        summarizers, tool = await resolve_tools(session_id, sender_id, "telegram")
+        # Flow engine
+        from graphs.compiler import run_flows
+        from graphs.nodes.state import FlowState
 
-        if summarizers:
-            from tools import summarizer as summarizer_mod
-            for s_tool in summarizers:
-                summarizer_mod.accumulate(
-                    empresa_id=s_tool["empresa_id"],
-                    contact_phone=sender_id,
-                    contact_name=sender_name,
-                    msg_type="audio" if is_audio else "text",
-                    content=text,
-                    timestamp=datetime.now(),
-                )
-
-        if not tool:
-            logger.debug(f"{label} Sin herramienta activa para {sender_name} ({sender_id})")
-            return
-
-        if tool["tipo"] == "fixed_message":
-            reply = tool["config"].get("message", "")
-        elif tool["tipo"] == "assistant":
-            context = tool["config"].get("prompt", "")
-            if context:
-                from tools import assistant as assistant_mod
-                from config import load_config
-                cfg = load_config()
-                bot_entry = next((b for b in cfg.get("bots", []) if b["id"] == bot_id), {})
-                reply = await assistant_mod.ask(context, text, bot_entry.get("name", bot_id)) or ""
-            else:
-                reply = ""
-        elif tool["tipo"] == "flow":
-            graph_name = tool["config"].get("graph", "")
-            if graph_name == "luganense":
-                from graphs import luganense as luganense_graph
-                from config import load_config
-                cfg = load_config()
-                bot_entry = next((b for b in cfg.get("bots", []) if b["id"] == bot_id), {})
-                bot_name = bot_entry.get("name", bot_id)
-                prompt = tool["config"].get("prompt", "")
-                empresa_id = tool.get("empresa_id", "")
-                flow_config = tool["config"].get("flow_config", {})
-                image_enabled = flow_config.get("image_enabled", True)
-                result = await luganense_graph.invoke(
-                    text, prompt, bot_name, empresa_id,
-                    cliente_phone=sender_id, canal="telegram",
-                    image_enabled=image_enabled,
-                )
-                reply = result.get("reply", "")
-                image_url = result.get("image_url", "")
-            else:
-                reply = ""
-                image_url = ""
-        else:
-            reply = ""
-            image_url = ""
+        state = FlowState(
+            message=text,
+            message_type="audio" if is_audio else "text",
+            bot_name="",
+            contact_phone=sender_id,
+            contact_name=sender_name,
+            canal="telegram",
+        )
+        state = await run_flows(state, bot_id=session_id)
+        reply = state.reply or ""
+        image_url = state.image_url or ""
 
         if not reply or text == reply:
             return

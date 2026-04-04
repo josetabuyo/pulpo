@@ -21,18 +21,33 @@ def test_sim_phones_have_ready_status(client):
 
 
 def test_sim_send_message(client):
-    """Enviar mensaje en simulador devuelve reply cuando hay una tool activa."""
+    """Enviar mensaje en simulador devuelve reply cuando hay un flow activo."""
     bots = client.get("/api/bots", headers=ADMIN).json()
     bot_id = bots[0]["id"]
     number = bots[0]["phones"][0]["number"]
 
-    # Crear tool temporal con mensaje fijo
+    # Desactivar flows por defecto para no interferir con el reply esperado
+    default_flows = client.get(f"/api/empresas/{bot_id}/flows", headers=ADMIN).json()
+    for f in default_flows:
+        client.put(f"/api/empresas/{bot_id}/flows/{f['id']}", headers=ADMIN, json={"active": False})
+
     REPLY = "Respuesta automática de test"
-    tool = client.post(f"/api/empresas/{bot_id}/tools", headers=ADMIN, json={
-        "nombre": "_test_sim_send", "tipo": "fixed_message",
-        "config": {"message": REPLY}, "incluir_desconocidos": True,
+    flow = client.post(f"/api/empresas/{bot_id}/flows", headers=ADMIN, json={
+        "name": "_test_sim_send",
+        "definition": {
+            "nodes": [
+                {"id": "__start__", "type": "start",  "position": {"x": 0, "y":   0}, "config": {}},
+                {"id": "reply",     "type": "reply",  "position": {"x": 0, "y": 100}, "config": {"message": REPLY}},
+                {"id": "__end__",   "type": "end",    "position": {"x": 0, "y": 200}, "config": {}},
+            ],
+            "edges": [
+                {"id": "e1", "source": "__start__", "target": "reply",   "label": None},
+                {"id": "e2", "source": "reply",     "target": "__end__", "label": None},
+            ],
+            "viewport": {"x": 0, "y": 0, "zoom": 1},
+        },
     }).json()
-    tool_id = tool["id"]
+    flow_id = flow["id"]
 
     try:
         r = client.post(
@@ -45,7 +60,9 @@ def test_sim_send_message(client):
         assert body["ok"] is True
         assert body["reply"] == REPLY
     finally:
-        client.delete(f"/api/tools/{tool_id}", headers=ADMIN)
+        client.delete(f"/api/empresas/{bot_id}/flows/{flow_id}", headers=ADMIN)
+        for f in default_flows:
+            client.put(f"/api/empresas/{bot_id}/flows/{f['id']}", headers=ADMIN, json={"active": True})
 
 
 def test_sim_send_appears_in_log(client):
@@ -65,16 +82,32 @@ def test_sim_send_appears_in_log(client):
 
 
 def test_sim_reply_appears_in_log(client):
-    """El REPLY del bot debe quedar en el log cuando hay una tool activa."""
+    """El REPLY del bot debe quedar en el log cuando hay un flow activo."""
     bots = client.get("/api/bots", headers=ADMIN).json()
     bot_id = bots[0]["id"]
     number = bots[0]["phones"][0]["number"]
 
-    tool = client.post(f"/api/empresas/{bot_id}/tools", headers=ADMIN, json={
-        "nombre": "_test_sim_log", "tipo": "fixed_message",
-        "config": {"message": "reply log test"}, "incluir_desconocidos": True,
+    # Desactivar flows por defecto para garantizar un reply determinista
+    default_flows = client.get(f"/api/empresas/{bot_id}/flows", headers=ADMIN).json()
+    for f in default_flows:
+        client.put(f"/api/empresas/{bot_id}/flows/{f['id']}", headers=ADMIN, json={"active": False})
+
+    flow = client.post(f"/api/empresas/{bot_id}/flows", headers=ADMIN, json={
+        "name": "_test_sim_log",
+        "definition": {
+            "nodes": [
+                {"id": "__start__", "type": "start",  "position": {"x": 0, "y":   0}, "config": {}},
+                {"id": "reply",     "type": "reply",  "position": {"x": 0, "y": 100}, "config": {"message": "reply log test"}},
+                {"id": "__end__",   "type": "end",    "position": {"x": 0, "y": 200}, "config": {}},
+            ],
+            "edges": [
+                {"id": "e1", "source": "__start__", "target": "reply",   "label": None},
+                {"id": "e2", "source": "reply",     "target": "__end__", "label": None},
+            ],
+            "viewport": {"x": 0, "y": 0, "zoom": 1},
+        },
     }).json()
-    tool_id = tool["id"]
+    flow_id = flow["id"]
 
     try:
         client.post(
@@ -86,7 +119,9 @@ def test_sim_reply_appears_in_log(client):
         reply_lines = [l for l in logs["lines"] if "[sim] REPLY" in l and number in l]
         assert len(reply_lines) > 0, "El REPLY no apareció en el log del backend"
     finally:
-        client.delete(f"/api/tools/{tool_id}", headers=ADMIN)
+        client.delete(f"/api/empresas/{bot_id}/flows/{flow_id}", headers=ADMIN)
+        for f in default_flows:
+            client.put(f"/api/empresas/{bot_id}/flows/{f['id']}", headers=ADMIN, json={"active": True})
 
 
 def test_sim_connect_disconnect(client):
