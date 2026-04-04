@@ -88,6 +88,12 @@ NODE_TYPES: dict[str, NodeType] = {
         color="#1e40af",
         description="Ejecuta el flujo completo de Luganense FC.",
     ),
+    "message_trigger": NodeType(
+        id="message_trigger",
+        label="Trigger de mensaje",
+        color="#166534",
+        description="Punto de entrada del flow. Filtra por conexión, contacto y patrón de mensaje.",
+    ),
     "generic": NodeType(
         id="generic",
         label="Nodo",

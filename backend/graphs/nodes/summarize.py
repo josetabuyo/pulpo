@@ -159,3 +159,7 @@ class SummarizeNode(BaseNode):
             timestamp=state.timestamp,
         )
         return state
+
+    @classmethod
+    def config_schema(cls) -> dict:
+        return {}

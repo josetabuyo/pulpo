@@ -13,8 +13,13 @@ from .reply import ReplyNode
 from .llm_respond import LLMRespondNode
 from .summarize import SummarizeNode
 from .luganense_flow import LuganenseFlowNode
+from .message_trigger import MessageTriggerNode
 
 NODE_REGISTRY: dict[str, type] = {
+    # Triggers data-driven
+    "message_trigger": MessageTriggerNode,
+
+    # Nodos de acción
     "reply":          ReplyNode,
     "llm_respond":    LLMRespondNode,
     "summarize":      SummarizeNode,
@@ -23,6 +28,7 @@ NODE_REGISTRY: dict[str, type] = {
 
 __all__ = [
     "NODE_REGISTRY",
+    "MessageTriggerNode",
     "ReplyNode",
     "LLMRespondNode",
     "SummarizeNode",

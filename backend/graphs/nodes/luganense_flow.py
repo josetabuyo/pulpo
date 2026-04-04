@@ -33,3 +33,14 @@ class LuganenseFlowNode(BaseNode):
         except Exception as e:
             logger.error("[LuganenseFlowNode] Error ejecutando grafo: %s", e)
         return state
+
+    @classmethod
+    def config_schema(cls) -> dict:
+        return {
+            "image_enabled": {
+                "type": "bool",
+                "label": "Generar imágenes con DALL-E",
+                "default": True,
+                "required": False,
+            }
+        }

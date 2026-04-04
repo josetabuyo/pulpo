@@ -18,18 +18,117 @@ from .nodes import NODE_REGISTRY
 logger = logging.getLogger(__name__)
 
 
-async def execute_flow(definition: dict, state: FlowState) -> FlowState:
+async def execute_flow(flow: dict, state: FlowState) -> FlowState:
     """
-    Ejecuta los nodos de un flow en orden secuencial.
+    Ejecuta el flow siguiendo edges en BFS desde el nodo de entrada.
+
+    Punto de entrada:
+      - message_trigger: verifica connection_id, contact_phone y message_pattern
+      - __start__: legacy (connection_id ya verificado por DB)
+
     Los nodos __start__ y __end__ son marcadores visuales — no se ejecutan.
-    Fase 3 agregará routing condicional usando los edges.
     """
-    for node_def in definition.get("nodes", []):
-        node_id = node_def.get("id", "")
-        if node_id in ("__start__", "__end__"):
+    definition = flow.get("definition", {})
+    nodes = definition.get("nodes", [])
+    edges = definition.get("edges", [])
+
+    # Construir mapeo id → nodo
+    node_by_id = {node["id"]: node for node in nodes}
+
+    # Construir grafo de adyacencia
+    graph = {}
+    for edge in edges:
+        source = edge.get("source")
+        target = edge.get("target")
+        if source and target:
+            graph.setdefault(source, []).append(target)
+
+    # Encontrar nodo de entrada (message_trigger)
+    entry_node = None
+    for node in nodes:
+        node_type = node.get("type", "")
+        if node_type == "message_trigger":
+            entry_node = node
+            break
+
+    # Compatibilidad hacia atrás: si no hay trigger, usar __start__
+    if not entry_node:
+        for node in nodes:
+            if node.get("id") == "__start__":
+                entry_node = node
+                break
+
+    if not entry_node:
+        logger.debug("[engine] Flow sin nodo de entrada (trigger o __start__) — skip")
+        return state
+
+    # Verificar si el flow aplica a este mensaje
+    entry_type = entry_node.get("type", "")
+    entry_config = entry_node.get("config", {})
+
+    if entry_type == "message_trigger":
+        # Verificar connection_id
+        required_connection = entry_config.get("connection_id", "")
+        if required_connection and required_connection != state.bot_id:
+            logger.debug("[engine] Flow no aplica: connection_id %s != %s",
+                        required_connection, state.bot_id)
+            return state
+
+        # Verificar contact_phone (si está especificado)
+        required_contact = entry_config.get("contact_phone", "")
+        if required_contact and required_contact != state.contact_phone:
+            logger.debug("[engine] Flow no aplica: contact_phone %s != %s",
+                        required_contact, state.contact_phone)
+            return state
+
+        # Verificar message_pattern (regex opcional)
+        pattern = entry_config.get("message_pattern", "")
+        if pattern and state.message:
+            import re
+            try:
+                if not re.search(pattern, state.message, re.IGNORECASE):
+                    logger.debug("[engine] Flow no aplica: mensaje no matchea pattern '%s'", pattern)
+                    return state
+            except re.error:
+                logger.warning("[engine] Regex inválido en message_pattern: '%s'", pattern)
+                # Si el regex es inválido, ignorar el filtro (safe default)
+    else:
+        # __start__: connection_id ya fue verificado por la DB
+        # Solo necesitamos verificar contact_phone si está en la DB
+        db_contact = flow.get("contact_phone")
+        if db_contact and db_contact != state.contact_phone:
+            logger.debug("[engine] Flow (__start__) no aplica: contact_phone DB %s != %s",
+                        db_contact, state.contact_phone)
+            return state
+
+    # Ejecutar BFS desde el nodo de entrada
+    visited = set()
+    queue = [entry_node["id"]]
+
+    while queue:
+        current_id = queue.pop(0)
+        if current_id in visited:
+            continue
+        visited.add(current_id)
+
+        # Obtener definición del nodo actual
+        node_def = node_by_id.get(current_id)
+        if not node_def:
             continue
 
         node_type = node_def.get("type", "")
+        node_id = node_def.get("id", "")
+
+        # Saltar marcadores visuales
+        if node_id in ("__start__", "__end__"):
+            # Pero seguir recorriendo sus edges
+            if current_id in graph:
+                for neighbor in graph[current_id]:
+                    if neighbor not in visited:
+                        queue.append(neighbor)
+            continue
+
+        # Ejecutar nodo si tiene implementación
         node_cls = NODE_REGISTRY.get(node_type)
         if not node_cls:
             logger.debug("[engine] tipo '%s' no tiene implementación — skip", node_type)
@@ -41,16 +140,22 @@ async def execute_flow(definition: dict, state: FlowState) -> FlowState:
         except Exception as e:
             logger.error("[engine] Error en nodo '%s' (%s): %s", node_id, node_type, e)
 
+        # Agregar vecinos al queue
+        if current_id in graph:
+            for neighbor in graph[current_id]:
+                if neighbor not in visited:
+                    queue.append(neighbor)
+
     return state
 
 
-async def resolve_flows(bot_id: str, contact_phone: str, empresa_id: str) -> list[dict]:
+async def resolve_flows(empresa_id: str) -> list[dict]:
     """
-    Retorna los flows activos para este (bot_id, contact, empresa), con su definition.
-    Orden de especificidad: connection+contact > solo connection > sin filtro.
+    Retorna todos los flows activos de la empresa.
+    El filtrado por connection_id y contact_phone ahora lo hace execute_flow().
     """
     import db
-    return await db.get_active_flows_for_bot(bot_id, contact_phone, empresa_id)
+    return await db.get_active_flows_for_bot("", "", empresa_id)
 
 
 async def run_flows(
@@ -88,7 +193,7 @@ async def run_flows(
         if not state.bot_name:
             state.bot_name = bot_entry.get("name", empresa_id)
 
-        flows = await resolve_flows(bot_id, state.contact_phone, empresa_id)
+        flows = await resolve_flows(empresa_id)
 
         for flow in flows:
             # Guard: no responder mensajes anteriores a la creación del flow
@@ -105,7 +210,7 @@ async def run_flows(
                 except (ValueError, KeyError):
                     pass  # sin created_at o formato raro: ejecutar igual (safe default)
 
-            state = await execute_flow(flow["definition"], state)
+            state = await execute_flow(flow, state)
 
     if disable_reply:
         logger.info("[engine] DISABLE_AUTO_REPLY=true — reply descartado")

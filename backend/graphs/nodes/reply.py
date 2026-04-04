@@ -14,3 +14,14 @@ class ReplyNode(BaseNode):
             return state
         state.reply = self.config.get("message", "")
         return state
+
+    @classmethod
+    def config_schema(cls) -> dict:
+        return {
+            "message": {
+                "type": "string",
+                "label": "Mensaje a enviar",
+                "default": "",
+                "required": True,
+            }
+        }

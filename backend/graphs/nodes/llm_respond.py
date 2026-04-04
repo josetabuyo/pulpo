@@ -55,3 +55,26 @@ class LLMRespondNode(BaseNode):
             logger.error("[LLMRespondNode] Error llamando a Groq: %s", e)
 
         return state
+
+    @classmethod
+    def config_schema(cls) -> dict:
+        return {
+            "prompt": {
+                "type": "string",
+                "label": "Contexto del sistema (prompt)",
+                "default": "",
+                "required": True,
+            },
+            "model": {
+                "type": "select",
+                "label": "Modelo de LLM",
+                "default": _DEFAULT_MODEL,
+                "options": [
+                    "llama-3.3-70b-versatile",
+                    "llama-3.1-8b-instant",
+                    "mixtral-8x7b-32768",
+                    "gemma2-9b-it",
+                ],
+                "required": False,
+            }
+        }
