@@ -313,6 +313,7 @@ export default function DashboardPage() {
   const [moveModal, setMoveModal] = useState({ open: false, number: null, sourceBotId: null })
   const [qrModal, setQrModal] = useState({ open: false, number: null })
   const [screenshotModal, setScreenshotModal] = useState({ open: false, number: null })
+  const [expandedBot, setExpandedBot] = useState(null)
   const [monitorAlerts,     setMonitorAlerts]     = useState(0)
   const [monitorCollapsed,  setMonitorCollapsed]  = useState(false)
   const [companiesCollapsed, setCompaniesCollapsed] = useState(false)
@@ -589,6 +590,7 @@ export default function DashboardPage() {
               key={bot.id}
               mode="admin"
               bot={normalizeBot(bot)}
+              onExpand={b => setExpandedBot({ bot, normalized: b })}
               simMode={simMode}
               apiCall={(method, path, body) => call(method, path, body)}
               adminPwd={pwd}
@@ -661,6 +663,37 @@ export default function DashboardPage() {
         pwd={pwd}
         onClose={() => setScreenshotModal({ open: false, number: null })}
       />
+
+      {/* Modal fullscreen de empresa expandida */}
+      {expandedBot && (
+        <div
+          className="overlay open"
+          onClick={e => e.target === e.currentTarget && setExpandedBot(null)}
+        >
+          <div className="modal" style={{ width: '92vw', maxWidth: '1200px', maxHeight: '92vh', overflowY: 'auto', padding: 0 }}>
+            <button className="modal-close" onClick={() => setExpandedBot(null)}>✕</button>
+            <EmpresaCard
+              mode="admin"
+              bot={expandedBot.normalized}
+              simMode={simMode}
+              apiCall={(method, path, body) => call(method, path, body)}
+              adminPwd={pwd}
+              onRefresh={loadBots}
+              onEditBot={b => { setExpandedBot(null); setBotModal({ open: true, editBot: b }) }}
+              onDeleteBot={botId => { setExpandedBot(null); handleDeleteBot(botId) }}
+              onAddPhone={botId => setPhoneModal({ open: true, botId })}
+              onAddTelegram={botId => setTgModal({ open: true, botId })}
+              onDeletePhone={conn => handleDeletePhone(conn.number)}
+              onMovePhone={conn => setMoveModal({ open: true, number: conn.number, sourceBotId: expandedBot.bot.id })}
+              onDeleteTelegram={conn => handleDeleteTg(conn.number)}
+              onReconnectTg={conn => handleReconnectTg(conn.number)}
+              onConnectWA={conn => handleConnect(conn.number)}
+              onDisconnectWA={conn => handleDisconnect(conn.number)}
+              onScreenshot={conn => setScreenshotModal({ open: true, number: conn.number })}
+            />
+          </div>
+        </div>
+      )}
 
     </>
   )

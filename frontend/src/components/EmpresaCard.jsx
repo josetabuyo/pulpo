@@ -355,6 +355,7 @@ export default function EmpresaCard({
   apiCall,      // (method, path, body) => Promise — auth-agnostic
   adminPwd,     // solo para SimChat en modo admin
   onRefresh,    // callback cuando se produce algún cambio que el padre debe recargar
+  onExpand,     // admin only — abre la card en popup fullscreen
 
   // Admin-only — abren modales en el padre:
   onEditBot, onDeleteBot,
@@ -484,6 +485,7 @@ export default function EmpresaCard({
             </div>
             {mode === 'admin' && (
               <div className="ec-header-actions">
+                <button className="btn-ghost btn-sm" onClick={() => onExpand?.(bot)} title="Expandir">⤢</button>
                 <button className="btn-ghost btn-sm" onClick={() => onEditBot?.(bot)}>Editar</button>
                 <button className="btn-danger btn-sm" onClick={() => onDeleteBot?.(bot.id)}>Eliminar</button>
               </div>

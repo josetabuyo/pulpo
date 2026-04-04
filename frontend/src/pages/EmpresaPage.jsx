@@ -52,7 +52,7 @@ function EmpresaDashboard({ botId, botName: initialBotName, onLogout }) {
           <button className="btn-ghost btn-sm" onClick={onLogout}>Salir</button>
         </div>
       </header>
-      <main className="portal-main">
+      <main className="portal-main" style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 16px' }}>
         <EmpresaCard
           mode="empresa"
           bot={bot}
