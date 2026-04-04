@@ -236,7 +236,6 @@ class WhatsAppSession(BrowserAutomation):
 
         # Importación diferida para evitar ciclo circular
         from db import log_message, mark_answered
-        from sim import resolve_tools
         from config import get_empresas_for_bot
 
         recent_msgs: set[tuple[str, str]] = set()  # dedup entre JS y Python poll
@@ -263,15 +262,8 @@ class WhatsAppSession(BrowserAutomation):
                 recent_msgs.add(pair)
                 asyncio.get_event_loop().call_later(60, lambda: recent_msgs.discard(pair))
 
-            # Motor de resolución: herramientas en DB
             # WA usa el nombre como identificador (phone suele llegar vacío del scraper)
             sender = phone or name
-            summarizers, tool = await resolve_tools(session_id, sender, "whatsapp")
-
-            # Solo procesar contactos que tienen al menos una tool activa.
-            # Mensajes de contactos no configurados se ignoran silenciosamente.
-            if not summarizers and not tool:
-                return
 
             logger.info(f"[{session_id}] Mensaje de {name} ({phone}): {body[:60]}")
 
@@ -285,202 +277,98 @@ class WhatsAppSession(BrowserAutomation):
                 mid = await log_message(eid, bot_phone, phone or name, name, body)
                 msg_ids[eid] = mid
 
-            # Si el contacto es un grupo, parsear "Integrante: mensaje"
-            # El sidebar de WA Web muestra el body como "NombreRemitente: texto"
+            # Normalizar tipo de mensaje y resolver contacto
+            from db import find_contact_by_channel
+            contact = await find_contact_by_channel("whatsapp", sender)
+            if contact and not phone:
+                _wa = next((c for c in contact.get("channels", [])
+                            if c["type"] == "whatsapp" and not c.get("is_group")), None)
+                if _wa:
+                    sender = _wa["value"]
+
+            # Parsear mensajes de grupo: "NombreIntegrante: texto"
             sender_in_group: str | None = None
-            if summarizers or tool:
-                from db import find_contact_by_channel
-                contact = await find_contact_by_channel("whatsapp", sender)
-                # Si se resolvió por nombre (phone vacío), usar el teléfono real del canal
-                # para que el archivo del summarizer se nombre por teléfono, no por nombre.
-                if contact and not phone:
-                    _wa = next((c for c in contact.get("channels", [])
-                                if c["type"] == "whatsapp" and not c.get("is_group")), None)
-                    if _wa:
-                        sender = _wa["value"]
-                if contact:
-                    ch = next((c for c in contact.get("channels", [])
-                               if c["type"] == "whatsapp" and c.get("is_group")), None)
-                    if ch and ": " in body:
-                        parts = body.split(": ", 1)
-                        sender_in_group = parts[0].strip()
-                        body = parts[1].strip()
-                        logger.debug(f"[{session_id}] Grupo '{name}' — remitente: {sender_in_group}")
+            if contact:
+                ch = next((c for c in contact.get("channels", [])
+                           if c["type"] == "whatsapp" and c.get("is_group")), None)
+                if ch and ": " in body:
+                    parts = body.split(": ", 1)
+                    sender_in_group = parts[0].strip()
+                    body = parts[1].strip()
 
-            # Acumular en summarizers activos (solo mensajes reales, no previews del poll)
-            if summarizers and not from_poll:
-                from tools import summarizer as summarizer_mod
-                from datetime import datetime
+            # Detectar tipo de mensaje WA
+            import re as _re
+            _AUDIO_MARKERS = ("🎵", "🎤", "Audio", "audio", "Voice message",
+                              "Mensaje de audio", "Mensaje de voz", "[audio:]")
+            is_audio = any(m in body for m in _AUDIO_MARKERS) or bool(_re.match(r'^\d{1,2}:\d{2}$', body))
+            _is_document = body.startswith('[doc:')
+            _is_image = body == '[img:]'
 
-                # Detectar si es un audio (el sidebar WA Web muestra 🎵, 🎤 o "Audio")
-                # En español: "Mensaje de audio", "Mensaje de voz"; pollOpenChat inyecta "[audio:]"
-                _AUDIO_MARKERS = ("🎵", "🎤", "Audio", "audio", "Voice message",
-                                  "Mensaje de audio", "Mensaje de voz", "[audio:]")
-                # WA Web muestra la duración del audio ("0:01", "1:23") cuando el
-                # player no está cargado — mismo patrón que en scrape_full_history
-                import re as _re
-                is_audio = any(m in body for m in _AUDIO_MARKERS) or bool(_re.match(r'^\d{1,2}:\d{2}$', body))
+            msg_text = body
+            msg_type = "text"
+            attachment_path: str | None = None
 
-                # Detectar documento compartido (body inyectado por pollOpenChat JS)
-                # Formato: "[doc:nombre.ext|EXT·tamaño]"
-                _is_document = body.startswith('[doc:')
-
-                # Detectar imagen (body inyectado por pollOpenChat JS)
-                _is_image = body == '[img:]'
-                _doc_content: str | None = None
-                if _is_document:
-                    inner = body[5:].rstrip(']')  # strip "[doc:" prefix and trailing "]"
-                    if '|' in inner:
-                        fn, rest = inner.split('|', 1)
-                        _doc_content = f'`{fn}` ({rest.replace("·", " · ")})'
-                    else:
-                        _doc_content = f'`{inner}`'
-
+            if not from_poll:
                 if is_audio:
-                    audio_path = await self._download_audio_blob(page, name, session_id)
-                    if audio_path:
+                    audio_dl = await self._download_audio_blob(page, name, session_id)
+                    if audio_dl:
                         from tools import transcription
                         import os
                         try:
-                            audio_content = await transcription.transcribe(audio_path)
-                            logger.info(f"[{session_id}] Audio transcrito de {name}: {audio_content[:60]}")
+                            msg_text = await transcription.transcribe(audio_dl)
+                            logger.info(f"[{session_id}] Audio transcrito de {name}: {msg_text[:60]}")
                         except Exception as _te:
                             logger.warning(f"[{session_id}] Transcripción fallida: {_te}")
-                            audio_content = "[audio — error al transcribir]"
+                            msg_text = "[audio — error al transcribir]"
                         finally:
-                            try:
-                                os.unlink(audio_path)
-                            except Exception:
-                                pass
+                            try: os.unlink(audio_dl)
+                            except Exception: pass
                     else:
-                        audio_content = "[audio — pendiente transcripción]"
-                        logger.info(f"[{session_id}] Audio de {name} sin blob disponible")
-                else:
-                    audio_content = None
-
-                # Para grupos: el content incluye el remitente dentro del grupo
-                def _group_content(raw: str) -> str:
-                    if sender_in_group:
-                        return f"{sender_in_group}: {raw}"
-                    return raw
-
-                # Parsear timestamp real de WA si fue pasado desde el poller JS
-                _acc_ts = datetime.now()
-                if wa_ts_str:
-                    import re as _re2
-                    _ts_norm = wa_ts_str.replace("\xa0", " ")
-                    _dm = _re2.search(
-                        r"(\d{1,2}):(\d{2})(?:\s*([ap])\.?\s*m\.?)?,\s*(\d{1,2})/(\d{1,2})/(\d{4})",
-                        _ts_norm, _re2.IGNORECASE,
-                    )
-                    if _dm:
-                        _h, _mi, _ampm, _d, _mo, _y = _dm.groups()
-                        _h, _mi, _d, _mo, _y = int(_h), int(_mi), int(_d), int(_mo), int(_y)
-                        if _ampm:
-                            if _ampm.lower() == "p" and _h != 12:
-                                _h += 12
-                            elif _ampm.lower() == "a" and _h == 12:
-                                _h = 0
-                        try:
-                            _acc_ts = datetime(_y, _mo, _d, _h, _mi)
-                        except ValueError:
-                            pass
-
-                for s_tool in summarizers:
-                    if is_audio:
-                        summarizer_mod.accumulate(
-                            empresa_id=s_tool["empresa_id"],
-                            contact_phone=sender,
-                            contact_name=name,
-                            msg_type="audio",
-                            content=_group_content(audio_content),
-                            timestamp=_acc_ts,
-                        )
-                    elif _is_document:
-                        # Descargar el archivo adjunto (el botón sigue visible en DOM)
-                        _doc_fn = body[5:].rstrip(']').split('|')[0] if '|' in body[5:].rstrip(']') else body[5:].rstrip(']')
-                        if _doc_fn:
-                            from tools.summarizer import get_attachments_dir as _get_att_dir
-                            _att_dir = _get_att_dir(s_tool["empresa_id"], sender)
-                            await self._download_document_from_page(page, _doc_fn, _att_dir / _doc_fn)
-                        summarizer_mod.accumulate(
-                            empresa_id=s_tool["empresa_id"],
-                            contact_phone=sender,
-                            contact_name=name,
-                            msg_type="document",
-                            content=_doc_content or body,
-                            timestamp=_acc_ts,
-                        )
-                    elif _is_image:
-                        img_path = await self._download_image_blob(page, name, session_id)
-                        if img_path:
-                            from tools.summarizer import get_attachments_dir as _get_att_dir
-                            import shutil as _shutil
-                            _att_dir = _get_att_dir(s_tool["empresa_id"], sender)
-                            _att_dir.mkdir(parents=True, exist_ok=True)
-                            dest = _att_dir / img_path.name
-                            _shutil.move(str(img_path), str(dest))
-                            img_content = f"[imagen: {dest.name}]"
-                        else:
-                            img_content = "[imagen — no disponible]"
-                        summarizer_mod.accumulate(
-                            empresa_id=s_tool["empresa_id"],
-                            contact_phone=sender,
-                            contact_name=name,
-                            msg_type="image",
-                            content=_group_content(img_content),
-                            timestamp=_acc_ts,
-                        )
+                        msg_text = "[audio — pendiente transcripción]"
+                    msg_type = "audio"
+                elif _is_document:
+                    inner = body[5:].rstrip(']')
+                    _doc_fn = inner.split('|')[0] if '|' in inner else inner
+                    msg_text = f"`{_doc_fn}` ({inner.replace('|', ' ').replace('·', ' · ')})" if '|' in inner else f"`{inner}`"
+                    msg_type = "document"
+                    # Descargar a temp — SummarizeNode lo moverá a storage permanente
+                    import tempfile, shutil
+                    _tmp_dir = tempfile.mkdtemp()
+                    _tmp_path = Path(_tmp_dir) / _doc_fn
+                    await self._download_document_from_page(page, _doc_fn, _tmp_path)
+                    if _tmp_path.exists():
+                        attachment_path = str(_tmp_path)
+                elif _is_image:
+                    img_dl = await self._download_image_blob(page, name, session_id)
+                    if img_dl:
+                        msg_text = f"[imagen: {img_dl.name}]"
+                        attachment_path = str(img_dl)
                     else:
-                        summarizer_mod.accumulate(
-                            empresa_id=s_tool["empresa_id"],
-                            contact_phone=sender,
-                            contact_name=name,
-                            msg_type="text",
-                            content=_group_content(body),
-                            timestamp=_acc_ts,
-                        )
+                        msg_text = "[imagen — no disponible]"
+                    msg_type = "image"
 
-            if not tool:
-                logger.debug(f"[{session_id}] Sin herramienta activa para '{name}'")
-                return
+            # Para grupos: incluir remitente en el texto
+            if sender_in_group:
+                msg_text = f"{sender_in_group}: {msg_text}"
 
-            if tool["tipo"] == "fixed_message":
-                reply = tool["config"].get("message", "")
-            else:
-                reply = ""
+            # Flow engine
+            from graphs.compiler import run_flows
+            from graphs.nodes.state import FlowState
+
+            state = FlowState(
+                message=msg_text,
+                message_type=msg_type,
+                attachment_path=attachment_path,
+                contact_phone=sender,
+                contact_name=name,
+                canal="whatsapp",
+                from_poll=from_poll,
+            )
+            state = await run_flows(state, bot_id=session_id)
+            reply = state.reply or ""
 
             if not reply or body.strip() == reply.strip():
                 return
-
-            # Guard retroactivo: no responder a mensajes anteriores al created_at de la tool.
-            # Evita que al activar una tool con incluir_desconocidos se dispare una ráfaga
-            # de respuestas a todos los mensajes históricos del chat abierto en el poller.
-            if wa_ts_str:
-                import re as _re_guard
-                from datetime import datetime as _dt_guard
-                _ts_norm_g = wa_ts_str.replace("\xa0", " ")
-                _dm_g = _re_guard.search(
-                    r"(\d{1,2}):(\d{2})(?:\s*([ap])\.?\s*m\.?)?,\s*(\d{1,2})/(\d{1,2})/(\d{4})",
-                    _ts_norm_g, _re_guard.IGNORECASE,
-                )
-                if _dm_g:
-                    _h, _mi, _ampm, _d, _mo, _y = _dm_g.groups()
-                    _h, _mi = int(_h), int(_mi)
-                    if _ampm and _ampm.lower() == "p" and _h != 12:
-                        _h += 12
-                    elif _ampm and _ampm.lower() == "a" and _h == 12:
-                        _h = 0
-                    _msg_dt = _dt_guard(int(_y), int(_mo), int(_d), _h, _mi)
-                    _tool_created = tool.get("activated_at") or tool.get("created_at", "")
-                    if _tool_created:
-                        try:
-                            _tc_dt = _dt_guard.fromisoformat(str(_tool_created).replace(" ", "T").split(".")[0])
-                            if _msg_dt < _tc_dt:
-                                logger.debug(f"[{session_id}] Mensaje anterior a tool created_at — omitiendo reply para '{name}'")
-                                return
-                        except (ValueError, TypeError):
-                            pass
 
             # Cooldown: no reenviar el auto-reply al mismo contacto en 24h
             cooldown_key = (session_id, sender)
@@ -795,10 +683,15 @@ class WhatsAppSession(BrowserAutomation):
                     if not phone:
                         continue
 
-                    # Verificar si este contacto tiene summarizer activo
-                    from sim import resolve_tools
-                    summarizers, _ = await resolve_tools(session_id, phone, "whatsapp")
-                    if not summarizers:
+                    # Verificar si hay flows activos para este contacto
+                    from db import get_active_flows_for_bot
+                    from config import get_empresas_for_bot as _get_emps
+                    _eids = _get_emps(session_id)
+                    _has_flows = any(
+                        await get_active_flows_for_bot(session_id, phone, eid)
+                        for eid in _eids
+                    ) if _eids else False
+                    if not _has_flows:
                         continue
 
                     # Normalizar preview: quitar prefijo "Tú: " (mensaje saliente)

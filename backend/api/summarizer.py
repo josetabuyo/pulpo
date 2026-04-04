@@ -10,7 +10,17 @@ from sqlalchemy import text
 from db import AsyncSessionLocal
 from middleware_auth import get_empresa_bot_id
 from api.deps import ADMIN_PASSWORD
-from tools import summarizer
+from graphs.nodes.summarize import (
+    get_summary, list_contacts, clear_empresa, clear_contact, accumulate
+)
+
+# Módulo de compatibilidad — expone las mismas funciones que el viejo tools/summarizer
+class summarizer:
+    get_summary = staticmethod(get_summary)
+    list_contacts = staticmethod(list_contacts)
+    clear_empresa = staticmethod(clear_empresa)
+    clear_contact = staticmethod(clear_contact)
+    accumulate = staticmethod(accumulate)
 from fastapi import Request, Header
 
 router = APIRouter()
