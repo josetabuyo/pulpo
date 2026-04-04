@@ -460,7 +460,20 @@ def _flow_row_to_dict(row, include_definition: bool = False) -> dict:
     }
     if include_definition:
         raw = row[3]
-        d["definition"] = _json.loads(raw) if raw else {"nodes": [], "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1}}
+        if raw and raw.strip():
+            try:
+                d["definition"] = _json.loads(raw)
+            except _json.JSONDecodeError:
+                # Intentar arreglar escapes inválidos comunes
+                # Reemplazar \! con ! (escape inválido en JSON)
+                fixed = raw.replace('\\!', '!')
+                try:
+                    d["definition"] = _json.loads(fixed)
+                except _json.JSONDecodeError:
+                    # Si todavía falla, usar definición vacía
+                    d["definition"] = {"nodes": [], "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1}}
+        else:
+            d["definition"] = {"nodes": [], "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1}}
     return d
 
 
@@ -471,6 +484,11 @@ async def create_flow(
     connection_id: str | None = None,
     contact_phone: str | None = None,
 ) -> str:
+    if not connection_id:
+        raise ValueError(
+            "connection_id es obligatorio al crear un flow. "
+            "Un flow sin conexión no dispararía para nadie — asigná una conexión explícita."
+        )
     flow_id = str(_uuid.uuid4())
     async with AsyncSessionLocal() as session:
         await session.execute(
@@ -522,6 +540,11 @@ async def update_flow(flow_id: str, **kwargs) -> bool:
     updates = {k: v for k, v in kwargs.items() if k in allowed}
     if not updates:
         return False
+    if "connection_id" in updates and not updates["connection_id"]:
+        raise ValueError(
+            "connection_id no puede quedar vacío. "
+            "Un flow sin conexión no dispararía para nadie."
+        )
     if "definition" in updates:
         updates["definition"] = _json.dumps(updates["definition"])
     if "active" in updates:

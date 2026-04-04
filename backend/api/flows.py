@@ -88,13 +88,16 @@ async def create_flow(
     x_password: Optional[str] = Header(None),
 ):
     _require_empresa(empresa_id, request, x_password)
-    flow_id = await db.create_flow(
-        empresa_id=empresa_id,
-        name=body.name,
-        definition=body.definition,
-        connection_id=body.connection_id,
-        contact_phone=body.contact_phone,
-    )
+    try:
+        flow_id = await db.create_flow(
+            empresa_id=empresa_id,
+            name=body.name,
+            definition=body.definition,
+            connection_id=body.connection_id,
+            contact_phone=body.contact_phone,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return await db.get_flow(flow_id)
 
 
@@ -160,10 +163,9 @@ _DEFAULT_FLOW_DEFINITION = {
 
 
 async def seed_default_flows():
-    """Si un bot no tiene flow, crea uno vacío (start → end)."""
-    from config import load_config as _load_config
-    config = _load_config()
-    for bot in config.get("bots", []):
-        empresa_id = bot["id"]
-        if not await db.flow_exists_for_empresa(empresa_id):
-            await db.create_flow(empresa_id, bot.get("name", empresa_id), _DEFAULT_FLOW_DEFINITION)
+    """
+    Si un bot no tiene flow, NO crea uno automáticamente.
+    Un flow requiere connection_id explícito — no se puede inferir de forma segura.
+    El usuario debe crear el flow desde el editor y asignarle una conexión.
+    """
+    pass

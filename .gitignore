@@ -31,3 +31,4 @@ frontend/playwright-report/
 # Monitor logs
 monitor/
 data/summaries/
+node_modules

@@ -58,31 +58,21 @@ def _state(bot_id="5491155612767"):
 @pytest.mark.asyncio
 async def test_flow_sin_connection_no_dispara():
     """
-    Un flow con connection_id=NULL no debe ser retornado por la DB.
-    La garantía real está en test_db_connection_null_no_retorna_flow (DB directa).
-    Este test verifica que si por algún bug la DB lo devuelve igual,
-    el reply no queda bloqueado en el engine (el engine confía en que DB ya filtró,
-    así que si llega un flow lo ejecuta — el filtro debe estar en la DB).
+    Ahora connection_id es obligatorio al crear un flow.
+    Este test verifica que no se puede crear un flow sin connection_id.
     """
     import db as db_module
-    flow_id = await db_module.create_flow(
-        empresa_id="bot_test",
-        name="__test_null_engine__",
-        definition={"nodes": [
-            {"id": "__start__", "type": "start", "config": {}},
-            {"id": "r", "type": "reply", "config": {"message": "no debe llegar"}},
-            {"id": "__end__", "type": "end", "config": {}},
-        ], "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1}},
-        connection_id=None,   # NULL — no debe ser retornado por get_active_flows_for_bot
-    )
-    try:
-        flows = await db_module.get_active_flows_for_bot(
-            bot_id="5491155612767", contact_phone="5491199990000", empresa_id="bot_test"
+    with pytest.raises(ValueError, match="connection_id es obligatorio"):
+        await db_module.create_flow(
+            empresa_id="bot_test",
+            name="__test_null_engine__",
+            definition={"nodes": [
+                {"id": "__start__", "type": "start", "config": {}},
+                {"id": "r", "type": "reply", "config": {"message": "no debe llegar"}},
+                {"id": "__end__", "type": "end", "config": {}},
+            ], "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1}},
+            connection_id=None,   # NULL — ahora genera error
         )
-        assert flow_id not in [f["id"] for f in flows], \
-            "Flow con connection_id=NULL no debe disparar para ningún número."
-    finally:
-        await db_module.delete_flow(flow_id)
 
 
 @pytest.mark.asyncio
@@ -111,34 +101,20 @@ async def test_flow_con_connection_correcta_dispara():
 @pytest.mark.asyncio
 async def test_db_connection_null_no_retorna_flow():
     """
-    get_active_flows_for_bot con connection_id=NULL no debe retornar el flow.
-    El NULL no es wildcard — la conexión debe ser explícita.
+    Ahora connection_id es obligatorio, no se puede crear flow con NULL.
+    Este test verifica que la validación funciona.
     """
     import db as db_module
 
-    # Crear un flow con connection_id NULL en la DB de test
-    flow_id = await db_module.create_flow(
-        empresa_id="bot_test",
-        name="__safety_test_null_connection__",
-        definition={"nodes": [], "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1}},
-        connection_id=None,
-        contact_phone=None,
-    )
-
-    try:
-        # Consultar como si llegara un mensaje al número 5491155612767
-        flows = await db_module.get_active_flows_for_bot(
-            bot_id="5491155612767",
-            contact_phone="5491199990000",
+    # Intentar crear un flow con connection_id NULL debe fallar
+    with pytest.raises(ValueError, match="connection_id es obligatorio"):
+        await db_module.create_flow(
             empresa_id="bot_test",
+            name="__safety_test_null_connection__",
+            definition={"nodes": [], "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1}},
+            connection_id=None,
+            contact_phone=None,
         )
-        ids = [f["id"] for f in flows]
-        assert flow_id not in ids, (
-            "PELIGRO: flow con connection_id=NULL fue devuelto por get_active_flows_for_bot. "
-            "Esto significa que respondería a TODOS los contactos de TODOS los números."
-        )
-    finally:
-        await db_module.delete_flow(flow_id)
 
 
 @pytest.mark.asyncio
