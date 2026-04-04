@@ -27,6 +27,8 @@ export function dbNodeToRF(node, typeMap = {}) {
     id: node.id,
     type: 'flowNode',
     position: node.position || { x: 0, y: 0 },
+    width: 160,
+    height: 40,
     data: {
       nodeType:    node.type,
       config:      node.config || {},
@@ -109,6 +111,8 @@ export const useFlowStore = create((set, get) => ({
       id,
       type: 'flowNode',
       position,
+      width: 160,
+      height: 40,
       data: {
         nodeType,
         config:      DEFAULT_CONFIGS[nodeType] || {},
