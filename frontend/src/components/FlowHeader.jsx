@@ -69,42 +69,36 @@ export default function FlowHeader({ flow, connections, apiCall, onSaved, onBack
     <div style={{
       display: 'flex',
       alignItems: 'center',
-      gap: 10,
-      padding: '10px 14px',
+      gap: 8,
+      padding: '8px 12px',
       background: '#0f172a',
       borderBottom: '1px solid #1e293b',
       flexShrink: 0,
-      flexWrap: 'wrap',
+      minWidth: 0,
     }}>
-      {/* Volver a la lista */}
+      {/* Volver */}
       <button
         onClick={onBack}
-        style={{
-          background: 'none',
-          border: 'none',
-          color: '#64748b',
-          cursor: 'pointer',
-          fontSize: 18,
-          lineHeight: 1,
-          padding: '0 4px',
-        }}
-        title="Volver a la lista"
+        style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: '0 2px', flexShrink: 0 }}
+        title="Volver"
       >←</button>
 
-      {/* Nombre del flow */}
+      {/* Nombre */}
       <input
         value={name}
         onChange={e => setName(e.target.value)}
         placeholder="Nombre del flow"
-        style={{ ...inputStyle, minWidth: 160, flex: '1 1 160px' }}
+        style={{ ...inputStyle, width: 180, flexShrink: 1 }}
       />
 
-      {/* Selector de conexión */}
+      <div style={{ width: 1, height: 20, background: '#1e293b', flexShrink: 0 }} />
+
+      {/* Conexión */}
       <select
         value={connectionId}
         onChange={e => setConn(e.target.value)}
-        style={{ ...selectStyle, minWidth: 130 }}
-        title="Activa solo para esta conexión (vacío = todas)"
+        style={{ ...selectStyle, width: 140, flexShrink: 1 }}
+        title="Activa solo para esta conexión"
       >
         <option value="">Todas las conexiones</option>
         {(connections || []).map(c => (
@@ -112,12 +106,12 @@ export default function FlowHeader({ flow, connections, apiCall, onSaved, onBack
         ))}
       </select>
 
-      {/* Selector de contacto */}
+      {/* Contacto */}
       <select
         value={contactPhone}
         onChange={e => setContact(e.target.value)}
-        style={{ ...selectStyle, minWidth: 160 }}
-        title="Activa solo para este contacto (vacío = todos)"
+        style={{ ...selectStyle, width: 160, flexShrink: 1 }}
+        title="Activa solo para este contacto"
       >
         <option value="">Todos los contactos</option>
         {contactOptions.map(opt => (
@@ -125,14 +119,10 @@ export default function FlowHeader({ flow, connections, apiCall, onSaved, onBack
         ))}
       </select>
 
-      {/* Indicador de cambios + botón guardar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
-        {isDirty && (
-          <span style={{ fontSize: 11, color: '#f59e0b' }}>Sin guardar</span>
-        )}
-        {saveErr && (
-          <span style={{ fontSize: 11, color: '#ef4444' }}>{saveErr}</span>
-        )}
+      {/* Guardar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto', flexShrink: 0 }}>
+        {saveErr && <span style={{ fontSize: 11, color: '#ef4444' }}>{saveErr}</span>}
+        {isDirty && !saveErr && <span style={{ fontSize: 11, color: '#f59e0b' }}>Sin guardar</span>}
         <button
           onClick={handleSave}
           disabled={saving}
@@ -146,6 +136,7 @@ export default function FlowHeader({ flow, connections, apiCall, onSaved, onBack
             cursor: saving ? 'default' : 'pointer',
             fontWeight: isDirty ? 600 : 400,
             transition: 'all 0.15s',
+            whiteSpace: 'nowrap',
           }}
         >
           {saving ? 'Guardando...' : 'Guardar'}

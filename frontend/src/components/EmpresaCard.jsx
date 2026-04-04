@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import SimChat from '../SimChat.jsx'
 import FlowList from './FlowList.jsx'
 
@@ -10,7 +10,6 @@ const STATUS_LABELS = {
   failed: 'Error', stopped: 'Sin iniciar', qr_needed: 'Sin iniciar',
 }
 
-const TIPO_LABELS = { fixed_message: 'Mensaje fijo', summarizer: 'Sumarizadora', flow: 'Flow (grafo)' }
 
 const CHANNEL_LABELS = { whatsapp: '📱 WA', telegram: '✈️ TG' }
 function channelLabel(ch) { return ch.is_group ? '👥 Grupo WA' : (CHANNEL_LABELS[ch.type] || ch.type) }
@@ -64,327 +63,6 @@ function Toggle({ checked, onChange, disabled }) {
       onClick={() => !disabled && onChange(!checked)}
       disabled={disabled}
     />
-  )
-}
-
-// ─── SummaryModal ─────────────────────────────────────────────────────────────
-
-function SummaryModal({ botId, tool, allContacts, apiCall, adminPwd, onClose }) {
-  const [phones, setPhones] = useState(null)
-  const [selected, setSelected] = useState(null)
-  const [content, setContent] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [syncing, setSyncing] = useState(false)
-  const defaultFromDate = (() => {
-    const d = new Date(); d.setDate(d.getDate() - 30)
-    return d.toISOString().split('T')[0]
-  })()
-  const [fromDate, setFromDate] = useState(defaultFromDate)
-
-  // Mapeo identificador (phone / telegram id) → nombre de contacto
-  const phoneToName = useMemo(() => {
-    const map = {}
-    for (const c of (allContacts || [])) {
-      for (const ch of (c.channels || [])) {
-        if (ch.type === 'whatsapp' || ch.type === 'telegram') map[ch.value] = c.name
-      }
-    }
-    return map
-  }, [allContacts])
-
-  // IDs de contacto de esta herramienta (vacío = todos)
-  const toolContactIds = useMemo(() =>
-    new Set((tool.contactos_incluidos || []).map(String)),
-    [tool]
-  )
-
-  // Teléfonos de los contactos de esta herramienta
-  const toolPhones = useMemo(() => {
-    if (toolContactIds.size === 0) return null // null = sin filtro
-    const set = new Set()
-    for (const c of (allContacts || [])) {
-      if (toolContactIds.has(String(c.id))) {
-        for (const ch of (c.channels || [])) {
-          if (ch.type === 'whatsapp') set.add(ch.value)
-        }
-      }
-    }
-    return set
-  }, [allContacts, toolContactIds])
-
-  const loadList = useCallback(() => {
-    apiCall('GET', `/summarizer/${botId}`, null)
-      .then(r => {
-        const all = r?.contacts ?? []
-        // Filtrar por contactos de esta herramienta si corresponde
-        const filtered = toolPhones ? all.filter(p => toolPhones.has(p)) : all
-        setPhones(filtered)
-      })
-      .catch(() => setPhones([]))
-  }, [botId, apiCall, toolPhones])
-
-  useEffect(() => { loadList() }, [loadList])
-
-  async function handleSync() {
-    setSyncing(true)
-    const body = {}
-    if (selected) body.contact_phone = selected
-    if (fromDate) body.from_date = fromDate
-    await apiCall('POST', `/full-sync`, body).catch(() => null)
-    setSyncing(false)
-    loadList()
-    if (selected) viewContact(selected)
-  }
-
-  async function viewContact(phone) {
-    setSelected(phone); setLoading(true); setContent('')
-    try {
-      const headers = {}
-      if (adminPwd) {
-        headers['x-password'] = adminPwd
-      } else {
-        const { getAccessToken } = await import('../lib/auth.js')
-        const token = getAccessToken()
-        if (token) headers['Authorization'] = `Bearer ${token}`
-      }
-      const r = await fetch(`/api/summarizer/${botId}/${phone}`, { headers })
-      setContent(r.ok ? await r.text() : '(sin resumen)')
-    } catch { setContent('(error al cargar)') }
-    setLoading(false)
-  }
-
-  const selectedName = selected ? (phoneToName[selected] || selected) : null
-
-  return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal-box" style={{ width: 620 }}>
-        <div className="modal-header">
-          <span>Resúmenes — {tool.nombre}</span>
-          <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
-        </div>
-        {phones === null
-          ? <div className="empty">Cargando...</div>
-          : phones.length === 0
-            ? <div className="empty" style={{ padding: 20 }}>Sin resúmenes acumulados aún</div>
-            : (
-              <div style={{ display: 'flex', gap: 12, minHeight: 200 }}>
-                <div style={{ width: 160, flexShrink: 0, borderRight: '1px solid #eee', paddingRight: 8 }}>
-                  {phones.map(phone => (
-                    <button key={phone}
-                      className={`btn-ghost btn-sm${selected === phone ? ' ec-btn-active' : ''}`}
-                      style={{ display: 'block', width: '100%', textAlign: 'left', marginBottom: 4, lineHeight: 1.3 }}
-                      onClick={() => viewContact(phone)}
-                    >
-                      <span style={{ display: 'block' }}>{phoneToName[phone] || phone}</span>
-                      {phoneToName[phone] && <span style={{ display: 'block', fontSize: 10, color: '#aaa' }}>({phone})</span>}
-                    </button>
-                  ))}
-                </div>
-                <div style={{ flex: 1, overflow: 'auto', maxHeight: 400 }}>
-                  {loading
-                    ? <div className="empty">Cargando...</div>
-                    : selected
-                      ? <pre style={{ fontSize: 12, whiteSpace: 'pre-wrap', margin: 0, lineHeight: 1.6 }}>{content}</pre>
-                      : <div className="empty" style={{ padding: 16 }}>Seleccioná un contacto</div>
-                  }
-                </div>
-              </div>
-            )
-        }
-        <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <label style={{ fontSize: 12, color: '#64748b', whiteSpace: 'nowrap' }}>Desde:</label>
-            <input
-              type="date"
-              value={fromDate}
-              onChange={e => setFromDate(e.target.value)}
-              style={{ fontSize: 12, padding: '3px 6px', border: '1px solid #e2e8f0', borderRadius: 6, color: '#1e293b' }}
-            />
-            <button className="btn-ghost btn-sm" onClick={handleSync} disabled={syncing}>
-              {syncing ? '⟳ Sincronizando...' : selected ? `⟳ Re-Sync ${selectedName}` : '⟳ Re-Sync todos'}
-            </button>
-          </div>
-          <button className="btn-ghost btn-sm" onClick={onClose}>Cerrar</button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─── ToolForm ──────────────────────────────────────────────────────────────────
-
-function ToolForm({ botId, tool, apiCall, onClose, onSaved }) {
-  const isEdit = !!tool
-  const [form, setForm] = useState({
-    nombre: tool?.nombre ?? '',
-    tipo: tool?.tipo ?? 'fixed_message',
-    mensaje: tool?.config?.message ?? '',
-    todasConexiones: (tool?.connections ?? []).length === 0,
-    conexiones: tool?.connections ?? [],
-    todosContactos: (tool?.contactos_incluidos ?? []).length === 0 && !!tool,
-    incluidos: (tool?.contactos_incluidos ?? []).map(c => c.id),
-    excluidos: (tool?.contactos_excluidos ?? []).map(c => c.id),
-    incluir_desconocidos: tool?.incluir_desconocidos ?? false,
-  })
-  const [allConns, setAllConns] = useState([])
-  const [contacts, setContacts] = useState([])
-  const [conflicts, setConflicts] = useState([])
-  const [validating, setValidating] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [err, setErr] = useState('')
-
-  useEffect(() => {
-    apiCall('GET', `/empresa/${botId}`, null).then(r => { if (r?.connections) setAllConns(r.connections) }).catch(() => {})
-    apiCall('GET', `/bots/${botId}/contacts`, null).then(r => { if (Array.isArray(r)) setContacts(r) }).catch(() => {})
-  }, [botId, apiCall])
-
-  useEffect(() => {
-    const t = setTimeout(async () => {
-      setValidating(true)
-      const r = await apiCall('POST', '/tools/validate-exclusivity', {
-        empresa_id: botId,
-        tool_id: tool?.id ?? null,
-        conexiones: form.todasConexiones ? [] : form.conexiones,
-        contactos_incluidos: form.todosContactos ? [] : form.incluidos,
-        incluir_desconocidos: form.incluir_desconocidos,
-        exclusiva: true,
-      }).catch(() => null)
-      setValidating(false)
-      setConflicts(r?.conflicts ?? [])
-    }, 400)
-    return () => clearTimeout(t)
-  }, [form.conexiones, form.incluidos, form.incluir_desconocidos, botId, tool?.id])
-
-  const setE = k => e => setForm(f => ({ ...f, [k]: e.target.value }))
-  function toggleConn(id) { setForm(f => ({ ...f, conexiones: f.conexiones.includes(id) ? f.conexiones.filter(x => x !== id) : [...f.conexiones, id] })) }
-  function toggleContact(k, id) { setForm(f => ({ ...f, [k]: f[k].includes(id) ? f[k].filter(x => x !== id) : [...f[k], id] })) }
-
-  async function handleSave(e) {
-    e.preventDefault(); setErr(''); setSaving(true)
-    if (!form.nombre.trim()) { setErr('El nombre es obligatorio'); setSaving(false); return }
-    if (!form.todasConexiones && form.conexiones.length === 0) { setErr('Seleccioná al menos una conexión'); setSaving(false); return }
-    if (!form.todosContactos && !form.incluir_desconocidos && form.incluidos.length === 0) { setErr('Seleccioná al menos un contacto o activá "Incluir desconocidos"'); setSaving(false); return }
-    if (conflicts.length > 0) { setErr('Hay conflictos de exclusividad'); setSaving(false); return }
-    const payload = {
-      nombre: form.nombre.trim(), tipo: form.tipo, config: { message: form.mensaje },
-      conexiones: form.todasConexiones ? [] : form.conexiones,
-      contactos_incluidos: form.todosContactos ? [] : form.incluidos,
-      contactos_excluidos: form.excluidos,
-      incluir_desconocidos: form.incluir_desconocidos, exclusiva: true,
-    }
-    const res = await apiCall(isEdit ? 'PUT' : 'POST', isEdit ? `/tools/${tool.id}` : `/empresas/${botId}/tools`, payload).catch(() => null)
-    setSaving(false)
-    if (!res?.id) { setErr(res?.detail || 'Error al guardar'); return }
-    onSaved(res)
-  }
-
-  return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal-box" style={{ width: 560 }}>
-        <div className="modal-header">
-          <span>{isEdit ? 'Editar herramienta' : 'Nueva herramienta'}</span>
-          <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
-        </div>
-        <form onSubmit={handleSave}>
-          <div className="fg"><label>Nombre</label>
-            <input value={form.nombre} onChange={setE('nombre')} placeholder="Ej: Bienvenida VIP" autoFocus />
-          </div>
-          <div className="fg"><label>Tipo</label>
-            <select value={form.tipo} onChange={setE('tipo')}>
-              <option value="fixed_message">Mensaje fijo</option>
-              <option value="summarizer">Sumarizadora (pasiva)</option>
-              <option value="flow">Flow (grafo)</option>
-            </select>
-          </div>
-          {form.tipo === 'fixed_message' && (
-            <div className="fg"><label>Mensaje</label>
-              <textarea rows={3} value={form.mensaje} onChange={setE('mensaje')} placeholder="Texto que enviará el bot al activarse" />
-            </div>
-          )}
-          {form.tipo === 'summarizer' && (
-            <div className="fg">
-              <div style={{ fontSize: 13, color: '#666', background: '#f5f5f5', padding: '8px 12px', borderRadius: 6 }}>
-                Acumula todos los mensajes en un archivo de texto. No envía respuestas automáticas.
-              </div>
-            </div>
-          )}
-          {form.tipo === 'flow' && (
-            <div className="fg">
-              <div style={{ fontSize: 13, color: '#666', background: '#f5f5f5', padding: '8px 12px', borderRadius: 6 }}>
-                Ejecuta un grafo LangGraph. La lógica del flow está definida en el backend.
-              </div>
-            </div>
-          )}
-          <div className="fg"><label>Conexiones</label>
-            <div className="tool-checks">
-              <label className="tool-check-label tool-check-label--all">
-                <input type="checkbox" checked={form.todasConexiones}
-                  onChange={() => setForm(f => ({ ...f, todasConexiones: !f.todasConexiones, conexiones: [] }))} />
-                Todas las conexiones
-              </label>
-              {!form.todasConexiones && allConns.map(c => (
-                <label key={c.id} className="tool-check-label">
-                  <input type="checkbox" checked={form.conexiones.includes(c.id)} onChange={() => toggleConn(c.id)} />
-                  {c.type === 'telegram' ? '✈️' : '📱'} {c.number || c.id}
-                </label>
-              ))}
-            </div>
-          </div>
-          <div className="fg"><label>Contactos incluidos</label>
-            <div className="tool-contact-picks">
-              <label className={`tool-pick-item${form.todosContactos ? ' tool-pick-item--on' : ''}`}>
-                <input type="checkbox" checked={form.todosContactos}
-                  onChange={() => setForm(f => ({ ...f, todosContactos: !f.todosContactos, incluidos: [] }))} />
-                Todos los registrados
-              </label>
-              {!form.todosContactos && contacts.map(c => (
-                <label key={c.id} className={`tool-pick-item${form.incluidos.includes(c.id) ? ' tool-pick-item--on' : ''}`}>
-                  <input type="checkbox" checked={form.incluidos.includes(c.id)} onChange={() => toggleContact('incluidos', c.id)} />
-                  {c.name}
-                </label>
-              ))}
-            </div>
-          </div>
-          {contacts.length > 0 && (
-            <div className="fg"><label>Contactos excluidos <small style={{ fontWeight: 400, color: '#888', marginLeft: 4 }}>— nunca reciben esta herramienta</small></label>
-              <div className="tool-contact-picks">
-                {contacts.map(c => (
-                  <label key={c.id} className={`tool-pick-item${form.excluidos.includes(c.id) ? ' tool-pick-item--exc' : ''}`}>
-                    <input type="checkbox" checked={form.excluidos.includes(c.id)} onChange={() => toggleContact('excluidos', c.id)} />
-                    {c.name}
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
-          <div className="tool-toggles">
-            <label className="tool-toggle">
-              <input type="checkbox" checked={form.incluir_desconocidos} onChange={e => setForm(f => ({ ...f, incluir_desconocidos: e.target.checked }))} />
-              <div><span>Incluir desconocidos</span><small>Aplica también a contactos no registrados</small></div>
-            </label>
-          </div>
-          {conflicts.length > 0 && (
-            <div className="conflict-panel">
-              <div className="conflict-title">Conflictos de exclusividad {validating ? '(verificando...)' : ''}</div>
-              {conflicts.map((c, i) => (
-                <div key={i} className="conflict-item">
-                  <strong>{c.conflicting_tool_nombre}</strong>
-                  {c.conflicting_empresa_id !== botId && ` (${c.conflicting_empresa_nombre})`}
-                  {' — '}{c.contact_name ? `contacto: ${c.contact_name}` : 'desconocidos'} en {c.bot_id}
-                </div>
-              ))}
-            </div>
-          )}
-          {err && <div style={{ fontSize: 13, color: '#c00', marginBottom: 8 }}>{err}</div>}
-          <div className="portal-save-row">
-            <button type="button" className="btn-ghost btn-sm" onClick={onClose}>Cancelar</button>
-            <button type="submit" className="btn-primary btn-sm" disabled={saving || conflicts.length > 0}>
-              {saving ? 'Guardando...' : 'Guardar'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
   )
 }
 
@@ -668,47 +346,6 @@ function ConnectionRow({
   )
 }
 
-// ─── ToolRow ───────────────────────────────────────────────────────────────────
-
-function ToolRow({ tool, mode, onToggle, onEdit, onDelete, onViewSummary, toggling }) {
-  return (
-    <div className={`ec-tool-row ${tool.activa ? 'ec-tool-row--on' : 'ec-tool-row--off'}`}>
-      <div className="ec-tool-main">
-        <div className="ec-tool-info">
-          <span className="ec-tool-name">{tool.nombre}</span>
-          <span className="ec-tool-type">{TIPO_LABELS[tool.tipo] ?? tool.tipo}</span>
-          <span className="ec-tool-scope">
-            {tool.connections?.length > 0 ? tool.connections.join(', ') : 'Todas las conexiones'}
-            {' · '}
-            {tool.contactos_incluidos?.length > 0
-              ? `${tool.contactos_incluidos.length} contacto${tool.contactos_incluidos.length !== 1 ? 's' : ''}`
-              : tool.incluir_desconocidos ? 'todos' : '—'}
-          </span>
-        </div>
-        <div className="ec-tool-actions">
-          {tool.tipo === 'summarizer' && (
-            <button className="btn-ghost btn-sm" onClick={() => onViewSummary(tool)}>Ver resúmenes</button>
-          )}
-          {mode === 'admin' && (
-            <>
-              <button className="btn-ghost btn-sm" onClick={() => onEdit(tool)}>Editar</button>
-              <button className="btn-danger btn-sm" onClick={() => onDelete(tool)}>Eliminar</button>
-            </>
-          )}
-          {mode === 'admin' && (
-            <Toggle checked={tool.activa} onChange={() => onToggle(tool)} disabled={toggling === tool.id} />
-          )}
-          {mode === 'empresa' && (
-            <span className={`ec-tool-status-badge ${tool.activa ? 'ec-tool-status-badge--on' : 'ec-tool-status-badge--off'}`}>
-              {tool.activa ? 'Activa' : 'Inactiva'}
-            </span>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ─── EmpresaCard (componente principal) ────────────────────────────────────────
 
 export default function EmpresaCard({
@@ -730,13 +367,9 @@ export default function EmpresaCard({
   onDragOver, onDragLeave, onDrop,
 }) {
   const [activeTab, setActiveTab] = useState('connections')
-  const [tools, setTools] = useState([])
   const [contacts, setContacts] = useState([])
   const [suggested, setSuggested] = useState([])
-  const [toolModal, setToolModal] = useState(null)
-  const [summaryModal, setSummaryModal] = useState(null)
   const [contactModal, setContactModal] = useState(null)
-  const [togglingTool, setTogglingTool] = useState(null)
   const [showSuggested, setShowSuggested] = useState(false)
 
   // Empresa mode: inline add forms for connections
@@ -748,11 +381,6 @@ export default function EmpresaCard({
 
   const botId = bot.id
 
-  const loadTools = useCallback(async () => {
-    const t = await apiCall('GET', `/empresas/${botId}/tools`, null).catch(() => [])
-    if (Array.isArray(t)) setTools(t)
-  }, [botId, apiCall])
-
   const loadContacts = useCallback(async () => {
     const [c, s] = await Promise.all([
       apiCall('GET', `/bots/${botId}/contacts`, null).catch(() => []),
@@ -762,26 +390,10 @@ export default function EmpresaCard({
     if (Array.isArray(s)) setSuggested(s)
   }, [botId, apiCall])
 
-  // Cargar herramientas al montar
-  useEffect(() => { loadTools() }, [loadTools])
-
   // Cargar contactos cuando se activa esa pestaña
   useEffect(() => {
     if (activeTab === 'contacts') loadContacts()
   }, [activeTab, loadContacts])
-
-  async function handleToggleTool(tool) {
-    setTogglingTool(tool.id)
-    await apiCall('POST', `/tools/${tool.id}/toggle`, null).catch(() => null)
-    await loadTools()
-    setTogglingTool(null)
-  }
-
-  async function handleDeleteTool(tool) {
-    if (!confirm(`¿Eliminar herramienta "${tool.nombre}"?`)) return
-    await apiCall('DELETE', `/tools/${tool.id}`, null).catch(() => null)
-    loadTools()
-  }
 
   async function handleDeleteContact(contact) {
     if (!confirm(`¿Eliminar "${contact.name}"?`)) return
@@ -833,13 +445,9 @@ export default function EmpresaCard({
   const conns = bot.connections ?? []
   const waConns = conns.filter(c => c.type === 'whatsapp')
   const tgConns = conns.filter(c => c.type === 'telegram')
-  const visibleTools = mode === 'empresa' ? tools.filter(t => t.activa) : tools
-  const activeToolsCount = tools.filter(t => t.activa).length
-  const toolsTabCount = mode === 'admin' ? tools.length : activeToolsCount
 
   const tabs = [
     { id: 'connections', label: 'Conexiones', count: conns.length },
-    { id: 'tools', label: 'Herramientas', count: toolsTabCount },
     { id: 'contacts', label: 'Contactos', count: contacts.length || null },
     { id: 'flow', label: 'Flow', count: null },
     ...(mode === 'empresa' ? [{ id: 'config', label: 'Configurar', count: null }] : []),
@@ -975,36 +583,6 @@ export default function EmpresaCard({
           </div>
         )}
 
-        {/* ── Herramientas ── */}
-        {activeTab === 'tools' && (
-          <div>
-            {visibleTools.length === 0 ? (
-              <div className="empty" style={{ padding: '24px 20px' }}>
-                {mode === 'admin' ? 'Sin herramientas configuradas para esta empresa.' : 'No hay herramientas habilitadas por el administrador.'}
-              </div>
-            ) : (
-              visibleTools.map(tool => (
-                <ToolRow
-                  key={tool.id} tool={tool} mode={mode}
-                  onToggle={handleToggleTool} onEdit={t => setToolModal(t)}
-                  onDelete={handleDeleteTool} onViewSummary={setSummaryModal}
-                  toggling={togglingTool}
-                />
-              ))
-            )}
-            {mode === 'admin' && (
-              <div className="ec-add-row">
-                <button className="btn-primary btn-sm" onClick={() => setToolModal('new')}>+ Nueva herramienta</button>
-                {tools.length > 0 && (
-                  <span className="ec-tools-summary">
-                    {activeToolsCount} de {tools.length} activa{tools.length !== 1 ? 's' : ''}
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
         {/* ── Contactos ── */}
         {activeTab === 'contacts' && (
           <div>
@@ -1081,25 +659,6 @@ export default function EmpresaCard({
       </div>
 
       {/* ─── Modales ─── */}
-      {toolModal && (
-        <ToolForm
-          botId={botId}
-          tool={toolModal === 'new' ? null : toolModal}
-          apiCall={apiCall}
-          onClose={() => setToolModal(null)}
-          onSaved={() => { setToolModal(null); loadTools() }}
-        />
-      )}
-      {summaryModal && (
-        <SummaryModal
-          botId={botId}
-          tool={summaryModal}
-          allContacts={contacts}
-          apiCall={apiCall}
-          adminPwd={adminPwd}
-          onClose={() => setSummaryModal(null)}
-        />
-      )}
       {contactModal && (
         <ContactModal
           botId={botId}
