@@ -535,9 +535,9 @@ export default function DashboardPage() {
               onClick={e => { e.stopPropagation(); setMonitorCollapsed(c => !c) }}
             >{monitorCollapsed ? '▼ Expandir' : '▲ Colapsar'}</button>
           </div>
-          {!monitorCollapsed && (
-            <MonitorPanel pwd={pwd} onAlertsChange={setMonitorAlerts} />
-          )}
+          <div style={{ display: monitorCollapsed ? 'none' : 'block' }}>
+            <MonitorPanel pwd={pwd} onAlertsChange={setMonitorAlerts} active={!monitorCollapsed} />
+          </div>
         </div>
 
         {/* ── Links para clientes ── */}

@@ -178,7 +178,7 @@ function StatCard({ label, value, color }) {
 }
 
 // ── Polling hook ───────────────────────────────────────────────────────────────
-function useLogPoller(source, pwd, paused, windowMinutes) {
+function useLogPoller(source, pwd, paused, windowMinutes, active) {
   const [lines, setLines] = useState([])
   const [alerts, setAlerts] = useState([])
   const knownRef = useRef(0)
@@ -210,18 +210,23 @@ function useLogPoller(source, pwd, paused, windowMinutes) {
     fetchLines()
   }, [source, windowMinutes])
 
+  // Fetch inmediato al activarse (expandir monitor)
   useEffect(() => {
-    if (paused) return
+    if (active) fetchLines()
+  }, [active])
+
+  useEffect(() => {
+    if (paused || !active) return
     const id = setInterval(fetchLines, 2000)
     return () => clearInterval(id)
-  }, [fetchLines, paused])
+  }, [fetchLines, paused, active])
 
   const clearAlerts = useCallback(() => setAlerts([]), [])
   return { lines, alerts, clearAlerts }
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
-export default function MonitorPanel({ pwd, onAlertsChange }) {
+export default function MonitorPanel({ pwd, onAlertsChange, active = true }) {
   const [source,      setSource]      = useState('backend')
   const [paused,      setPaused]      = useState(false)
   const [filter,      setFilter]      = useState('')
@@ -233,7 +238,7 @@ export default function MonitorPanel({ pwd, onAlertsChange }) {
   const userScrolled   = useRef(false)
 
   const windowCfg = TIME_WINDOWS[windowIdx]
-  const { lines, alerts, clearAlerts } = useLogPoller(source, pwd, paused, windowCfg.minutes)
+  const { lines, alerts, clearAlerts } = useLogPoller(source, pwd, paused, windowCfg.minutes, active)
 
   useEffect(() => { onAlertsChange?.(alerts.length) }, [alerts.length])
 
