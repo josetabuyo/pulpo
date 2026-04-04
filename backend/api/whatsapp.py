@@ -372,27 +372,19 @@ async def full_sync(background_tasks: BackgroundTasks, body: FullSyncBody = None
 
 async def _contact_has_summarizer(empresa_id: str, contact_id: int, contact_name: str) -> bool:
     """
-    Devuelve True si existe al menos una tool 'summarizer' activa en esta empresa
-    que aplique a este contacto (según incluir_desconocidos, exclusiva,
-    contactos_incluidos y contactos_excluidos).
+    Devuelve True si la empresa tiene al menos un flow activo con SummarizeNode.
+    En el nuevo modelo, si existe ese flow aplica a todos los contactos (contact_phone=NULL).
     """
-    from db import get_tools
-    tools = await get_tools(empresa_id)
-    for tool in tools:
-        if tool.get("tipo") != "summarizer":
-            continue
-        if not tool.get("activa", True):
-            continue
-        included = [c["id"] for c in tool.get("contactos_incluidos", [])]
-        excluded = [c["id"] for c in tool.get("contactos_excluidos", [])]
-        if contact_id in excluded:
-            continue
-        if included and contact_id not in included:
-            # Solo aplica a los explícitamente incluidos
-            if not tool.get("incluir_desconocidos"):
-                continue
-        return True
+    from db import get_flows, get_flow as _get_flow
+    flows = await get_flows(empresa_id)
+    for f in flows:
+        detail = await _get_flow(f["id"])
+        if detail:
+            nodes = detail.get("definition", {}).get("nodes", [])
+            if any(n.get("type") == "summarize" for n in nodes):
+                return True
     return False
+
 
 
 _sync_running = False
@@ -448,13 +440,13 @@ async def _run_sync(from_date: "date | None" = None, contact_phone: "str | None"
             # Resetear dedup en memoria antes de acumular (evita falsos positivos por
             # caché stale). NO borrar el .md — preservar mensajes históricos que ya no
             # están en la ventana de scroll de WA Web.
-            from tools import summarizer as _summarizer
+            from graphs.nodes.summarize import _dedup as _sum_dedup, _dedup_loaded as _sum_dedup_loaded, accumulate as _accumulate_msg, get_attachments_dir as _get_att_dir
             for item in contacts_to_sync:
                 eid = item["summarizer_eid"]
                 for ch in [c for c in item["contact"].get("channels", []) if c["type"] == "whatsapp"]:
                     key = (eid, ch["value"])
-                    _summarizer._dedup_loaded.discard(key)
-                    _summarizer._dedup.pop(key, None)
+                    _sum_dedup_loaded.discard(key)
+                    _sum_dedup.pop(key, None)
 
             for item in contacts_to_sync:
                 contact = item["contact"]
@@ -465,7 +457,7 @@ async def _run_sync(from_date: "date | None" = None, contact_phone: "str | None"
                 _log.info(f"[{mode}] Scraping '{contact_name}'...")
                 # Carpeta para adjuntos: usa el primer canal WA del contacto
                 _first_phone = wa_channels[0]["value"] if wa_channels else None
-                _doc_dir = _summarizer.get_attachments_dir(item["summarizer_eid"], _first_phone) if _first_phone else None
+                _doc_dir = _get_att_dir(item["summarizer_eid"], _first_phone) if _first_phone else None
                 messages = await wa_session.scrape_full_history(session_id, contact_name, scroll_rounds=scroll_rounds, doc_save_dir=_doc_dir, from_date=from_date)
                 # Ordenar cronológicamente antes de acumular: el scrape devuelve
                 # textos (Part A) + audios (Part B) concatenados, no mezclados por fecha.
@@ -507,7 +499,7 @@ async def _run_sync(from_date: "date | None" = None, contact_phone: "str | None"
                             elif sum_body == "[imagen]":
                                 sum_body = "[imagen — no disponible]"
                                 sum_type = "image"
-                            _summarizer.accumulate(
+                            _accumulate_msg(
                                 empresa_id=eid,
                                 contact_phone=phone,
                                 contact_name=contact_name,
@@ -578,9 +570,9 @@ async def _run_delta_sync(contact_phone: "str | None" = None) -> None:
                 contact_name = contact["name"]
                 wa_channels = [ch for ch in contact.get("channels", []) if ch["type"] == "whatsapp"]
 
-                from tools import summarizer as _summarizer
+                from graphs.nodes.summarize import get_attachments_dir as _get_att_dir
                 _first_phone = wa_channels[0]["value"] if wa_channels else None
-                _doc_dir = _summarizer.get_attachments_dir(item["summarizer_eid"], _first_phone) if _first_phone else None
+                _doc_dir = _get_att_dir(item["summarizer_eid"], _first_phone) if _first_phone else None
 
                 _log.info(f"[{mode}] Escaneando '{contact_name}'...")
                 # Scrapear con scroll limitado (delta, no full-history)
@@ -621,14 +613,18 @@ async def _run_delta_sync(contact_phone: "str | None" = None) -> None:
                                 ts_dt = _dt.strptime(msg["timestamp"], "%Y-%m-%d %H:%M:%S")
                             except (ValueError, TypeError):
                                 ts_dt = _dt.now()
-                            _summarizer.accumulate(
-                                empresa_id=eid,
+                            from graphs.compiler import run_flows
+                            from graphs.nodes.state import FlowState as _FlowState
+                            _state = _FlowState(
+                                message=body,
+                                message_type=msg.get("msg_type", "text"),
                                 contact_phone=phone,
                                 contact_name=contact_name,
-                                msg_type=msg.get("msg_type", "text"),
-                                content=body,
+                                canal="whatsapp",
+                                from_delta_sync=True,
                                 timestamp=ts_dt,
                             )
+                            await run_flows(_state, bot_id=bot_phone)
                     else:
                         continue
                     break  # parar en cuanto un canal encuentra el primer existente

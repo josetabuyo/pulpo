@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import {
   ReactFlow,
   Background,
@@ -11,34 +11,51 @@ import {
 import '@xyflow/react/dist/style.css'
 import dagre from 'dagre'
 
-// ─── Nodo custom con tooltip ─────────────────────────────────────────────────
-// Recibe data.label, data.color, data.description (del registro de node_types).
+// ─── Nodo custom ──────────────────────────────────────────────────────────────
+// data.editable = true  → handles visibles + cursor pointer (modo editor)
+// data.editable = false → handles ocultos + cursor default (modo vista)
 
-function FlowNode({ data }) {
+function FlowNode({ id, data }) {
+  const showHandles = !!data.editable
+  const isStart = data.nodeType === 'start'
+  const isEnd   = data.nodeType === 'end'
+
+  const handleStyle = showHandles
+    ? { background: '#64748b', width: 8, height: 8, border: '2px solid #0f172a' }
+    : { opacity: 0 }
+
   return (
     <div
       title={data.description}
+      onDoubleClick={data.onDoubleClick ? () => data.onDoubleClick(id) : undefined}
       style={{
         background: data.color,
         color: '#fff',
         borderRadius: 8,
-        border: 'none',
+        border: data.selected ? '2px solid #fff' : '2px solid transparent',
         padding: '8px 16px',
         fontSize: 13,
-        cursor: 'default',
+        cursor: showHandles ? 'pointer' : 'default',
         whiteSpace: 'nowrap',
+        minWidth: 120,
+        textAlign: 'center',
+        userSelect: 'none',
       }}
     >
-      <Handle type="target" position={Position.Top}    style={{ opacity: 0 }} />
+      {!isStart && (
+        <Handle type="target" position={Position.Top}    style={handleStyle} />
+      )}
       {data.label}
-      <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
+      {!isEnd && (
+        <Handle type="source" position={Position.Bottom} style={handleStyle} />
+      )}
     </div>
   )
 }
 
 const NODE_TYPES_RF = { flowNode: FlowNode }
 
-// ─── Layout con dagre ─────────────────────────────────────────────────────────
+// ─── Layout con dagre (solo para modo vista) ──────────────────────────────────
 
 const NODE_WIDTH  = 150
 const NODE_HEIGHT = 40
@@ -66,6 +83,7 @@ function applyDagreLayout(rawNodes, rawEdges, typeMap) {
         label:       n.label,
         color:       meta.color       || '#1e293b',
         description: meta.description || '',
+        editable:    false,
       },
       position: { x: pos.x - NODE_WIDTH / 2, y: pos.y - NODE_HEIGHT / 2 },
     }
@@ -84,60 +102,97 @@ function applyDagreLayout(rawNodes, rawEdges, typeMap) {
 }
 
 // ─── FlowCanvas ───────────────────────────────────────────────────────────────
+//
+// Modo vista  (por defecto): recibe empresaId + apiCall, carga y muestra read-only
+// Modo editor (editable=true): recibe nodes/edges/callbacks del padre (FlowEditor)
 
-export default function FlowCanvas({ empresaId, apiCall }) {
-  const [loading, setLoading] = useState(true)
+export default function FlowCanvas({
+  // Modo vista
+  empresaId,
+  apiCall,
+  // Modo editor
+  editable = false,
+  nodes: editNodes,
+  edges: editEdges,
+  onNodesChange: editOnNodesChange,
+  onEdgesChange: editOnEdgesChange,
+  onConnect: editOnConnect,
+  onNodeDoubleClick,
+  onDrop: externalOnDrop,
+}) {
+  // ── Estado modo vista ──
+  const [loading, setLoading] = useState(!editable)
   const [error,   setError]   = useState(null)
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
 
+  // Modo vista: carga datos del servidor
   useEffect(() => {
+    if (editable) return
     setLoading(true)
     setError(null)
 
-    // Cargamos node-types y grafo en paralelo
     Promise.all([
       apiCall('GET', '/flow/node-types'),
       apiCall('GET', `/empresas/${empresaId}/flow/graph`),
     ])
       .then(([nodeTypesList, graph]) => {
         if (!graph?.nodes) { setError('Respuesta inválida del servidor'); return }
-
-        // Construir mapa tipo_id → { color, description }
-        const typeMap = Object.fromEntries(
-          (nodeTypesList || []).map(t => [t.id, t])
-        )
-
+        const typeMap = Object.fromEntries((nodeTypesList || []).map(t => [t.id, t]))
         const { nodes: n, edges: e } = applyDagreLayout(graph.nodes, graph.edges, typeMap)
         setNodes(n)
         setEdges(e)
       })
       .catch(() => setError('Error al cargar el grafo'))
       .finally(() => setLoading(false))
-  }, [empresaId])
+  }, [empresaId, editable])
 
-  if (loading) {
+  // ── Drag-over para el modo editor ──
+  const reactFlowWrapper = useRef(null)
+
+  function handleDragOver(e) {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+  }
+
+  // ── Nodos con callback de doble clic inyectado en data ──
+  // (React Flow no expone onNodeDoubleClick directamente en el nodo custom)
+  const enrichedNodes = editable
+    ? (editNodes || []).map(n => ({
+        ...n,
+        data: { ...n.data, editable: true, onDoubleClick: onNodeDoubleClick },
+      }))
+    : nodes
+
+  if (!editable && loading) {
     return <div className="empty" style={{ padding: '32px 20px' }}>Cargando flow...</div>
   }
-  if (error) {
+  if (!editable && error) {
     return <div className="empty" style={{ padding: '32px 20px', color: '#ef4444' }}>{error}</div>
   }
 
   return (
-    <div style={{ height: 360, background: '#0f172a', borderRadius: 8, overflow: 'hidden' }}>
+    <div
+      ref={reactFlowWrapper}
+      style={{ flex: 1, background: '#0f172a', overflow: 'hidden', minHeight: editable ? 0 : 360, borderRadius: editable ? 0 : 8 }}
+      onDrop={editable ? externalOnDrop : undefined}
+      onDragOver={editable ? handleDragOver : undefined}
+    >
       <ReactFlow
-        nodes={nodes}
-        edges={edges}
+        nodes={enrichedNodes}
+        edges={editable ? (editEdges || []) : edges}
         nodeTypes={NODE_TYPES_RF}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
+        onNodesChange={editable ? editOnNodesChange : onNodesChange}
+        onEdgesChange={editable ? editOnEdgesChange : onEdgesChange}
+        onConnect={editable ? editOnConnect : undefined}
         fitView
         fitViewOptions={{ padding: 0.3 }}
-        nodesDraggable={false}
-        nodesConnectable={false}
-        elementsSelectable={false}
+        nodesDraggable={editable}
+        nodesConnectable={editable}
+        elementsSelectable={editable}
         panOnDrag={true}
         zoomOnScroll={true}
+        deleteKeyCode={editable ? 'Delete' : null}
       >
         <Background color="#1e293b" gap={16} />
         <Controls showInteractive={false} style={{ background: '#1e293b', border: '1px solid #334155' }} />

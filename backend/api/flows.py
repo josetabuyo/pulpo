@@ -1,12 +1,18 @@
 """
 API REST de flows (grafos de agente).
 
-GET /api/flow/node-types          → catálogo de tipos de nodo (público)
-GET /api/empresas/{id}/flow/graph → grafo de la empresa (auth requerida)
+GET    /api/flow/node-types                      → catálogo de tipos de nodo (público)
+GET    /api/empresas/{id}/flow/graph             → grafo de la empresa para visualización (auth)
+GET    /api/empresas/{id}/flows                  → lista de flows de la empresa (auth)
+POST   /api/empresas/{id}/flows                  → crear flow (auth)
+GET    /api/empresas/{id}/flows/{flow_id}        → detalle con definition (auth)
+PUT    /api/empresas/{id}/flows/{flow_id}        → actualizar (auth)
+DELETE /api/empresas/{id}/flows/{flow_id}        → eliminar (auth)
 """
 import os
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi import Header
+from pydantic import BaseModel
 from typing import Optional
 
 import db
@@ -138,6 +144,169 @@ def list_node_types():
         {"id": nt.id, "label": nt.label, "color": nt.color, "description": nt.description}
         for nt in NODE_TYPES.values()
     ]
+
+
+# ─── Schemas ─────────────────────────────────────────────────────────────────
+
+class FlowIn(BaseModel):
+    name: str
+    definition: dict | None = None
+    connection_id: str | None = None
+    contact_phone: str | None = None
+
+
+class FlowUpdate(BaseModel):
+    name: str | None = None
+    definition: dict | None = None
+    connection_id: str | None = None
+    contact_phone: str | None = None
+    active: bool | None = None
+
+
+# ─── Endpoints de flows CRUD ──────────────────────────────────────────────────
+
+@router.get("/empresas/{empresa_id}/flows")
+async def list_flows(
+    empresa_id: str,
+    request: Request,
+    x_password: Optional[str] = Header(None),
+):
+    _require_empresa(empresa_id, request, x_password)
+    return await db.get_flows(empresa_id)
+
+
+@router.post("/empresas/{empresa_id}/flows", status_code=201)
+async def create_flow(
+    empresa_id: str,
+    body: FlowIn,
+    request: Request,
+    x_password: Optional[str] = Header(None),
+):
+    _require_empresa(empresa_id, request, x_password)
+    flow_id = await db.create_flow(
+        empresa_id=empresa_id,
+        name=body.name,
+        definition=body.definition,
+        connection_id=body.connection_id,
+        contact_phone=body.contact_phone,
+    )
+    return await db.get_flow(flow_id)
+
+
+@router.get("/empresas/{empresa_id}/flows/{flow_id}")
+async def get_flow(
+    empresa_id: str,
+    flow_id: str,
+    request: Request,
+    x_password: Optional[str] = Header(None),
+):
+    _require_empresa(empresa_id, request, x_password)
+    flow = await db.get_flow(flow_id)
+    if not flow or flow["empresa_id"] != empresa_id:
+        raise HTTPException(status_code=404, detail="Flow no encontrado")
+    return flow
+
+
+@router.put("/empresas/{empresa_id}/flows/{flow_id}")
+async def update_flow(
+    empresa_id: str,
+    flow_id: str,
+    body: FlowUpdate,
+    request: Request,
+    x_password: Optional[str] = Header(None),
+):
+    _require_empresa(empresa_id, request, x_password)
+    flow = await db.get_flow(flow_id)
+    if not flow or flow["empresa_id"] != empresa_id:
+        raise HTTPException(status_code=404, detail="Flow no encontrado")
+    updates = body.model_dump(exclude_none=True)
+    if updates:
+        await db.update_flow(flow_id, **updates)
+    return await db.get_flow(flow_id)
+
+
+@router.delete("/empresas/{empresa_id}/flows/{flow_id}", status_code=204)
+async def delete_flow(
+    empresa_id: str,
+    flow_id: str,
+    request: Request,
+    x_password: Optional[str] = Header(None),
+):
+    _require_empresa(empresa_id, request, x_password)
+    flow = await db.get_flow(flow_id)
+    if not flow or flow["empresa_id"] != empresa_id:
+        raise HTTPException(status_code=404, detail="Flow no encontrado")
+    await db.delete_flow(flow_id)
+    return Response(status_code=204)
+
+
+# ─── Seed de flows por defecto ────────────────────────────────────────────────
+
+async def seed_default_flows():
+    """
+    Crea flows iniciales en DB si no existen todavía.
+    Se llama una vez en el lifespan del servidor.
+    """
+    from config import load_config as _load_config
+    config = _load_config()
+
+    for bot in config.get("bots", []):
+        empresa_id = bot["id"]
+        if await db.flow_exists_for_empresa(empresa_id):
+            continue
+
+        flow_id = bot.get("flow_id")
+        if flow_id:
+            # Empresa con grafo LangGraph real → extraer nodos/edges y guardar
+            try:
+                graph_data = _graph_from_module(flow_id)
+                definition = {
+                    "nodes": [
+                        {
+                            "id": n["id"],
+                            "type": n["type"],
+                            "position": {"x": 0, "y": 0},
+                            "config": {},
+                        }
+                        for n in graph_data["nodes"]
+                    ],
+                    "edges": [
+                        {
+                            "id": f"e_{e['source']}_{e['target']}",
+                            "source": e["source"],
+                            "target": e["target"],
+                            "label": e.get("label"),
+                        }
+                        for e in graph_data["edges"]
+                    ],
+                    "viewport": {"x": 0, "y": 0, "zoom": 1},
+                }
+                await db.create_flow(empresa_id, bot.get("name", empresa_id), definition)
+            except Exception:
+                pass  # Si falla el import del grafo, no bloquear el arranque
+        else:
+            # Empresa con tool_tipo → flow sintético de 1 nodo
+            tool_tipo = bot.get("tool_tipo") or "assistant"
+            tipo_a_nodo = {
+                "fixed_message": "reply",
+                "summarizer":    "summarize",
+                "assistant":     "llm_respond",
+                "flow":          "llm_respond",
+            }
+            node_type = tipo_a_nodo.get(tool_tipo, "llm_respond")
+            definition = {
+                "nodes": [
+                    {"id": "__start__",  "type": "start",    "position": {"x": 250, "y": 50},  "config": {}},
+                    {"id": "main_node", "type": node_type,  "position": {"x": 250, "y": 200}, "config": {}},
+                    {"id": "__end__",   "type": "end",      "position": {"x": 250, "y": 350}, "config": {}},
+                ],
+                "edges": [
+                    {"id": "e_start_main", "source": "__start__",  "target": "main_node", "label": None},
+                    {"id": "e_main_end",   "source": "main_node", "target": "__end__",   "label": None},
+                ],
+                "viewport": {"x": 0, "y": 0, "zoom": 1},
+            }
+            await db.create_flow(empresa_id, bot.get("name", empresa_id), definition)
 
 
 @router.get("/empresas/{empresa_id}/flow/graph")
