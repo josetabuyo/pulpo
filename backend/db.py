@@ -570,8 +570,12 @@ async def get_last_message_body(bot_id: str, phone: str) -> str | None:
 async def get_active_flows_for_bot(bot_id: str, contact_phone: str, empresa_id: str) -> list[dict]:
     """
     Flows activos para este (bot_id, contact_phone, empresa_id).
-    Orden de especificidad: connection+contact > solo connection > sin filtro.
-    Incluye la definition completa para poder ejecutar los nodos.
+
+    Regla de seguridad: connection_id es OBLIGATORIO.
+    Un flow sin connection_id asignado no dispara para nadie — NULL no es wildcard.
+    contact_phone NULL sí es wildcard: el flow aplica a todos los contactos de esa conexión.
+
+    Orden de especificidad: connection+contact > solo connection.
     """
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(
@@ -580,12 +584,11 @@ async def get_active_flows_for_bot(bot_id: str, contact_phone: str, empresa_id: 
                 FROM flows
                 WHERE empresa_id = :empresa_id
                   AND active = 1
-                  AND (connection_id = :bot_id OR connection_id IS NULL)
+                  AND connection_id = :bot_id
                   AND (contact_phone = :contact_phone OR contact_phone IS NULL)
                 ORDER BY
-                  CASE WHEN connection_id IS NOT NULL AND contact_phone IS NOT NULL THEN 1
-                       WHEN connection_id IS NOT NULL THEN 2
-                       ELSE 3 END
+                  CASE WHEN contact_phone IS NOT NULL THEN 1
+                       ELSE 2 END
             """),
             {"empresa_id": empresa_id, "bot_id": bot_id, "contact_phone": contact_phone},
         )).fetchall()

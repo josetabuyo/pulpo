@@ -10,6 +10,7 @@ Los adapters (WA, Telegram, Sim) normalizan el mensaje a FlowState
 y llaman a run_flows(). El engine no sabe nada de protocolos.
 """
 import logging
+import os
 from datetime import datetime
 from .nodes.state import FlowState
 from .nodes import NODE_REGISTRY
@@ -71,6 +72,13 @@ async def run_flows(
     if not empresa_ids:
         return state
 
+    # Kill switch global o por número.
+    # DISABLE_AUTO_REPLY=true → nadie manda nada.
+    # DISABLE_AUTO_REPLY_PHONES=num1,num2 → esos números no mandan nada.
+    _global_off   = os.getenv("DISABLE_AUTO_REPLY", "false").lower() == "true"
+    _blocked_nums = {n.strip() for n in os.getenv("DISABLE_AUTO_REPLY_PHONES", "").split(",") if n.strip()}
+    disable_reply = _global_off or (bot_id in _blocked_nums)
+
     for empresa_id in empresa_ids:
         state.empresa_id = empresa_id
 
@@ -98,5 +106,10 @@ async def run_flows(
                     pass  # sin created_at o formato raro: ejecutar igual (safe default)
 
             state = await execute_flow(flow["definition"], state)
+
+    if disable_reply:
+        logger.info("[engine] DISABLE_AUTO_REPLY=true — reply descartado")
+        state.reply = None
+        state.image_url = None
 
     return state
