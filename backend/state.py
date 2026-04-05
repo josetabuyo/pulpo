@@ -6,7 +6,7 @@ Estructura de cada entrada:
   clients[session_id] = {
       "status":  str,   # stopped | connecting | qr_ready | authenticated | ready | disconnected | failed
       "qr":      str | None,
-      "bot_id":  str,
+      "connection_id": str,
       "type":    "whatsapp" | "telegram",
       "client":  objeto runtime | None,
   }

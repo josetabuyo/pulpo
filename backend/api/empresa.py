@@ -406,13 +406,13 @@ async def empresa_add_telegram(bot_id: str, body: AddTelegramBody, _: dict = Dep
         try:
             from bots.telegram_bot import build_telegram_app
             from main import _tg_apps
-            cfg = {"bot_id": bot_id, "token": token}
+            cfg = {"connection_id": bot_id, "token": token}
             tg_app = build_telegram_app(cfg)
             await tg_app.initialize()
             await tg_app.start()
             await tg_app.updater.start_polling(drop_pending_updates=True)
             _tg_apps.append(tg_app)
-            clients[session_id] = {"status": "ready", "qr": None, "bot_id": bot_id, "type": "telegram", "client": tg_app}
+            clients[session_id] = {"status": "ready", "qr": None, "connection_id": bot_id, "type": "telegram", "client": tg_app}
         except Exception:
             requires_restart = True
 

@@ -68,9 +68,9 @@ def test_full_sync_running_resets_on_exception():
         "5491100001": {"type": "whatsapp", "status": "ready", "bot_id": "bot1"}
     }
 
-    # get_empresas_for_bot se importa dentro de la función, hay que parcharlo en config
+    # get_empresas_for_connection se importa dentro de la función, hay que parcharlo en config
     with patch.dict("api.whatsapp.__dict__", {"clients": fake_clients}):
-        with patch("config.get_empresas_for_bot", side_effect=RuntimeError("error simulado")):
+        with patch("config.get_empresas_for_connection", side_effect=RuntimeError("error simulado")):
             try:
                 asyncio.run(wa._run_sync())
             except SystemExit:
@@ -185,7 +185,7 @@ def test_delta_sync_stops_at_existing_message():
         return True
 
     with patch.dict("api.whatsapp.__dict__", {"clients": fake_clients}):
-        with patch("config.get_empresas_for_bot", return_value=["bot1"]):
+        with patch("config.get_empresas_for_connection", return_value=["bot1"]):
             with patch("db.get_contacts", mock_get_contacts):
                 with patch("db.log_message_historic", mock_log_historic):
                     with patch("api.whatsapp._contact_has_summarizer", mock_has_summarizer):

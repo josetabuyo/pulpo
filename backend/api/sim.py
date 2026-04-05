@@ -14,14 +14,14 @@ def get_mode():
 async def sim_connect(number: str):
     from config import load_config
     config = load_config()
-    bot_id = next(
-        (bot["id"] for bot in config.get("bots", [])
+    connection_id = next(
+        (bot["id"] for bot in config.get("empresas", [])
          if any(p["number"] == number for p in bot.get("phones", []))),
         None,
     )
-    if not bot_id:
+    if not connection_id:
         raise HTTPException(status_code=404, detail="Número no encontrado.")
-    sim_engine.sim_connect(number, bot_id)
+    sim_engine.sim_connect(number, connection_id)
     return {"ok": True, "status": "ready", "sessionId": number}
 
 

@@ -57,7 +57,7 @@ async def _send_telegram(telegram_id: str, texto: str, empresa_id: str) -> bool:
         from state import clients
         tg_session = next(
             (k for k, v in clients.items()
-             if v.get("bot_id") == empresa_id and v.get("type") == "telegram" and v.get("client")),
+             if v.get("connection_id") == empresa_id and v.get("type") == "telegram" and v.get("client")),
             None,
         )
         if not tg_session:

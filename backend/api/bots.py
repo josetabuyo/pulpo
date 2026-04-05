@@ -19,9 +19,9 @@ def create_bot(body: BotCreate):
     if not body.id.strip() or not body.name.strip() or not body.password.strip():
         raise HTTPException(status_code=400, detail="id, name y password son requeridos")
     config = load_config()
-    if any(b["id"] == body.id for b in config.get("bots", [])):
+    if any(b["id"] == body.id for b in config.get("empresas", [])):
         raise HTTPException(status_code=409, detail="Ya existe una empresa con ese id")
-    config.setdefault("bots", []).append({
+    config.setdefault("empresas", []).append({
         "id": body.id,
         "name": body.name,
         "password": body.password,
@@ -36,7 +36,7 @@ def create_bot(body: BotCreate):
 def get_bots():
     config = load_config()
     result = []
-    for bot in config.get("bots", []):
+    for bot in config.get("empresas", []):
         phones = []
         for phone in bot.get("phones", []):
             session_id = phone["number"]
@@ -70,7 +70,7 @@ class BotUpdate(BaseModel):
 @router.put("/bots/{bot_id}", dependencies=[Depends(require_admin)])
 def update_bot(bot_id: str, body: BotUpdate):
     config = load_config()
-    bot = next((b for b in config.get("bots", []) if b["id"] == bot_id), None)
+    bot = next((b for b in config.get("empresas", []) if b["id"] == bot_id), None)
     if not bot:
         raise HTTPException(status_code=404, detail="Bot no encontrado")
     if body.name:
@@ -82,7 +82,7 @@ def update_bot(bot_id: str, body: BotUpdate):
 @router.delete("/bots/{bot_id}", dependencies=[Depends(require_admin)])
 def delete_bot(bot_id: str):
     config = load_config()
-    bot = next((b for b in config.get("bots", []) if b["id"] == bot_id), None)
+    bot = next((b for b in config.get("empresas", []) if b["id"] == bot_id), None)
     if not bot:
         raise HTTPException(status_code=404, detail="Bot no encontrado")
 
@@ -105,6 +105,6 @@ def delete_bot(bot_id: str):
                 pass
             del clients[session_id]
 
-    config["bots"] = [b for b in config["bots"] if b["id"] != bot_id]
+    config["empresas"] = [b for b in config["empresas"] if b["id"] != bot_id]
     save_config(config)
     return {"ok": True}
