@@ -108,7 +108,7 @@ class WhatsAppSession(BrowserAutomation):
     # Conexión
     # ------------------------------------------------------------------
 
-    async def connect(self, session_id: str, bot_id: str) -> str:
+    async def connect(self, session_id: str, connection_id: str) -> str:
         """
         Intenta conectar la sesión usando el perfil Chrome persistente:
           1. Si el perfil en disco tiene sesión válida → la restaura.
@@ -119,7 +119,7 @@ class WhatsAppSession(BrowserAutomation):
 
         Retorna: "restored" | "qr_needed" | "failed"
         """
-        _update(session_id, bot_id=bot_id, status="connecting")
+        _update(session_id, connection_id=connection_id, status="connecting")
 
         # Selectores precisos — NO usar canvas genérico que matchea elementos de carga
         SELECTORS_AUTHED = "[data-testid='chat-list'], #side, [data-testid='search-input']"
@@ -236,7 +236,7 @@ class WhatsAppSession(BrowserAutomation):
 
         # Importación diferida para evitar ciclo circular
         from db import log_message, mark_answered
-        from config import get_empresas_for_bot
+        from config import get_empresas_for_connection
 
         recent_msgs: set[tuple[str, str]] = set()  # dedup entre JS y Python poll
         # Cooldown de auto-reply: (session_id, sender) → timestamp del último envío.
@@ -268,7 +268,7 @@ class WhatsAppSession(BrowserAutomation):
             logger.info(f"[{session_id}] Mensaje de {name} ({phone}): {body[:60]}")
 
             # Dispatch multi-empresa: loguar bajo todos los bots que tienen esta conexión
-            empresa_ids = get_empresas_for_bot(bot_phone)
+            empresa_ids = get_empresas_for_connection(bot_phone)
             if not empresa_ids:
                 empresa_ids = [bot_id]
 
@@ -364,7 +364,7 @@ class WhatsAppSession(BrowserAutomation):
                 canal="whatsapp",
                 from_poll=from_poll,
             )
-            state = await run_flows(state, bot_id=session_id)
+            state = await run_flows(state, connection_id=session_id)
             reply = state.reply or ""
 
             if not reply or body.strip() == reply.strip():
@@ -645,7 +645,7 @@ class WhatsAppSession(BrowserAutomation):
         (enviados desde otro dispositivo/WA Desktop).
         """
         from db import get_last_message_body, get_contacts
-        from config import get_empresas_for_bot
+        from config import get_empresas_for_connection
 
         # Previews que ya triggereamos delta-sync: evita disparar dos veces el mismo cambio
         _triggered: dict[str, str] = {}  # phone → preview que disparó el último sync
@@ -682,7 +682,7 @@ class WhatsAppSession(BrowserAutomation):
                 if not chats:
                     continue
 
-                empresa_ids = get_empresas_for_bot(bot_phone) or [bot_id]
+                empresa_ids = get_empresas_for_connection(bot_phone) or [bot_id]
                 eid = empresa_ids[0]
 
                 for chat in chats:
@@ -694,7 +694,7 @@ class WhatsAppSession(BrowserAutomation):
 
                     # Verificar si hay flows activos para este contacto
                     from db import get_active_flows_for_bot
-                    from config import get_empresas_for_bot as _get_emps
+                    from config import get_empresas_for_connection as _get_emps
                     _eids = _get_emps(session_id)
                     _has_flows = any(
                         await get_active_flows_for_bot(session_id, phone, eid)
@@ -2330,11 +2330,11 @@ class WhatsAppSession(BrowserAutomation):
 # Helpers internos
 # ------------------------------------------------------------------
 
-def _update(session_id: str, *, bot_id: str = "", status: str, qr: str | None = None) -> None:
+def _update(session_id: str, *, connection_id: str = "", status: str, qr: str | None = None) -> None:
     if session_id not in clients:
-        clients[session_id] = {"bot_id": bot_id, "type": "whatsapp", "client": None, "qr": None}
-    if bot_id:
-        clients[session_id]["bot_id"] = bot_id
+        clients[session_id] = {"connection_id": connection_id, "type": "whatsapp", "client": None, "qr": None}
+    if connection_id:
+        clients[session_id]["connection_id"] = connection_id
     clients[session_id]["status"] = status
     if qr is not None or status in ("connecting", "failed", "ready"):
         clients[session_id]["qr"] = qr

@@ -9,7 +9,7 @@ from telegram.ext import Application
 
 from pathlib import Path
 
-from config import load_config, get_telegram_bots
+from config import load_config, get_telegram_connections
 from db import init_db
 from bots.telegram_bot import build_telegram_app
 from state import clients, wa_session
@@ -19,7 +19,7 @@ from api.whatsapp import _run_delta_sync
 from api.auth import router as auth_router
 from api.auth_empresa import router as auth_empresa_router, limiter as empresa_limiter
 from api.bots import router as bots_router
-from api.phones import router as phones_router
+from api.connections import router as connections_router
 from api.telegram_api import router as telegram_router
 from api.whatsapp import router as whatsapp_router
 from api.messages import router as messages_router
@@ -54,15 +54,15 @@ async def lifespan(app: FastAPI):
     if sim_engine.SIM_MODE:
         logger.info("Modo SIMULADO — bots reales desactivados (ENABLE_BOTS != true).")
         config = load_config()
-        for bot in config.get("bots", []):
-            for phone in bot.get("phones", []):
-                sim_engine.sim_connect(phone["number"], bot["id"])
-                logger.info(f"[sim] Auto-conectado WA: {phone['number']} ({bot['name']})")
-            for tg in bot.get("telegram", []):
+        for empresa in config.get("empresas", []):
+            for phone in empresa.get("phones", []):  # desde connections.json
+                sim_engine.sim_connect(phone["number"], empresa["id"])
+                logger.info(f"[sim] Auto-conectado WA: {phone['number']} ({empresa['name']})")
+            for tg in empresa.get("telegram", []):
                 token_id = tg["token"].split(":")[0]
-                session_id = f"{bot['id']}-tg-{token_id}"
-                sim_engine.sim_connect(session_id, bot["id"])
-                logger.info(f"[sim] Auto-conectado TG: {session_id} ({bot['name']})")
+                session_id = f"{empresa['id']}-tg-{token_id}"
+                sim_engine.sim_connect(session_id, empresa["id"])
+                logger.info(f"[sim] Auto-conectado TG: {session_id} ({empresa['name']})")
     else:
         # Limpiar procesos WA huérfanos de reinicios anteriores.
         # Solo matamos los Chrome que tienen data/sessions en su perfil — nunca el MCP.
@@ -72,27 +72,27 @@ async def lifespan(app: FastAPI):
         logger.info("Browser iniciado.")
 
         config = load_config()
-        tg_configs = get_telegram_bots(config)
+        tg_configs = get_telegram_connections(config)
 
         for cfg in tg_configs:
             token_id = cfg["token"].split(":")[0]
-            session_id = f"{cfg['bot_id']}-tg-{token_id}"
+            session_id = f"{cfg['connection_id']}-tg-{token_id}"
             tg_app = build_telegram_app(cfg)
             await tg_app.initialize()
             await tg_app.start()
             await tg_app.updater.start_polling(drop_pending_updates=True)
             _tg_apps.append(tg_app)
-            clients[session_id] = {"status": "ready", "qr": None, "bot_id": cfg["bot_id"], "type": "telegram", "client": tg_app}
-            logger.info(f"[{cfg['bot_id']}/tg-{token_id}] Bot de Telegram listo.")
+            clients[session_id] = {"status": "ready", "qr": None, "bot_id": cfg["connection_id"], "type": "telegram", "client": tg_app}
+            logger.info(f"[{cfg['connection_id']}/tg-{token_id}] Bot de Telegram listo.")
 
         if not tg_configs:
-            logger.warning("No hay bots de Telegram configurados en phones.json.")
+            logger.warning("No hay bots de Telegram configurados en connections.json.")
 
         # Auto-reconectar sesiones WA que tienen perfil guardado en disco
-        # Deduplicar: un número puede estar en múltiples bots (conexión compartida)
+        # Deduplicar: un número puede estar en múltiples empresas (conexión compartida)
         seen_numbers: set[str] = set()
-        for bot in config.get("bots", []):
-            for phone in bot.get("phones", []):
+        for empresa in config.get("empresas", []):
+            for phone in empresa.get("phones", []):  # desde connections.json
                 if phone.get("type", "whatsapp") != "whatsapp":
                     continue
                 number = phone["number"]
@@ -102,7 +102,7 @@ async def lifespan(app: FastAPI):
                 profile_dir = Path("data/sessions") / number / "profile"
                 if profile_dir.exists() and any(profile_dir.iterdir()):
                     logger.info(f"[{number}] Perfil guardado encontrado — reconectando en background...")
-                    asyncio.create_task(_connect_and_get_qr(number, bot["id"]))
+                    asyncio.create_task(_connect_and_get_qr(number, empresa["id"]))
                 else:
                     logger.info(f"[{number}] Sin perfil guardado — esperando escaneo de QR manual.")
 
@@ -145,7 +145,7 @@ app.add_middleware(
 # --- Rutas API ---
 app.include_router(auth_router, prefix="/api")
 app.include_router(bots_router, prefix="/api")
-app.include_router(phones_router, prefix="/api")
+app.include_router(connections_router, prefix="/api")
 app.include_router(telegram_router, prefix="/api")
 app.include_router(whatsapp_router, prefix="/api")
 app.include_router(messages_router, prefix="/api")

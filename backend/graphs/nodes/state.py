@@ -18,7 +18,7 @@ class FlowState:
     attachment_path: Optional[str] = None  # ruta a adjunto descargado (imagen, doc)
 
     # ── Contexto de la conversación ───────────────────────────────
-    bot_id: str = ""                    # ID del bot/número que recibió el mensaje
+    connection_id: str = ""             # ID de la conexión (número WA o session TG) que recibió el mensaje
     bot_name: str = ""
     empresa_id: str = ""
     contact_phone: str = ""

@@ -2,86 +2,62 @@ import json
 from pathlib import Path
 
 _ROOT = Path(__file__).parent.parent  # worktree root
-_PHONES_PATH = _ROOT / "phones.json"
+_CONNECTIONS_PATH = _ROOT / "connections.json"
 
 
 def load_config() -> dict:
-    with open(_PHONES_PATH, encoding="utf-8") as f:
+    with open(_CONNECTIONS_PATH, encoding="utf-8") as f:
         return json.load(f)
 
 
 def save_config(config: dict) -> None:
-    with open(_PHONES_PATH, "w", encoding="utf-8") as f:
+    with open(_CONNECTIONS_PATH, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2, ensure_ascii=False)
 
 
-def get_empresa_for_bot(bot_id: str) -> str | None:
+def get_empresa_for_connection(connection_id: str) -> str | None:
     """
-    Retorna el empresa_id al que pertenece este bot_id.
-    Si el bot pertenece a múltiples empresas, devuelve el primero.
-    Usar get_empresas_for_bot() para el caso multi-empresa.
+    Retorna el empresa_id al que pertenece este connection_id.
+    Si la conexión pertenece a múltiples empresas, devuelve el primero.
+    Usar get_empresas_for_connection() para el caso multi-empresa.
     """
-    results = get_empresas_for_bot(bot_id)
+    results = get_empresas_for_connection(connection_id)
     return results[0] if results else None
 
 
-def get_empresas_for_bot(bot_id: str) -> list[str]:
+def get_empresas_for_connection(connection_id: str) -> list[str]:
     """
-    Retorna todos los empresa_ids que contienen este bot_id.
-    Un mismo número WA puede estar en múltiples empresas (conexión compartida).
-    """
-    config = load_config()
-    result = []
-    for bot in config.get("bots", []):
-        if bot["id"] == bot_id:
-            result.append(bot["id"])
-            continue
-        for phone in bot.get("phones", []):
-            if phone["number"] == bot_id:
-                result.append(bot["id"])
-                break
-        else:
-            for tg in bot.get("telegram", []):
-                token_id = tg["token"].split(":")[0]
-                if f"{bot['id']}-tg-{token_id}" == bot_id:
-                    result.append(bot["id"])
-                    break
-    return result
-
-
-def get_empresas_for_bot(bot_id: str) -> list[str]:
-    """
-    Retorna todos los empresa_ids que tienen registrada esta conexión (bot_id).
-    Una conexión puede ser un número WA, un session_id TG, o el propio bot_id.
+    Retorna todos los empresa_ids que tienen registrada esta conexión (connection_id).
+    Una conexión puede ser un número WA, un session_id TG, o el propio empresa id.
     Permite el dispatch multi-empresa: si el mismo número está en varios bots,
     el mensaje se loguea bajo todos ellos.
     """
     config = load_config()
     result = []
-    for bot in config.get("bots", []):
-        if bot["id"] == bot_id:
-            if bot["id"] not in result:
-                result.append(bot["id"])
+    for empresa in config.get("empresas", []):
+        if empresa["id"] == connection_id:
+            if empresa["id"] not in result:
+                result.append(empresa["id"])
             continue
-        for phone in bot.get("phones", []):
-            if phone["number"] == bot_id:
-                if bot["id"] not in result:
-                    result.append(bot["id"])
+        for phone in empresa.get("phones", []):
+            if phone["number"] == connection_id:
+                if empresa["id"] not in result:
+                    result.append(empresa["id"])
                 break
-        for tg in bot.get("telegram", []):
+        for tg in empresa.get("telegram", []):
             token_id = tg["token"].split(":")[0]
-            if f"{bot['id']}-tg-{token_id}" == bot_id:
-                if bot["id"] not in result:
-                    result.append(bot["id"])
+            if f"{empresa['id']}-tg-{token_id}" == connection_id:
+                if empresa["id"] not in result:
+                    result.append(empresa["id"])
                 break
     return result
 
 
-def get_telegram_bots(config: dict) -> list[dict]:
-    """Devuelve una lista de configs de bots de Telegram: [{ bot_id, token }, ...]"""
+def get_telegram_connections(config: dict) -> list[dict]:
+    """Devuelve una lista de configs de conexiones Telegram: [{ connection_id, token }, ...]"""
     result = []
-    for bot in config.get("bots", []):
-        bot_id = bot["id"]
-        for tg in bot.get("telegram", []):
-            result.append({"bot_id": bot_id, "token": tg["token"]})
+    for empresa in config.get("empresas", []):
+        empresa_id = empresa["id"]
+        for tg in empresa.get("telegram", []):
+            result.append({"connection_id": empresa_id, "token": tg["token"]})
     return result

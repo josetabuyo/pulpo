@@ -10,13 +10,13 @@ logger = logging.getLogger(__name__)
 def build_telegram_app(bot_config: dict):
     """
     Construye una Application de python-telegram-bot para un bot dado.
-    bot_config: { bot_id, token, reply_message }
+    bot_config: { connection_id, token, reply_message }
     """
-    bot_id = bot_config["bot_id"]
+    empresa_id = bot_config["connection_id"]
     token = bot_config["token"]
     token_id = token.split(":")[0]
-    session_id = f"{bot_id}-tg-{token_id}"
-    label = f"[{bot_id}/tg-{token_id}]"
+    session_id = f"{empresa_id}-tg-{token_id}"
+    label = f"[{empresa_id}/tg-{token_id}]"
     start_time = time.time()
 
     async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -59,10 +59,10 @@ def build_telegram_app(bot_config: dict):
                     pass
 
         # Dispatch multi-empresa: loguar bajo todos los bots que tienen este session_id
-        from config import get_empresas_for_bot
-        empresa_ids = get_empresas_for_bot(session_id)
+        from config import get_empresas_for_connection
+        empresa_ids = get_empresas_for_connection(session_id)
         if not empresa_ids:
-            empresa_ids = [bot_id]
+            empresa_ids = [empresa_id]
 
         msg_ids = {}
         for eid in empresa_ids:
@@ -83,7 +83,7 @@ def build_telegram_app(bot_config: dict):
             contact_name=sender_name,
             canal="telegram",
         )
-        state = await run_flows(state, bot_id=session_id)
+        state = await run_flows(state, connection_id=session_id)
         reply = state.reply or ""
         image_url = state.image_url or ""
 

@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 
 from db import AsyncSessionLocal
-from middleware_auth import get_empresa_bot_id
+from middleware_auth import get_empresa_id_from_token
 from api.deps import ADMIN_PASSWORD
 from graphs.nodes.summarize import (
     get_summary, list_contacts, clear_empresa, clear_contact, accumulate
@@ -31,10 +31,10 @@ _ADMIN_SENTINEL = "__admin__"
 def _require_empresa_or_admin(request: Request, x_password: str = Header(default=None)) -> str:
     if x_password == ADMIN_PASSWORD:
         return _ADMIN_SENTINEL
-    bot_id = get_empresa_bot_id(request)
-    if not bot_id:
+    empresa_id = get_empresa_id_from_token(request)
+    if not empresa_id:
         raise HTTPException(status_code=401, detail="Token requerido o inválido")
-    return bot_id
+    return empresa_id
 
 
 def _check_auth(empresa_id: str, token_bot_id: str = Depends(_require_empresa_or_admin)) -> str:

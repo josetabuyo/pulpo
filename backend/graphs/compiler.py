@@ -67,11 +67,14 @@ async def execute_flow(flow: dict, state: FlowState) -> FlowState:
     entry_config = entry_node.get("config", {})
 
     if entry_type == "message_trigger":
-        # Verificar connection_id
+        # Verificar connection_id — debe estar configurado en el nodo
         required_connection = entry_config.get("connection_id", "")
-        if required_connection and required_connection != state.bot_id:
+        if not required_connection:
+            logger.debug("[engine] message_trigger sin connection_id configurado — flow ignorado")
+            return state
+        if required_connection != state.connection_id:
             logger.debug("[engine] Flow no aplica: connection_id %s != %s",
-                        required_connection, state.bot_id)
+                        required_connection, state.connection_id)
             return state
 
         # Verificar contact_phone (si está especificado)
@@ -155,43 +158,61 @@ async def resolve_flows(empresa_id: str) -> list[dict]:
     El filtrado por connection_id y contact_phone ahora lo hace execute_flow().
     """
     import db
-    return await db.get_active_flows_for_bot("", "", empresa_id)
+    from db import AsyncSessionLocal, text
+    # Obtener TODOS los flows activos de la empresa, sin filtrar por connection_id
+    # El filtrado se hace en execute_flow() usando la configuración del message_trigger
+    async with AsyncSessionLocal() as session:
+        rows = (await session.execute(
+            db.text("""
+                SELECT id, empresa_id, name, definition, connection_id, contact_phone, active, created_at, updated_at
+                FROM flows
+                WHERE empresa_id = :empresa_id
+                  AND active = 1
+                ORDER BY created_at
+            """),
+            {"empresa_id": empresa_id},
+        )).fetchall()
+    return [db._flow_row_to_dict(r, include_definition=True) for r in rows]
 
 
 async def run_flows(
     state: FlowState,
-    bot_id: str,
+    connection_id: str,
 ) -> FlowState:
     """
     Punto de entrada principal para los adapters.
 
-    1. Encuentra las empresas dueñas de este bot_id
+    1. Encuentra las empresas dueñas de este connection_id
     2. Para cada empresa: resuelve sus flows activos y los ejecuta
     3. Primer reply no-None gana; todos los nodos sin reply (ej: SummarizeNode) corren igual
 
     Retorna el FlowState con reply y image_url si algún nodo los produjo.
     """
-    from config import get_empresas_for_bot, load_config
+    from config import get_empresas_for_connection, load_config
 
-    empresa_ids = get_empresas_for_bot(bot_id)
+    empresa_ids = get_empresas_for_connection(connection_id)
     if not empresa_ids:
         return state
+
+    # Asegurar que state.connection_id esté seteado para que execute_flow pueda filtrar
+    if not state.connection_id:
+        state.connection_id = connection_id
 
     # Kill switch global o por número.
     # DISABLE_AUTO_REPLY=true → nadie manda nada.
     # DISABLE_AUTO_REPLY_PHONES=num1,num2 → esos números no mandan nada.
     _global_off   = os.getenv("DISABLE_AUTO_REPLY", "false").lower() == "true"
     _blocked_nums = {n.strip() for n in os.getenv("DISABLE_AUTO_REPLY_PHONES", "").split(",") if n.strip()}
-    disable_reply = _global_off or (bot_id in _blocked_nums) or (state.contact_phone in _blocked_nums)
+    disable_reply = _global_off or (connection_id in _blocked_nums) or (state.contact_phone in _blocked_nums)
 
     for empresa_id in empresa_ids:
         state.empresa_id = empresa_id
 
         # Obtener nombre de la empresa para contexto del LLM
         config = load_config()
-        bot_entry = next((b for b in config.get("bots", []) if b["id"] == empresa_id), {})
+        empresa_entry = next((e for e in config.get("empresas", []) if e["id"] == empresa_id), {})
         if not state.bot_name:
-            state.bot_name = bot_entry.get("name", empresa_id)
+            state.bot_name = empresa_entry.get("name", empresa_id)
 
         flows = await resolve_flows(empresa_id)
 
@@ -213,7 +234,7 @@ async def run_flows(
             state = await execute_flow(flow, state)
 
     if disable_reply:
-        logger.info("[engine] DISABLE_AUTO_REPLY=true — reply descartado")
+        logger.info(f"[engine] Kill switch activado — reply descartado (global_off={_global_off}, connection_id={connection_id} in blocked={connection_id in _blocked_nums}, contact={state.contact_phone} in blocked={state.contact_phone in _blocked_nums})")
         state.reply = None
         state.image_url = None
 

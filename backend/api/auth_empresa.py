@@ -26,7 +26,7 @@ COOKIE_MAX_AGE = REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600  # segundos
 
 
 def _find_bot_by_id(config: dict, bot_id: str):
-    return next((b for b in config.get("bots", []) if b["id"] == bot_id), None)
+    return next((b for b in config.get("empresas", []) if b["id"] == bot_id), None)
 
 
 class EmpresaLoginBody(BaseModel):
@@ -87,13 +87,13 @@ async def empresa_logout(request: Request, response: Response):
 
 @router.get("/empresa/me")
 async def empresa_me(request: Request):
-    from middleware_auth import get_empresa_bot_id
-    bot_id = get_empresa_bot_id(request)
-    if not bot_id:
+    from middleware_auth import get_empresa_id_from_token
+    empresa_id = get_empresa_id_from_token(request)
+    if not empresa_id:
         raise HTTPException(status_code=401, detail="Token requerido")
 
     config = load_config()
-    bot = _find_bot_by_id(config, bot_id)
+    bot = _find_bot_by_id(config, empresa_id)
     if not bot:
         raise HTTPException(status_code=404, detail="Empresa no encontrada")
 

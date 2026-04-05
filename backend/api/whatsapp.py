@@ -26,9 +26,9 @@ router = APIRouter()
 async def connect_phone(number: str, background_tasks: BackgroundTasks):
     config = load_config()
     found = None
-    for bot in config.get("bots", []):
-        if any(p["number"] == number for p in bot.get("phones", [])):
-            found = {"bot_id": bot["id"], "number": number}
+    for empresa in config.get("empresas", []):
+        if any(p["number"] == number for p in empresa.get("phones", [])):
+            found = {"connection_id": empresa["id"], "number": number}
             break
 
     if not found:
@@ -42,7 +42,7 @@ async def connect_phone(number: str, background_tasks: BackgroundTasks):
         return {"ok": True, "status": existing["status"], "sessionId": session_id}
 
     # Lanzar conexión en background (puede tardar varios segundos)
-    background_tasks.add_task(_connect_and_get_qr, session_id, found["bot_id"])
+    background_tasks.add_task(_connect_and_get_qr, session_id, found["connection_id"])
     return {"ok": True, "status": "connecting", "sessionId": session_id}
 
 
@@ -394,7 +394,7 @@ async def _run_sync(from_date: "date | None" = None, contact_phone: "str | None"
     global _sync_running
     import logging
     from db import log_message_historic, get_contacts
-    from config import get_empresas_for_bot
+    from config import get_empresas_for_connection
 
     _log = logging.getLogger(__name__)
     mode = "full-sync"
@@ -414,9 +414,9 @@ async def _run_sync(from_date: "date | None" = None, contact_phone: "str | None"
                 continue
 
             bot_phone = session_id
-            empresa_ids = get_empresas_for_bot(bot_phone)
+            empresa_ids = get_empresas_for_connection(bot_phone)
             if not empresa_ids:
-                empresa_ids = [state.get("bot_id", "")]
+                empresa_ids = [state.get("connection_id", "")]
 
             # Solo contactos WA que tienen al menos una tool summarizer activa
             seen_contact_names: set[str] = set()
@@ -525,7 +525,7 @@ async def _run_delta_sync(contact_phone: "str | None" = None) -> None:
     global _sync_running
     import logging
     from db import log_message_historic, get_contacts
-    from config import get_empresas_for_bot
+    from config import get_empresas_for_connection
 
     _log = logging.getLogger(__name__)
     mode = "delta-sync"
@@ -543,9 +543,9 @@ async def _run_delta_sync(contact_phone: "str | None" = None) -> None:
                 continue
 
             bot_phone = session_id
-            empresa_ids = get_empresas_for_bot(bot_phone)
+            empresa_ids = get_empresas_for_connection(bot_phone)
             if not empresa_ids:
-                empresa_ids = [state.get("bot_id", "")]
+                empresa_ids = [state.get("connection_id", "")]
 
             contacts_to_sync: list[dict] = []
             seen_contact_names: set[str] = set()
@@ -624,7 +624,7 @@ async def _run_delta_sync(contact_phone: "str | None" = None) -> None:
                                 from_delta_sync=True,
                                 timestamp=ts_dt,
                             )
-                            await run_flows(_state, bot_id=bot_phone)
+                            await run_flows(_state, connection_id=bot_phone)
                     else:
                         continue
                     break  # parar en cuanto un canal encuentra el primer existente
@@ -645,8 +645,8 @@ async def refresh():
         if state.get("type") != "whatsapp":
             continue
         if not await wa_session.is_page_alive(session_id):
-            bot_id = state.get("bot_id", "")
-            result = await wa_session.connect(session_id, bot_id)
+            connection_id = state.get("connection_id", "")
+            result = await wa_session.connect(session_id, connection_id)
             if result in ("restored", "qr_needed"):
                 reconnected += 1
     return {"ok": True, "reconnected": reconnected}
@@ -657,21 +657,21 @@ async def refresh():
 # ------------------------------------------------------------------
 
 def _get_wa_config(config: dict, number: str) -> dict:
-    """Extrae bot_id para un número dado."""
-    for bot in config.get("bots", []):
-        for phone_cfg in bot.get("phones", []):
+    """Extrae connection_id (empresa_id) para un número dado."""
+    for empresa in config.get("empresas", []):
+        for phone_cfg in empresa.get("phones", []):
             if phone_cfg.get("number") == number:
-                return {"bot_id": bot["id"]}
-    return {"bot_id": ""}
+                return {"connection_id": empresa["id"]}
+    return {"connection_id": ""}
 
 
-async def _connect_and_get_qr(session_id: str, bot_id: str) -> None:
-    result = await wa_session.connect(session_id, bot_id)
+async def _connect_and_get_qr(session_id: str, connection_id: str) -> None:
+    result = await wa_session.connect(session_id, connection_id)
 
     if result == "restored":
         # Sesión restaurada — arrancar listener directamente
         cfg = _get_wa_config(load_config(), session_id)
-        await wa_session.start_listening(session_id, cfg["bot_id"], session_id)
+        await wa_session.start_listening(session_id, cfg["connection_id"], session_id)
         return
 
     if result == "qr_needed":
@@ -680,4 +680,4 @@ async def _connect_and_get_qr(session_id: str, bot_id: str) -> None:
             authenticated = await wa_session.wait_for_auth(session_id)
             if authenticated:
                 cfg = _get_wa_config(load_config(), session_id)
-                await wa_session.start_listening(session_id, cfg["bot_id"], session_id)
+                await wa_session.start_listening(session_id, cfg["connection_id"], session_id)

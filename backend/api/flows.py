@@ -16,7 +16,7 @@ from typing import Optional
 
 import db
 from config import load_config
-from middleware_auth import get_empresa_bot_id
+from middleware_auth import get_empresa_id_from_token
 from graphs.node_types import NODE_TYPES
 
 router = APIRouter()
@@ -27,15 +27,15 @@ _ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin")
 
 def _require_empresa(empresa_id: str, request: Request, x_password: Optional[str]) -> dict:
     config = load_config()
-    bot = next((b for b in config.get("bots", []) if b["id"] == empresa_id), None)
+    bot = next((b for b in config.get("empresas", []) if b["id"] == empresa_id), None)
     if not bot:
         raise HTTPException(status_code=404, detail="Empresa no encontrada")
     if x_password and x_password == _ADMIN_PASSWORD:
         return bot
-    token_bot_id = get_empresa_bot_id(request)
-    if not token_bot_id:
+    token_empresa_id = get_empresa_id_from_token(request)
+    if not token_empresa_id:
         raise HTTPException(status_code=401, detail="Token requerido o inválido")
-    if token_bot_id != empresa_id:
+    if token_empresa_id != empresa_id:
         raise HTTPException(status_code=403, detail="No autorizado para esta empresa")
     return bot
 

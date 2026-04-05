@@ -1,8 +1,8 @@
 # Environment
 .env
 
-# Configuración de bots y teléfonos (datos sensibles)
-phones.json
+# Configuración de conexiones (datos sensibles)
+connections.json
 
 # WhatsApp session
 .wwebjs_auth/

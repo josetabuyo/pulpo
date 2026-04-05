@@ -52,47 +52,31 @@ def _flow(connection_id=None, contact_phone=None, message="Hola Test"):
         },
     }
 
-def _state(bot_id="5491155612767"):
+def _state(connection_id="5491155612767"):
     return FlowState(
         message="Hola",
         contact_phone="5491199990000",
         canal="whatsapp",
-        bot_id=bot_id,
+        connection_id=connection_id,
     )
 
 
 # ─── 1. connection_id NULL nunca dispara ───────────────────────���────────────
 
 @pytest.mark.asyncio
-async def test_flow_sin_connection_no_dispara():
+async def test_create_flow_sin_connection_id_rechazado():
     """
-    Un flow con connection_id=NULL no debe ser retornado por la DB.
-    La garantía real está en test_db_connection_null_no_retorna_flow (DB directa).
-    Este test verifica que si por algún bug la DB lo devuelve igual,
-    el reply no queda bloqueado en el engine (el engine confía en que DB ya filtró,
-    así que si llega un flow lo ejecuta — el filtro debe estar en la DB).
+    create_flow con connection_id=None debe lanzar ValueError.
+    No se puede crear un flow sin conexión — es el primer guard de seguridad.
     """
     import db as db_module
-    flow_id = await db_module.create_flow(
-        empresa_id="bot_test",
-        name="__test_null_engine__",
-        definition={"nodes": [
-            {"id": "input1", "type": "message_trigger", "config": {}},
-            {"id": "r", "type": "reply", "config": {"message": "no debe llegar"}},
-            {"id": "__end__", "type": "end", "config": {}},
-        ], "edges": [
-            {"id": "e1", "source": "input1", "target": "r", "label": None},
-        ], "viewport": {"x": 0, "y": 0, "zoom": 1}},
-        connection_id=None,   # NULL — no debe ser retornado por get_active_flows_for_bot
-    )
-    try:
-        flows = await db_module.get_active_flows_for_bot(
-            bot_id="5491155612767", contact_phone="5491199990000", empresa_id="bot_test"
+    with pytest.raises(ValueError, match="connection_id"):
+        await db_module.create_flow(
+            empresa_id="bot_test",
+            name="__test_null_engine__",
+            definition={"nodes": [], "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1}},
+            connection_id=None,
         )
-        assert flow_id not in [f["id"] for f in flows], \
-            "Flow con connection_id=NULL no debe disparar para ningún número."
-    finally:
-        await db_module.delete_flow(flow_id)
 
 
 @pytest.mark.asyncio
@@ -119,36 +103,21 @@ async def test_flow_con_connection_correcta_dispara():
 # ─── 2. DB: connection_id NULL no retorna el flow ───────────────────────────
 
 @pytest.mark.asyncio
-async def test_db_connection_null_no_retorna_flow():
+async def test_db_connection_null_rechazado_en_create():
     """
-    get_active_flows_for_bot con connection_id=NULL no debe retornar el flow.
-    El NULL no es wildcard — la conexión debe ser explícita.
+    connection_id=NULL ya no puede insertarse — create_flow levanta ValueError antes.
+    Este test documenta la garantía: no existe ruta para crear un flow sin conexión.
     """
     import db as db_module
 
-    # Crear un flow con connection_id NULL en la DB de test
-    flow_id = await db_module.create_flow(
-        empresa_id="bot_test",
-        name="__safety_test_null_connection__",
-        definition={"nodes": [], "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1}},
-        connection_id=None,
-        contact_phone=None,
-    )
-
-    try:
-        # Consultar como si llegara un mensaje al número 5491155612767
-        flows = await db_module.get_active_flows_for_bot(
-            bot_id="5491155612767",
-            contact_phone="5491199990000",
+    with pytest.raises(ValueError, match="connection_id"):
+        await db_module.create_flow(
             empresa_id="bot_test",
+            name="__safety_test_null_connection__",
+            definition={"nodes": [], "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1}},
+            connection_id=None,
+            contact_phone=None,
         )
-        ids = [f["id"] for f in flows]
-        assert flow_id not in ids, (
-            "PELIGRO: flow con connection_id=NULL fue devuelto por get_active_flows_for_bot. "
-            "Esto significa que respondería a TODOS los contactos de TODOS los números."
-        )
-    finally:
-        await db_module.delete_flow(flow_id)
 
 
 @pytest.mark.asyncio
@@ -248,7 +217,7 @@ async def test_flow_con_message_trigger_y_connection_null_en_db():
             message="Hola",
             contact_phone="5491199990000",
             canal="whatsapp",
-            bot_id=bot_id,
+            connection_id=bot_id,
         )
         state = await execute_flow(flow, state)
         assert state.reply == "Mensaje desde message_trigger", "Flow con message_trigger y connection_id correcto debe ejecutarse"
@@ -344,7 +313,7 @@ async def test_message_trigger_filtra_por_contact_phone():
             message="Hola",
             contact_phone=correct_contact,
             canal="whatsapp",
-            bot_id=bot_id,
+            connection_id=bot_id,
         )
         state = await execute_flow(flow, state)
         assert state.reply == "Mensaje para contacto específico", "Flow debe ejecutarse para contacto correcto"
@@ -354,7 +323,7 @@ async def test_message_trigger_filtra_por_contact_phone():
             message="Hola",
             contact_phone=wrong_contact,
             canal="whatsapp",
-            bot_id=bot_id,
+            connection_id=bot_id,
         )
         state2 = await execute_flow(flow, state2)
         assert state2.reply is None, "Flow NO debe ejecutarse para contacto incorrecto"
@@ -408,7 +377,7 @@ async def test_message_trigger_sin_contact_phone_filtra_todos():
             message="Hola",
             contact_phone=contact1,
             canal="whatsapp",
-            bot_id=bot_id,
+            connection_id=bot_id,
         )
         state = await execute_flow(flow, state)
         assert state.reply == "Mensaje para todos", "Flow debe ejecutarse para contacto 1"
@@ -418,7 +387,7 @@ async def test_message_trigger_sin_contact_phone_filtra_todos():
             message="Hola",
             contact_phone=contact2,
             canal="whatsapp",
-            bot_id=bot_id,
+            connection_id=bot_id,
         )
         state2 = await execute_flow(flow, state2)
         assert state2.reply == "Mensaje para todos", "Flow debe ejecutarse para contacto 2 (sin filtro contact_phone)"
@@ -498,7 +467,7 @@ async def test_migracion_start_a_message_trigger_explicito():
             message="Hola",
             contact_phone=contact_phone,
             canal="whatsapp",
-            bot_id=bot_id,
+            connection_id=bot_id,
         )
         state_legacy = await execute_flow(flow_legacy, state_legacy)
         assert state_legacy.reply == "Mensaje legacy", "Flow legacy con __start__ debe funcionar (compatibilidad hacia atrás)"
@@ -509,7 +478,7 @@ async def test_migracion_start_a_message_trigger_explicito():
             message="Hola",
             contact_phone=contact_phone,
             canal="whatsapp",
-            bot_id=bot_id,
+            connection_id=bot_id,
         )
         state_migrado = await execute_flow(flow_migrado, state_migrado)
         assert state_migrado.reply == "Mensaje migrado", "Flow migrado debe funcionar"
@@ -546,7 +515,7 @@ async def test_migracion_start_a_message_trigger_explicito():
                 message="Hola",
                 contact_phone=contact_phone,  # contacto original
                 canal="whatsapp",
-                bot_id=bot_id,
+                connection_id=bot_id,
             )
             state_otro = await execute_flow(flow_migrado_otro, state_otro)
             assert state_otro.reply is None, "Flow con contact_phone diferente no debe ejecutarse"
@@ -556,7 +525,7 @@ async def test_migracion_start_a_message_trigger_explicito():
                 message="Hola",
                 contact_phone="5491199991111",  # contacto especificado en el nodo
                 canal="whatsapp",
-                bot_id=bot_id,
+                connection_id=bot_id,
             )
             state_contacto_correcto = await execute_flow(flow_migrado_otro, state_contacto_correcto)
             assert state_contacto_correcto.reply == "Mensaje para otro contacto", "Flow debe ejecutarse para contacto correcto"
@@ -595,7 +564,7 @@ async def test_migracion_start_a_message_trigger_explicito():
                 message="Hola",
                 contact_phone="5491199999999",  # contacto cualquiera
                 canal="whatsapp",
-                bot_id=bot_id,
+                connection_id=bot_id,
             )
             state_wildcard = await execute_flow(flow_wildcard, state_wildcard)
             assert state_wildcard.reply == "Mensaje para todos", "Flow wildcard debe ejecutarse para cualquier contacto"
@@ -649,7 +618,7 @@ async def test_flow_sin_nodo_entrada_no_se_ejecuta():
             message="Hola",
             contact_phone=contact_phone,
             canal="whatsapp",
-            bot_id=bot_id,
+            connection_id=bot_id,
         )
         state = await execute_flow(flow, state)
         assert state.reply is None, "Flow sin nodo de entrada debe ser ignorado"
@@ -667,11 +636,11 @@ async def test_kill_switch_global_descarta_reply():
     flow = _flow(connection_id=bot_id, message="Este mensaje NO debe llegar")
 
     with patch.dict(os.environ, {"DISABLE_AUTO_REPLY": "true", "DISABLE_AUTO_REPLY_PHONES": ""}), \
-         patch("config.get_empresas_for_bot", return_value=["gm_herreria"]), \
-         patch("config.load_config", return_value={"bots": [{"id": "gm_herreria", "name": "GM"}]}), \
+         patch("config.get_empresas_for_connection", return_value=["gm_herreria"]), \
+         patch("config.load_config", return_value={"empresas": [{"id": "gm_herreria", "name": "GM"}]}), \
          patch("graphs.compiler.resolve_flows", new_callable=AsyncMock, return_value=[flow]):
 
-        state = await run_flows(_state(bot_id), bot_id=bot_id)
+        state = await run_flows(_state(bot_id), connection_id=bot_id)
 
     assert state.reply is None, "DISABLE_AUTO_REPLY=true debe bloquear el reply."
     assert state.image_url is None
@@ -684,11 +653,11 @@ async def test_kill_switch_global_false_permite_reply():
     flow = _flow(connection_id=bot_id, message="Bienvenido")
 
     with patch.dict(os.environ, {"DISABLE_AUTO_REPLY": "false", "DISABLE_AUTO_REPLY_PHONES": ""}), \
-         patch("config.get_empresas_for_bot", return_value=["gm_herreria"]), \
-         patch("config.load_config", return_value={"bots": [{"id": "gm_herreria", "name": "GM"}]}), \
+         patch("config.get_empresas_for_connection", return_value=["gm_herreria"]), \
+         patch("config.load_config", return_value={"empresas": [{"id": "gm_herreria", "name": "GM"}]}), \
          patch("graphs.compiler.resolve_flows", new_callable=AsyncMock, return_value=[flow]):
 
-        state = await run_flows(_state(bot_id), bot_id=bot_id)
+        state = await run_flows(_state(bot_id), connection_id=bot_id)
 
     assert state.reply == "Bienvenido"
 
@@ -702,11 +671,11 @@ async def test_kill_switch_por_numero_bloquea_ese_numero():
     flow = _flow(connection_id=blocked, message="Este NO debe llegar")
 
     with patch.dict(os.environ, {"DISABLE_AUTO_REPLY": "false", "DISABLE_AUTO_REPLY_PHONES": blocked}), \
-         patch("config.get_empresas_for_bot", return_value=["bot_test"]), \
-         patch("config.load_config", return_value={"bots": [{"id": "bot_test", "name": "Test"}]}), \
+         patch("config.get_empresas_for_connection", return_value=["bot_test"]), \
+         patch("config.load_config", return_value={"empresas": [{"id": "bot_test", "name": "Test"}]}), \
          patch("graphs.compiler.resolve_flows", new_callable=AsyncMock, return_value=[flow]):
 
-        state = await run_flows(_state(blocked), bot_id=blocked)
+        state = await run_flows(_state(blocked), connection_id=blocked)
 
     assert state.reply is None, f"El número {blocked} no debe mandar replies (está en DISABLE_AUTO_REPLY_PHONES)."
 
@@ -719,11 +688,11 @@ async def test_kill_switch_por_numero_no_afecta_otros():
     flow = _flow(connection_id=otro, message="Respuesta de GM")
 
     with patch.dict(os.environ, {"DISABLE_AUTO_REPLY": "false", "DISABLE_AUTO_REPLY_PHONES": blocked}), \
-         patch("config.get_empresas_for_bot", return_value=["gm_herreria"]), \
-         patch("config.load_config", return_value={"bots": [{"id": "gm_herreria", "name": "GM"}]}), \
+         patch("config.get_empresas_for_connection", return_value=["gm_herreria"]), \
+         patch("config.load_config", return_value={"empresas": [{"id": "gm_herreria", "name": "GM"}]}), \
          patch("graphs.compiler.resolve_flows", new_callable=AsyncMock, return_value=[flow]):
 
-        state = await run_flows(_state(otro), bot_id=otro)
+        state = await run_flows(_state(otro), connection_id=otro)
 
     assert state.reply == "Respuesta de GM", "El número 59 no debe verse afectado por el bloqueo del 67."
 
@@ -741,11 +710,11 @@ async def test_guard_activatedat_bloquea_mensaje_viejo():
     state.timestamp = datetime(2026, 4, 3, 10, 0, 0)   # mensaje de ayer
 
     with patch.dict(os.environ, {"DISABLE_AUTO_REPLY": "false", "DISABLE_AUTO_REPLY_PHONES": ""}), \
-         patch("config.get_empresas_for_bot", return_value=["gm_herreria"]), \
-         patch("config.load_config", return_value={"bots": [{"id": "gm_herreria", "name": "GM"}]}), \
+         patch("config.get_empresas_for_connection", return_value=["gm_herreria"]), \
+         patch("config.load_config", return_value={"empresas": [{"id": "gm_herreria", "name": "GM"}]}), \
          patch("graphs.compiler.resolve_flows", new_callable=AsyncMock, return_value=[flow]):
 
-        state = await run_flows(state, bot_id=bot_id)
+        state = await run_flows(state, connection_id=bot_id)
 
     assert state.reply is None, "Mensaje anterior al flow no debe recibir respuesta (guard activated_at)."
 
@@ -761,10 +730,10 @@ async def test_guard_activatedat_permite_mensaje_nuevo():
     state.timestamp = datetime(2026, 4, 4, 13, 0, 0)   # mensaje posterior
 
     with patch.dict(os.environ, {"DISABLE_AUTO_REPLY": "false", "DISABLE_AUTO_REPLY_PHONES": ""}), \
-         patch("config.get_empresas_for_bot", return_value=["gm_herreria"]), \
-         patch("config.load_config", return_value={"bots": [{"id": "gm_herreria", "name": "GM"}]}), \
+         patch("config.get_empresas_for_connection", return_value=["gm_herreria"]), \
+         patch("config.load_config", return_value={"empresas": [{"id": "gm_herreria", "name": "GM"}]}), \
          patch("graphs.compiler.resolve_flows", new_callable=AsyncMock, return_value=[flow]):
 
-        state = await run_flows(state, bot_id=bot_id)
+        state = await run_flows(state, connection_id=bot_id)
 
     assert state.reply == "Bienvenido"

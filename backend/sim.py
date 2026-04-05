@@ -21,13 +21,13 @@ def get_mode() -> str:
     return "sim" if SIM_MODE else "real"
 
 
-def sim_connect(session_id: str, bot_id: str) -> None:
+def sim_connect(session_id: str, connection_id: str) -> None:
     """Marca la sesión como lista instantáneamente (sin browser)."""
     from state import clients
     clients[session_id] = {
         "status": "ready",
         "qr": None,
-        "bot_id": bot_id,
+        "connection_id": connection_id,
         "type": "whatsapp",
         "client": None,
     }
@@ -57,7 +57,7 @@ async def sim_receive(
     Devuelve el texto de la respuesta, o None si no hay reply.
     """
     from db import log_message, mark_answered, log_outbound_message
-    from config import get_empresas_for_bot
+    from config import get_empresas_for_connection
 
     cfg = _get_phone_config(session_id)
     if not cfg:
@@ -70,10 +70,10 @@ async def sim_receive(
     channel_type = "telegram" if "-tg-" in session_id else "whatsapp"
 
     # Dispatch multi-empresa: loguar bajo todos los bots que tienen esta conexión
-    empresa_ids = get_empresas_for_bot(session_id)
+    empresa_ids = get_empresas_for_connection(session_id)
     if not empresa_ids:
         # Fallback: usar solo el bot dueño de la sesión
-        empresa_ids = [cfg["bot_id"]]
+        empresa_ids = [cfg["connection_id"]]
 
     msg_ids = {}
     for eid in empresa_ids:
@@ -103,13 +103,13 @@ async def sim_receive(
         contact_name=from_name,
         canal=channel_type,
     )
-    state = await run_flows(state, bot_id=session_id)
+    state = await run_flows(state, connection_id=session_id)
     reply = state.reply
 
     if reply:
         for mid in msg_ids.values():
             await mark_answered(mid)
-        await log_outbound_message(cfg["bot_id"], session_id, from_phone, reply)
+        await log_outbound_message(cfg["connection_id"], session_id, from_phone, reply)
         conv.append({"role": "bot", "text": reply, "from_name": "Bot", "ts": ts})
         logger.info("[sim] REPLY → %s: %s", session_id, reply[:80])
 
@@ -123,14 +123,14 @@ def get_conversation(session_id: str) -> list:
 def _get_phone_config(session_id: str) -> dict | None:
     from config import load_config
     config = load_config()
-    for bot in config.get("bots", []):
+    for bot in config.get("empresas", []):
         # WhatsApp phones
         for phone in bot.get("phones", []):
             if phone["number"] == session_id:
-                return {"bot_id": bot["id"], "bot_name": bot.get("name", bot["id"])}
-        # Telegram bots — session_id = "{bot_id}-tg-{token_id}"
+                return {"connection_id": bot["id"], "bot_name": bot.get("name", bot["id"])}
+        # Telegram bots — session_id = "{connection_id}-tg-{token_id}"
         for tg in bot.get("telegram", []):
             token_id = tg["token"].split(":")[0]
             if f"{bot['id']}-tg-{token_id}" == session_id:
-                return {"bot_id": bot["id"], "bot_name": bot.get("name", bot["id"])}
+                return {"connection_id": bot["id"], "bot_name": bot.get("name", bot["id"])}
     return None
