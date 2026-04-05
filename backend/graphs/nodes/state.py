@@ -30,6 +30,12 @@ class FlowState:
     from_delta_sync: bool = False      # True = sync histórico, acumular pero no responder
     timestamp: Optional[datetime] = None  # timestamp real del mensaje (útil en delta-sync)
 
+    # ── Estado inter-nodo (producido y consumido por nodos intermedios) ─────────
+    route: str = ""                    # router node setea esto; engine sigue solo edges con ese label
+    context: str = ""                  # texto acumulado de fetch/search/llm para el siguiente nodo
+    query: str = ""                    # query expandida (llm output=query → fetch/search la lee)
+    fb_posts: list = field(default_factory=list)  # posts de Facebook con text + image_url
+
     # ── Salida (producida por nodos) ──────────────────────────────
     reply: Optional[str] = None
     image_url: Optional[str] = None

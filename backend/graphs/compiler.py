@@ -18,6 +18,25 @@ from .nodes import NODE_REGISTRY
 logger = logging.getLogger(__name__)
 
 
+def _enqueue_neighbors(
+    graph: dict,
+    node_id: str,
+    visited: set,
+    queue: list,
+    current_route: str,
+) -> None:
+    """
+    Agrega vecinos al queue respetando labels de edges.
+    - Sin label → siempre seguir
+    - Con label → solo seguir si current_route == label
+    """
+    for target, label in graph.get(node_id, []):
+        if target in visited:
+            continue
+        if label is None or label == "" or current_route == label:
+            queue.append(target)
+
+
 async def execute_flow(flow: dict, state: FlowState) -> FlowState:
     """
     Ejecuta el flow siguiendo edges en BFS desde el nodo de entrada.
@@ -35,13 +54,15 @@ async def execute_flow(flow: dict, state: FlowState) -> FlowState:
     # Construir mapeo id → nodo
     node_by_id = {node["id"]: node for node in nodes}
 
-    # Construir grafo de adyacencia
-    graph = {}
+    # Construir grafo de adyacencia: source → [(target, label)]
+    # label=None → seguir siempre; label="noticias" → solo si state.route == "noticias"
+    graph: dict[str, list[tuple[str, str | None]]] = {}
     for edge in edges:
         source = edge.get("source")
         target = edge.get("target")
         if source and target:
-            graph.setdefault(source, []).append(target)
+            label = edge.get("label") or None
+            graph.setdefault(source, []).append((target, label))
 
     # Encontrar nodo de entrada (message_trigger)
     entry_node = None
@@ -122,32 +143,27 @@ async def execute_flow(flow: dict, state: FlowState) -> FlowState:
         node_type = node_def.get("type", "")
         node_id = node_def.get("id", "")
 
-        # Saltar marcadores visuales
-        if node_id in ("__start__", "__end__"):
-            # Pero seguir recorriendo sus edges
-            if current_id in graph:
-                for neighbor in graph[current_id]:
-                    if neighbor not in visited:
-                        queue.append(neighbor)
+        # Saltar marcadores visuales — pero seguir sus edges
+        if node_id in ("__start__", "__end__") or node_type in ("start", "end"):
+            _enqueue_neighbors(graph, current_id, visited, queue, state.route)
             continue
 
         # Ejecutar nodo si tiene implementación
         node_cls = NODE_REGISTRY.get(node_type)
         if not node_cls:
             logger.debug("[engine] tipo '%s' no tiene implementación — skip", node_type)
+            # Seguir edges igual: no abandonar el árbol por un nodo no implementado
+            _enqueue_neighbors(graph, current_id, visited, queue, state.route)
             continue
 
         try:
             node = node_cls(node_def.get("config", {}))
             state = await node.run(state)
+            logger.debug("[engine] nodo '%s' (%s) ejecutado", node_id, node_type)
         except Exception as e:
             logger.error("[engine] Error en nodo '%s' (%s): %s", node_id, node_type, e)
 
-        # Agregar vecinos al queue
-        if current_id in graph:
-            for neighbor in graph[current_id]:
-                if neighbor not in visited:
-                    queue.append(neighbor)
+        _enqueue_neighbors(graph, current_id, visited, queue, state.route)
 
     return state
 
