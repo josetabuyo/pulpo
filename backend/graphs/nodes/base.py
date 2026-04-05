@@ -1,7 +1,42 @@
 """
 BaseNode — contrato mínimo que todo nodo debe cumplir.
 """
+import re
 from .state import FlowState
+
+
+def interpolate(template: str, state: FlowState) -> str:
+    """
+    Reemplaza placeholders {{field}} con valores de FlowState.
+
+    Campos disponibles:
+      {{message}}       — mensaje entrante del usuario
+      {{reply}}         — reply acumulado hasta este nodo
+      {{context}}       — contexto acumulado (fetch/search/llm)
+      {{query}}         — query expandida
+      {{contact_name}}  — nombre del contacto
+      {{contact_phone}} — teléfono del contacto
+      {{bot_name}}      — nombre del bot/empresa
+      {{empresa_id}}    — id de la empresa
+      {{canal}}         — whatsapp | telegram
+    """
+    fields = {
+        "message":       state.message or "",
+        "reply":         state.reply or "",
+        "context":       state.context or "",
+        "query":         state.query or "",
+        "contact_name":  state.contact_name or "",
+        "contact_phone": state.contact_phone or "",
+        "bot_name":      state.bot_name or "",
+        "empresa_id":    state.empresa_id or "",
+        "canal":         state.canal or "",
+    }
+
+    def replace(match):
+        key = match.group(1).strip()
+        return fields.get(key, match.group(0))  # deja {{unknown}} intacto
+
+    return re.sub(r"\{\{(\w+)\}\}", replace, template)
 
 
 class BaseNode:

@@ -16,7 +16,7 @@ Config:
 import json
 import logging
 import os
-from .base import BaseNode
+from .base import BaseNode, interpolate
 from .state import FlowState
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,9 @@ logger = logging.getLogger(__name__)
 
 class LLMNode(BaseNode):
     async def run(self, state: FlowState) -> FlowState:
+        if state.from_delta_sync:
+            return state
+
         prompt      = self.config.get("prompt", "")
         model       = self.config.get("model", "llama-3.3-70b-versatile")
         temperature = float(self.config.get("temperature", 0.3))
@@ -37,10 +40,11 @@ class LLMNode(BaseNode):
             logger.error("[LLMNode] Sin GROQ_API_KEY")
             return state
 
-        # Construir system prompt con contexto si hay
-        system = prompt
-        if state.context:
-            system = prompt + f"\n\nContexto:\n{state.context}"
+        # Interpolar placeholders en el prompt y construir system.
+        # Compat: si el prompt no menciona {{context}} pero hay contexto, se agrega al final.
+        system = interpolate(prompt, state)
+        if state.context and "{{context}}" not in prompt:
+            system += f"\n\nContexto:\n{state.context}"
 
         try:
             from langchain_groq import ChatGroq

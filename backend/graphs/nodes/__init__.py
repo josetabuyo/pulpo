@@ -11,7 +11,6 @@ Para agregar un nodo nuevo:
 """
 from .message_trigger import MessageTriggerNode
 from .reply import ReplyNode
-from .llm_respond import LLMRespondNode
 from .summarize import SummarizeNode
 from .router import RouterNode
 from .llm import LLMNode
@@ -26,14 +25,16 @@ NODE_REGISTRY: dict[str, type] = {
     # Nodos genéricos
     "router":      RouterNode,
     "llm":         LLMNode,
+    "reply":       ReplyNode,
     "fetch":       FetchNode,
     "search":      SearchNode,
     "notify":      NotifyNode,
 
     # Nodos específicos
-    "reply":       ReplyNode,
-    "llm_respond": LLMRespondNode,
     "summarize":   SummarizeNode,
+
+    # Alias de compatibilidad hacia atrás (flows viejos que usen llm_respond)
+    "llm_respond": LLMNode,
 }
 
 __all__ = [
@@ -45,6 +46,5 @@ __all__ = [
     "SearchNode",
     "NotifyNode",
     "ReplyNode",
-    "LLMRespondNode",
     "SummarizeNode",
 ]

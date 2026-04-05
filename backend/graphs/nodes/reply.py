@@ -1,10 +1,15 @@
 """
-ReplyNode — devuelve un mensaje de texto fijo.
+ReplyNode — escribe en state.reply el texto que se enviará al usuario.
 
 Config:
-  message: str   — texto a enviar
+  message: str — texto con placeholders opcionales: {{context}}, {{contact_name}}, etc.
+
+Ejemplos:
+  "Hola {{contact_name}}, te respondemos pronto."
+  "{{context}}"               ← reenvía lo que dejó el nodo anterior en context
+  "Texto fijo sin variables"
 """
-from .base import BaseNode
+from .base import BaseNode, interpolate
 from .state import FlowState
 
 
@@ -12,7 +17,8 @@ class ReplyNode(BaseNode):
     async def run(self, state: FlowState) -> FlowState:
         if state.from_delta_sync:
             return state
-        state.reply = self.config.get("message", "")
+
+        state.reply = interpolate(self.config.get("message", ""), state)
         return state
 
     @classmethod
@@ -20,8 +26,8 @@ class ReplyNode(BaseNode):
         return {
             "message": {
                 "type": "string",
-                "label": "Mensaje a enviar",
+                "label": "Mensaje (soporta {{placeholders}})",
                 "default": "",
                 "required": True,
-            }
+            },
         }
