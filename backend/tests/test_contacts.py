@@ -31,7 +31,7 @@ def test_create_contact(client):
     assert r.status_code == 201
     body = r.json()
     assert body["name"] == "Test Contact"
-    assert body["bot_id"] == BOT_ID
+    assert body["connection_id"] == BOT_ID
     assert isinstance(body["channels"], list)
     # Cleanup
     client.delete(f"/api/contacts/{body['id']}", headers=auth)

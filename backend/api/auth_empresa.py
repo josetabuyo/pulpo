@@ -71,7 +71,7 @@ async def empresa_refresh(request: Request, response: Response):
     if not session:
         raise HTTPException(status_code=401, detail="Refresh token inválido o expirado")
 
-    access_token = create_access_token(session["bot_id"])
+    access_token = create_access_token(session["connection_id"])
     return {"access_token": access_token, "token_type": "bearer"}
 
 

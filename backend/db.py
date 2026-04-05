@@ -24,9 +24,9 @@ async def init_db():
     async with engine.begin() as conn:
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS messages (
-                id        INTEGER PRIMARY KEY AUTOINCREMENT,
-                bot_id    TEXT NOT NULL,
-                bot_phone TEXT NOT NULL,
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                connection_id  TEXT NOT NULL,
+                connection_phone TEXT NOT NULL,
                 phone     TEXT NOT NULL,
                 name      TEXT,
                 body      TEXT NOT NULL,
@@ -44,7 +44,7 @@ async def init_db():
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS sessions (
                 id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                bot_id        TEXT NOT NULL,
+                connection_id TEXT NOT NULL,
                 refresh_token TEXT NOT NULL UNIQUE,
                 created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
                 expires_at    DATETIME NOT NULL,
@@ -55,19 +55,19 @@ async def init_db():
             "CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(refresh_token)"
         ))
         await conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS idx_sessions_bot_id ON sessions(bot_id)"
+            "CREATE INDEX IF NOT EXISTS idx_sessions_connection_id ON sessions(connection_id)"
         ))
 
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS contacts (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                bot_id     TEXT NOT NULL,
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                connection_id TEXT NOT NULL,
                 name       TEXT NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """))
         await conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS idx_contacts_bot_id ON contacts(bot_id)"
+            "CREATE INDEX IF NOT EXISTS idx_contacts_connection_id ON contacts(connection_id)"
         ))
 
         await conn.execute(text("""
@@ -164,24 +164,24 @@ async def create_job(
         await session.commit()
         return result.lastrowid
 
-async def log_message(bot_id: str, bot_phone: str, phone: str, name: str | None, body: str, outbound: bool = False) -> int:
+async def log_message(connection_id: str, connection_phone: str, phone: str, name: str | None, body: str, outbound: bool = False) -> int:
     async with AsyncSessionLocal() as session:
         # Dedup: evitar loguear el mismo mensaje si ya existe en los últimos 10 minutos
         # (cubre el caso de reinicios del servidor que vacían el seen_pairs en memoria)
         existing = (await session.execute(
             text("""
                 SELECT id FROM messages
-                WHERE bot_id=:bot_id AND phone=:phone AND body=:body
+                WHERE connection_id=:connection_id AND phone=:phone AND body=:body
                 AND timestamp >= datetime('now', '-10 minutes')
                 LIMIT 1
             """),
-            {"bot_id": bot_id, "phone": phone, "body": body},
+            {"connection_id": connection_id, "phone": phone, "body": body},
         )).fetchone()
         if existing:
             return existing[0]
         result = await session.execute(
-            text("INSERT INTO messages (bot_id, bot_phone, phone, name, body, outbound) VALUES (:bot_id, :bot_phone, :phone, :name, :body, :outbound)"),
-            {"bot_id": bot_id, "bot_phone": bot_phone, "phone": phone, "name": name, "body": body, "outbound": 1 if outbound else 0},
+            text("INSERT INTO messages (connection_id, connection_phone, phone, name, body, outbound) VALUES (:connection_id, :connection_phone, :phone, :name, :body, :outbound)"),
+            {"connection_id": connection_id, "connection_phone": connection_phone, "phone": phone, "name": name, "body": body, "outbound": 1 if outbound else 0},
         )
         await session.commit()
         return result.lastrowid
@@ -191,7 +191,7 @@ _AUDIO_PLACEHOLDERS = ("[audio]", "[media]", "[audio — sin blob]", "[audio —
 
 
 async def log_message_historic(
-    bot_id: str, bot_phone: str, phone: str, name: str | None,
+    connection_id: str, connection_phone: str, phone: str, name: str | None,
     body: str, timestamp: str, outbound: int = 0,
     replace_audio: bool = False,
 ) -> bool:
@@ -206,11 +206,11 @@ async def log_message_historic(
         existing = (await session.execute(
             text("""
                 SELECT id FROM messages
-                WHERE bot_id=:bot_id AND phone=:phone AND body=:body
+                WHERE connection_id=:connection_id AND phone=:phone AND body=:body
                 AND strftime('%Y-%m-%d %H:%M', timestamp) = strftime('%Y-%m-%d %H:%M', :ts)
                 LIMIT 1
             """),
-            {"bot_id": bot_id, "phone": phone, "body": body, "ts": timestamp},
+            {"connection_id": connection_id, "phone": phone, "body": body, "ts": timestamp},
         )).fetchone()
         if existing:
             return False
@@ -220,40 +220,40 @@ async def log_message_historic(
             await session.execute(
                 text("""
                     DELETE FROM messages
-                    WHERE bot_id=:bot_id AND phone=:phone
+                    WHERE connection_id=:connection_id AND phone=:phone
                     AND body IN ('[audio]', '[media]')
                     AND strftime('%Y-%m-%d %H:%M', timestamp) = strftime('%Y-%m-%d %H:%M', :ts)
                 """),
-                {"bot_id": bot_id, "phone": phone, "ts": timestamp},
+                {"connection_id": connection_id, "phone": phone, "ts": timestamp},
             )
 
         await session.execute(
-            text("INSERT INTO messages (bot_id, bot_phone, phone, name, body, timestamp, outbound) "
-                 "VALUES (:bot_id, :bot_phone, :phone, :name, :body, :timestamp, :outbound)"),
-            {"bot_id": bot_id, "bot_phone": bot_phone, "phone": phone, "name": name,
+            text("INSERT INTO messages (connection_id, connection_phone, phone, name, body, timestamp, outbound) "
+                 "VALUES (:connection_id, :connection_phone, :phone, :name, :body, :timestamp, :outbound)"),
+            {"connection_id": connection_id, "connection_phone": connection_phone, "phone": phone, "name": name,
              "body": body, "timestamp": timestamp, "outbound": outbound},
         )
         await session.commit()
         return True
 
 
-async def log_outbound_message(bot_id: str, bot_phone: str, phone: str, body: str) -> int:
+async def log_outbound_message(connection_id: str, connection_phone: str, phone: str, body: str) -> int:
     """Registra un mensaje enviado por el bot (respuesta automática o manual)."""
     async with AsyncSessionLocal() as session:
         result = await session.execute(
-            text("INSERT INTO messages (bot_id, bot_phone, phone, name, body, answered, outbound) "
-                 "VALUES (:bot_id, :bot_phone, :phone, 'Bot', :body, 1, 1)"),
-            {"bot_id": bot_id, "bot_phone": bot_phone, "phone": phone, "body": body},
+            text("INSERT INTO messages (connection_id, connection_phone, phone, name, body, answered, outbound) "
+                 "VALUES (:connection_id, :connection_phone, :phone, 'Bot', :body, 1, 1)"),
+            {"connection_id": connection_id, "connection_phone": connection_phone, "phone": phone, "body": body},
         )
         await session.commit()
         return result.lastrowid
 
 
-async def create_session(bot_id: str, refresh_token: str, expires_at: str) -> int:
+async def create_session(connection_id: str, refresh_token: str, expires_at: str) -> int:
     async with AsyncSessionLocal() as session:
         result = await session.execute(
-            text("INSERT INTO sessions (bot_id, refresh_token, expires_at) VALUES (:bot_id, :token, :expires_at)"),
-            {"bot_id": bot_id, "token": refresh_token, "expires_at": expires_at},
+            text("INSERT INTO sessions (connection_id, refresh_token, expires_at) VALUES (:connection_id, :token, :expires_at)"),
+            {"connection_id": connection_id, "token": refresh_token, "expires_at": expires_at},
         )
         await session.commit()
         return result.lastrowid
@@ -264,7 +264,7 @@ async def get_session(refresh_token: str) -> dict | None:
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             text("""
-                SELECT id, bot_id, refresh_token, created_at, expires_at
+                SELECT id, connection_id, refresh_token, created_at, expires_at
                 FROM sessions
                 WHERE refresh_token = :token
                   AND revoked = 0
@@ -275,7 +275,7 @@ async def get_session(refresh_token: str) -> dict | None:
         row = result.fetchone()
     if not row:
         return None
-    return {"id": row[0], "bot_id": row[1], "refresh_token": row[2],
+    return {"id": row[0], "connection_id": row[1], "refresh_token": row[2],
             "created_at": row[3], "expires_at": row[4]}
 
 
@@ -289,11 +289,11 @@ async def revoke_session(refresh_token: str) -> bool:
         return result.rowcount > 0
 
 
-async def revoke_all_sessions(bot_id: str) -> int:
+async def revoke_all_sessions(connection_id: str) -> int:
     async with AsyncSessionLocal() as session:
         result = await session.execute(
-            text("UPDATE sessions SET revoked = 1 WHERE bot_id = :bot_id AND revoked = 0"),
-            {"bot_id": bot_id},
+            text("UPDATE sessions SET revoked = 1 WHERE connection_id = :connection_id AND revoked = 0"),
+            {"connection_id": connection_id},
         )
         await session.commit()
         return result.rowcount
@@ -325,28 +325,28 @@ async def _get_channels_for(conn, contact_ids: list[int]) -> dict[int, list]:
     return result
 
 
-async def create_contact(bot_id: str, name: str) -> int:
+async def create_contact(connection_id: str, name: str) -> int:
     async with AsyncSessionLocal() as session:
         result = await session.execute(
-            text("INSERT INTO contacts (bot_id, name) VALUES (:bot_id, :name)"),
-            {"bot_id": bot_id, "name": name},
+            text("INSERT INTO contacts (connection_id, name) VALUES (:connection_id, :name)"),
+            {"connection_id": connection_id, "name": name},
         )
         await session.commit()
         return result.lastrowid
 
 
-async def get_contacts(bot_id: str) -> list[dict]:
+async def get_contacts(connection_id: str) -> list[dict]:
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(
-            text("SELECT id, bot_id, name, created_at FROM contacts WHERE bot_id = :bot_id ORDER BY id"),
-            {"bot_id": bot_id},
+            text("SELECT id, connection_id, name, created_at FROM contacts WHERE connection_id = :connection_id ORDER BY id"),
+            {"connection_id": connection_id},
         )).fetchall()
         if not rows:
             return []
         contact_ids = [r[0] for r in rows]
         channels_map = await _get_channels_for(session, contact_ids)
         return [
-            {"id": r[0], "bot_id": r[1], "name": r[2], "created_at": str(r[3]),
+            {"id": r[0], "connection_id": r[1], "name": r[2], "created_at": str(r[3]),
              "channels": channels_map.get(r[0], [])}
             for r in rows
         ]
@@ -355,13 +355,13 @@ async def get_contacts(bot_id: str) -> list[dict]:
 async def get_contact(contact_id: int) -> dict | None:
     async with AsyncSessionLocal() as session:
         row = (await session.execute(
-            text("SELECT id, bot_id, name, created_at FROM contacts WHERE id = :id"),
+            text("SELECT id, connection_id, name, created_at FROM contacts WHERE id = :id"),
             {"id": contact_id},
         )).fetchone()
         if not row:
             return None
         channels_map = await _get_channels_for(session, [row[0]])
-        return {"id": row[0], "bot_id": row[1], "name": row[2], "created_at": str(row[3]),
+        return {"id": row[0], "connection_id": row[1], "name": row[2], "created_at": str(row[3]),
                 "channels": channels_map.get(row[0], [])}
 
 
@@ -421,7 +421,7 @@ async def find_contact_by_channel(type: str, value: str) -> dict | None:
             # Fallback: WA a veces solo provee el nombre, no el número.
             # Buscar en contacts por nombre exacto o aproximado.
             contact_row = (await session.execute(
-                text("SELECT id, bot_id, name, created_at FROM contacts WHERE name = :name"),
+                text("SELECT id, connection_id, name, created_at FROM contacts WHERE name = :name"),
                 {"name": value},
             )).fetchone()
             if not contact_row:
@@ -430,14 +430,14 @@ async def find_contact_by_channel(type: str, value: str) -> dict | None:
         else:
             contact_id = row[0]
             contact_row = (await session.execute(
-                text("SELECT id, bot_id, name, created_at FROM contacts WHERE id = :id"),
+                text("SELECT id, connection_id, name, created_at FROM contacts WHERE id = :id"),
                 {"id": contact_id},
             )).fetchone()
             if not contact_row:
                 return None
 
         channels_map = await _get_channels_for(session, [contact_id])
-        return {"id": contact_row[0], "bot_id": contact_row[1], "name": contact_row[2],
+        return {"id": contact_row[0], "connection_id": contact_row[1], "name": contact_row[2],
                 "created_at": str(contact_row[3]), "channels": channels_map.get(contact_id, [])}
 
 
@@ -579,20 +579,20 @@ async def flow_exists_for_empresa(empresa_id: str) -> bool:
     return row is not None
 
 
-async def get_last_message_body(bot_id: str, phone: str) -> str | None:
+async def get_last_message_body(connection_id: str, phone: str) -> str | None:
     """Retorna el body del mensaje más reciente para este contacto en este bot."""
     async with AsyncSessionLocal() as session:
         row = (await session.execute(
-            text("SELECT body FROM messages WHERE bot_id=:bot_id AND phone=:phone "
+            text("SELECT body FROM messages WHERE connection_id=:connection_id AND phone=:phone "
                  "ORDER BY timestamp DESC LIMIT 1"),
-            {"bot_id": bot_id, "phone": phone},
+            {"connection_id": connection_id, "phone": phone},
         )).fetchone()
         return row[0] if row else None
 
 
-async def get_active_flows_for_bot(bot_id: str, contact_phone: str, empresa_id: str) -> list[dict]:
+async def get_active_flows_for_bot(connection_id: str, contact_phone: str, empresa_id: str) -> list[dict]:
     """
-    Flows activos para este (bot_id, contact_phone, empresa_id).
+    Flows activos para este (connection_id, contact_phone, empresa_id).
 
     Regla de seguridad: connection_id es OBLIGATORIO.
     Un flow sin connection_id asignado no dispara para nadie — NULL no es wildcard.
@@ -607,12 +607,12 @@ async def get_active_flows_for_bot(bot_id: str, contact_phone: str, empresa_id: 
                 FROM flows
                 WHERE empresa_id = :empresa_id
                   AND active = 1
-                  AND connection_id = :bot_id
+                  AND connection_id = :connection_id
                   AND (contact_phone = :contact_phone OR contact_phone IS NULL)
                 ORDER BY
                   CASE WHEN contact_phone IS NOT NULL THEN 1
                        ELSE 2 END
             """),
-            {"empresa_id": empresa_id, "bot_id": bot_id, "contact_phone": contact_phone},
+            {"empresa_id": empresa_id, "connection_id": connection_id, "contact_phone": contact_phone},
         )).fetchall()
     return [_flow_row_to_dict(r, include_definition=True) for r in rows]

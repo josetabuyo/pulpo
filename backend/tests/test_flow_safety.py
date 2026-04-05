@@ -92,7 +92,7 @@ async def test_flow_con_connection_correcta_dispara():
     )
     try:
         flows = await db_module.get_active_flows_for_bot(
-            bot_id=bot_id, contact_phone="5491199990000", empresa_id="gm_herreria"
+            connection_id=bot_id, contact_phone="5491199990000", empresa_id="gm_herreria"
         )
         assert flow_id in [f["id"] for f in flows], \
             "Flow con connection_id correcto debe ser retornado."
@@ -136,7 +136,7 @@ async def test_db_connection_correcta_retorna_flow():
 
     try:
         flows = await db_module.get_active_flows_for_bot(
-            bot_id=bot_id,
+            connection_id=bot_id,
             contact_phone="5491199990000",
             empresa_id="bot_test",
         )
@@ -162,7 +162,7 @@ async def test_db_connection_distinta_no_retorna_flow():
     try:
         # Llega un mensaje al 67 (número personal) — no debe ver este flow
         flows = await db_module.get_active_flows_for_bot(
-            bot_id="5491155612767",
+            connection_id="5491155612767",
             contact_phone="5491199990000",
             empresa_id="bot_test",
         )
@@ -201,7 +201,7 @@ async def test_flow_con_message_trigger_y_connection_null_en_db():
     try:
         # Debe ser retornado por la DB
         flows = await db_module.get_active_flows_for_bot(
-            bot_id=bot_id,
+            connection_id=bot_id,
             contact_phone="5491199990000",
             empresa_id="bot_test",
         )
@@ -255,7 +255,7 @@ async def test_flow_con_message_trigger_wrong_connection():
     try:
         # La DB NO debe retornarlo (connection_id incorrecto)
         flows = await db_module.get_active_flows_for_bot(
-            bot_id=actual_bot_id,
+            connection_id=actual_bot_id,
             contact_phone="5491199990000",
             empresa_id="bot_test",
         )
@@ -297,7 +297,7 @@ async def test_message_trigger_filtra_por_contact_phone():
     try:
         # La DB retorna el flow (connection_id correcto)
         flows = await db_module.get_active_flows_for_bot(
-            bot_id=bot_id,
+            connection_id=bot_id,
             contact_phone=correct_contact,
             empresa_id="bot_test",
         )
@@ -361,7 +361,7 @@ async def test_message_trigger_sin_contact_phone_filtra_todos():
     try:
         # La DB retorna el flow
         flows = await db_module.get_active_flows_for_bot(
-            bot_id=bot_id,
+            connection_id=bot_id,
             contact_phone=contact1,
             empresa_id="bot_test",
         )
@@ -450,7 +450,7 @@ async def test_migracion_start_a_message_trigger_explicito():
     try:
         # Ambos flows deben ser retornados por la DB
         flows = await db_module.get_active_flows_for_bot(
-            bot_id=bot_id,
+            connection_id=bot_id,
             contact_phone=contact_phone,
             empresa_id="bot_test",
         )
@@ -505,7 +505,7 @@ async def test_migracion_start_a_message_trigger_explicito():
 
         try:
             flows2 = await db_module.get_active_flows_for_bot(
-                bot_id=bot_id,
+                connection_id=bot_id,
                 contact_phone=contact_phone,  # contacto original
                 empresa_id="bot_test",
             )
@@ -554,7 +554,7 @@ async def test_migracion_start_a_message_trigger_explicito():
         try:
             # Debe ejecutarse para cualquier contacto
             flows3 = await db_module.get_active_flows_for_bot(
-                bot_id=bot_id,
+                connection_id=bot_id,
                 contact_phone="5491199999999",  # contacto cualquiera
                 empresa_id="bot_test",
             )
@@ -602,7 +602,7 @@ async def test_flow_sin_nodo_entrada_no_se_ejecuta():
     try:
         # La DB retorna el flow
         flows = await db_module.get_active_flows_for_bot(
-            bot_id=bot_id,
+            connection_id=bot_id,
             contact_phone=contact_phone,
             empresa_id="bot_test",
         )

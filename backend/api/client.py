@@ -14,7 +14,7 @@ router = APIRouter()
 
 def _find_session(config: dict, session_id: str):
     """Returns (bot, item, canonical_id, type). Telegram can be found by tokenId short form."""
-    for bot in config.get("bots", []):
+    for bot in config.get("empresas", []):
         for phone in bot.get("phones", []):
             if phone["number"] == session_id:
                 return bot, phone, session_id, "whatsapp"
@@ -50,7 +50,7 @@ async def get_client_messages(number: str):
         result = await session.execute(
             text(
                 "SELECT id, phone, name, body, timestamp, answered "
-                "FROM messages WHERE bot_phone = :number AND outbound = 0 "
+                "FROM messages WHERE connection_phone = :number AND outbound = 0 "
                 "ORDER BY timestamp DESC LIMIT 30"
             ),
             {"number": number},
@@ -76,7 +76,7 @@ async def get_chat(number: str, contact: str):
         result = await session.execute(
             text(
                 "SELECT id, phone, name, body, timestamp, answered, outbound "
-                "FROM messages WHERE bot_phone = :number AND phone = :contact "
+                "FROM messages WHERE connection_phone = :number AND phone = :contact "
                 "ORDER BY timestamp ASC LIMIT 100"
             ),
             {"number": number, "contact": contact},
@@ -115,7 +115,7 @@ async def send_chat_message(number: str, contact: str, body: SendMessageBody):
         await log_outbound_message(bot["id"], number, contact, body.text)
         async with AsyncSessionLocal() as session:
             await session.execute(
-                text("UPDATE messages SET answered = 1 WHERE bot_phone = :number AND phone = :contact AND answered = 0"),
+                text("UPDATE messages SET answered = 1 WHERE connection_phone = :number AND phone = :contact AND answered = 0"),
                 {"number": number, "contact": contact},
             )
             await session.commit()
@@ -130,7 +130,7 @@ async def send_chat_message(number: str, contact: str, body: SendMessageBody):
     await log_outbound_message(bot["id"], number, contact, body.text)
     async with AsyncSessionLocal() as session:
         await session.execute(
-            text("UPDATE messages SET answered = 1 WHERE bot_phone = :number AND phone = :contact AND answered = 0"),
+            text("UPDATE messages SET answered = 1 WHERE connection_phone = :number AND phone = :contact AND answered = 0"),
             {"number": number, "contact": contact},
         )
         await session.commit()

@@ -22,7 +22,7 @@ def _db_phone(number: str) -> str:
 
 
 def _find_bot_by_password(config: dict, password: str):
-    for bot in config.get("bots", []):
+    for bot in config.get("empresas", []):
         if bot.get("password") == password:
             return bot
     return None
@@ -33,14 +33,14 @@ def _require_empresa(bot_id: str, token_bot_id: str = Depends(require_empresa_au
     if token_bot_id != bot_id:
         raise HTTPException(status_code=403, detail="No autorizado para esta empresa")
     config = load_config()
-    bot = next((b for b in config.get("bots", []) if b["id"] == bot_id), None)
+    bot = next((b for b in config.get("empresas", []) if b["id"] == bot_id), None)
     if not bot:
         raise HTTPException(status_code=404, detail="Empresa no encontrada")
     return bot
 
 
 def _generate_bot_id(name: str, config: dict) -> str:
-    existing = {b["id"] for b in config.get("bots", [])}
+    existing = {b["id"] for b in config.get("empresas", [])}
     base = re.sub(r"[^a-z0-9]+", "_", name.lower().strip()).strip("_") or "empresa"
     candidate = base
     i = 2
@@ -174,10 +174,10 @@ async def empresa_messages(bot_id: str, number: str, bot: dict = Depends(_requir
         result = await session.execute(
             text(
                 "SELECT id, phone, name, body, timestamp, answered "
-                "FROM messages WHERE bot_phone = :number AND outbound = 0 "
+                "FROM messages WHERE connection_phone = :number AND outbound = 0 "
                 "AND id IN ("
                 "  SELECT MAX(id) FROM messages "
-                "  WHERE bot_phone = :number AND outbound = 0 "
+                "  WHERE connection_phone = :number AND outbound = 0 "
                 "  GROUP BY phone"
                 ") ORDER BY timestamp DESC"
             ),
@@ -201,7 +201,7 @@ async def empresa_chat_get(bot_id: str, number: str, contact: str, bot: dict = D
         result = await session.execute(
             text(
                 "SELECT id, phone, name, body, timestamp, answered, outbound "
-                "FROM messages WHERE bot_phone = :number AND phone = :contact "
+                "FROM messages WHERE connection_phone = :number AND phone = :contact "
                 "ORDER BY timestamp ASC LIMIT 100"
             ),
             {"number": _db_phone(number), "contact": contact},
@@ -231,7 +231,7 @@ async def empresa_chat_send(bot_id: str, number: str, contact: str,
         await log_outbound_message(bot_id, db_number, contact, body.text)
         async with AsyncSessionLocal() as session:
             await session.execute(
-                text("UPDATE messages SET answered = 1 WHERE bot_phone = :number AND phone = :contact AND answered = 0"),
+                text("UPDATE messages SET answered = 1 WHERE connection_phone = :number AND phone = :contact AND answered = 0"),
                 {"number": db_number, "contact": contact},
             )
             await session.commit()
@@ -254,7 +254,7 @@ async def empresa_chat_send(bot_id: str, number: str, contact: str,
     await log_outbound_message(bot_id, db_number, contact, body.text)
     async with AsyncSessionLocal() as session:
         await session.execute(
-            text("UPDATE messages SET answered = 1 WHERE bot_phone = :number AND phone = :contact AND answered = 0"),
+            text("UPDATE messages SET answered = 1 WHERE connection_phone = :number AND phone = :contact AND answered = 0"),
             {"number": db_number, "contact": contact},
         )
         await session.commit()
@@ -286,7 +286,7 @@ def empresa_nueva(body: NuevaEmpresaBody):
         "phones": [],
         "telegram": [],
     }
-    config["bots"].append(new_bot)
+    config["empresas"].append(new_bot)
     save_config(config)
     return {"ok": True, "bot_id": bot_id, "bot_name": new_bot["name"]}
 
@@ -302,7 +302,7 @@ class EmpresaConfigBody(BaseModel):
 def empresa_put_config(bot_id: str, body: EmpresaConfigBody, _: dict = Depends(_require_empresa)):
 
     config = load_config()
-    bot = next((b for b in config["bots"] if b["id"] == bot_id), None)
+    bot = next((b for b in config["empresas"] if b["id"] == bot_id), None)
     if not bot:
         raise HTTPException(status_code=404, detail="Bot no encontrado")
 
@@ -314,7 +314,7 @@ def empresa_put_config(bot_id: str, body: EmpresaConfigBody, _: dict = Depends(_
     if body.password is not None:
         if not body.password.strip():
             raise HTTPException(status_code=400, detail="Contraseña no puede ser vacía")
-        for b in config["bots"]:
+        for b in config["empresas"]:
             if b["id"] != bot_id and b.get("password") == body.password:
                 raise HTTPException(status_code=409, detail="Esa contraseña ya está en uso")
         bot["password"] = body.password
@@ -336,7 +336,7 @@ def empresa_add_whatsapp(bot_id: str, body: AddWhatsappBody, _: dict = Depends(_
         raise HTTPException(status_code=400, detail="Número requerido")
 
     config = load_config()
-    bot = next(b for b in config["bots"] if b["id"] == bot_id)
+    bot = next(b for b in config["empresas"] if b["id"] == bot_id)
     if any(p["number"] == number for p in bot.get("phones", [])):
         raise HTTPException(status_code=409, detail=f"El número {number} ya está configurado en esta empresa")
     bot.setdefault("phones", []).append({"number": number})
@@ -352,7 +352,7 @@ def empresa_add_whatsapp(bot_id: str, body: AddWhatsappBody, _: dict = Depends(_
 async def empresa_remove_whatsapp(bot_id: str, number: str, _: dict = Depends(_require_empresa)):
 
     config = load_config()
-    bot = next((b for b in config["bots"] if b["id"] == bot_id), None)
+    bot = next((b for b in config["empresas"] if b["id"] == bot_id), None)
     if not bot:
         raise HTTPException(status_code=404, detail="Bot no encontrado")
 
@@ -389,12 +389,12 @@ async def empresa_add_telegram(bot_id: str, body: AddTelegramBody, _: dict = Dep
     session_id = f"{bot_id}-tg-{token_id}"
 
     config = load_config()
-    for b in config["bots"]:
+    for b in config["empresas"]:
         for tg in b.get("telegram", []):
             if tg["token"].split(":")[0] == token_id:
                 raise HTTPException(status_code=409, detail="Ese token ya está configurado")
 
-    bot = next(b for b in config["bots"] if b["id"] == bot_id)
+    bot = next(b for b in config["empresas"] if b["id"] == bot_id)
     bot.setdefault("telegram", []).append({"token": token})
     save_config(config)
 
@@ -423,7 +423,7 @@ async def empresa_add_telegram(bot_id: str, body: AddTelegramBody, _: dict = Dep
 def empresa_remove_telegram(bot_id: str, token_id: str, _: dict = Depends(_require_empresa)):
 
     config = load_config()
-    bot = next((b for b in config["bots"] if b["id"] == bot_id), None)
+    bot = next((b for b in config["empresas"] if b["id"] == bot_id), None)
     if not bot:
         raise HTTPException(status_code=404, detail="Bot no encontrado")
 

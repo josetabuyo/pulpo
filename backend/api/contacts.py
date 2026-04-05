@@ -101,7 +101,7 @@ async def get_contact(contact_id: int, token_empresa_id: str = Depends(_require_
     contact = await db.get_contact(contact_id)
     if not contact:
         raise HTTPException(404, "Contacto no encontrado")
-    _check_auth(contact["bot_id"], token_empresa_id)
+    _check_auth(contact["connection_id"], token_empresa_id)
     return contact
 
 
@@ -110,7 +110,7 @@ async def update_contact(contact_id: int, body: ContactUpdate, token_empresa_id:
     contact = await db.get_contact(contact_id)
     if not contact:
         raise HTTPException(404, "Contacto no encontrado")
-    _check_auth(contact["bot_id"], token_empresa_id)
+    _check_auth(contact["connection_id"], token_empresa_id)
     name = body.name.strip()
     if not name:
         raise HTTPException(400, "El nombre es obligatorio")
@@ -123,7 +123,7 @@ async def delete_contact(contact_id: int, token_empresa_id: str = Depends(_requi
     contact = await db.get_contact(contact_id)
     if not contact:
         raise HTTPException(404, "Contacto no encontrado")
-    _check_auth(contact["bot_id"], token_empresa_id)
+    _check_auth(contact["connection_id"], token_empresa_id)
     await db.delete_contact(contact_id)
 
 
@@ -132,7 +132,7 @@ async def add_channel(contact_id: int, body: ChannelIn, token_empresa_id: str = 
     contact = await db.get_contact(contact_id)
     if not contact:
         raise HTTPException(404, "Contacto no encontrado")
-    _check_auth(contact["bot_id"], token_empresa_id)
+    _check_auth(contact["connection_id"], token_empresa_id)
     if body.type not in ("whatsapp", "telegram"):
         raise HTTPException(400, f"Tipo de canal inválido: {body.type}")
     err = _validate_channel_value(body.type, body.value.strip(), body.is_group)
@@ -160,7 +160,7 @@ async def suggested_contacts(bot_id: str, token_empresa_id: str = Depends(_requi
         rows = (await session.execute(text("""
             SELECT DISTINCT m.phone, m.name
             FROM messages m
-            WHERE m.bot_id = :bot_id
+            WHERE m.connection_id = :bot_id
               AND m.outbound = 0
               AND m.phone NOT IN (
                   SELECT cc.value FROM contact_channels cc WHERE cc.type = 'whatsapp'

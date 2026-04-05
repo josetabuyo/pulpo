@@ -82,9 +82,9 @@ async def sync_history(empresa_id: str, body: SyncBody = SyncBody(), _: str = De
             text(
                 "SELECT m.phone, m.name, m.body, m.timestamp "
                 "FROM messages m "
-                "JOIN contacts c ON c.bot_id = :eid "
+                "JOIN contacts c ON c.connection_id = :eid "
                 "JOIN contact_channels cc ON cc.contact_id = c.id AND cc.value = m.phone "
-                f"WHERE m.bot_id = :eid AND m.outbound = 0 {extra_filter}"
+                f"WHERE m.connection_id = :eid AND m.outbound = 0 {extra_filter}"
                 "ORDER BY m.timestamp ASC"
             ),
             params,

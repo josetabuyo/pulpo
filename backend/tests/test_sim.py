@@ -169,7 +169,7 @@ def test_multi_empresa_dispatch(client):
             phone_to_bots.setdefault(num, []).append(bot["id"])
 
     shared = {num: ids for num, ids in phone_to_bots.items() if len(ids) >= 2}
-    assert shared, "No hay números WA compartidos entre empresas en phones.json"
+    assert shared, "No hay números WA compartidos entre empresas en connections.json"
 
     number, empresa_ids = next(iter(shared.items()))
 
@@ -184,7 +184,7 @@ def test_multi_empresa_dispatch(client):
 
     # Verificar que el mensaje aparece en DB para cada empresa
     messages = client.get("/api/messages", headers=ADMIN).json()
-    bots_logged = {m["bot_id"] for m in messages if m.get("body") == unique_text}
+    bots_logged = {m["connection_id"] for m in messages if m.get("body") == unique_text}
 
     for eid in empresa_ids:
         assert eid in bots_logged, (
