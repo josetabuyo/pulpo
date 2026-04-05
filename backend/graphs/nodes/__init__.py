@@ -10,7 +10,7 @@ Para agregar un nodo nuevo:
   3. Agregarlo al registro
 """
 from .message_trigger import MessageTriggerNode
-from .reply import ReplyNode
+from .send_message import SendMessageNode
 from .summarize import SummarizeNode
 from .router import RouterNode
 from .llm import LLMNode
@@ -23,17 +23,16 @@ NODE_REGISTRY: dict[str, type] = {
     "message_trigger": MessageTriggerNode,
 
     # Nodos genéricos
-    "router":      RouterNode,
-    "llm":         LLMNode,
-    "reply":       ReplyNode,
-    "fetch":       FetchNode,
-    "search":      SearchNode,
-    "notify":      NotifyNode,
+    "router":       RouterNode,
+    "llm":          LLMNode,
+    "send_message": SendMessageNode,
+    "fetch":        FetchNode,
+    "search":       SearchNode,
+    "notify":       NotifyNode,
+    "summarize":    SummarizeNode,
 
-    # Nodos específicos
-    "summarize":   SummarizeNode,
-
-    # Alias de compatibilidad hacia atrás (flows viejos que usen llm_respond)
+    # Aliases de compatibilidad
+    "reply":       SendMessageNode,  # reply → send_message con to=""
     "llm_respond": LLMNode,
 }
 
@@ -42,9 +41,9 @@ __all__ = [
     "MessageTriggerNode",
     "RouterNode",
     "LLMNode",
+    "SendMessageNode",
     "FetchNode",
     "SearchNode",
     "NotifyNode",
-    "ReplyNode",
     "SummarizeNode",
 ]

@@ -35,6 +35,7 @@ class FlowState:
     context: str = ""                  # texto acumulado de fetch/search/llm para el siguiente nodo
     query: str = ""                    # query expandida (llm output=query → fetch/search la lee)
     fb_posts: list = field(default_factory=list)  # posts de Facebook con text + image_url
+    vars: dict = field(default_factory=dict)       # valores arbitrarios: nodos escriben, placeholders leen
 
     # ── Salida (producida por nodos) ──────────────────────────────
     reply: Optional[str] = None

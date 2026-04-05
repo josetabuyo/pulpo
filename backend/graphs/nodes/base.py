@@ -20,7 +20,7 @@ def interpolate(template: str, state: FlowState) -> str:
       {{empresa_id}}    — id de la empresa
       {{canal}}         — whatsapp | telegram
     """
-    fields = {
+    builtin = {
         "message":       state.message or "",
         "reply":         state.reply or "",
         "context":       state.context or "",
@@ -31,10 +31,12 @@ def interpolate(template: str, state: FlowState) -> str:
         "empresa_id":    state.empresa_id or "",
         "canal":         state.canal or "",
     }
+    # state.vars tiene prioridad — valores dinámicos escritos por nodos anteriores
+    all_fields = {**builtin, **{k: str(v) for k, v in state.vars.items()}}
 
     def replace(match):
         key = match.group(1).strip()
-        return fields.get(key, match.group(0))  # deja {{unknown}} intacto
+        return all_fields.get(key, match.group(0))  # deja {{unknown}} intacto
 
     return re.sub(r"\{\{(\w+)\}\}", replace, template)
 
