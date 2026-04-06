@@ -44,7 +44,7 @@ def _flow(connection_id=None, contact_phone=None, message="Hola Test"):
         "definition": {
             "nodes": [
                 {"id": "trigger_node", "type": "message_trigger", "config": config},
-                {"id": "reply_node", "type": "reply", "config": {"message": message}},
+                {"id": "reply_node", "type": "send_message", "config": {"message": message}},
             ],
             "edges": [
                 {"id": "e1", "source": "trigger_node", "target": "reply_node", "label": None},
@@ -187,7 +187,7 @@ async def test_flow_con_message_trigger_y_connection_null_en_db():
         definition={
             "nodes": [
                 {"id": "input1", "type": "message_trigger", "config": {"connection_id": bot_id}},
-                {"id": "reply1", "type": "reply", "config": {"message": "Mensaje desde message_trigger"}},
+                {"id": "reply1", "type": "send_message", "config": {"message": "Mensaje desde message_trigger"}},
             ],
             "edges": [
                 {"id": "e1", "source": "input1", "target": "reply1", "label": None},
@@ -241,7 +241,7 @@ async def test_flow_con_message_trigger_wrong_connection():
         definition={
             "nodes": [
                 {"id": "input1", "type": "message_trigger", "config": {"connection_id": wrong_bot_id}},
-                {"id": "reply1", "type": "reply", "config": {"message": "No debe llegar"}},
+                {"id": "reply1", "type": "send_message", "config": {"message": "No debe llegar"}},
             ],
             "edges": [
                 {"id": "e1", "source": "input1", "target": "reply1", "label": None},
@@ -283,7 +283,7 @@ async def test_message_trigger_filtra_por_contact_phone():
         definition={
             "nodes": [
                 {"id": "input1", "type": "message_trigger", "config": {"connection_id": bot_id, "contact_phone": correct_contact}},
-                {"id": "reply1", "type": "reply", "config": {"message": "Mensaje para contacto específico"}},
+                {"id": "reply1", "type": "send_message", "config": {"message": "Mensaje para contacto específico"}},
             ],
             "edges": [
                 {"id": "e1", "source": "input1", "target": "reply1", "label": None},
@@ -347,7 +347,7 @@ async def test_message_trigger_sin_contact_phone_filtra_todos():
         definition={
             "nodes": [
                 {"id": "input1", "type": "message_trigger", "config": {"connection_id": bot_id}},
-                {"id": "reply1", "type": "reply", "config": {"message": "Mensaje para todos"}},
+                {"id": "reply1", "type": "send_message", "config": {"message": "Mensaje para todos"}},
             ],
             "edges": [
                 {"id": "e1", "source": "input1", "target": "reply1", "label": None},
@@ -418,7 +418,7 @@ async def test_migracion_start_a_message_trigger_explicito():
         definition={
             "nodes": [
                 {"id": "__start__", "type": "start", "config": {}},
-                {"id": "reply1", "type": "reply", "config": {"message": "Mensaje legacy"}},
+                {"id": "reply1", "type": "send_message", "config": {"message": "Mensaje legacy"}},
             ],
             "edges": [
                 {"id": "e1", "source": "__start__", "target": "reply1", "label": None},
@@ -436,7 +436,7 @@ async def test_migracion_start_a_message_trigger_explicito():
         definition={
             "nodes": [
                 {"id": "input1", "type": "message_trigger", "config": {"connection_id": bot_id, "contact_phone": contact_phone}},
-                {"id": "reply1", "type": "reply", "config": {"message": "Mensaje migrado"}},
+                {"id": "reply1", "type": "send_message", "config": {"message": "Mensaje migrado"}},
             ],
             "edges": [
                 {"id": "e1", "source": "input1", "target": "reply1", "label": None},
@@ -492,7 +492,7 @@ async def test_migracion_start_a_message_trigger_explicito():
             definition={
                 "nodes": [
                     {"id": "input1", "type": "message_trigger", "config": {"connection_id": bot_id, "contact_phone": "5491199991111"}},
-                    {"id": "reply1", "type": "reply", "config": {"message": "Mensaje para otro contacto"}},
+                    {"id": "reply1", "type": "send_message", "config": {"message": "Mensaje para otro contacto"}},
                 ],
                 "edges": [
                     {"id": "e1", "source": "input1", "target": "reply1", "label": None},
@@ -540,7 +540,7 @@ async def test_migracion_start_a_message_trigger_explicito():
             definition={
                 "nodes": [
                     {"id": "input1", "type": "message_trigger", "config": {"connection_id": bot_id}},
-                    {"id": "reply1", "type": "reply", "config": {"message": "Mensaje para todos"}},
+                    {"id": "reply1", "type": "send_message", "config": {"message": "Mensaje para todos"}},
                 ],
                 "edges": [
                     {"id": "e1", "source": "input1", "target": "reply1", "label": None},
@@ -590,7 +590,7 @@ async def test_flow_sin_nodo_entrada_no_se_ejecuta():
         name="__test_sin_nodo_entrada__",
         definition={
             "nodes": [
-                {"id": "reply1", "type": "reply", "config": {"message": "No debe ejecutarse"}},
+                {"id": "reply1", "type": "send_message", "config": {"message": "No debe ejecutarse"}},
             ],
             "edges": [],
             "viewport": {"x": 0, "y": 0, "zoom": 1}

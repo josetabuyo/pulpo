@@ -10,7 +10,7 @@ Para agregar un nodo nuevo:
   3. Agregarlo al registro
 """
 from .message_trigger import MessageTriggerNode
-from .send_message import SendMessageNode
+from .reply import SendMessageNode
 from .summarize import SummarizeNode
 from .router import RouterNode
 from .llm import LLMNode
@@ -31,8 +31,7 @@ NODE_REGISTRY: dict[str, type] = {
     "notify":       NotifyNode,
     "summarize":    SummarizeNode,
 
-    # Aliases de compatibilidad
-    "reply":       SendMessageNode,  # reply → send_message con to=""
+    # Alias de compatibilidad
     "llm_respond": LLMNode,
 }
 
