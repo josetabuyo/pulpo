@@ -18,6 +18,7 @@ import db
 from config import load_config
 from middleware_auth import get_empresa_id_from_token
 from graphs.node_types import NODE_TYPES
+from graphs.nodes import NODE_REGISTRY
 
 router = APIRouter()
 
@@ -44,11 +45,24 @@ def _require_empresa(empresa_id: str, request: Request, x_password: Optional[str
 
 @router.get("/flow/node-types")
 def list_node_types():
-    """Catálogo público de tipos de nodo: id, label, color, description."""
-    return [
-        {"id": nt.id, "label": nt.label, "color": nt.color, "description": nt.description}
-        for nt in NODE_TYPES.values()
-    ]
+    """
+    Catálogo de tipos de nodo: id, label, color, description, schema.
+    schema es una lista ordenada de campos: [{key, type, label, default?, hint?, rows?, required?, options?, show_if?}]
+    El frontend lo usa para renderizar el panel de configuración sin hardcodear nada.
+    """
+    result = []
+    for nt in NODE_TYPES.values():
+        node_class = NODE_REGISTRY.get(nt.id)
+        schema_dict = node_class.config_schema() if node_class else {}
+        schema = [{"key": k, **v} for k, v in schema_dict.items()]
+        result.append({
+            "id":          nt.id,
+            "label":       nt.label,
+            "color":       nt.color,
+            "description": nt.description,
+            "schema":      schema,
+        })
+    return result
 
 
 # ─── Schemas ─────────────────────────────────────────────────────────────────

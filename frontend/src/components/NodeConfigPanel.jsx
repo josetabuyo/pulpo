@@ -1,8 +1,13 @@
 /**
  * NodeConfigPanel — panel lateral derecho para configurar el nodo seleccionado.
  *
- * Schema-driven: cada tipo de nodo declara sus campos en NODE_SCHEMAS.
- * Soporta: string, textarea, select, float, bool, list (tags separados por coma).
+ * Totalmente dinámico: el schema de cada nodo viene del backend via
+ * GET /api/flow/node-types → typeMap[nodeType].schema
+ *
+ * Agregar un nodo nuevo = solo Python. El panel aparece solo.
+ *
+ * Tipos de campo soportados: string, textarea, select, float, bool, list.
+ * Campos condicionales: show_if: { campo: valor } — se ocultan si no se cumple.
  */
 import { useFlowStore } from '../store/flowStore.js'
 
@@ -73,56 +78,18 @@ const S = {
   },
 }
 
-// ─── Schemas por tipo de nodo ──────────────────────────────────────────────────
+// ─── Visibilidad condicional ───────────────────────────────────────────────────
 
-const NODE_SCHEMAS = {
-  message_trigger: [
-    { key: 'connection_id',   label: 'ID de conexión (bot_id)',            type: 'string',   required: true },
-    { key: 'contact_phone',   label: 'Teléfono del contacto',              type: 'string',   hint: 'Dejar vacío para todos' },
-    { key: 'message_pattern', label: 'Patrón regex',                       type: 'string',   hint: 'Opcional. Ej: .*urgente.*' },
-  ],
-  router: [
-    { key: 'prompt',   label: 'Prompt del clasificador', type: 'textarea', rows: 7 },
-    { key: 'routes',   label: 'Rutas válidas',           type: 'list',     hint: 'Separadas por coma — ej: noticias,oficio,auspiciante' },
-    { key: 'fallback', label: 'Ruta por defecto',        type: 'string',   hint: 'Si el LLM responde algo inválido' },
-    { key: 'model',    label: 'Modelo',                  type: 'string',   default: 'llama-3.3-70b-versatile' },
-  ],
-  llm: [
-    { key: 'prompt',        label: 'System prompt',           type: 'textarea', rows: 8 },
-    { key: 'model',         label: 'Modelo',                  type: 'string',   default: 'llama-3.3-70b-versatile' },
-    { key: 'temperature',   label: 'Temperatura',             type: 'float',    default: 0.3 },
-    { key: 'output',        label: 'Destino de la salida',    type: 'select',   options: ['reply', 'context', 'query'] },
-    { key: 'json_output',   label: 'Respuesta JSON',          type: 'bool',     default: false },
-    { key: 'json_reply_key',label: 'Clave JSON del reply',    type: 'string',   default: 'reply', hint: 'Solo si Respuesta JSON está activa' },
-  ],
-  send_message: [
-    { key: 'to',      label: 'Destinatario',  type: 'string',   hint: 'Vacío = usuario de la conversación. Soporta {{placeholders}}' },
-    { key: 'message', label: 'Mensaje',       type: 'textarea', rows: 5, hint: 'Soporta {{placeholders}} como {{worker_nombre}}' },
-    { key: 'channel', label: 'Canal',         type: 'select',   options: ['auto', 'telegram', 'whatsapp'] },
-  ],
-  vector_search: [
-    { key: 'collection',   label: 'Colección',              type: 'string', required: true, hint: 'ej: luganense_oficios, luganense_auspiciantes' },
-    { key: 'query_field',  label: 'Fuente del query',       type: 'select', options: ['message', 'query', 'context'] },
-    { key: 'output_field', label: 'Destino del resultado',  type: 'select', options: ['context', 'query'] },
-    { key: 'top_k',        label: 'Cantidad de resultados', type: 'float',  default: 3 },
-  ],
-  fetch: [
-    { key: 'source', label: 'Qué hace este nodo', type: 'select',
-      options: [
-        { value: 'facebook', label: 'Scrapear posts de Facebook' },
-        { value: 'fb_image', label: 'Extraer imagen de posts ya cargados' },
-        { value: 'http',     label: 'Fetch HTTP externo' },
-      ],
-    },
-    { key: 'fb_page_id',    label: 'Página de Facebook (slug)',  type: 'string', hint: 'ej: luganense, cnn, tuportal', showIf: c => c.source === 'facebook' },
-    { key: 'fb_numeric_id', label: 'ID numérico FB (opcional)',  type: 'string', hint: 'Habilita búsqueda directa. Ej: 100070998865103', showIf: c => c.source === 'facebook' },
-    { key: 'url',           label: 'URL',                        type: 'string', hint: 'https://...', showIf: c => c.source === 'http' },
-    { key: 'extract',       label: 'Formato de respuesta',       type: 'select', options: ['text', 'json', 'html'], showIf: c => c.source === 'http' },
-  ],
-  // summarize: sin config — se renderiza aparte con SummarizeInfo
+/**
+ * show_if viene del backend como { campo: valor }.
+ * El campo es visible si TODOS los pares se cumplen en config.
+ */
+function isVisible(field, config) {
+  if (!field.show_if) return true
+  return Object.entries(field.show_if).every(([k, v]) => config[k] === v)
 }
 
-// ─── Componentes de campo ──────────────────────────────────────────────────────
+// ─── Render de un campo ───────────────────────────────────────────────────────
 
 function Field({ field, config, onChange }) {
   const { key, label, type, hint, rows = 4, options = [], required } = field
@@ -193,7 +160,6 @@ function Field({ field, config, onChange }) {
   )
 
   if (type === 'list') {
-    // Almacenamos como array, mostramos como string CSV editable
     const csv = Array.isArray(value) ? value.join(', ') : value
     return (
       <div style={S.fieldWrap}>
@@ -210,7 +176,7 @@ function Field({ field, config, onChange }) {
     )
   }
 
-  // default: string
+  // string (default)
   return (
     <div style={S.fieldWrap}>
       {labelEl}
@@ -226,7 +192,8 @@ function Field({ field, config, onChange }) {
   )
 }
 
-// Info especial para el nodo Sumarizador
+// ─── Info especial: Sumarizador ────────────────────────────────────────────────
+
 function SummarizeInfo({ empresaId }) {
   const path = `data/summaries/${empresaId || '<empresa_id>'}/`
   const url  = `http://localhost:8000/api/summarizer/${empresaId || ''}`
@@ -247,7 +214,7 @@ function SummarizeInfo({ empresaId }) {
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          style={{ fontSize: 12, color: '#818cf8', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}
+          style={{ fontSize: 12, color: '#818cf8', textDecoration: 'none' }}
         >
           Ver resúmenes acumulados →
         </a>
@@ -258,17 +225,18 @@ function SummarizeInfo({ empresaId }) {
 
 // ─── Formulario principal ──────────────────────────────────────────────────────
 
-function ConfigForm({ node, empresaId }) {
+function ConfigForm({ node, schema, empresaId }) {
   const updateNodeConfig  = useFlowStore(s => s.updateNodeConfig)
   const deleteNode        = useFlowStore(s => s.deleteNode)
   const setSelectedNodeId = useFlowStore(s => s.setSelectedNodeId)
   const { nodeType, config, label, color } = node.data
 
-  const schema  = NODE_SCHEMAS[nodeType]
   const isFixed = nodeType === 'start' || nodeType === 'end'
 
   function handleChange(newConfig) { updateNodeConfig(node.id, newConfig) }
-  function handleDelete() { if (!isFixed) { deleteNode(node.id) } }
+  function handleDelete() { if (!isFixed) deleteNode(node.id) }
+
+  const visibleFields = (schema || []).filter(f => isVisible(f, config))
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: '100%' }}>
@@ -287,21 +255,13 @@ function ConfigForm({ node, empresaId }) {
 
       <div style={{ borderTop: '1px solid #1e293b', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 12, flex: 1, overflowY: 'auto' }}>
 
-        {/* Nodo sumarizador — info especial */}
-        {nodeType === 'summarize' && (
-          <SummarizeInfo empresaId={empresaId} />
-        )}
+        {nodeType === 'summarize' && <SummarizeInfo empresaId={empresaId} />}
 
-        {/* Nodos con schema */}
-        {schema && schema
-          .filter(field => !field.showIf || field.showIf(config))
-          .map(field => (
-            <Field key={field.key} field={field} config={config} onChange={handleChange} />
-          ))
-        }
+        {visibleFields.map(field => (
+          <Field key={field.key} field={field} config={config} onChange={handleChange} />
+        ))}
 
-        {/* Nodos sin config conocida */}
-        {!schema && nodeType !== 'summarize' && (
+        {nodeType !== 'summarize' && visibleFields.length === 0 && (
           <div style={{ fontSize: 12, color: '#475569' }}>
             Este nodo no tiene configuración adicional.
           </div>
@@ -335,6 +295,7 @@ function ConfigForm({ node, empresaId }) {
 
 export default function NodeConfigPanel({ empresaId }) {
   const nodes          = useFlowStore(s => s.nodes)
+  const typeMap        = useFlowStore(s => s.typeMap)
   const selectedNodeId = useFlowStore(s => s.selectedNodeId)
   const selectedNode   = selectedNodeId ? nodes.find(n => n.id === selectedNodeId) : null
 
@@ -356,6 +317,8 @@ export default function NodeConfigPanel({ empresaId }) {
     )
   }
 
+  const schema = typeMap[selectedNode.data.nodeType]?.schema || []
+
   return (
     <div style={{
       width: 260,
@@ -366,7 +329,11 @@ export default function NodeConfigPanel({ empresaId }) {
       display: 'flex',
       flexDirection: 'column',
     }}>
-      <ConfigForm node={selectedNode} empresaId={empresaId} />
+      <ConfigForm
+        node={selectedNode}
+        schema={schema}
+        empresaId={empresaId}
+      />
     </div>
   )
 }

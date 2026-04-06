@@ -52,8 +52,8 @@ class RouterNode(BaseNode):
     @classmethod
     def config_schema(cls) -> dict:
         return {
-            "prompt":   {"type": "string", "label": "Prompt del clasificador",          "default": ""},
-            "routes":   {"type": "list",   "label": "Rutas válidas (ej: a,b,c)",        "default": []},
-            "fallback": {"type": "string", "label": "Ruta por defecto si LLM falla",    "default": ""},
-            "model":    {"type": "string", "label": "Modelo",                           "default": "llama-3.3-70b-versatile"},
+            "prompt":   {"type": "textarea", "label": "Prompt del clasificador",    "default": "", "rows": 7},
+            "routes":   {"type": "list",     "label": "Rutas válidas",              "default": [], "hint": "Separadas por coma — ej: noticias,oficio,auspiciante"},
+            "fallback": {"type": "string",   "label": "Ruta por defecto",           "default": "", "hint": "Si el LLM responde algo inválido"},
+            "model":    {"type": "string",   "label": "Modelo",                     "default": "llama-3.3-70b-versatile"},
         }

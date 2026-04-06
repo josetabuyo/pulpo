@@ -92,14 +92,17 @@ class SendMessageNode(BaseNode):
         return {
             "to": {
                 "type":    "string",
-                "label":   "Destinatario (vacío = usuario de la conversación)",
+                "label":   "Destinatario",
                 "default": "",
+                "hint":    "Vacío = usuario de la conversación. Soporta {{placeholders}}",
             },
             "message": {
-                "type":     "string",
-                "label":    "Mensaje (soporta {{placeholders}})",
+                "type":     "textarea",
+                "label":    "Mensaje",
                 "default":  "",
                 "required": True,
+                "rows":     5,
+                "hint":     "Soporta {{placeholders}} como {{worker_nombre}}",
             },
             "channel": {
                 "type":    "select",

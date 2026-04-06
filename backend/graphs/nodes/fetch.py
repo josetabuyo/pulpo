@@ -103,13 +103,42 @@ class FetchNode(BaseNode):
     @classmethod
     def config_schema(cls) -> dict:
         return {
-            "source":         {"type": "select", "label": "Fuente",                      "default": "facebook",
-                               "options": ["facebook", "fb_image", "http"]},
-            "fb_page_id":     {"type": "string", "label": "Página de Facebook (slug)",   "default": "",
-                               "hint": "ej: luganense, cnn, tuportaldebarrio"},
-            "fb_numeric_id":  {"type": "string", "label": "ID numérico de FB (opcional)","default": "",
-                               "hint": "Habilita búsqueda directa. Ej: 100070998865103"},
-            "url":            {"type": "string", "label": "URL (solo para source=http)", "default": ""},
-            "extract":        {"type": "select", "label": "Extraer (HTTP)",               "default": "text",
-                               "options": ["text", "json", "html"]},
+            "source": {
+                "type":    "select",
+                "label":   "Qué hace este nodo",
+                "default": "facebook",
+                "options": [
+                    {"value": "facebook", "label": "Scrapear posts de Facebook"},
+                    {"value": "fb_image", "label": "Extraer imagen de posts ya cargados"},
+                    {"value": "http",     "label": "Fetch HTTP externo"},
+                ],
+            },
+            "fb_page_id": {
+                "type":    "string",
+                "label":   "Página de Facebook (slug)",
+                "default": "",
+                "hint":    "ej: luganense, cnn, tuportal",
+                "show_if": {"source": "facebook"},
+            },
+            "fb_numeric_id": {
+                "type":    "string",
+                "label":   "ID numérico FB (opcional)",
+                "default": "",
+                "hint":    "Habilita búsqueda directa. Ej: 100070998865103",
+                "show_if": {"source": "facebook"},
+            },
+            "url": {
+                "type":    "string",
+                "label":   "URL",
+                "default": "",
+                "hint":    "https://...",
+                "show_if": {"source": "http"},
+            },
+            "extract": {
+                "type":    "select",
+                "label":   "Formato de respuesta",
+                "default": "text",
+                "options": ["text", "json", "html"],
+                "show_if": {"source": "http"},
+            },
         }

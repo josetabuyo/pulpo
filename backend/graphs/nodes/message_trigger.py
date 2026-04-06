@@ -33,15 +33,14 @@ class MessageTriggerNode(BaseNode):
             },
             "contact_phone": {
                 "type": "string",
-                "label": "Teléfono del contacto (dejar vacío para todos)",
+                "label": "Teléfono del contacto",
                 "default": "",
-                "required": False,
+                "hint": "Dejar vacío para todos los contactos",
             },
             "message_pattern": {
                 "type": "string",
-                "label": "Patrón regex (opcional)",
+                "label": "Patrón regex",
                 "default": "",
-                "required": False,
-                "description": "Filtrar por contenido del mensaje. Ej: .*urgente.*"
-            }
+                "hint": "Opcional. Ej: .*urgente.*",
+            },
         }

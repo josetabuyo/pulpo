@@ -25,6 +25,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved 
   const { screenToFlowPosition } = useReactFlow()
 
   const loadFlow         = useFlowStore(s => s.loadFlow)
+  const setTypeMap       = useFlowStore(s => s.setTypeMap)
   const nodes            = useFlowStore(s => s.nodes)
   const edges            = useFlowStore(s => s.edges)
   const onNodesChange    = useFlowStore(s => s.onNodesChange)
@@ -34,8 +35,9 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved 
   const addNode          = useFlowStore(s => s.addNode)
   const reset            = useFlowStore(s => s.reset)
 
-  // Cargar el flow en el store al montar (o cuando cambia el flow)
+  // Cargar el flow y el typeMap en el store al montar
   useEffect(() => {
+    setTypeMap(typeMap)
     loadFlow(flow.definition, typeMap)
     return () => reset()
   }, [flow.id])

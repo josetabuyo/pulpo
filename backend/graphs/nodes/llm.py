@@ -95,11 +95,12 @@ class LLMNode(BaseNode):
     @classmethod
     def config_schema(cls) -> dict:
         return {
-            "prompt":         {"type": "string", "label": "System prompt",        "default": ""},
-            "model":          {"type": "string", "label": "Modelo",               "default": "llama-3.3-70b-versatile"},
-            "temperature":    {"type": "float",  "label": "Temperatura",          "default": 0.3},
-            "output":         {"type": "select", "label": "Destino de la salida", "default": "reply",
+            "prompt":         {"type": "textarea", "label": "System prompt",        "default": "", "rows": 8},
+            "model":          {"type": "string",   "label": "Modelo",               "default": "llama-3.3-70b-versatile"},
+            "temperature":    {"type": "float",    "label": "Temperatura",          "default": 0.3},
+            "output":         {"type": "select",   "label": "Destino de la salida", "default": "reply",
                                "options": ["reply", "context", "query"]},
-            "json_output":    {"type": "bool",   "label": "Respuesta JSON",       "default": False},
-            "json_reply_key": {"type": "string", "label": "Clave JSON del reply", "default": "reply"},
+            "json_output":    {"type": "bool",     "label": "Respuesta JSON",       "default": False},
+            "json_reply_key": {"type": "string",   "label": "Clave JSON del reply", "default": "reply",
+                               "hint": "Solo si Respuesta JSON está activa"},
         }
