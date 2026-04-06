@@ -15,6 +15,16 @@ const DEFAULT_CONFIGS = {
 }
 
 /**
+ * Convierte el ID de un nodo en un label legible.
+ * "expandir_consulta" → "Expandir consulta"
+ * "node_1234567890"   → null (fallback al label del tipo)
+ */
+function humanizeId(id) {
+  if (/^node_\d+$/.test(id)) return null
+  return id.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase())
+}
+
+/**
  * Convierte un nodo del formato DB al formato React Flow.
  *
  * DB:  { id, type: "reply", position, config }
@@ -33,7 +43,7 @@ export function dbNodeToRF(node, typeMap = {}) {
     data: {
       nodeType:    node.type,
       config:      node.config || {},
-      label:       meta.label       || node.type,
+      label:       humanizeId(node.id) || meta.label || node.type,
       color:       meta.color       || '#1e293b',
       description: meta.description || '',
     },

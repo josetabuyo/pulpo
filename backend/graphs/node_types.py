@@ -52,6 +52,18 @@ NODE_TYPES: dict[str, NodeType] = {
         color="#0f766e",
         description="Consulta fuentes internas: lista de oficios, auspiciantes, trabajadores.",
     ),
+    "vector_search": NodeType(
+        id="vector_search",
+        label="Búsqueda vectorial",
+        color="#0e7490",
+        description="Busca en una colección vectorial (oficios, auspiciantes, etc.).",
+    ),
+    "send_message": NodeType(
+        id="send_message",
+        label="Enviar mensaje",
+        color="#15803d",
+        description="Envía un mensaje al usuario o a un contacto externo vía WA/TG.",
+    ),
     "llm": NodeType(
         id="llm",
         label="Respuesta LLM",
@@ -136,7 +148,7 @@ def classify(node_id: str) -> NodeType:
     if "buscar" in node_id:
         if "fb" in node_id or "facebook" in node_id or "post" in node_id:
             return NODE_TYPES["fetch"]
-        return NODE_TYPES["search"]
+        return NODE_TYPES["vector_search"]
     if ("expandir" in node_id or "expand" in node_id
             or "responder" in node_id or "respond" in node_id
             or "generar" in node_id or "generate" in node_id
@@ -144,7 +156,7 @@ def classify(node_id: str) -> NodeType:
             or "assistant" in node_id):
         return NODE_TYPES["llm"]
     if "notificar" in node_id or "notify" in node_id:
-        return NODE_TYPES["notify"]
+        return NODE_TYPES["send_message"]
     if "summar" in node_id:
         return NODE_TYPES["summarize"]
     if "reply" in node_id or "fixed" in node_id:
