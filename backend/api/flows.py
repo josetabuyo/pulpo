@@ -152,12 +152,9 @@ async def delete_flow(
 
 _DEFAULT_FLOW_DEFINITION = {
     "nodes": [
-        {"id": "__start__", "type": "start", "position": {"x": 250, "y": 50},  "config": {}},
-        {"id": "__end__",   "type": "end",   "position": {"x": 250, "y": 200}, "config": {}},
+        {"id": "message_trigger_1", "type": "message_trigger", "position": {"x": 250, "y": 50}, "config": {}},
     ],
-    "edges": [
-        {"id": "e1", "source": "__start__", "target": "__end__", "label": None},
-    ],
+    "edges": [],
     "viewport": {"x": 0, "y": 0, "zoom": 1},
 }
 

@@ -26,11 +26,17 @@ const DEFAULT_CONFIGS = {
 
 /**
  * Convierte el ID de un nodo en un label legible.
- * "expandir_consulta" → "Expandir consulta"
- * "node_1234567890"   → null (fallback al label del tipo)
+ * "expandir_consulta"  → "Expandir consulta"
+ * "node_1234567890"    → null (fallback al label del tipo)
+ * "message_trigger_1"  → null (sufijo numérico → fallback)
+ * "__end__"            → null (nodo interno → fallback)
+ * "main_node"          → null (nombre genérico → fallback)
  */
 function humanizeId(id) {
-  if (/^node_\d+$/.test(id)) return null
+  if (/^node_\d+$/.test(id)) return null   // auto-generado
+  if (/^__/.test(id)) return null           // interno LangGraph
+  if (/_\d+$/.test(id)) return null         // sufijo numérico (message_trigger_1)
+  if (id === 'main_node') return null        // genérico
   return id.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase())
 }
 
