@@ -15,23 +15,19 @@ from .summarize import SummarizeNode
 from .router import RouterNode
 from .llm import LLMNode
 from .fetch import FetchNode
-from .search import SearchNode
 from .vector_search import VectorSearchNode
-from .notify import NotifyNode
 
 NODE_REGISTRY: dict[str, type] = {
     # Triggers
     "message_trigger": MessageTriggerNode,
 
     # Nodos genéricos
-    "router":       RouterNode,
-    "llm":          LLMNode,
-    "send_message": SendMessageNode,
-    "fetch":        FetchNode,
-    "search":       SearchNode,
+    "router":        RouterNode,
+    "llm":           LLMNode,
+    "send_message":  SendMessageNode,
+    "fetch":         FetchNode,
     "vector_search": VectorSearchNode,
-    "notify":       NotifyNode,
-    "summarize":    SummarizeNode,
+    "summarize":     SummarizeNode,
 
     # Alias de compatibilidad
     "llm_respond": LLMNode,
@@ -44,8 +40,6 @@ __all__ = [
     "LLMNode",
     "SendMessageNode",
     "FetchNode",
-    "SearchNode",
     "VectorSearchNode",
-    "NotifyNode",
     "SummarizeNode",
 ]
