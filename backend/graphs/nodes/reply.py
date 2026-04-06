@@ -25,7 +25,7 @@ class SendMessageNode(BaseNode):
 
         to      = interpolate(self.config.get("to", ""), state).strip()
         message = interpolate(self.config.get("message", ""), state)
-        channel = self.config.get("channel", "auto")
+        channel = interpolate(self.config.get("channel", "auto"), state).strip() or "auto"
 
         if not to:
             state.reply = message
