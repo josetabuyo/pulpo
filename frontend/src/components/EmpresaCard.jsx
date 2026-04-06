@@ -299,6 +299,13 @@ function ConnectionRow({
     }, 3000)
   }
 
+  async function cancelConnect() {
+    stopRef.current?.()
+    setShowQr(false)
+    setLocalStatus('stopped')
+    await apiCall('POST', `/empresa/${botId}/disconnect/${conn.id}`, null).catch(() => null)
+  }
+
   async function empresaDisconnect() {
     await apiCall('POST', `/empresa/${botId}/disconnect/${conn.id}`, null).catch(() => null)
     setLocalStatus('disconnected')
@@ -371,7 +378,7 @@ function ConnectionRow({
           <p className="qr-hint">WhatsApp → <strong>Dispositivos vinculados</strong> → <strong>Vincular dispositivo</strong></p>
           <div className="qr-wrap">{qrSrc ? <img src={qrSrc} alt="QR" /> : <div className="spinner" />}</div>
           <p className="qr-status">{qrStatus}</p>
-          <button className="btn-ghost btn-sm" style={{ marginTop: 8 }} onClick={() => { stopRef.current?.(); setShowQr(false) }}>Cancelar</button>
+          <button className="btn-ghost btn-sm" style={{ marginTop: 8 }} onClick={cancelConnect}>Cancelar</button>
         </div>
       )}
 
