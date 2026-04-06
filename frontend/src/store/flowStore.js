@@ -12,6 +12,7 @@ export const PALETTE_TYPES = [
   'fetch',
   'summarize',
 ]
+// Nota: luganense_flow eliminado — era un mega-nodo legacy, reemplazado por nodos individuales
 
 // Config por defecto al crear un nodo nuevo desde la paleta
 const DEFAULT_CONFIGS = {

@@ -107,11 +107,17 @@ const NODE_SCHEMAS = {
     { key: 'top_k',        label: 'Cantidad de resultados', type: 'float',  default: 3 },
   ],
   fetch: [
-    { key: 'source',        label: 'Fuente',                       type: 'select', options: ['facebook', 'fb_image', 'http'] },
-    { key: 'fb_page_id',    label: 'Página de Facebook (slug)',    type: 'string', hint: 'ej: luganense, cnn, tuportal', showIf: c => c.source !== 'http' && c.source !== 'fb_image' },
-    { key: 'fb_numeric_id', label: 'ID numérico FB (opcional)',    type: 'string', hint: 'Habilita búsqueda directa. Ej: 100070998865103', showIf: c => c.source !== 'http' && c.source !== 'fb_image' },
-    { key: 'url',           label: 'URL',                          type: 'string', hint: 'https://...', showIf: c => c.source === 'http' },
-    { key: 'extract',       label: 'Extraer',                      type: 'select', options: ['text', 'json', 'html'], showIf: c => c.source === 'http' },
+    { key: 'source', label: 'Qué hace este nodo', type: 'select',
+      options: [
+        { value: 'facebook', label: 'Scrapear posts de Facebook' },
+        { value: 'fb_image', label: 'Extraer imagen de posts ya cargados' },
+        { value: 'http',     label: 'Fetch HTTP externo' },
+      ],
+    },
+    { key: 'fb_page_id',    label: 'Página de Facebook (slug)',  type: 'string', hint: 'ej: luganense, cnn, tuportal', showIf: c => c.source === 'facebook' },
+    { key: 'fb_numeric_id', label: 'ID numérico FB (opcional)',  type: 'string', hint: 'Habilita búsqueda directa. Ej: 100070998865103', showIf: c => c.source === 'facebook' },
+    { key: 'url',           label: 'URL',                        type: 'string', hint: 'https://...', showIf: c => c.source === 'http' },
+    { key: 'extract',       label: 'Formato de respuesta',       type: 'select', options: ['text', 'json', 'html'], showIf: c => c.source === 'http' },
   ],
   // summarize: sin config — se renderiza aparte con SummarizeInfo
 }
@@ -147,7 +153,11 @@ function Field({ field, config, onChange }) {
     <div style={S.fieldWrap}>
       {labelEl}
       <select style={S.select} value={value} onChange={e => set(e.target.value)}>
-        {options.map(o => <option key={o} value={o}>{o}</option>)}
+        {options.map(o => {
+          const val = typeof o === 'object' ? o.value : o
+          const lbl = typeof o === 'object' ? o.label : o
+          return <option key={val} value={val}>{lbl}</option>
+        })}
       </select>
     </div>
   )

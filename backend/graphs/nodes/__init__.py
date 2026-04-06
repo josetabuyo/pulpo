@@ -18,28 +18,19 @@ from .fetch import FetchNode
 from .vector_search import VectorSearchNode
 
 NODE_REGISTRY: dict[str, type] = {
-    # Triggers
     "message_trigger": MessageTriggerNode,
-
-    # Nodos genéricos
-    "router":        RouterNode,
-    "llm":           LLMNode,
-    "send_message":  SendMessageNode,
-    "fetch":         FetchNode,
-    "vector_search": VectorSearchNode,
-    "summarize":     SummarizeNode,
-
-    # Alias de compatibilidad
-    "llm_respond": LLMNode,
+    "router":          RouterNode,
+    "llm":             LLMNode,
+    "send_message":    SendMessageNode,
+    "fetch":           FetchNode,
+    "vector_search":   VectorSearchNode,
+    "summarize":       SummarizeNode,
+    # Alias legacy
+    "llm_respond":     LLMNode,
 }
 
 __all__ = [
     "NODE_REGISTRY",
-    "MessageTriggerNode",
-    "RouterNode",
-    "LLMNode",
-    "SendMessageNode",
-    "FetchNode",
-    "VectorSearchNode",
-    "SummarizeNode",
+    "MessageTriggerNode", "RouterNode", "LLMNode", "SendMessageNode",
+    "FetchNode", "VectorSearchNode", "SummarizeNode",
 ]

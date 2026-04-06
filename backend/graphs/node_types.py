@@ -94,12 +94,6 @@ NODE_TYPES: dict[str, NodeType] = {
         color="#6b21a8",
         description="Genera una respuesta usando un modelo de lenguaje (Groq / Llama).",
     ),
-    "luganense_flow": NodeType(
-        id="luganense_flow",
-        label="Flujo Luganense",
-        color="#1e40af",
-        description="Ejecuta el flujo completo de Luganense FC.",
-    ),
     "message_trigger": NodeType(
         id="message_trigger",
         label="Trigger de mensaje",
