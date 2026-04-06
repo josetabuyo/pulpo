@@ -3,15 +3,25 @@ import { applyNodeChanges, applyEdgeChanges, addEdge } from '@xyflow/react'
 
 // Tipos de nodo disponibles en la paleta (los que el usuario puede arrastrar).
 // El orden importa: así aparecen en la paleta.
-export const PALETTE_TYPES = ['message_trigger', 'reply', 'llm_respond', 'summarize', 'luganense_flow']
+export const PALETTE_TYPES = [
+  'message_trigger',
+  'router',
+  'llm',
+  'send_message',
+  'vector_search',
+  'fetch',
+  'summarize',
+]
 
 // Config por defecto al crear un nodo nuevo desde la paleta
 const DEFAULT_CONFIGS = {
   message_trigger: { connection_id: '', contact_phone: '', message_pattern: '' },
-  reply:          { message: '' },
-  llm_respond:    { prompt: '' },
-  summarize:      {},
-  luganense_flow: {},
+  router:          { prompt: '', routes: [], fallback: '', model: 'llama-3.3-70b-versatile' },
+  llm:             { prompt: '', model: 'llama-3.3-70b-versatile', temperature: 0.3, output: 'reply' },
+  send_message:    { to: '', message: '' },
+  vector_search:   { collection: '' },
+  fetch:           { source: '' },
+  summarize:       {},
 }
 
 /**
