@@ -107,8 +107,11 @@ const NODE_SCHEMAS = {
     { key: 'top_k',        label: 'Cantidad de resultados', type: 'float',  default: 3 },
   ],
   fetch: [
-    { key: 'source',     label: 'Fuente',     type: 'select', options: ['facebook', 'fb_image'] },
-    { key: 'empresa_id', label: 'Empresa ID', type: 'string', hint: 'ej: luganense' },
+    { key: 'source',        label: 'Fuente',                       type: 'select', options: ['facebook', 'fb_image', 'http'] },
+    { key: 'fb_page_id',    label: 'Página de Facebook (slug)',    type: 'string', hint: 'ej: luganense, cnn, tuportal', showIf: c => c.source !== 'http' && c.source !== 'fb_image' },
+    { key: 'fb_numeric_id', label: 'ID numérico FB (opcional)',    type: 'string', hint: 'Habilita búsqueda directa. Ej: 100070998865103', showIf: c => c.source !== 'http' && c.source !== 'fb_image' },
+    { key: 'url',           label: 'URL',                          type: 'string', hint: 'https://...', showIf: c => c.source === 'http' },
+    { key: 'extract',       label: 'Extraer',                      type: 'select', options: ['text', 'json', 'html'], showIf: c => c.source === 'http' },
   ],
   // summarize: sin config — se renderiza aparte con SummarizeInfo
 }
@@ -280,9 +283,12 @@ function ConfigForm({ node, empresaId }) {
         )}
 
         {/* Nodos con schema */}
-        {schema && schema.map(field => (
-          <Field key={field.key} field={field} config={config} onChange={handleChange} />
-        ))}
+        {schema && schema
+          .filter(field => !field.showIf || field.showIf(config))
+          .map(field => (
+            <Field key={field.key} field={field} config={config} onChange={handleChange} />
+          ))
+        }
 
         {/* Nodos sin config conocida */}
         {!schema && nodeType !== 'summarize' && (

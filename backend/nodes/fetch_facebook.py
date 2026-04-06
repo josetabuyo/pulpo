@@ -41,10 +41,12 @@ _posts_cache: dict[str, tuple[float, list[dict]]] = {}
 
 # ─── Interfaz pública ────────────────────────────────────────────────────────
 
-async def fetch_posts(page_id: str, query: str = "") -> list[dict]:
+async def fetch_posts(page_id: str, query: str = "", numeric_id: str = "") -> list[dict]:
     """
     Retorna lista de posts: [{"text": str, "image_url": str}].
-    Los posts estáticos siempre se incluyen al principio.
+    - page_id:    slug de la página FB (ej: "luganense", "cnn")
+    - numeric_id: ID numérico (opcional) — habilita búsqueda directa dentro de la página
+    Los posts estáticos (solo para páginas configuradas) se incluyen al principio.
     Cachea 30 min por (page_id, query).
     """
     cache_key = f"{page_id}:{query}"
@@ -53,9 +55,12 @@ async def fetch_posts(page_id: str, query: str = "") -> list[dict]:
         logger.debug("[fetch_facebook] cache hit — %s", cache_key)
         return cached[1]
 
-    scraped = await _load_posts(page_id, query)
+    # numeric_id: el parámetro tiene precedencia, luego el diccionario hardcodeado
+    resolved_numeric_id = numeric_id or _PAGE_NUMERIC_IDS.get(page_id, "")
 
-    # Posts estáticos (reels y contenido no scrapeble en headless) — siempre primero
+    scraped = await _load_posts(page_id, query, resolved_numeric_id)
+
+    # Posts estáticos opcionales (solo para páginas con override configurado)
     static_posts = _STATIC_POSTS.get(page_id, [])
     static_dicts = [{"text": sp, "image_url": ""} for sp in static_posts]
     for i, sp in enumerate(static_dicts):
@@ -68,9 +73,9 @@ async def fetch_posts(page_id: str, query: str = "") -> list[dict]:
     return posts
 
 
-async def fetch(page_id: str, query: str = "") -> str:
+async def fetch(page_id: str, query: str = "", numeric_id: str = "") -> str:
     """Texto combinado de todos los posts. Compatibilidad con código existente."""
-    posts = await fetch_posts(page_id, query)
+    posts = await fetch_posts(page_id, query, numeric_id)
     return "\n\n".join(p["text"] for p in posts if p["text"])
 
 
@@ -84,7 +89,7 @@ def invalidate(page_id: str) -> None:
 
 # ─── Implementación interna ──────────────────────────────────────────────────
 
-async def _load_posts(page_id: str, query: str) -> list[dict]:
+async def _load_posts(page_id: str, query: str, numeric_id: str = "") -> list[dict]:
     """Scrapea FB y retorna posts estructurados. Sin cache ni posts estáticos."""
     from playwright.async_api import async_playwright
 
@@ -134,7 +139,7 @@ async def _load_posts(page_id: str, query: str) -> list[dict]:
             return []
 
         if query:
-            posts = await _search_and_scrape(page, query, page_id)
+            posts = await _search_and_scrape(page, query, page_id, numeric_id)
         else:
             posts = await _scrape_posts(page, page_id)
 
@@ -313,7 +318,7 @@ async def _scrape_search_feed(page) -> tuple[str, str]:
     return "\n".join(lines[:150]), image_url
 
 
-async def _search_and_scrape(page, query: str, page_id: str = "") -> list[dict]:
+async def _search_and_scrape(page, query: str, page_id: str = "", numeric_id: str = "") -> list[dict]:
     """
     Navega a la URL de búsqueda directa de la página.
     Fallback: scraping del feed con seeds si la búsqueda no rinde resultados.
@@ -321,7 +326,6 @@ async def _search_and_scrape(page, query: str, page_id: str = "") -> list[dict]:
     """
     import urllib.parse
 
-    numeric_id = _PAGE_NUMERIC_IDS.get(page_id)
     if numeric_id:
         try:
             search_url = (

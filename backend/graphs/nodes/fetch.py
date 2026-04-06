@@ -30,7 +30,10 @@ class FetchNode(BaseNode):
         return state
 
     async def _fetch_facebook(self, state: FlowState) -> None:
-        empresa_id = self.config.get("empresa_id") or state.empresa_id
+        # page_id: config explícito tiene precedencia, luego empresa_id del state
+        page_id    = self.config.get("fb_page_id") or state.empresa_id
+        numeric_id = self.config.get("fb_numeric_id", "")
+
         # Queries: usa state.query (multi-línea) o el mensaje directo
         if state.query:
             queries = [q.strip() for q in state.query.splitlines() if q.strip()]
@@ -42,7 +45,7 @@ class FetchNode(BaseNode):
             from nodes import fetch_facebook
 
             results = await asyncio.gather(*[
-                fetch_facebook.fetch_posts(empresa_id, q) for q in queries
+                fetch_facebook.fetch_posts(page_id, q, numeric_id) for q in queries
             ])
 
             # Deduplicar por texto
@@ -100,10 +103,13 @@ class FetchNode(BaseNode):
     @classmethod
     def config_schema(cls) -> dict:
         return {
-            "source":     {"type": "select", "label": "Fuente",      "default": "facebook",
-                           "options": ["facebook", "fb_image", "http"]},
-            "empresa_id": {"type": "string", "label": "Empresa ID",  "default": ""},
-            "url":        {"type": "url",    "label": "URL (HTTP)",   "default": ""},
-            "extract":    {"type": "select", "label": "Extraer",      "default": "text",
-                           "options": ["text", "json", "html"]},
+            "source":         {"type": "select", "label": "Fuente",                      "default": "facebook",
+                               "options": ["facebook", "fb_image", "http"]},
+            "fb_page_id":     {"type": "string", "label": "Página de Facebook (slug)",   "default": "",
+                               "hint": "ej: luganense, cnn, tuportaldebarrio"},
+            "fb_numeric_id":  {"type": "string", "label": "ID numérico de FB (opcional)","default": "",
+                               "hint": "Habilita búsqueda directa. Ej: 100070998865103"},
+            "url":            {"type": "string", "label": "URL (solo para source=http)", "default": ""},
+            "extract":        {"type": "select", "label": "Extraer (HTTP)",               "default": "text",
+                               "options": ["text", "json", "html"]},
         }
