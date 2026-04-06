@@ -16,6 +16,7 @@ from .router import RouterNode
 from .llm import LLMNode
 from .fetch import FetchNode
 from .search import SearchNode
+from .vector_search import VectorSearchNode
 from .notify import NotifyNode
 
 NODE_REGISTRY: dict[str, type] = {
@@ -28,6 +29,7 @@ NODE_REGISTRY: dict[str, type] = {
     "send_message": SendMessageNode,
     "fetch":        FetchNode,
     "search":       SearchNode,
+    "vector_search": VectorSearchNode,
     "notify":       NotifyNode,
     "summarize":    SummarizeNode,
 
@@ -43,6 +45,7 @@ __all__ = [
     "SendMessageNode",
     "FetchNode",
     "SearchNode",
+    "VectorSearchNode",
     "NotifyNode",
     "SummarizeNode",
 ]
