@@ -75,7 +75,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved 
           onDrop={handleDrop}
           onNodeDoubleClick={handleNodeDoubleClick}
         />
-        <NodeConfigPanel />
+        <NodeConfigPanel empresaId={flow.empresa_id} />
       </div>
     </div>
   )
