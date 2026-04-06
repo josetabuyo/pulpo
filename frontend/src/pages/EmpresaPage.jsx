@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { authFetch, setAccessToken, clearAccessToken, getAccessToken } from '../lib/auth.js'
 import EmpresaCard from '../components/EmpresaCard.jsx'
 
@@ -66,8 +66,8 @@ function EmpresaDashboard({ botId, botName: initialBotName, onLogout }) {
 
 // ─── EmpresaLogin ────────────────────────────────────────────────
 
-function EmpresaLogin({ onLogin }) {
-  const [botId, setBotId] = useState('')
+function EmpresaLogin({ onLogin, prefillBotId = '' }) {
+  const [botId, setBotId] = useState(prefillBotId)
   const [pwd, setPwd]     = useState('')
   const [error, setError] = useState('')
 
@@ -119,6 +119,7 @@ function EmpresaLogin({ onLogin }) {
 // ─── Página principal ────────────────────────────────────────────
 
 export default function EmpresaPage() {
+  const { botId: botIdFromUrl } = useParams()
   const [session, setSession] = useState(null)
 
   useEffect(() => {
@@ -177,5 +178,5 @@ export default function EmpresaPage() {
     )
   }
 
-  return <EmpresaLogin onLogin={handleLogin} />
+  return <EmpresaLogin onLogin={handleLogin} prefillBotId={botIdFromUrl || ''} />
 }

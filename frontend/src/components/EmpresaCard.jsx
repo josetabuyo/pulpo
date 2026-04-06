@@ -39,6 +39,43 @@ export function normalizeBot(bot) {
   }
 }
 
+// ─── CopyLinkBtn ─────────────────────────────────────────────────────────────────
+
+function CopyLinkBtn({ botId }) {
+  const [copied, setCopied] = useState(false)
+
+  function getUrl() {
+    const base = import.meta.env.VITE_PUBLIC_URL || window.location.origin
+    return `${base}/empresa/${botId}`
+  }
+
+  function handleClick(e) {
+    e.stopPropagation()
+    const url = getUrl()
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  return (
+    <span
+      title={copied ? '¡Copiado!' : getUrl()}
+      onClick={handleClick}
+      style={{
+        cursor: 'pointer',
+        fontSize: 13,
+        color: copied ? '#22c55e' : '#475569',
+        transition: 'color 0.2s',
+        userSelect: 'none',
+        lineHeight: 1,
+      }}
+    >
+      {copied ? '✓' : '🔗'}
+    </span>
+  )
+}
+
 // ─── StatusPill ─────────────────────────────────────────────────────────────────
 
 function StatusPill({ status, isTg }) {
@@ -469,6 +506,7 @@ export default function EmpresaCard({
               <span className="ec-bot-name">{bot.name}</span>
               <span className="ec-bot-id">{bot.id}</span>
               {simMode && <span className="ec-sim-mode-badge">MODO SIM</span>}
+              <CopyLinkBtn botId={bot.id} />
             </div>
           </div>
           <div className="ec-header-right">
