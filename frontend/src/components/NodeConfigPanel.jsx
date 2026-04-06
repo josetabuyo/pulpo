@@ -9,6 +9,7 @@
  * Tipos de campo soportados: string, textarea, select, float, bool, list.
  * Campos condicionales: show_if: { campo: valor } — se ocultan si no se cumple.
  */
+import { useState, useEffect } from 'react'
 import { useFlowStore } from '../store/flowStore.js'
 
 // ─── Estilos base ─────────────────────────────────────────────────────────────
@@ -89,11 +90,56 @@ function isVisible(field, config) {
   return Object.entries(field.show_if).every(([k, v]) => config[k] === v)
 }
 
+// ─── Campo JSON editable ───────────────────────────────────────────────────────
+
+function JsonField({ field, value, set, labelEl }) {
+  const { hint } = field
+  const [raw, setRaw]     = useState(JSON.stringify(value, null, 2))
+  const [error, setError] = useState(null)
+
+  // Sync externo → local (cuando el nodo cambia)
+  useEffect(() => {
+    setRaw(JSON.stringify(value, null, 2))
+    setError(null)
+  }, [JSON.stringify(value)])
+
+  function handleChange(text) {
+    setRaw(text)
+    try {
+      const parsed = JSON.parse(text)
+      setError(null)
+      set(parsed)
+    } catch {
+      setError('JSON inválido')
+    }
+  }
+
+  return (
+    <div style={S.fieldWrap}>
+      {labelEl}
+      <textarea
+        style={{
+          ...S.textarea,
+          minHeight: 160,
+          fontFamily: 'monospace',
+          fontSize: 11,
+          border: error ? '1px solid #ef4444' : S.textarea.border,
+        }}
+        value={raw}
+        onChange={e => handleChange(e.target.value)}
+        spellCheck={false}
+      />
+      {error && <span style={{ ...S.hint, color: '#ef4444' }}>{error}</span>}
+      {!error && hint && <span style={S.hint}>{hint}</span>}
+    </div>
+  )
+}
+
 // ─── Render de un campo ───────────────────────────────────────────────────────
 
 function Field({ field, config, onChange }) {
   const { key, label, type, hint, rows = 4, options = [], required } = field
-  const value = config[key] ?? field.default ?? (type === 'bool' ? false : type === 'list' ? [] : '')
+  const value = config[key] ?? field.default ?? (type === 'bool' ? false : type === 'list' ? [] : type === 'json' ? [] : '')
 
   function set(val) { onChange({ ...config, [key]: val }) }
 
@@ -101,6 +147,10 @@ function Field({ field, config, onChange }) {
     <label style={S.label}>
       {label.toUpperCase()}{required && <span style={{ color: '#ef4444' }}> *</span>}
     </label>
+  )
+
+  if (type === 'json') return (
+    <JsonField field={field} value={value} set={set} labelEl={labelEl} />
   )
 
   if (type === 'textarea') return (

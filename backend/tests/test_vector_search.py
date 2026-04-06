@@ -15,15 +15,19 @@ from graphs.collections import COLLECTION_REGISTRY
 async def test_vector_search_node_config_schema():
     """El nodo tiene un schema de configuración válido."""
     schema = VectorSearchNode.config_schema()
+    # Modo registry
     assert "collection" in schema
     assert "query_field" in schema
     assert "output_field" in schema
     assert "top_k" in schema
-
-    assert schema["collection"]["required"] is True
     assert schema["query_field"]["default"] == "message"
     assert schema["output_field"]["default"] == "context"
     assert schema["top_k"]["default"] == 3
+    # Modo inline
+    assert "mode" in schema
+    assert "items" in schema
+    assert "search_field" in schema
+    assert schema["search_field"]["default"] == "oficio"
 
 
 @pytest.mark.asyncio
