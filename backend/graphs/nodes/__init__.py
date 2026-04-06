@@ -25,8 +25,6 @@ NODE_REGISTRY: dict[str, type] = {
     "fetch":           FetchNode,
     "vector_search":   VectorSearchNode,
     "summarize":       SummarizeNode,
-    # Alias legacy
-    "llm_respond":     LLMNode,
 }
 
 __all__ = [
