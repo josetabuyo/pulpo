@@ -113,6 +113,26 @@ async def init_db():
         await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS idx_flows_empresa_id ON flows(empresa_id)"
         ))
+        # Migración: agregar contact_filter si la tabla ya existía sin esa columna
+        try:
+            await conn.execute(text("ALTER TABLE flows ADD COLUMN contact_filter TEXT DEFAULT NULL"))
+        except Exception:
+            pass  # Ya existe
+
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS contact_suggestions (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                empresa_id TEXT NOT NULL,
+                name       TEXT,
+                phone      TEXT,
+                source     TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(empresa_id, name, phone)
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_contact_suggestions_empresa ON contact_suggestions(empresa_id)"
+        ))
 
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS jobs (
@@ -448,15 +468,24 @@ import uuid as _uuid
 
 
 def _flow_row_to_dict(row, include_definition: bool = False) -> dict:
+    # columns: id, empresa_id, name, definition, connection_id, contact_phone, active, created_at, updated_at, contact_filter
+    raw_cf = row[9] if len(row) > 9 else None
+    contact_filter = None
+    if raw_cf:
+        try:
+            contact_filter = _json.loads(raw_cf)
+        except Exception:
+            pass
     d = {
-        "id":            row[0],
-        "empresa_id":    row[1],
-        "name":          row[2],
-        "connection_id": row[4],
-        "contact_phone": row[5],
-        "active":        bool(row[6]),
-        "created_at":    str(row[7]),
-        "updated_at":    str(row[8]),
+        "id":             row[0],
+        "empresa_id":     row[1],
+        "name":           row[2],
+        "connection_id":  row[4],
+        "contact_phone":  row[5],
+        "active":         bool(row[6]),
+        "created_at":     str(row[7]),
+        "updated_at":     str(row[8]),
+        "contact_filter": contact_filter,
     }
     if include_definition:
         raw = row[3]
@@ -483,6 +512,7 @@ async def create_flow(
     definition: dict | None = None,
     connection_id: str | None = None,
     contact_phone: str | None = None,
+    contact_filter: dict | None = None,
 ) -> str:
     if not connection_id:
         raise ValueError(
@@ -493,8 +523,8 @@ async def create_flow(
     async with AsyncSessionLocal() as session:
         await session.execute(
             text("""
-                INSERT INTO flows (id, empresa_id, name, definition, connection_id, contact_phone)
-                VALUES (:id, :empresa_id, :name, :definition, :connection_id, :contact_phone)
+                INSERT INTO flows (id, empresa_id, name, definition, connection_id, contact_phone, contact_filter)
+                VALUES (:id, :empresa_id, :name, :definition, :connection_id, :contact_phone, :contact_filter)
             """),
             {
                 "id": flow_id,
@@ -503,6 +533,7 @@ async def create_flow(
                 "definition": _json.dumps(definition or {"nodes": [], "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1}}),
                 "connection_id": connection_id,
                 "contact_phone": contact_phone,
+                "contact_filter": _json.dumps(contact_filter) if contact_filter else None,
             },
         )
         await session.commit()
@@ -513,7 +544,7 @@ async def get_flows(empresa_id: str) -> list[dict]:
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(
             text("""
-                SELECT id, empresa_id, name, definition, connection_id, contact_phone, active, created_at, updated_at
+                SELECT id, empresa_id, name, definition, connection_id, contact_phone, active, created_at, updated_at, contact_filter
                 FROM flows WHERE empresa_id = :e ORDER BY created_at
             """),
             {"e": empresa_id},
@@ -525,7 +556,7 @@ async def get_flow(flow_id: str) -> dict | None:
     async with AsyncSessionLocal() as session:
         row = (await session.execute(
             text("""
-                SELECT id, empresa_id, name, definition, connection_id, contact_phone, active, created_at, updated_at
+                SELECT id, empresa_id, name, definition, connection_id, contact_phone, active, created_at, updated_at, contact_filter
                 FROM flows WHERE id = :id
             """),
             {"id": flow_id},
@@ -536,7 +567,7 @@ async def get_flow(flow_id: str) -> dict | None:
 
 
 async def update_flow(flow_id: str, **kwargs) -> bool:
-    allowed = {"name", "definition", "connection_id", "contact_phone", "active"}
+    allowed = {"name", "definition", "connection_id", "contact_phone", "active", "contact_filter"}
     updates = {k: v for k, v in kwargs.items() if k in allowed}
     if not updates:
         return False
@@ -547,6 +578,8 @@ async def update_flow(flow_id: str, **kwargs) -> bool:
         )
     if "definition" in updates:
         updates["definition"] = _json.dumps(updates["definition"])
+    if "contact_filter" in updates:
+        updates["contact_filter"] = _json.dumps(updates["contact_filter"]) if updates["contact_filter"] else None
     if "active" in updates:
         updates["active"] = int(updates["active"])
     from datetime import datetime as _dt
@@ -603,7 +636,7 @@ async def get_active_flows_for_bot(connection_id: str, contact_phone: str, empre
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(
             text("""
-                SELECT id, empresa_id, name, definition, connection_id, contact_phone, active, created_at, updated_at
+                SELECT id, empresa_id, name, definition, connection_id, contact_phone, active, created_at, updated_at, contact_filter
                 FROM flows
                 WHERE empresa_id = :empresa_id
                   AND active = 1

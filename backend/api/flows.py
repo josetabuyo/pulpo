@@ -72,6 +72,7 @@ class FlowIn(BaseModel):
     definition: dict | None = None
     connection_id: str | None = None
     contact_phone: str | None = None
+    contact_filter: dict | None = None
 
 
 class FlowUpdate(BaseModel):
@@ -79,6 +80,7 @@ class FlowUpdate(BaseModel):
     definition: dict | None = None
     connection_id: str | None = None
     contact_phone: str | None = None
+    contact_filter: dict | None = None
     active: bool | None = None
 
 
@@ -142,6 +144,22 @@ async def update_flow(
     if not flow or flow["empresa_id"] != empresa_id:
         raise HTTPException(status_code=404, detail="Flow no encontrado")
     updates = body.model_dump(exclude_none=True)
+
+    # Inyectar connection_id y contact_filter en el nodo message_trigger de la definition.
+    # El compiler lee estos valores desde el config del nodo, no desde el registro del flow.
+    if "definition" in updates:
+        definition = updates["definition"]
+        new_conn = updates.get("connection_id")
+        new_cf   = updates.get("contact_filter")
+        for node in definition.get("nodes", []):
+            if node.get("type") == "message_trigger":
+                cfg = node.setdefault("config", {})
+                if new_conn is not None:
+                    cfg["connection_id"] = new_conn
+                if new_cf is not None:
+                    cfg["contact_filter"] = new_cf
+                break
+
     if updates:
         await db.update_flow(flow_id, **updates)
     return await db.get_flow(flow_id)

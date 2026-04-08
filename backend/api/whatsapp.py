@@ -370,13 +370,14 @@ async def full_sync(background_tasks: BackgroundTasks, body: FullSyncBody = None
     return {"ok": True, "message": "Full sync iniciado en background"}
 
 
-async def _contact_has_summarizer(empresa_id: str, contact_id: int, contact_name: str) -> bool:
+async def _contact_has_summarizer(empresa_id: str, connection_id: str, contact_phone: str) -> bool:
     """
-    Devuelve True si la empresa tiene al menos un flow activo con SummarizeNode.
-    En el nuevo modelo, si existe ese flow aplica a todos los contactos (contact_phone=NULL).
+    Devuelve True si hay un flow activo con nodo 'summarize' que aplique
+    a este contacto específico (contact_phone) en esta conexión.
+    Usa get_active_flows_for_bot para respetar el filtro por contacto.
     """
-    from db import get_flows, get_flow as _get_flow
-    flows = await get_flows(empresa_id)
+    from db import get_active_flows_for_bot, get_flow as _get_flow
+    flows = await get_active_flows_for_bot(connection_id, contact_phone, empresa_id)
     for f in flows:
         detail = await _get_flow(f["id"])
         if detail:
@@ -430,7 +431,8 @@ async def _run_sync(from_date: "date | None" = None, contact_phone: "str | None"
                         # Filtrar por contact_phone si se especificó
                         if contact_phone and not any(ch["value"] == contact_phone for ch in wa_chs):
                             continue
-                        has_sum = await _contact_has_summarizer(eid, contact["id"], contact["name"])
+                        contact_wa_phone = wa_chs[0]["value"]
+                        has_sum = await _contact_has_summarizer(eid, bot_phone, contact_wa_phone)
                         if not has_sum:
                             _log.info(f"[{mode}] Saltando '{contact['name']}' — sin summarizer activo.")
                             continue
@@ -558,7 +560,8 @@ async def _run_delta_sync(contact_phone: "str | None" = None) -> None:
                         continue
                     if contact_phone and not any(ch["value"] == contact_phone for ch in wa_chs):
                         continue
-                    has_sum = await _contact_has_summarizer(eid, contact["id"], contact["name"])
+                    contact_wa_phone = wa_chs[0]["value"]
+                    has_sum = await _contact_has_summarizer(eid, bot_phone, contact_wa_phone)
                     if not has_sum:
                         continue
                     seen_contact_names.add(contact["name"])

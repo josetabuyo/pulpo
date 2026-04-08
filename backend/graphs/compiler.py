@@ -18,6 +18,44 @@ from .nodes import NODE_REGISTRY
 logger = logging.getLogger(__name__)
 
 
+async def _is_known_contact(contact_phone: str, empresa_id: str) -> bool:
+    """True si contact_phone está registrado en contact_channels de esta empresa."""
+    from db import AsyncSessionLocal, text as _text
+    async with AsyncSessionLocal() as session:
+        row = (await session.execute(
+            _text("""
+                SELECT cc.id FROM contact_channels cc
+                JOIN contacts c ON cc.contact_id = c.id
+                WHERE cc.value = :phone
+                  AND c.connection_id = :empresa_id
+                LIMIT 1
+            """),
+            {"phone": contact_phone, "empresa_id": empresa_id},
+        )).fetchone()
+    return row is not None
+
+
+async def _resolve_filter_value(value: str, empresa_id: str) -> set[str]:
+    """
+    Dado un valor del filtro (nombre o número), devuelve el set de teléfonos que representa.
+    - Si parece número (solo dígitos, 7-15 chars): devuelve {value}
+    - Si parece nombre: busca los contactos con ese nombre y devuelve sus phones WA
+    """
+    import re
+    if re.match(r'^\d{7,15}$', value.strip()):
+        return {value.strip()}
+    # Es un nombre — buscar sus canales WA
+    from db import get_contacts
+    contacts = await get_contacts(empresa_id)
+    phones: set[str] = set()
+    for c in contacts:
+        if c["name"] == value:
+            for ch in c.get("channels", []):
+                if ch["type"] == "whatsapp":
+                    phones.add(ch["value"])
+    return phones
+
+
 def _enqueue_neighbors(
     graph: dict,
     node_id: str,
@@ -98,12 +136,63 @@ async def execute_flow(flow: dict, state: FlowState) -> FlowState:
                         required_connection, state.connection_id)
             return state
 
-        # Verificar contact_phone (si está especificado)
-        required_contact = entry_config.get("contact_phone", "")
-        if required_contact and required_contact != state.contact_phone:
-            logger.debug("[engine] Flow no aplica: contact_phone %s != %s",
-                        required_contact, state.contact_phone)
-            return state
+        # Verificar filtro de contactos
+        contact_filter = entry_config.get("contact_filter")
+        if contact_filter:
+            # Nuevo sistema: flags combinables
+            # include_all_known: responde a todos los contactos registrados
+            # include_unknown:   responde a contactos no registrados
+            # included:          lista específica de phones a incluir
+            # excluded:          lista de phones a siempre excluir (prioridad máxima)
+            excluded  = contact_filter.get("excluded", [])
+            included  = contact_filter.get("included", [])
+            inc_all   = contact_filter.get("include_all_known", False)
+            inc_unk   = contact_filter.get("include_unknown", False)
+            empresa   = state.empresa_id or ""
+
+            # Resolver cada valor (nombre o número) al set de teléfonos reales
+            excluded_phones: set[str] = set()
+            for v in excluded:
+                excluded_phones |= await _resolve_filter_value(v, empresa)
+
+            included_phones: set[str] = set()
+            for v in included:
+                included_phones |= await _resolve_filter_value(v, empresa)
+
+            # 1. Excluidos tienen prioridad absoluta
+            # Chequear tanto por teléfono resuelto como por valor literal (nombre o número tal cual llega de WA)
+            if state.contact_phone in excluded_phones or state.contact_phone in excluded:
+                logger.debug("[engine] Flow no aplica: contacto %s está excluido", state.contact_phone)
+                return state
+
+            # 2. Evaluar si el contacto está incluido
+            is_allowed = False
+
+            logger.debug("[engine] filter check: contact=%r included=%r included_phones=%r",
+                         state.contact_phone, included, included_phones)
+
+            # Chequear por teléfono resuelto Y por valor literal (por si WA entrega el nombre en lugar del número)
+            if state.contact_phone in included_phones or state.contact_phone in included:
+                is_allowed = True
+            elif inc_all or inc_unk:
+                # Necesitamos saber si el contacto es conocido
+                is_known = await _is_known_contact(state.contact_phone, state.empresa_id or "")
+                if inc_all and is_known:
+                    is_allowed = True
+                elif inc_unk and not is_known:
+                    is_allowed = True
+
+            if not is_allowed:
+                logger.debug("[engine] Flow no aplica: contacto %s no está en ninguna lista de inclusión", state.contact_phone)
+                return state
+
+        else:
+            # Legacy: contact_phone exacto (un solo contacto)
+            required_contact = entry_config.get("contact_phone", "")
+            if required_contact and required_contact != state.contact_phone:
+                logger.debug("[engine] Flow no aplica: contact_phone %s != %s",
+                            required_contact, state.contact_phone)
+                return state
 
         # Verificar message_pattern (regex opcional)
         pattern = entry_config.get("message_pattern", "")
@@ -180,7 +269,7 @@ async def resolve_flows(empresa_id: str) -> list[dict]:
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(
             db.text("""
-                SELECT id, empresa_id, name, definition, connection_id, contact_phone, active, created_at, updated_at
+                SELECT id, empresa_id, name, definition, connection_id, contact_phone, active, created_at, updated_at, contact_filter
                 FROM flows
                 WHERE empresa_id = :empresa_id
                   AND active = 1
@@ -207,6 +296,8 @@ async def run_flows(
     from config import get_empresas_for_connection, load_config
 
     empresa_ids = get_empresas_for_connection(connection_id)
+    logger.debug("[engine] run_flows: connection=%s contact=%s empresas=%s",
+                 connection_id, state.contact_phone, empresa_ids)
     if not empresa_ids:
         return state
 
@@ -216,10 +307,12 @@ async def run_flows(
 
     # Kill switch global o por número.
     # DISABLE_AUTO_REPLY=true → nadie manda nada.
-    # DISABLE_AUTO_REPLY_PHONES=num1,num2 → esos números no mandan nada.
+    # DISABLE_AUTO_REPLY_PHONES=num1,num2 → esas conexiones no mandan nada.
+    # Solo se chequea connection_id (el bot que envía), nunca contact_phone.
+    # Un teléfono puede ser conexión en una empresa y contacto en otra — no se deben mezclar roles.
     _global_off   = os.getenv("DISABLE_AUTO_REPLY", "false").lower() == "true"
     _blocked_nums = {n.strip() for n in os.getenv("DISABLE_AUTO_REPLY_PHONES", "").split(",") if n.strip()}
-    disable_reply = _global_off or (connection_id in _blocked_nums) or (state.contact_phone in _blocked_nums)
+    disable_reply = _global_off or (connection_id in _blocked_nums)
 
     for empresa_id in empresa_ids:
         state.empresa_id = empresa_id
@@ -250,7 +343,8 @@ async def run_flows(
             state = await execute_flow(flow, state)
 
     if disable_reply:
-        logger.info(f"[engine] Kill switch activado — reply descartado (global_off={_global_off}, connection_id={connection_id} in blocked={connection_id in _blocked_nums}, contact={state.contact_phone} in blocked={state.contact_phone in _blocked_nums})")
+        logger.info("[engine] Kill switch activado — reply descartado (global_off=%s, connection_id=%s bloqueado=%s)",
+                    _global_off, connection_id, connection_id in _blocked_nums)
         state.reply = None
         state.image_url = None
 

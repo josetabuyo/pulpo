@@ -416,6 +416,8 @@ export default function EmpresaCard({
   const [suggested, setSuggested] = useState([])
   const [contactModal, setContactModal] = useState(null)
   const [showSuggested, setShowSuggested] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importMsg, setImportMsg] = useState('')
 
   // Empresa mode: inline add forms for connections
   const [waInput, setWaInput] = useState('')
@@ -446,11 +448,40 @@ export default function EmpresaCard({
     loadContacts()
   }
 
+  async function handleImportWA() {
+    const activeWA = waConns.filter(c => c.status === 'ready')
+    if (!activeWA.length) { setImportMsg('Sin conexiones WA activas'); return }
+    setImporting(true)
+    setImportMsg('')
+    let total = 0
+    for (const conn of activeWA) {
+      const number = conn.number || conn.id.replace(/\D/g, '')
+      const res = await apiCall('POST', `/empresa/${botId}/import-wa-contacts/${number}`, null).catch(() => null)
+      if (res?.imported != null) total += res.imported
+    }
+    setImporting(false)
+    setImportMsg(total > 0 ? `${total} nuevos sugeridos importados` : 'Sin contactos nuevos')
+    loadContacts()
+    setShowSuggested(true)
+  }
+
+  async function handleClearSuggested() {
+    await apiCall('DELETE', `/empresa/${botId}/suggested-contacts`, null).catch(() => null)
+    setSuggested([])
+    setShowSuggested(false)
+    setImportMsg('Sugeridos limpiados')
+  }
+
   async function handleAddSuggested(s) {
-    const res = await apiCall('POST', `/bots/${botId}/contacts`, {
-      name: s.name || s.phone, channels: [{ type: 'whatsapp', value: s.phone }],
-    }).catch(() => null)
-    if (res?.id) loadContacts()
+    const name = s.name || s.phone
+    const channels = s.phone ? [{ type: 'whatsapp', value: s.phone }] : []
+    const res = await apiCall('POST', `/bots/${botId}/contacts`, { name, channels }).catch(() => null)
+    if (res?.id) {
+      // Borrar del backend para que el próximo reload no lo devuelva
+      await apiCall('DELETE', `/empresa/${botId}/suggested-contacts/${encodeURIComponent(name)}`, null).catch(() => null)
+      setSuggested(prev => prev.filter(x => (x.name || x.phone) !== name))
+      loadContacts()
+    }
   }
 
   // Empresa mode: agregar conexiones
@@ -670,21 +701,40 @@ export default function EmpresaCard({
               </table>
             )}
 
-            {suggested.length > 0 && (
-              <div style={{ padding: '8px 20px 4px' }}>
+            <div style={{ padding: '8px 20px 4px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              {suggested.length > 0 && (
                 <button className="btn-ghost btn-sm" onClick={() => setShowSuggested(s => !s)}>
                   {showSuggested ? '▲' : '▼'} Sugeridos ({suggested.length})
                 </button>
-                {showSuggested && (
-                  <div className="suggested-list" style={{ marginTop: 8 }}>
-                    {suggested.map(s => (
-                      <div key={s.phone} className="suggested-item">
-                        <span>{s.name || s.phone} <small style={{ color: '#94a3b8' }}>({s.phone})</small></span>
-                        <button className="btn-ghost btn-sm" onClick={() => handleAddSuggested(s)}>+ Agregar</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+              )}
+              {waConns.some(c => c.status === 'ready') && (
+                <button className="btn-ghost btn-sm" onClick={handleImportWA} disabled={importing}
+                  title="Lee los chats del sidebar de WA Web e importa los contactos como sugeridos">
+                  {importing ? 'Importando...' : '↓ Importar desde WA'}
+                </button>
+              )}
+              {suggested.length > 0 && (
+                <button className="btn-ghost btn-sm" onClick={handleClearSuggested}
+                  title="Elimina todos los sugeridos para reimportar desde cero">
+                  🗑 Limpiar
+                </button>
+              )}
+              {importMsg && <span style={{ fontSize: 12, color: '#64748b' }}>{importMsg}</span>}
+            </div>
+
+            {suggested.length > 0 && showSuggested && (
+              <div style={{ padding: '0 20px 8px' }}>
+                <div className="suggested-list">
+                  {suggested.map((s, i) => (
+                    <div key={s.phone || s.name || i} className="suggested-item">
+                      <span>
+                        {s.name || s.phone}
+                        {s.phone && s.name && <small style={{ color: '#94a3b8' }}> ({s.phone})</small>}
+                      </span>
+                      <button className="btn-ghost btn-sm" onClick={() => handleAddSuggested(s)}>+ Agregar</button>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 

@@ -155,16 +155,11 @@ async def delete_channel(channel_id: int, token_empresa_id: str = Depends(_requi
 @router.get("/bots/{bot_id}/contacts/suggested")
 async def suggested_contacts(bot_id: str, token_empresa_id: str = Depends(_require_empresa_or_admin)):
     _check_auth(bot_id, token_empresa_id)
-    """Senders que escribieron pero no están en contact_channels (whatsapp)."""
+    """Contactos importados desde WA (contact_suggestions)."""
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(text("""
-            SELECT DISTINCT m.phone, m.name
-            FROM messages m
-            WHERE m.connection_id = :bot_id
-              AND m.outbound = 0
-              AND m.phone NOT IN (
-                  SELECT cc.value FROM contact_channels cc WHERE cc.type = 'whatsapp'
-              )
-            ORDER BY m.phone
+            SELECT name, phone FROM contact_suggestions
+            WHERE empresa_id = :bot_id
+            ORDER BY name NULLS LAST, phone
         """), {"bot_id": bot_id})).fetchall()
-    return [{"phone": r[0], "name": r[1]} for r in rows]
+    return [{"name": r[0], "phone": r[1]} for r in rows]

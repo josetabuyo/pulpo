@@ -243,7 +243,7 @@ class WhatsAppSession(BrowserAutomation):
         # Previene mandar el fixed_message más de una vez por contacto en 24h.
         import time as _time
         _reply_cooldown: dict[tuple[str, str], float] = {}
-        _COOLDOWN_SECS = 86400  # 24 horas
+        _COOLDOWN_SECS = 14400  # 4 horas
 
         async def _on_message(phone: str, name: str, body: str, from_poll: bool = False, wa_ts_str: str = "") -> None:
             # Filtrar placeholders de carga de WA Web ("Cargando...", etc.)
@@ -278,8 +278,17 @@ class WhatsAppSession(BrowserAutomation):
                 msg_ids[eid] = mid
 
             # Normalizar tipo de mensaje y resolver contacto
-            from db import find_contact_by_channel
+            from db import find_contact_by_channel, get_contacts
             contact = await find_contact_by_channel("whatsapp", sender)
+
+            # Fallback: si WA no dio teléfono (contacto guardado), buscar por nombre
+            if not contact and not phone:
+                for eid in empresa_ids:
+                    all_contacts = await get_contacts(eid)
+                    contact = next((c for c in all_contacts if c["name"] == name), None)
+                    if contact:
+                        break
+
             if contact and not phone:
                 _wa = next((c for c in contact.get("channels", [])
                             if c["type"] == "whatsapp" and not c.get("is_group")), None)
@@ -597,9 +606,15 @@ class WhatsAppSession(BrowserAutomation):
                         const isOutgoing = !!row.querySelector('[data-icon^="status-"]');
                         if (isOutgoing) continue;
 
-                        // Intentar extraer número de teléfono del atributo data-id
-                        const withId = row.closest('[data-id]') || row.querySelector('[data-id]');
-                        const rawId = withId ? withId.getAttribute('data-id') : '';
+                        // Extraer número de teléfono del atributo data-id.
+                        // WA puede tener data-id en el row mismo, en un padre directo,
+                        // o en un ancestro más lejano — probar todas las variantes.
+                        const rawId = row.getAttribute('data-id')
+                            || row.parentElement?.getAttribute('data-id')
+                            || row.parentElement?.parentElement?.getAttribute('data-id')
+                            || (row.closest('[data-id]') ? row.closest('[data-id]').getAttribute('data-id') : '')
+                            || (row.querySelector('[data-id]') ? row.querySelector('[data-id]').getAttribute('data-id') : '')
+                            || '';
                         const phoneMatch = rawId ? rawId.match(/(\\d{8,15})/) : null;
                         const phone = phoneMatch ? phoneMatch[1] : '';
 
@@ -669,8 +684,12 @@ class WhatsAppSession(BrowserAutomation):
                         const preview = spans[1].getAttribute('title')
                             .replace(/[\u202a\u202c\u200e\u200f]/g, '').trim();
                         if (!name || !preview) continue;
-                        const withId = row.closest('[data-id]') || row.querySelector('[data-id]');
-                        const rawId = withId ? withId.getAttribute('data-id') : '';
+                        const rawId = row.getAttribute('data-id')
+                            || row.parentElement?.getAttribute('data-id')
+                            || row.parentElement?.parentElement?.getAttribute('data-id')
+                            || (row.closest('[data-id]') ? row.closest('[data-id]').getAttribute('data-id') : '')
+                            || (row.querySelector('[data-id]') ? row.querySelector('[data-id]').getAttribute('data-id') : '')
+                            || '';
                         const phoneMatch = rawId ? rawId.match(/(\d{8,15})/) : null;
                         const phone = phoneMatch ? phoneMatch[1] : '';
                         result.push({ name, preview, phone });
