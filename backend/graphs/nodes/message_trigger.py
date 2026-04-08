@@ -26,21 +26,25 @@ class MessageTriggerNode(BaseNode):
     def config_schema(cls) -> dict:
         return {
             "connection_id": {
-                "type": "string",
-                "label": "ID de conexión (bot_id)",
+                "type": "connection_select",
+                "label": "Conexión",
                 "default": "",
                 "required": True,
             },
-            "contact_phone": {
-                "type": "string",
-                "label": "Teléfono del contacto",
-                "default": "",
-                "hint": "Dejar vacío para todos los contactos",
+            "contact_filter": {
+                "type": "contact_filter",
+                "label": "Filtro de contactos",
+                "default": {
+                    "include_all_known": False,
+                    "include_unknown": False,
+                    "included": [],
+                    "excluded": [],
+                },
             },
             "message_pattern": {
                 "type": "string",
-                "label": "Patrón regex",
+                "label": "Patrón regex (opcional)",
                 "default": "",
-                "hint": "Opcional. Ej: .*urgente.*",
+                "hint": "Deja vacío para cualquier mensaje. Ej: .*urgente.*",
             },
         }
