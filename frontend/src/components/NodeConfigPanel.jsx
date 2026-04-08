@@ -135,6 +135,69 @@ function JsonField({ field, value, set, labelEl }) {
   )
 }
 
+// ─── ContactFilterPicker ──────────────────────────────────────────────────────
+
+const DEFAULT_FILTER = { include_all_known: false, include_unknown: false, included: [], excluded: [] }
+
+function ContactFilterPicker({ value = DEFAULT_FILTER, onChange, contacts = [] }) {
+  const cf = { ...DEFAULT_FILTER, ...value }
+
+  // Opciones de contacto: [{label, value}]
+  const contactOptions = contacts.flatMap(c =>
+    (c.channels || [])
+      .filter(ch => ch.type === 'whatsapp' || ch.type === 'telegram')
+      .map(ch => ({ value: ch.value, label: `${c.name} (${ch.value})` }))
+  )
+
+  function togglePhone(list, phone) {
+    return list.includes(phone) ? list.filter(p => p !== phone) : [...list, phone]
+  }
+
+  const rowStyle = { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }
+  const checkStyle = { accentColor: '#6b21a8', cursor: 'pointer' }
+  const lblStyle = { ...S.label, margin: 0, fontSize: 11, color: '#94a3b8', fontWeight: 400, letterSpacing: 0, cursor: 'pointer' }
+  const sectionLbl = { ...S.label, fontSize: 9, marginTop: 8, marginBottom: 4 }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <div style={rowStyle}>
+        <input id="cf_all" type="checkbox" checked={!!cf.include_all_known} style={checkStyle}
+          onChange={e => onChange({ ...cf, include_all_known: e.target.checked })} />
+        <label htmlFor="cf_all" style={lblStyle}>Todos los conocidos</label>
+      </div>
+      <div style={rowStyle}>
+        <input id="cf_unk" type="checkbox" checked={!!cf.include_unknown} style={checkStyle}
+          onChange={e => onChange({ ...cf, include_unknown: e.target.checked })} />
+        <label htmlFor="cf_unk" style={lblStyle}>Desconocidos</label>
+      </div>
+
+      {contactOptions.length > 0 && (
+        <>
+          <span style={sectionLbl}>INCLUIR ESPECÍFICOS</span>
+          {contactOptions.map(opt => (
+            <div key={opt.value} style={rowStyle}>
+              <input type="checkbox" id={`inc_${opt.value}`} style={checkStyle}
+                checked={cf.included.includes(opt.value)}
+                onChange={() => onChange({ ...cf, included: togglePhone(cf.included, opt.value) })} />
+              <label htmlFor={`inc_${opt.value}`} style={lblStyle}>{opt.label}</label>
+            </div>
+          ))}
+
+          <span style={sectionLbl}>EXCLUIR</span>
+          {contactOptions.map(opt => (
+            <div key={opt.value} style={rowStyle}>
+              <input type="checkbox" id={`exc_${opt.value}`} style={checkStyle}
+                checked={cf.excluded.includes(opt.value)}
+                onChange={() => onChange({ ...cf, excluded: togglePhone(cf.excluded, opt.value) })} />
+              <label htmlFor={`exc_${opt.value}`} style={lblStyle}>{opt.label}</label>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  )
+}
+
 // ─── Render de un campo ───────────────────────────────────────────────────────
 
 function Field({ field, config, onChange }) {
@@ -226,6 +289,36 @@ function Field({ field, config, onChange }) {
     )
   }
 
+  // Tipos custom — se pasan desde ConfigForm que tiene acceso a connections/contacts
+  // Se usa un patrón de render-prop: Field espera extra={} con los datos necesarios
+  if (type === 'connection_select') {
+    const connections = field._connections || []
+    return (
+      <div style={S.fieldWrap}>
+        {labelEl}
+        <select style={S.select} value={value} onChange={e => set(e.target.value)}>
+          <option value="">— Sin conexión —</option>
+          {connections.map(c => (
+            <option key={c.id} value={c.id}>{c.number || c.id}</option>
+          ))}
+        </select>
+      </div>
+    )
+  }
+
+  if (type === 'contact_filter') {
+    return (
+      <div style={S.fieldWrap}>
+        {labelEl}
+        <ContactFilterPicker
+          value={value}
+          onChange={cf => set(cf)}
+          contacts={field._contacts || []}
+        />
+      </div>
+    )
+  }
+
   // string (default)
   return (
     <div style={S.fieldWrap}>
@@ -275,18 +368,31 @@ function SummarizeInfo({ empresaId }) {
 
 // ─── Formulario principal ──────────────────────────────────────────────────────
 
-function ConfigForm({ node, schema, empresaId }) {
+function ConfigForm({ node, schema, empresaId, connections, apiCall }) {
   const updateNodeConfig  = useFlowStore(s => s.updateNodeConfig)
   const deleteNode        = useFlowStore(s => s.deleteNode)
   const setSelectedNodeId = useFlowStore(s => s.setSelectedNodeId)
   const { nodeType, config, label, color } = node.data
+  const [contacts, setContacts] = useState([])
 
   const isFixed = nodeType === 'start' || nodeType === 'end'
+
+  useEffect(() => {
+    if (!empresaId || !apiCall) return
+    apiCall('GET', `/bots/${empresaId}/contacts`, null)
+      .then(res => { if (Array.isArray(res)) setContacts(res) })
+      .catch(() => {})
+  }, [empresaId])
 
   function handleChange(newConfig) { updateNodeConfig(node.id, newConfig) }
   function handleDelete() { if (!isFixed) deleteNode(node.id) }
 
-  const visibleFields = (schema || []).filter(f => isVisible(f, config))
+  // Inyectar datos extra en los campos custom
+  const visibleFields = (schema || []).filter(f => isVisible(f, config)).map(f => {
+    if (f.type === 'connection_select') return { ...f, _connections: connections || [] }
+    if (f.type === 'contact_filter')   return { ...f, _contacts: contacts }
+    return f
+  })
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: '100%' }}>
@@ -343,7 +449,7 @@ function ConfigForm({ node, schema, empresaId }) {
 
 // ─── Export ───────────────────────────────────────────────────────────────────
 
-export default function NodeConfigPanel({ empresaId }) {
+export default function NodeConfigPanel({ empresaId, connections, apiCall }) {
   const nodes          = useFlowStore(s => s.nodes)
   const typeMap        = useFlowStore(s => s.typeMap)
   const selectedNodeId = useFlowStore(s => s.selectedNodeId)
@@ -383,6 +489,8 @@ export default function NodeConfigPanel({ empresaId }) {
         node={selectedNode}
         schema={schema}
         empresaId={empresaId}
+        connections={connections}
+        apiCall={apiCall}
       />
     </div>
   )
