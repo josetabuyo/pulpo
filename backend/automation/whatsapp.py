@@ -392,6 +392,7 @@ class WhatsAppSession(BrowserAutomation):
             target = phone if phone else name
             ok = await self.send_message(session_id, target, reply)
             if ok:
+                logger.info(f"[{session_id}] → Respuesta enviada a '{name}': {reply[:200]}")
                 for mid in msg_ids.values():
                     await mark_answered(mid)
 

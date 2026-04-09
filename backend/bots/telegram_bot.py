@@ -97,7 +97,7 @@ def build_telegram_app(bot_config: dict):
                     with urllib.request.urlopen(image_url, timeout=10) as resp:
                         image_data = resp.read()
                     await msg.reply_photo(image_data, caption=reply, parse_mode="Markdown")
-                    logger.info(f"{label}   → Respuesta con imagen enviada")
+                    logger.info(f"{label}   → Respuesta con imagen enviada: {reply[:200]}")
                 except Exception as img_err:
                     logger.warning(f"{label}   → Error enviando imagen, fallback a texto: {img_err}")
                     await msg.reply_text(reply)
@@ -106,7 +106,7 @@ def build_telegram_app(bot_config: dict):
             for eid, mid in msg_ids.items():
                 await mark_answered(mid)
                 await log_message(eid, token_id, sender_id, "Bot", reply, outbound=True)
-            logger.info(f"{label}   → Respuesta enviada")
+            logger.info(f"{label}   → Respuesta enviada: {reply[:200]}")
         except Exception as e:
             logger.error(f"{label}   → Error al responder: {e}")
 
