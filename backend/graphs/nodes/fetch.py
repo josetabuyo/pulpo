@@ -59,7 +59,17 @@ class FetchNode(BaseNode):
                         fb_posts.append(post)
 
             state.fb_posts = fb_posts
-            state.context = "\n\n".join(p["text"] for p in fb_posts if p["text"])
+
+            # Formatear contexto con URL de cada post para que el LLM pueda citar la fuente
+            parts = []
+            for i, p in enumerate(fb_posts):
+                if not p["text"]:
+                    continue
+                header = f"[Post {i}]"
+                if p.get("url"):
+                    header += f"\nURL: {p['url']}"
+                parts.append(f"{header}\n{p['text']}")
+            state.context = "\n\n".join(parts)
             logger.info("[FetchNode] Facebook: %d posts, %d chars", len(fb_posts), len(state.context))
 
         except Exception as e:

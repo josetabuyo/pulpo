@@ -261,7 +261,7 @@ async def _scrape_post_page(ctx, url: str) -> dict:
             and "Audio original" not in l
         ]
         text = "\n".join(lines[:40]) if lines else ""
-        return {"text": text, "image_url": image_url}
+        return {"text": text, "image_url": image_url, "url": url}
 
     except Exception as e:
         logger.warning("[fetch_facebook] Error scraping post %s: %s", url, e)
@@ -377,7 +377,7 @@ async def _search_and_scrape(page, query: str, page_id: str = "", numeric_id: st
 
             text, image_url = await _scrape_search_feed(page)
             if text:
-                return [{"text": text, "image_url": image_url}]
+                return [{"text": text, "image_url": image_url, "url": f"https://www.facebook.com/{page_id}"}]
             logger.info("[fetch_facebook] Búsqueda sin resultados para query '%s'", query)
             return []
         except Exception as e:
