@@ -60,13 +60,17 @@ async def fetch_posts(page_id: str, query: str = "", numeric_id: str = "") -> li
 
     scraped = await _load_posts(page_id, query, resolved_numeric_id)
 
-    # Posts estáticos opcionales (solo para páginas con override configurado)
-    static_posts = _STATIC_POSTS.get(page_id, [])
-    static_dicts = [{"text": sp, "image_url": ""} for sp in static_posts]
-    for i, sp in enumerate(static_dicts):
-        logger.info("[fetch_facebook] static %d: %s", i + 1, sp["text"][:80].replace('\n', ' '))
-
-    posts = static_dicts + scraped
+    # Posts estáticos: solo se agregan cuando hay query Y scraped tiene resultados,
+    # o cuando no hay query (browsing del feed general).
+    # Si la búsqueda no encontró nada, no contaminar con static posts irrelevantes.
+    if scraped or not query:
+        static_posts = _STATIC_POSTS.get(page_id, [])
+        static_dicts = [{"text": sp, "image_url": ""} for sp in static_posts]
+        for i, sp in enumerate(static_dicts):
+            logger.info("[fetch_facebook] static %d: %s", i + 1, sp["text"][:80].replace('\n', ' '))
+        posts = static_dicts + scraped
+    else:
+        posts = []
 
     if posts:
         _posts_cache[cache_key] = (time.time(), posts)
@@ -109,7 +113,8 @@ async def _load_posts(page_id: str, query: str, numeric_id: str = "") -> list[di
             return []
 
     async with async_playwright() as pw:
-        browser = await pw.chromium.launch(headless=True)
+        headless = not os.getenv("FB_DEBUG")
+        browser = await pw.chromium.launch(headless=headless)
         ctx = await browser.new_context(
             locale="es-AR",
             user_agent=_UA,
@@ -143,6 +148,10 @@ async def _load_posts(page_id: str, query: str, numeric_id: str = "") -> list[di
         else:
             posts = await _scrape_posts(page, page_id)
 
+        if os.getenv("FB_DEBUG"):
+            logger.info("[fetch_facebook] FB_DEBUG: pausa 60s — inspeccioná el browser antes de cerrar")
+            await page.wait_for_timeout(60_000)
+
         await browser.close()
 
     if not posts:
@@ -169,7 +178,22 @@ async def _do_login_visible(email: str, password: str, cookies_path: Path) -> bo
             await page.fill("input[name='email']", email)
             await page.fill("input[name='pass']", password)
             await page.press("input[name='pass']", "Enter")
-            await page.wait_for_timeout(6_000)
+
+            # Esperar hasta 120s a que aparezca c_user (cookie de sesión real en FB)
+            logged_in = False
+            for _ in range(120):
+                cookies = await ctx.cookies()
+                if any(c["name"] == "c_user" for c in cookies):
+                    logged_in = True
+                    break
+                await page.wait_for_timeout(1_000)
+
+            if not logged_in:
+                logger.error("[fetch_facebook] Timeout esperando login — captcha o 2FA no completado en 120s")
+                await browser.close()
+                return False
+
+            await page.wait_for_timeout(2_000)
 
             if "login" in page.url or "checkpoint" in page.url:
                 logger.error("[fetch_facebook] Login falló. URL: %s", page.url)
@@ -334,6 +358,13 @@ async def _search_and_scrape(page, query: str, page_id: str = "", numeric_id: st
             )
             await page.goto(search_url, wait_until="domcontentloaded", timeout=30_000)
             await page.wait_for_timeout(5_000)
+
+            if "login" in page.url or "checkpoint" in page.url:
+                logger.warning("[fetch_facebook] Sesión expirada en búsqueda — cookies eliminadas, re-login requerido")
+                cookies_path = _SESSIONS_DIR / f"fb-{page_id}" / "cookies.json"
+                cookies_path.unlink(missing_ok=True)
+                return []
+
             logger.info("[fetch_facebook] Búsqueda directa: '%s' → %s", query, search_url)
 
             if os.getenv("FB_DEBUG"):
@@ -347,9 +378,11 @@ async def _search_and_scrape(page, query: str, page_id: str = "", numeric_id: st
             text, image_url = await _scrape_search_feed(page)
             if text:
                 return [{"text": text, "image_url": image_url}]
-            logger.info("[fetch_facebook] Búsqueda sin resultados, volviendo al feed")
+            logger.info("[fetch_facebook] Búsqueda sin resultados para query '%s'", query)
+            return []
         except Exception as e:
             logger.warning("[fetch_facebook] Error en búsqueda directa: %s", e)
+            return []
     else:
         logger.info("[fetch_facebook] Sin ID numérico para '%s', usando feed", page_id)
 

@@ -142,19 +142,18 @@ const DEFAULT_FILTER = { include_all_known: false, include_unknown: false, inclu
 function ContactFilterPicker({ value = DEFAULT_FILTER, onChange, contacts = [] }) {
   const cf = { ...DEFAULT_FILTER, ...value }
 
-  // Opciones de contacto: [{label, value}]
-  const contactOptions = contacts.flatMap(c =>
-    (c.channels || [])
-      .filter(ch => ch.type === 'whatsapp' || ch.type === 'telegram')
-      .map(ch => ({ value: ch.value, label: `${c.name} (${ch.value})` }))
-  )
+  // Identificador = nombre del contacto (el engine matchea por nombre O por teléfono resuelto)
+  const contactOptions = contacts.map(c => ({ id: c.name, label: c.name }))
 
-  function togglePhone(list, phone) {
-    return list.includes(phone) ? list.filter(p => p !== phone) : [...list, phone]
+  function toggle(list, id) {
+    return list.includes(id) ? list.filter(p => p !== id) : [...list, id]
   }
 
+  const isEmpty = !cf.include_all_known && !cf.include_unknown
+    && !(cf.included || []).length && !(cf.excluded || []).length
+
   const rowStyle = { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }
-  const checkStyle = { accentColor: '#6b21a8', cursor: 'pointer' }
+  const checkStyle = { flexShrink: 0, width: 13, height: 13, accentColor: '#6b21a8', cursor: 'pointer' }
   const lblStyle = { ...S.label, margin: 0, fontSize: 11, color: '#94a3b8', fontWeight: 400, letterSpacing: 0, cursor: 'pointer' }
   const sectionLbl = { ...S.label, fontSize: 9, marginTop: 8, marginBottom: 4 }
 
@@ -175,24 +174,42 @@ function ContactFilterPicker({ value = DEFAULT_FILTER, onChange, contacts = [] }
         <>
           <span style={sectionLbl}>INCLUIR ESPECÍFICOS</span>
           {contactOptions.map(opt => (
-            <div key={opt.value} style={rowStyle}>
-              <input type="checkbox" id={`inc_${opt.value}`} style={checkStyle}
-                checked={cf.included.includes(opt.value)}
-                onChange={() => onChange({ ...cf, included: togglePhone(cf.included, opt.value) })} />
-              <label htmlFor={`inc_${opt.value}`} style={lblStyle}>{opt.label}</label>
+            <div key={opt.id} style={rowStyle}>
+              <input type="checkbox" id={`inc_${opt.id}`} style={checkStyle}
+                checked={(cf.included || []).includes(opt.id)}
+                onChange={() => onChange({ ...cf, included: toggle(cf.included || [], opt.id) })} />
+              <label htmlFor={`inc_${opt.id}`} style={lblStyle}>{opt.label}</label>
             </div>
           ))}
 
-          <span style={sectionLbl}>EXCLUIR</span>
-          {contactOptions.map(opt => (
-            <div key={opt.value} style={rowStyle}>
-              <input type="checkbox" id={`exc_${opt.value}`} style={checkStyle}
-                checked={cf.excluded.includes(opt.value)}
-                onChange={() => onChange({ ...cf, excluded: togglePhone(cf.excluded, opt.value) })} />
-              <label htmlFor={`exc_${opt.value}`} style={lblStyle}>{opt.label}</label>
-            </div>
-          ))}
+          <span style={sectionLbl}>EXCLUIR SIEMPRE</span>
+          {contactOptions
+            .filter(opt => !(cf.included || []).includes(opt.id))
+            .map(opt => (
+              <div key={opt.id} style={rowStyle}>
+                <input type="checkbox" id={`exc_${opt.id}`} style={{ ...checkStyle, accentColor: '#dc2626' }}
+                  checked={(cf.excluded || []).includes(opt.id)}
+                  onChange={() => onChange({ ...cf, excluded: toggle(cf.excluded || [], opt.id) })} />
+                <label htmlFor={`exc_${opt.id}`} style={{ ...lblStyle, color: '#f87171' }}>{opt.label}</label>
+              </div>
+            ))}
         </>
+      )}
+
+      {/* Entradas guardadas que ya no tienen contacto registrado */}
+      {(cf.included || []).filter(p => !contactOptions.some(o => o.id === p)).map(p => (
+        <div key={p} style={rowStyle}>
+          <input type="checkbox" checked style={checkStyle}
+            onChange={() => onChange({ ...cf, included: toggle(cf.included, p) })} />
+          <label style={{ ...lblStyle, fontStyle: 'italic', opacity: 0.6 }}>{p}</label>
+        </div>
+      ))}
+
+      {/* Warning: filtro vacío = el flow no responde a nadie */}
+      {isEmpty && (
+        <div style={{ marginTop: 6, fontSize: 10, color: '#ef4444', background: 'rgba(239,68,68,.08)', borderRadius: 4, padding: '4px 6px' }}>
+          ⚠ Sin filtro activo — el flow no responderá a nadie
+        </div>
       )}
     </div>
   )

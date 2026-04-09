@@ -477,11 +477,28 @@ export default function EmpresaCard({
     const channels = s.phone ? [{ type: 'whatsapp', value: s.phone }] : []
     const res = await apiCall('POST', `/bots/${botId}/contacts`, { name, channels }).catch(() => null)
     if (res?.id) {
-      // Borrar del backend para que el próximo reload no lo devuelva
       await apiCall('DELETE', `/empresa/${botId}/suggested-contacts/${encodeURIComponent(name)}`, null).catch(() => null)
       setSuggested(prev => prev.filter(x => (x.name || x.phone) !== name))
       loadContacts()
     }
+  }
+
+  const [addingAll, setAddingAll] = useState(false)
+  async function handleAddAll() {
+    if (!suggested.length) return
+    setAddingAll(true)
+    const toAdd = [...suggested]
+    for (const s of toAdd) {
+      const name = s.name || s.phone
+      const channels = s.phone ? [{ type: 'whatsapp', value: s.phone }] : []
+      const res = await apiCall('POST', `/bots/${botId}/contacts`, { name, channels }).catch(() => null)
+      if (res?.id) {
+        await apiCall('DELETE', `/empresa/${botId}/suggested-contacts/${encodeURIComponent(name)}`, null).catch(() => null)
+        setSuggested(prev => prev.filter(x => (x.name || x.phone) !== name))
+      }
+    }
+    setAddingAll(false)
+    loadContacts()
   }
 
   // Empresa mode: agregar conexiones
@@ -711,6 +728,12 @@ export default function EmpresaCard({
                 <button className="btn-ghost btn-sm" onClick={handleImportWA} disabled={importing}
                   title="Lee los chats del sidebar de WA Web e importa los contactos como sugeridos">
                   {importing ? 'Importando...' : '↓ Importar desde WA'}
+                </button>
+              )}
+              {suggested.length > 0 && (
+                <button className="btn-ghost btn-sm" onClick={handleAddAll} disabled={addingAll}
+                  title="Agrega todos los sugeridos como contactos de una sola vez">
+                  {addingAll ? 'Agregando...' : `+ Agregar todos (${suggested.length})`}
                 </button>
               )}
               {suggested.length > 0 && (
