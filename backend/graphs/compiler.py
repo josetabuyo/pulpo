@@ -342,7 +342,7 @@ async def run_flows(
 
             state = await execute_flow(flow, state)
 
-    if disable_reply:
+    if disable_reply and state.reply is not None:
         logger.info("[engine] Kill switch activado — reply descartado (global_off=%s, connection_id=%s bloqueado=%s)",
                     _global_off, connection_id, connection_id in _blocked_nums)
         state.reply = None
