@@ -87,10 +87,10 @@ def main():
     if not COOKIES_FILE.exists():
         alert(
             "⚠️ [Luganense Bot] Cookies de Facebook NO ENCONTRADAS.\n"
-            "El bot está usando fallback estático. Re-login requerido:\n"
-            "1. rm data/sessions/fb-luganense/cookies.json (ya no existe)\n"
-            "2. Enviar cualquier mensaje al bot de Luganense\n"
-            "3. Chrome se abre visible → completar si pide 2FA"
+            "Re-login requerido. Desde la raíz del worktree _:\n"
+            "  backend/.venv/bin/python scripts/fb_login.py\n"
+            "Se abre un browser visible. Completar captcha/2FA si aparece.\n"
+            "Reiniciar el backend cuando termina: ./restart-backend.sh"
         )
         sys.exit(1)
 
@@ -113,10 +113,11 @@ def main():
     if days_left < 0:
         alert(
             f"🚨 [Luganense Bot] Cookies de Facebook EXPIRADAS hace {abs(days_left):.0f} días.\n"
-            "El bot está usando fallback estático. Re-login urgente:\n"
+            "Re-login urgente. Desde la raíz del worktree _:\n"
             "1. rm data/sessions/fb-luganense/cookies.json\n"
-            "2. Enviar cualquier mensaje al bot de Luganense\n"
-            "3. Chrome se abre visible → completar si pide 2FA"
+            "2. backend/.venv/bin/python scripts/fb_login.py\n"
+            "   (Se abre browser — completar captcha/2FA si aparece, espera c_user cookie)\n"
+            "3. ./restart-backend.sh"
         )
         sys.exit(1)
     elif days_left < DAYS_WARNING:
