@@ -484,6 +484,45 @@ export default function EmpresaCard({
   }
 
   const [addingAll, setAddingAll] = useState(false)
+  const [excludeState, setExcludeState] = useState(null)
+  // excludeState: null | { contactKey: string, contactName: string, flows: null | flow[] }
+
+  async function handleExclude(s) {
+    const contactKey = s.phone || s.name
+    const contactName = s.name || s.phone
+    setExcludeState({ contactKey, contactName, flows: null })
+    const flowList = await apiCall('GET', `/empresas/${botId}/flows`).catch(() => [])
+    const triggerFlows = []
+    for (const f of (flowList || [])) {
+      const full = await apiCall('GET', `/empresas/${botId}/flows/${f.id}`).catch(() => null)
+      if (!full) continue
+      const nodes = full.definition?.nodes || []
+      if (nodes.some(n => n.type === 'message_trigger')) triggerFlows.push(full)
+    }
+    if (triggerFlows.length === 0) {
+      alert('No hay flows con trigger de mensaje en esta empresa.')
+      setExcludeState(null)
+      return
+    }
+    if (triggerFlows.length === 1) {
+      await _applyExclusion(triggerFlows[0], contactName)
+      setSuggested(prev => prev.filter(x => (x.phone || x.name) !== contactKey))
+      setExcludeState(null)
+      return
+    }
+    setExcludeState({ contactKey, contactName, flows: triggerFlows })
+  }
+
+  async function _applyExclusion(flow, contactName) {
+    const nodes = (flow.definition?.nodes || []).map(n => {
+      if (n.type !== 'message_trigger') return n
+      const cf = n.config?.contact_filter || { include_all_known: false, include_unknown: false, included: [], excluded: [] }
+      const excluded = [...(cf.excluded || [])]
+      if (!excluded.includes(contactName)) excluded.push(contactName)
+      return { ...n, config: { ...n.config, contact_filter: { ...cf, excluded } } }
+    })
+    await apiCall('PUT', `/empresas/${botId}/flows/${flow.id}`, { name: flow.name, definition: { ...flow.definition, nodes } })
+  }
   async function handleAddAll() {
     if (!suggested.length) return
     setAddingAll(true)
@@ -748,15 +787,55 @@ export default function EmpresaCard({
             {suggested.length > 0 && showSuggested && (
               <div style={{ padding: '0 20px 8px' }}>
                 <div className="suggested-list">
-                  {suggested.map((s, i) => (
-                    <div key={s.phone || s.name || i} className="suggested-item">
-                      <span>
-                        {s.name || s.phone}
-                        {s.phone && s.name && <small style={{ color: '#94a3b8' }}> ({s.phone})</small>}
-                      </span>
-                      <button className="btn-ghost btn-sm" onClick={() => handleAddSuggested(s)}>+ Agregar</button>
-                    </div>
-                  ))}
+                  {suggested.map((s, i) => {
+                    const prevHasMsg = i > 0 ? suggested[i - 1].has_messages : s.has_messages
+                    const showSep = i > 0 && prevHasMsg && !s.has_messages
+                    return (
+                      <>
+                        {showSep && (
+                          <div key={`sep-${i}`} style={{ borderTop: '1px solid #334155', margin: '6px 0', opacity: 0.5 }} />
+                        )}
+                        <div key={s.phone || s.name || i} className="suggested-item" style={{ flexWrap: 'wrap', gap: 4 }}>
+                          <span style={{ flex: 1, minWidth: 0 }}>
+                            {s.name || s.phone}
+                            {s.phone && s.name && <small style={{ color: '#94a3b8' }}> ({s.phone})</small>}
+                            {s.has_messages && <small style={{ color: '#22c55e', marginLeft: 4 }}>●</small>}
+                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                            <button className="btn-ghost btn-sm" onClick={() => handleAddSuggested(s)}>+ Agregar</button>
+                            {(() => {
+                              const key = s.phone || s.name
+                              if (excludeState?.contactKey === key && excludeState.flows === null)
+                                return <span style={{ fontSize: 11, color: '#94a3b8' }}>cargando...</span>
+                              if (excludeState?.contactKey === key && excludeState.flows?.length > 0)
+                                return <select
+                                  autoFocus
+                                  style={{ fontSize: 11, background: '#1e293b', border: '1px solid #475569', borderRadius: 4, color: '#e2e8f0', padding: '2px 4px', cursor: 'pointer' }}
+                                  defaultValue=""
+                                  onChange={async e => {
+                                    const flowId = e.target.value
+                                    if (!flowId) return
+                                    const flow = excludeState.flows.find(f => String(f.id) === flowId)
+                                    if (flow) {
+                                      await _applyExclusion(flow, excludeState.contactName)
+                                      setSuggested(prev => prev.filter(x => (x.phone || x.name) !== key))
+                                    }
+                                    setExcludeState(null)
+                                  }}
+                                  onBlur={() => setExcludeState(null)}
+                                >
+                                  <option value="" disabled>excluir de...</option>
+                                  {excludeState.flows.map(f => (
+                                    <option key={f.id} value={String(f.id)}>{f.name}</option>
+                                  ))}
+                                </select>
+                              return <button className="btn-ghost btn-sm" style={{ color: '#f87171' }} onClick={() => handleExclude(s)}>Excluir</button>
+                            })()}
+                          </div>
+                        </div>
+                      </>
+                    )
+                  })}
                 </div>
               </div>
             )}

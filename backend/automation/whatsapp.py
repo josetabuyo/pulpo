@@ -239,11 +239,6 @@ class WhatsAppSession(BrowserAutomation):
         from config import get_empresas_for_connection
 
         recent_msgs: set[tuple[str, str]] = set()  # dedup entre JS y Python poll
-        # Cooldown de auto-reply: (session_id, sender) → timestamp del último envío.
-        # Previene mandar el fixed_message más de una vez por contacto en 24h.
-        import time as _time
-        _reply_cooldown: dict[tuple[str, str], float] = {}
-        _COOLDOWN_SECS = 14400  # 4 horas
 
         async def _on_message(phone: str, name: str, body: str, from_poll: bool = False, wa_ts_str: str = "") -> None:
             # Filtrar placeholders de carga de WA Web ("Cargando...", etc.)
@@ -378,15 +373,6 @@ class WhatsAppSession(BrowserAutomation):
 
             if not reply or body.strip() == reply.strip():
                 return
-
-            # Cooldown: no reenviar el auto-reply al mismo contacto en 24h
-            cooldown_key = (session_id, sender)
-            now = _time.time()
-            last_sent = _reply_cooldown.get(cooldown_key, 0)
-            if now - last_sent < _COOLDOWN_SECS:
-                logger.debug(f"[{session_id}] Cooldown activo para '{name}' — omitiendo reply")
-                return
-            _reply_cooldown[cooldown_key] = now
 
             # Enviamos en página temporal para no interrumpir el observer
             target = phone if phone else name

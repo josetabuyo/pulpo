@@ -205,6 +205,20 @@ function ContactFilterPicker({ value = DEFAULT_FILTER, onChange, contacts = [] }
         </div>
       ))}
 
+      {/* Excluidos que no son contactos registrados (ej: sugeridos excluidos) */}
+      {(cf.excluded || []).filter(p => !contactOptions.some(o => o.id === p)).length > 0 && (
+        <>
+          {contactOptions.length === 0 && <span style={sectionLbl}>EXCLUIR SIEMPRE</span>}
+          {(cf.excluded || []).filter(p => !contactOptions.some(o => o.id === p)).map(p => (
+            <div key={p} style={rowStyle}>
+              <input type="checkbox" checked style={{ ...checkStyle, accentColor: '#dc2626' }}
+                onChange={() => onChange({ ...cf, excluded: toggle(cf.excluded, p) })} />
+              <label style={{ ...lblStyle, color: '#f87171', fontStyle: 'italic' }}>{p}</label>
+            </div>
+          ))}
+        </>
+      )}
+
       {/* Warning: filtro vacío = el flow no responde a nadie */}
       {isEmpty && (
         <div style={{ marginTop: 6, fontSize: 10, color: '#ef4444', background: 'rgba(239,68,68,.08)', borderRadius: 4, padding: '4px 6px' }}>
@@ -269,6 +283,21 @@ function Field({ field, config, onChange }) {
         value={value}
         onChange={e => set(parseFloat(e.target.value) || 0)}
       />
+    </div>
+  )
+
+  if (type === 'number') return (
+    <div style={S.fieldWrap}>
+      {labelEl}
+      <input
+        style={S.input}
+        type="number"
+        step="1"
+        min="0"
+        value={value}
+        onChange={e => set(parseFloat(e.target.value) || 0)}
+      />
+      {hint && <span style={S.hint}>{hint}</span>}
     </div>
   )
 

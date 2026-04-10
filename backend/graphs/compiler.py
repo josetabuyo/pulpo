@@ -11,11 +11,16 @@ y llaman a run_flows(). El engine no sabe nada de protocolos.
 """
 import logging
 import os
+import time as _time
 from datetime import datetime
 from .nodes.state import FlowState
 from .nodes import NODE_REGISTRY
 
 logger = logging.getLogger(__name__)
+
+# Cooldown por flow: (flow_id, contact_phone) → timestamp del último reply enviado.
+# Persiste en memoria mientras el backend esté corriendo.
+_flow_cooldown: dict[tuple[str, str], float] = {}
 
 
 async def _is_known_contact(contact_phone: str, empresa_id: str) -> bool:
@@ -214,6 +219,22 @@ async def execute_flow(flow: dict, state: FlowState) -> FlowState:
                         db_contact, state.contact_phone)
             return state
 
+    # Cooldown: si el trigger tiene cooldown_hours configurado, verificar
+    if entry_type == "message_trigger":
+        cooldown_hours = float(entry_config.get("cooldown_hours") or 0)
+        if cooldown_hours > 0:
+            flow_id = flow.get("id", "")
+            ck = (str(flow_id), state.contact_phone or "")
+            last_sent = _flow_cooldown.get(ck, 0)
+            elapsed_h = (_time.time() - last_sent) / 3600
+            if elapsed_h < cooldown_hours:
+                remaining = cooldown_hours - elapsed_h
+                logger.debug(
+                    "[engine] Cooldown activo para flow '%s' / contacto '%s' — restan %.1fh",
+                    flow.get("name", flow_id), state.contact_phone, remaining,
+                )
+                return state
+
     # Ejecutar BFS desde el nodo de entrada
     visited = set()
     queue = [entry_node["id"]]
@@ -340,7 +361,18 @@ async def run_flows(
                 except (ValueError, KeyError):
                     pass  # sin created_at o formato raro: ejecutar igual (safe default)
 
+            prev_reply = state.reply
             state = await execute_flow(flow, state)
+            # Si este flow generó un reply nuevo, registrar timestamp para cooldown
+            if state.reply and state.reply != prev_reply:
+                entry = next(
+                    (n for n in flow.get("definition", {}).get("nodes", []) if n.get("type") == "message_trigger"),
+                    None,
+                )
+                if entry:
+                    ch = float((entry.get("config") or {}).get("cooldown_hours") or 0)
+                    if ch > 0:
+                        _flow_cooldown[(str(flow["id"]), state.contact_phone or "")] = _time.time()
 
     if disable_reply and state.reply is not None:
         logger.info("[engine] Kill switch activado — reply descartado (global_off=%s, connection_id=%s bloqueado=%s)",

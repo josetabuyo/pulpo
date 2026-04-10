@@ -47,4 +47,10 @@ class MessageTriggerNode(BaseNode):
                 "default": "",
                 "hint": "Deja vacío para cualquier mensaje. Ej: .*urgente.*",
             },
+            "cooldown_hours": {
+                "type": "number",
+                "label": "Cooldown entre respuestas (horas)",
+                "default": 4,
+                "hint": "Tiempo mínimo entre respuestas al mismo contacto. 0 = sin límite.",
+            },
         }
