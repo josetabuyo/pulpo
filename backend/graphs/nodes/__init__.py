@@ -16,6 +16,8 @@ from .router import RouterNode
 from .llm import LLMNode
 from .fetch import FetchNode
 from .vector_search import VectorSearchNode
+from .set_state import SetStateNode
+from .save_contact import SaveContactNode
 
 NODE_REGISTRY: dict[str, type] = {
     "message_trigger": MessageTriggerNode,
@@ -25,10 +27,13 @@ NODE_REGISTRY: dict[str, type] = {
     "fetch":           FetchNode,
     "vector_search":   VectorSearchNode,
     "summarize":       SummarizeNode,
+    "set_state":       SetStateNode,
+    "save_contact":    SaveContactNode,
 }
 
 __all__ = [
     "NODE_REGISTRY",
     "MessageTriggerNode", "RouterNode", "LLMNode", "SendMessageNode",
     "FetchNode", "VectorSearchNode", "SummarizeNode",
+    "SetStateNode", "SaveContactNode",
 ]

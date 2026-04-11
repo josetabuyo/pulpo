@@ -1,9 +1,33 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request, Header
 from pydantic import BaseModel
 
-from api.deps import require_admin
-from config import load_config, save_config
+from api.deps import require_admin, ADMIN_PASSWORD
+from config import load_config, save_config, get_connection_default_filter, set_connection_default_filter
+from middleware_auth import get_empresa_id_from_token
 from state import clients
+
+_ADMIN_SENTINEL = "__admin__"
+
+def _require_empresa_or_admin(request: Request, x_password: str = Header(default=None)) -> str:
+    if x_password == ADMIN_PASSWORD:
+        return _ADMIN_SENTINEL
+    empresa_id = get_empresa_id_from_token(request)
+    if not empresa_id:
+        raise HTTPException(status_code=401, detail="Token requerido o inválido")
+    return empresa_id
+
+def _check_number_access(number: str, token_empresa_id: str):
+    """Verifica que el número pertenezca a la empresa autenticada (o es admin)."""
+    if token_empresa_id == _ADMIN_SENTINEL:
+        return
+    config = load_config()
+    for empresa in config.get("empresas", []):
+        if empresa["id"] == token_empresa_id:
+            phones = [p["number"] for p in empresa.get("phones", [])]
+            if number in phones:
+                return
+            raise HTTPException(403, "No autorizado para este número")
+    raise HTTPException(403, "Empresa no encontrada")
 
 router = APIRouter()
 
@@ -107,3 +131,42 @@ def move_connection(number: str, body: MovePhone):
     target_empresa.setdefault("phones", []).append(phone_entry)
     save_config(config)
     return {"ok": True, "from": source_empresa["id"], "to": body.targetEmpresaId}
+
+
+# ─── Filtro default por conexión ─────────────────────────────────────────────
+
+class DefaultFilterBody(BaseModel):
+    include_all_known: bool = False
+    include_unknown: bool = False
+    included: list[str] = []
+    excluded: list[str] = []
+
+
+@router.get("/connections/{number}/filter-config")
+def get_connection_filter(number: str, token: str = Depends(_require_empresa_or_admin)):
+    """Retorna el filtro default de una conexión (o vacío si no tiene)."""
+    _check_number_access(number, token)
+    df = get_connection_default_filter(number)
+    if df is None:
+        return {"include_all_known": False, "include_unknown": False, "included": [], "excluded": []}
+    return df
+
+
+@router.put("/connections/{number}/filter-config")
+def put_connection_filter(number: str, body: DefaultFilterBody, token: str = Depends(_require_empresa_or_admin)):
+    """Guarda el filtro default de una conexión."""
+    _check_number_access(number, token)
+    filter_dict = body.model_dump()
+    ok = set_connection_default_filter(number, filter_dict)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Número no encontrado")
+    return {"ok": True, "filter": filter_dict}
+
+
+@router.delete("/connections/{number}/filter-config", dependencies=[Depends(require_admin)])
+def delete_connection_filter(number: str):
+    """Elimina el filtro default de una conexión (solo admin)."""
+    ok = set_connection_default_filter(number, None)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Número no encontrado")
+    return {"ok": True}

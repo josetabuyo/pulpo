@@ -143,6 +143,12 @@ async def execute_flow(flow: dict, state: FlowState) -> FlowState:
 
         # Verificar filtro de contactos
         contact_filter = entry_config.get("contact_filter")
+        # Herencia: si el trigger no tiene contact_filter, heredar el default de la conexión
+        if contact_filter is None:
+            from config import get_connection_default_filter
+            default_cf = get_connection_default_filter(entry_config.get("connection_id", ""))
+            if default_cf:
+                contact_filter = default_cf
         if contact_filter:
             # Nuevo sistema: flags combinables
             # include_all_known: responde a todos los contactos registrados

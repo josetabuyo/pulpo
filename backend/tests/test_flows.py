@@ -98,8 +98,11 @@ def test_list_flows_estructura(client):
         assert "definition" not in flow
 
 
+BOT_TEST_CONN = "5491155612767"  # número WA de bot_test en connections.json
+
+
 def test_create_flow_ok(client):
-    body = {"name": "Flow de prueba"}
+    body = {"name": "Flow de prueba", "connection_id": BOT_TEST_CONN}
     r = client.post("/api/empresas/bot_test/flows", json=body, headers=ADMIN)
     assert r.status_code == 201
     data = r.json()
@@ -117,7 +120,7 @@ def test_create_flow_con_definition(client):
         "edges": [],
         "viewport": {"x": 0, "y": 0, "zoom": 1},
     }
-    body = {"name": "Flow con nodos", "definition": definition}
+    body = {"name": "Flow con nodos", "definition": definition, "connection_id": BOT_TEST_CONN}
     r = client.post("/api/empresas/bot_test/flows", json=body, headers=ADMIN)
     assert r.status_code == 201
     data = r.json()
@@ -126,7 +129,7 @@ def test_create_flow_con_definition(client):
 
 
 def test_get_flow_ok(client):
-    r_create = client.post("/api/empresas/bot_test/flows", json={"name": "Temp"}, headers=ADMIN)
+    r_create = client.post("/api/empresas/bot_test/flows", json={"name": "Temp", "connection_id": BOT_TEST_CONN}, headers=ADMIN)
     flow_id = r_create.json()["id"]
 
     r = client.get(f"/api/empresas/bot_test/flows/{flow_id}", headers=ADMIN)
@@ -145,7 +148,7 @@ def test_get_flow_404(client):
 
 def test_get_flow_otra_empresa(client):
     """No debe devolver un flow de otra empresa."""
-    r_create = client.post("/api/empresas/bot_test/flows", json={"name": "Privado"}, headers=ADMIN)
+    r_create = client.post("/api/empresas/bot_test/flows", json={"name": "Privado", "connection_id": BOT_TEST_CONN}, headers=ADMIN)
     flow_id = r_create.json()["id"]
 
     r = client.get(f"/api/empresas/gm_herreria/flows/{flow_id}", headers=ADMIN)
@@ -155,7 +158,7 @@ def test_get_flow_otra_empresa(client):
 
 
 def test_update_flow_nombre(client):
-    r_create = client.post("/api/empresas/bot_test/flows", json={"name": "Original"}, headers=ADMIN)
+    r_create = client.post("/api/empresas/bot_test/flows", json={"name": "Original", "connection_id": BOT_TEST_CONN}, headers=ADMIN)
     flow_id = r_create.json()["id"]
 
     r = client.put(f"/api/empresas/bot_test/flows/{flow_id}", json={"name": "Renombrado"}, headers=ADMIN)
@@ -166,7 +169,7 @@ def test_update_flow_nombre(client):
 
 
 def test_update_flow_definition(client):
-    r_create = client.post("/api/empresas/bot_test/flows", json={"name": "Edit"}, headers=ADMIN)
+    r_create = client.post("/api/empresas/bot_test/flows", json={"name": "Edit", "connection_id": BOT_TEST_CONN}, headers=ADMIN)
     flow_id = r_create.json()["id"]
 
     new_def = {
@@ -187,7 +190,7 @@ def test_update_flow_404(client):
 
 
 def test_delete_flow_ok(client):
-    r_create = client.post("/api/empresas/bot_test/flows", json={"name": "Borrar"}, headers=ADMIN)
+    r_create = client.post("/api/empresas/bot_test/flows", json={"name": "Borrar", "connection_id": BOT_TEST_CONN}, headers=ADMIN)
     flow_id = r_create.json()["id"]
 
     r = client.delete(f"/api/empresas/bot_test/flows/{flow_id}", headers=ADMIN)
@@ -202,19 +205,23 @@ def test_delete_flow_404(client):
     assert r.status_code == 404
 
 
-def test_seed_flows_existe_luganense(client):
-    """El seed automático crea un flow para luganense en el arranque."""
+def test_luganense_flows_endpoint_ok(client):
+    """Luganense existe y el endpoint de flows responde 200 (empieza sin flows en DB fresca)."""
     r = client.get("/api/empresas/luganense/flows", headers=ADMIN)
     assert r.status_code == 200
-    flows = r.json()
-    assert len(flows) >= 1
+    assert isinstance(r.json(), list)
 
 
-def test_seed_flow_luganense_tiene_nodos(client):
-    """El flow seedeado de luganense tiene definition con nodos."""
-    r = client.get("/api/empresas/luganense/flows", headers=ADMIN)
-    flow_id = r.json()[0]["id"]
-    r2 = client.get(f"/api/empresas/luganense/flows/{flow_id}", headers=ADMIN)
-    definition = r2.json()["definition"]
-    assert len(definition["nodes"]) > 0
-    assert len(definition["edges"]) > 0
+def test_luganense_flow_crud(client):
+    """Crear y borrar un flow para luganense funciona correctamente."""
+    # luganense usa la empresa_id como connection_id (sin número WA explícito)
+    r_create = client.post("/api/empresas/luganense/flows",
+        json={"name": "Test luganense", "connection_id": "luganense"}, headers=ADMIN)
+    assert r_create.status_code == 201
+    flow_id = r_create.json()["id"]
+
+    r_get = client.get(f"/api/empresas/luganense/flows/{flow_id}", headers=ADMIN)
+    definition = r_get.json()["definition"]
+    assert "nodes" in definition
+
+    client.delete(f"/api/empresas/luganense/flows/{flow_id}", headers=ADMIN)

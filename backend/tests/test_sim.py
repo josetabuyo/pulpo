@@ -34,6 +34,7 @@ def test_sim_send_message(client):
     REPLY = "Respuesta automática de test"
     flow = client.post(f"/api/empresas/{bot_id}/flows", headers=ADMIN, json={
         "name": "_test_sim_send",
+        "connection_id": number,
         "definition": {
             "nodes": [
                 {"id": "__start__", "type": "start",  "position": {"x": 0, "y":   0}, "config": {}},
@@ -94,6 +95,7 @@ def test_sim_reply_appears_in_log(client):
 
     flow = client.post(f"/api/empresas/{bot_id}/flows", headers=ADMIN, json={
         "name": "_test_sim_log",
+        "connection_id": number,
         "definition": {
             "nodes": [
                 {"id": "__start__", "type": "start",  "position": {"x": 0, "y":   0}, "config": {}},

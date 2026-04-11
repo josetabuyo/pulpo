@@ -63,12 +63,18 @@ async def init_db():
                 id            INTEGER PRIMARY KEY AUTOINCREMENT,
                 connection_id TEXT NOT NULL,
                 name       TEXT NOT NULL,
+                notes      TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """))
         await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS idx_contacts_connection_id ON contacts(connection_id)"
         ))
+        # Migración: agregar notes si la tabla ya existía sin esa columna
+        try:
+            await conn.execute(text("ALTER TABLE contacts ADD COLUMN notes TEXT"))
+        except Exception:
+            pass  # Ya existe
 
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS contact_channels (
@@ -345,11 +351,11 @@ async def _get_channels_for(conn, contact_ids: list[int]) -> dict[int, list]:
     return result
 
 
-async def create_contact(connection_id: str, name: str) -> int:
+async def create_contact(connection_id: str, name: str, notes: str | None = None) -> int:
     async with AsyncSessionLocal() as session:
         result = await session.execute(
-            text("INSERT INTO contacts (connection_id, name) VALUES (:connection_id, :name)"),
-            {"connection_id": connection_id, "name": name},
+            text("INSERT INTO contacts (connection_id, name, notes) VALUES (:connection_id, :name, :notes)"),
+            {"connection_id": connection_id, "name": name, "notes": notes},
         )
         await session.commit()
         return result.lastrowid
@@ -358,7 +364,7 @@ async def create_contact(connection_id: str, name: str) -> int:
 async def get_contacts(connection_id: str) -> list[dict]:
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(
-            text("SELECT id, connection_id, name, created_at FROM contacts WHERE connection_id = :connection_id ORDER BY id"),
+            text("SELECT id, connection_id, name, notes, created_at FROM contacts WHERE connection_id = :connection_id ORDER BY id"),
             {"connection_id": connection_id},
         )).fetchall()
         if not rows:
@@ -366,7 +372,7 @@ async def get_contacts(connection_id: str) -> list[dict]:
         contact_ids = [r[0] for r in rows]
         channels_map = await _get_channels_for(session, contact_ids)
         return [
-            {"id": r[0], "connection_id": r[1], "name": r[2], "created_at": str(r[3]),
+            {"id": r[0], "connection_id": r[1], "name": r[2], "notes": r[3], "created_at": str(r[4]),
              "channels": channels_map.get(r[0], [])}
             for r in rows
         ]
@@ -375,21 +381,21 @@ async def get_contacts(connection_id: str) -> list[dict]:
 async def get_contact(contact_id: int) -> dict | None:
     async with AsyncSessionLocal() as session:
         row = (await session.execute(
-            text("SELECT id, connection_id, name, created_at FROM contacts WHERE id = :id"),
+            text("SELECT id, connection_id, name, notes, created_at FROM contacts WHERE id = :id"),
             {"id": contact_id},
         )).fetchone()
         if not row:
             return None
         channels_map = await _get_channels_for(session, [row[0]])
-        return {"id": row[0], "connection_id": row[1], "name": row[2], "created_at": str(row[3]),
+        return {"id": row[0], "connection_id": row[1], "name": row[2], "notes": row[3], "created_at": str(row[4]),
                 "channels": channels_map.get(row[0], [])}
 
 
-async def update_contact(contact_id: int, name: str) -> bool:
+async def update_contact(contact_id: int, name: str, notes: str | None = None) -> bool:
     async with AsyncSessionLocal() as session:
         result = await session.execute(
-            text("UPDATE contacts SET name = :name WHERE id = :id"),
-            {"id": contact_id, "name": name},
+            text("UPDATE contacts SET name = :name, notes = :notes WHERE id = :id"),
+            {"id": contact_id, "name": name, "notes": notes},
         )
         await session.commit()
         return result.rowcount > 0
