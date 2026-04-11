@@ -11,6 +11,8 @@ export const PALETTE_TYPES = [
   'vector_search',
   'fetch',
   'summarize',
+  'set_state',
+  'save_contact',
 ]
 // Nota: luganense_flow eliminado — era un mega-nodo legacy, reemplazado por nodos individuales
 
@@ -23,6 +25,8 @@ const DEFAULT_CONFIGS = {
   vector_search:   { collection: '' },
   fetch:           { source: '' },
   summarize:       {},
+  set_state:       { field: '', value: '' },
+  save_contact:    { name_field: 'contact_name', phone_field: 'contact_phone', notes_field: 'contact_notes', update_if_exists: true },
 }
 
 /**

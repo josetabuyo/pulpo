@@ -66,7 +66,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved 
         onBack={onBack}
         onSaved={onSaved}
       />
-      <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
         <NodePalette apiCall={apiCall} typeMap={typeMap} />
         <FlowCanvas
           nodes={nodes}
@@ -77,6 +77,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved 
           onDrop={handleDrop}
           onNodeDoubleClick={handleNodeDoubleClick}
         />
+        {/* NodeConfigPanel como popup flotante sobre el canvas */}
         <NodeConfigPanel empresaId={flow.empresa_id} connections={connections} apiCall={apiCall} />
       </div>
     </div>

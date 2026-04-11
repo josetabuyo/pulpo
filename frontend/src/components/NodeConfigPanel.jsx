@@ -11,6 +11,7 @@
  */
 import { useState, useEffect } from 'react'
 import { useFlowStore } from '../store/flowStore.js'
+import ContactFilterEditor, { DEFAULT_FILTER } from './ContactFilterEditor.jsx'
 
 // ─── Estilos base ─────────────────────────────────────────────────────────────
 
@@ -135,97 +136,101 @@ function JsonField({ field, value, set, labelEl }) {
   )
 }
 
-// ─── ContactFilterPicker ──────────────────────────────────────────────────────
+// ─── ContactFilterPopup ───────────────────────────────────────────────────────
+// Muestra un resumen del filtro + botón que abre un popup/modal con el editor.
 
-const DEFAULT_FILTER = { include_all_known: false, include_unknown: false, included: [], excluded: [] }
+function ContactFilterPopup({ label, value, onChange, contacts, suggested }) {
+  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState(value)
 
-function ContactFilterPicker({ value = DEFAULT_FILTER, onChange, contacts = [] }) {
-  const cf = { ...DEFAULT_FILTER, ...value }
+  // Sincronizar draft cuando cambia el valor externo (ej: clonar a default)
+  useEffect(() => { setDraft(value) }, [value])
 
-  // Identificador = nombre del contacto (el engine matchea por nombre O por teléfono resuelto)
-  const contactOptions = contacts.map(c => ({ id: c.name, label: c.name }))
+  function handleOpen() { setDraft(value); setOpen(true) }
+  function handleSave() { onChange(draft); setOpen(false) }
+  function handleClose() { setOpen(false) }
 
-  function toggle(list, id) {
-    return list.includes(id) ? list.filter(p => p !== id) : [...list, id]
-  }
+  const cf = value || {}
+  const excludedCount = (cf.excluded || []).length
+  const includedCount = (cf.included || []).length
 
-  const isEmpty = !cf.include_all_known && !cf.include_unknown
-    && !(cf.included || []).length && !(cf.excluded || []).length
-
-  const rowStyle = { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }
-  const checkStyle = { flexShrink: 0, width: 13, height: 13, accentColor: '#6b21a8', cursor: 'pointer' }
-  const lblStyle = { ...S.label, margin: 0, fontSize: 11, color: '#94a3b8', fontWeight: 400, letterSpacing: 0, cursor: 'pointer' }
-  const sectionLbl = { ...S.label, fontSize: 9, marginTop: 8, marginBottom: 4 }
+  const summaryParts = []
+  if (cf.include_all_known) summaryParts.push('todos conocidos')
+  if (cf.include_unknown) summaryParts.push('desconocidos')
+  if (includedCount) summaryParts.push(`${includedCount} incluidos`)
+  if (excludedCount) summaryParts.push(`${excludedCount} excluidos`)
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <div style={rowStyle}>
-        <input id="cf_all" type="checkbox" checked={!!cf.include_all_known} style={checkStyle}
-          onChange={e => onChange({ ...cf, include_all_known: e.target.checked })} />
-        <label htmlFor="cf_all" style={lblStyle}>Todos los conocidos</label>
-      </div>
-      <div style={rowStyle}>
-        <input id="cf_unk" type="checkbox" checked={!!cf.include_unknown} style={checkStyle}
-          onChange={e => onChange({ ...cf, include_unknown: e.target.checked })} />
-        <label htmlFor="cf_unk" style={lblStyle}>Desconocidos</label>
-      </div>
-
-      {contactOptions.length > 0 && (
-        <>
-          <span style={sectionLbl}>INCLUIR ESPECÍFICOS</span>
-          {contactOptions.map(opt => (
-            <div key={opt.id} style={rowStyle}>
-              <input type="checkbox" id={`inc_${opt.id}`} style={checkStyle}
-                checked={(cf.included || []).includes(opt.id)}
-                onChange={() => onChange({ ...cf, included: toggle(cf.included || [], opt.id) })} />
-              <label htmlFor={`inc_${opt.id}`} style={lblStyle}>{opt.label}</label>
-            </div>
-          ))}
-
-          <span style={sectionLbl}>EXCLUIR SIEMPRE</span>
-          {contactOptions
-            .filter(opt => !(cf.included || []).includes(opt.id))
-            .map(opt => (
-              <div key={opt.id} style={rowStyle}>
-                <input type="checkbox" id={`exc_${opt.id}`} style={{ ...checkStyle, accentColor: '#dc2626' }}
-                  checked={(cf.excluded || []).includes(opt.id)}
-                  onChange={() => onChange({ ...cf, excluded: toggle(cf.excluded || [], opt.id) })} />
-                <label htmlFor={`exc_${opt.id}`} style={{ ...lblStyle, color: '#f87171' }}>{opt.label}</label>
-              </div>
-            ))}
-        </>
-      )}
-
-      {/* Entradas guardadas que ya no tienen contacto registrado */}
-      {(cf.included || []).filter(p => !contactOptions.some(o => o.id === p)).map(p => (
-        <div key={p} style={rowStyle}>
-          <input type="checkbox" checked style={checkStyle}
-            onChange={() => onChange({ ...cf, included: toggle(cf.included, p) })} />
-          <label style={{ ...lblStyle, fontStyle: 'italic', opacity: 0.6 }}>{p}</label>
+    <>
+      <div style={S.fieldWrap}>
+        <span style={S.label}>{label}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 11, color: summaryParts.length ? '#94a3b8' : '#ef4444', flex: 1 }}>
+            {summaryParts.length ? summaryParts.join(' · ') : '⚠ Sin filtro activo'}
+          </span>
+          <button
+            onClick={handleOpen}
+            style={{
+              fontSize: 10, padding: '3px 8px', borderRadius: 4, cursor: 'pointer',
+              background: 'transparent', border: '1px solid #334155', color: '#94a3b8',
+              flexShrink: 0,
+            }}
+          >
+            Editar filtro
+          </button>
         </div>
-      ))}
+      </div>
 
-      {/* Excluidos que no son contactos registrados (ej: sugeridos excluidos) */}
-      {(cf.excluded || []).filter(p => !contactOptions.some(o => o.id === p)).length > 0 && (
-        <>
-          {contactOptions.length === 0 && <span style={sectionLbl}>EXCLUIR SIEMPRE</span>}
-          {(cf.excluded || []).filter(p => !contactOptions.some(o => o.id === p)).map(p => (
-            <div key={p} style={rowStyle}>
-              <input type="checkbox" checked style={{ ...checkStyle, accentColor: '#dc2626' }}
-                onChange={() => onChange({ ...cf, excluded: toggle(cf.excluded, p) })} />
-              <label style={{ ...lblStyle, color: '#f87171', fontStyle: 'italic' }}>{p}</label>
+      {open && (
+        <div
+          onClick={e => e.target === e.currentTarget && handleClose()}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            background: 'rgba(0,0,0,0.6)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <div style={{
+            background: '#0f172a', border: '1px solid #1e293b', borderRadius: 10,
+            width: 360, maxHeight: '80vh', display: 'flex', flexDirection: 'column',
+            boxShadow: '0 24px 48px rgba(0,0,0,0.5)',
+          }}>
+            <div style={{ padding: '12px 16px 8px', borderBottom: '1px solid #1e293b', display: 'flex', alignItems: 'center' }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0', flex: 1 }}>Filtro de contactos</span>
+              <button onClick={handleClose} style={{ background: 'none', border: 'none', color: '#475569', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 2 }}>×</button>
             </div>
-          ))}
-        </>
-      )}
-
-      {/* Warning: filtro vacío = el flow no responde a nadie */}
-      {isEmpty && (
-        <div style={{ marginTop: 6, fontSize: 10, color: '#ef4444', background: 'rgba(239,68,68,.08)', borderRadius: 4, padding: '4px 6px' }}>
-          ⚠ Sin filtro activo — el flow no responderá a nadie
+            <div style={{ padding: '10px 16px', overflowY: 'auto', flex: 1 }}>
+              <ContactFilterEditor
+                value={draft}
+                onChange={setDraft}
+                contacts={contacts}
+                suggested={suggested}
+              />
+            </div>
+            <div style={{ padding: '8px 16px 12px', borderTop: '1px solid #1e293b', display: 'flex', gap: 8 }}>
+              <button
+                onClick={handleSave}
+                style={{
+                  flex: 1, padding: '6px 12px', borderRadius: 6, cursor: 'pointer',
+                  background: '#6b21a8', border: 'none', color: '#fff', fontSize: 12, fontWeight: 600,
+                }}
+              >
+                Guardar
+              </button>
+              <button
+                onClick={handleClose}
+                style={{
+                  padding: '6px 12px', borderRadius: 6, cursor: 'pointer',
+                  background: 'transparent', border: '1px solid #334155', color: '#94a3b8', fontSize: 12,
+                }}
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
         </div>
       )}
-    </div>
+    </>
   )
 }
 
@@ -356,10 +361,11 @@ function Field({ field, config, onChange }) {
     return (
       <div style={S.fieldWrap}>
         {labelEl}
-        <ContactFilterPicker
+        <ContactFilterEditor
           value={value}
           onChange={cf => set(cf)}
           contacts={field._contacts || []}
+          suggested={field._suggested || []}
         />
       </div>
     )
@@ -419,24 +425,47 @@ function ConfigForm({ node, schema, empresaId, connections, apiCall }) {
   const deleteNode        = useFlowStore(s => s.deleteNode)
   const setSelectedNodeId = useFlowStore(s => s.setSelectedNodeId)
   const { nodeType, config, label, color } = node.data
-  const [contacts, setContacts] = useState([])
+  const [contacts, setContacts]   = useState([])
+  const [suggested, setSuggested] = useState([])
+  const [cloning, setCloning]     = useState(false)
+  const [cloneMsg, setCloneMsg]   = useState('')
 
   const isFixed = nodeType === 'start' || nodeType === 'end'
+  const isTrigger = nodeType === 'message_trigger'
 
   useEffect(() => {
     if (!empresaId || !apiCall) return
-    apiCall('GET', `/bots/${empresaId}/contacts`, null)
-      .then(res => { if (Array.isArray(res)) setContacts(res) })
-      .catch(() => {})
+    Promise.all([
+      apiCall('GET', `/bots/${empresaId}/contacts`, null).catch(() => []),
+      apiCall('GET', `/bots/${empresaId}/contacts/suggested`, null).catch(() => []),
+    ]).then(([c, s]) => {
+      if (Array.isArray(c)) setContacts(c)
+      if (Array.isArray(s)) setSuggested(s)
+    })
   }, [empresaId])
 
   function handleChange(newConfig) { updateNodeConfig(node.id, newConfig) }
   function handleDelete() { if (!isFixed) deleteNode(node.id) }
 
+  async function cloneFilterToDefault() {
+    const connectionId = config.connection_id
+    const contactFilter = config.contact_filter
+    if (!connectionId || !contactFilter) {
+      setCloneMsg('Falta conexión o filtro en el nodo')
+      setTimeout(() => setCloneMsg(''), 3000)
+      return
+    }
+    setCloning(true)
+    await apiCall('PUT', `/connections/${connectionId}/filter-config`, contactFilter).catch(() => null)
+    setCloning(false)
+    setCloneMsg('✓ Filtro copiado como default de la conexión')
+    setTimeout(() => setCloneMsg(''), 4000)
+  }
+
   // Inyectar datos extra en los campos custom
   const visibleFields = (schema || []).filter(f => isVisible(f, config)).map(f => {
     if (f.type === 'connection_select') return { ...f, _connections: connections || [] }
-    if (f.type === 'contact_filter')   return { ...f, _contacts: contacts }
+    if (f.type === 'contact_filter')   return { ...f, _contacts: contacts, _suggested: suggested }
     return f
   })
 
@@ -470,8 +499,29 @@ function ConfigForm({ node, schema, empresaId, connections, apiCall }) {
         )}
       </div>
 
+      {isTrigger && config.contact_filter && config.connection_id && (
+        <div style={{ paddingTop: 8, borderTop: '1px solid #1e293b' }}>
+          <button
+            onClick={cloneFilterToDefault}
+            disabled={cloning}
+            style={{
+              width: '100%', padding: '5px 12px',
+              background: 'transparent', border: '1px solid #1e3a5f',
+              borderRadius: 6, color: '#60a5fa', fontSize: 11, cursor: 'pointer',
+            }}
+          >
+            {cloning ? 'Copiando...' : '↓ Usar como default de la conexión'}
+          </button>
+          {cloneMsg && (
+            <div style={{ fontSize: 10, color: '#60a5fa', marginTop: 4, textAlign: 'center' }}>
+              {cloneMsg}
+            </div>
+          )}
+        </div>
+      )}
+
       {!isFixed && (
-        <div style={{ marginTop: 'auto', paddingTop: 8 }}>
+        <div style={{ paddingTop: 8 }}>
           <button
             onClick={handleDelete}
             style={{
@@ -496,48 +546,47 @@ function ConfigForm({ node, schema, empresaId, connections, apiCall }) {
 // ─── Export ───────────────────────────────────────────────────────────────────
 
 export default function NodeConfigPanel({ empresaId, connections, apiCall }) {
-  const nodes          = useFlowStore(s => s.nodes)
-  const typeMap        = useFlowStore(s => s.typeMap)
-  const selectedNodeId = useFlowStore(s => s.selectedNodeId)
-  const selectedNode   = selectedNodeId ? nodes.find(n => n.id === selectedNodeId) : null
+  const nodes             = useFlowStore(s => s.nodes)
+  const typeMap           = useFlowStore(s => s.typeMap)
+  const selectedNodeId    = useFlowStore(s => s.selectedNodeId)
+  const setSelectedNodeId = useFlowStore(s => s.setSelectedNodeId)
+  const selectedNode      = selectedNodeId ? nodes.find(n => n.id === selectedNodeId) : null
 
-  if (!selectedNode) {
-    return (
-      <div style={{
-        width: 260,
-        background: '#0f172a',
-        borderLeft: '1px solid #1e293b',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexShrink: 0,
-      }}>
-        <div style={{ fontSize: 12, color: '#334155', textAlign: 'center', padding: 16 }}>
-          Doble clic en un nodo para configurarlo
-        </div>
-      </div>
-    )
-  }
+  if (!selectedNode) return null
 
   const schema = typeMap[selectedNode.data.nodeType]?.schema || []
 
   return (
-    <div style={{
-      width: 260,
-      background: '#0f172a',
-      borderLeft: '1px solid #1e293b',
-      padding: 14,
-      flexShrink: 0,
-      display: 'flex',
-      flexDirection: 'column',
-    }}>
-      <ConfigForm
-        node={selectedNode}
-        schema={schema}
-        empresaId={empresaId}
-        connections={connections}
-        apiCall={apiCall}
-      />
+    // Overlay semitransparente — click fuera cierra
+    <div
+      onClick={e => { if (e.target === e.currentTarget) setSelectedNodeId(null) }}
+      style={{
+        position: 'absolute', inset: 0, zIndex: 100,
+        background: 'rgba(0,0,0,0.35)',
+        display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end',
+        pointerEvents: 'all',
+      }}
+    >
+      {/* Panel flotante — anclado a la derecha, con scroll propio */}
+      <div style={{
+        width: 420,
+        height: '100%',
+        background: '#0f172a',
+        borderLeft: '1px solid #1e293b',
+        display: 'flex',
+        flexDirection: 'column',
+        boxShadow: '-8px 0 32px rgba(0,0,0,0.5)',
+        overflowY: 'auto',
+        padding: 14,
+      }}>
+        <ConfigForm
+          node={selectedNode}
+          schema={schema}
+          empresaId={empresaId}
+          connections={connections}
+          apiCall={apiCall}
+        />
+      </div>
     </div>
   )
 }

@@ -53,6 +53,41 @@ def get_empresas_for_connection(connection_id: str) -> list[str]:
     return result
 
 
+def get_connection_default_filter(conn_id: str) -> dict | None:
+    """
+    Retorna el default_filter configurado para una conexión (número WA).
+    Se almacena bajo phones[].default_filter en connections.json.
+    Retorna None si no hay filtro configurado.
+    """
+    try:
+        config = load_config()
+    except Exception:
+        return None
+    for empresa in config.get("empresas", []):
+        for phone in empresa.get("phones", []):
+            if phone.get("number") == conn_id:
+                return phone.get("default_filter")
+    return None
+
+
+def set_connection_default_filter(conn_id: str, default_filter: dict | None) -> bool:
+    """
+    Guarda (o elimina) el default_filter para una conexión en connections.json.
+    Retorna True si encontró y modificó la conexión, False si no existe.
+    """
+    config = load_config()
+    for empresa in config.get("empresas", []):
+        for phone in empresa.get("phones", []):
+            if phone.get("number") == conn_id:
+                if default_filter is None:
+                    phone.pop("default_filter", None)
+                else:
+                    phone["default_filter"] = default_filter
+                save_config(config)
+                return True
+    return False
+
+
 def get_telegram_connections(config: dict) -> list[dict]:
     """Devuelve una lista de configs de conexiones Telegram: [{ connection_id, token }, ...]"""
     result = []
