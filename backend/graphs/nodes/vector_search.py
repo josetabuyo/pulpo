@@ -121,8 +121,15 @@ class VectorSearchNode(BaseNode):
 
         if not activos:
             logger.info("[VectorSearchNode] Sin match para %s='%s'", search_field, search_value)
-            # Escribir el valor identificado aunque no haya match
             state.vars[search_field] = search_value
+            # Dejar en contexto los ítems activos disponibles para que el LLM
+            # pueda responder "qué tienen" cuando no hay búsqueda específica.
+            disponibles = [
+                item for item in items
+                if item.get("activo", True)
+            ]
+            if disponibles:
+                state.context = json.dumps(disponibles, ensure_ascii=False)
             return state
 
         item = activos[0]
