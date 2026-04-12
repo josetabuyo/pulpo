@@ -4,12 +4,16 @@ import { applyNodeChanges, applyEdgeChanges, addEdge } from '@xyflow/react'
 // Tipos de nodo disponibles en la paleta (los que el usuario puede arrastrar).
 // El orden importa: así aparecen en la paleta.
 export const PALETTE_TYPES = [
-  'message_trigger',
+  'whatsapp_trigger',
+  'telegram_trigger',
+  'message_join',
   'router',
   'llm',
   'send_message',
   'vector_search',
   'fetch',
+  'transcribe_audio',
+  'save_attachment',
   'summarize',
   'set_state',
   'save_contact',
@@ -18,14 +22,19 @@ export const PALETTE_TYPES = [
 
 // Config por defecto al crear un nodo nuevo desde la paleta
 const DEFAULT_CONFIGS = {
-  message_trigger: { connection_id: '', contact_phone: '', message_pattern: '' },
+  message_trigger:   { connection_id: '', contact_phone: '', message_pattern: '' },
+  whatsapp_trigger:  { connection_id: '', contact_filter: { include_all_known: false, include_unknown: false, included: [], excluded: [] }, message_pattern: '', cooldown_hours: 4 },
+  telegram_trigger:  { connection_id: '', contact_filter: { include_all_known: false, include_unknown: false, included: [], excluded: [] }, message_pattern: '', cooldown_hours: 4 },
+  message_join:      {},
   router:          { prompt: '', routes: [], fallback: '', model: 'llama-3.3-70b-versatile' },
   llm:             { prompt: '', model: 'llama-3.3-70b-versatile', temperature: 0.3, output: 'reply' },
   send_message:    { to: '', message: '' },
   vector_search:   { collection: '' },
   fetch:           { source: '' },
-  summarize:       {},
-  set_state:       { field: '', value: '' },
+  transcribe_audio: {},
+  save_attachment:  { delete_audio_after_transcription: false },
+  summarize:        {},
+  set_state:        { field: '', value: '' },
   save_contact:    { name_field: 'contact_name', phone_field: 'contact_phone', notes_field: 'contact_notes', update_if_exists: true },
 }
 

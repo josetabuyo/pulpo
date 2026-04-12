@@ -316,19 +316,11 @@ class WhatsAppSession(BrowserAutomation):
                 if is_audio:
                     audio_dl = await self._download_audio_blob(page, name, session_id)
                     if audio_dl:
-                        from tools import transcription
-                        import os
-                        try:
-                            msg_text = await transcription.transcribe(audio_dl)
-                            logger.info(f"[{session_id}] Audio transcrito de {name}: {msg_text[:60]}")
-                        except Exception as _te:
-                            logger.warning(f"[{session_id}] Transcripción fallida: {_te}")
-                            msg_text = "[audio — error al transcribir]"
-                        finally:
-                            try: os.unlink(audio_dl)
-                            except Exception: pass
+                        # Pasar el archivo al flow — el nodo transcribe_audio se encarga
+                        attachment_path = audio_dl
+                        msg_text = ""
                     else:
-                        msg_text = "[audio — pendiente transcripción]"
+                        msg_text = "[audio — no disponible]"
                     msg_type = "audio"
                 elif _is_document:
                     inner = body[5:].rstrip(']')

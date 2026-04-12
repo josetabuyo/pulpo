@@ -32,7 +32,25 @@ NODE_TYPES: dict[str, NodeType] = {
         id="message_trigger",
         label="Trigger de mensaje",
         color="#166534",
-        description="Punto de entrada del flow. Filtra por conexión, contacto y patrón de mensaje.",
+        description="Punto de entrada genérico (cualquier canal). Usar whatsapp_trigger o telegram_trigger para flows nuevos.",
+    ),
+    "whatsapp_trigger": NodeType(
+        id="whatsapp_trigger",
+        label="WhatsApp Trigger",
+        color="#16a34a",
+        description="Punto de entrada para mensajes de WhatsApp. Solo activa el flow si el mensaje viene por WA.",
+    ),
+    "telegram_trigger": NodeType(
+        id="telegram_trigger",
+        label="Telegram Trigger",
+        color="#0369a1",
+        description="Punto de entrada para mensajes de Telegram. Solo activa el flow si el mensaje viene por TG.",
+    ),
+    "message_join": NodeType(
+        id="message_join",
+        label="+",
+        color="#475569",
+        description="Nodo de convergencia (fan-in). Úsalo cuando un flow tiene múltiples triggers. No modifica el estado.",
     ),
     "router": NodeType(
         id="router",
@@ -82,6 +100,18 @@ NODE_TYPES: dict[str, NodeType] = {
         color="#059669",
         description="Persiste el contacto en la base de datos usando datos del estado.",
     ),
+    "transcribe_audio": NodeType(
+        id="transcribe_audio",
+        label="Transcribir audio",
+        color="#7c3aed",
+        description="Transcribe un mensaje de audio a texto usando Whisper. Colocar antes de summarize.",
+    ),
+    "save_attachment": NodeType(
+        id="save_attachment",
+        label="Guardar adjunto",
+        color="#b45309",
+        description="Mueve el adjunto a almacenamiento permanente (data/summaries/). Colocar entre transcribe_audio y summarize.",
+    ),
 }
 
 
@@ -105,6 +135,11 @@ _CLASSIFY_SUBSTRINGS: list[tuple[str, str]] = [
     ("send",      "send_message"),
     ("set_state", "set_state"),
     ("save_contact", "save_contact"),
+    ("transcribe", "transcribe_audio"),
+    ("save_attachment", "save_attachment"),
+    ("whatsapp_trigger", "whatsapp_trigger"),
+    ("telegram_trigger", "telegram_trigger"),
+    ("message_join", "message_join"),
 ]
 
 

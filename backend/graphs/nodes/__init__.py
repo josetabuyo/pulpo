@@ -18,17 +18,27 @@ from .fetch import FetchNode
 from .vector_search import VectorSearchNode
 from .set_state import SetStateNode
 from .save_contact import SaveContactNode
+from .transcribe_audio import TranscribeAudioNode
+from .save_attachment import SaveAttachmentNode
+from .whatsapp_trigger import WhatsappTriggerNode
+from .telegram_trigger import TelegramTriggerNode
+from .message_join import MessageJoinNode
 
 NODE_REGISTRY: dict[str, type] = {
-    "message_trigger": MessageTriggerNode,
-    "router":          RouterNode,
-    "llm":             LLMNode,
-    "send_message":    SendMessageNode,
-    "fetch":           FetchNode,
-    "vector_search":   VectorSearchNode,
-    "summarize":       SummarizeNode,
-    "set_state":       SetStateNode,
-    "save_contact":    SaveContactNode,
+    "message_trigger":   MessageTriggerNode,
+    "whatsapp_trigger":  WhatsappTriggerNode,
+    "telegram_trigger":  TelegramTriggerNode,
+    "message_join":      MessageJoinNode,
+    "router":           RouterNode,
+    "llm":              LLMNode,
+    "send_message":     SendMessageNode,
+    "fetch":            FetchNode,
+    "vector_search":    VectorSearchNode,
+    "summarize":        SummarizeNode,
+    "set_state":        SetStateNode,
+    "save_contact":     SaveContactNode,
+    "transcribe_audio": TranscribeAudioNode,
+    "save_attachment":  SaveAttachmentNode,
 }
 
 __all__ = [
@@ -36,4 +46,6 @@ __all__ = [
     "MessageTriggerNode", "RouterNode", "LLMNode", "SendMessageNode",
     "FetchNode", "VectorSearchNode", "SummarizeNode",
     "SetStateNode", "SaveContactNode",
+    "TranscribeAudioNode", "SaveAttachmentNode",
+    "WhatsappTriggerNode", "TelegramTriggerNode", "MessageJoinNode",
 ]

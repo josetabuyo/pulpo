@@ -18,6 +18,11 @@ from .nodes import NODE_REGISTRY
 
 logger = logging.getLogger(__name__)
 
+# Tipos de nodo que actúan como entrada de un flow.
+# message_trigger = backward-compat (cualquier canal)
+# whatsapp_trigger / telegram_trigger = específicos por canal
+TRIGGER_TYPES: frozenset[str] = frozenset({"message_trigger", "whatsapp_trigger", "telegram_trigger"})
+
 # Cooldown por flow: (flow_id, contact_phone) → timestamp del último reply enviado.
 # Persiste en memoria mientras el backend esté corriendo.
 _flow_cooldown: dict[tuple[str, str], float] = {}
@@ -107,118 +112,118 @@ async def execute_flow(flow: dict, state: FlowState) -> FlowState:
             label = edge.get("label") or None
             graph.setdefault(source, []).append((target, label))
 
-    # Encontrar nodo de entrada (message_trigger)
+    # Encontrar nodo de entrada: iterar todos los triggers y usar el primero que aplique
+    trigger_candidates = [n for n in nodes if n.get("type", "") in TRIGGER_TYPES]
+
     entry_node = None
-    for node in nodes:
-        node_type = node.get("type", "")
-        if node_type == "message_trigger":
-            entry_node = node
+    entry_type = ""
+    entry_config = {}
+
+    if trigger_candidates:
+        for candidate in trigger_candidates:
+            ctype = candidate.get("type", "")
+            cconfig = candidate.get("config", {})
+
+            # Filtro por canal
+            if ctype == "whatsapp_trigger" and state.canal != "whatsapp":
+                logger.debug("[engine] whatsapp_trigger no aplica: canal '%s' != 'whatsapp'", state.canal)
+                continue
+            if ctype == "telegram_trigger" and state.canal != "telegram":
+                logger.debug("[engine] telegram_trigger no aplica: canal '%s' != 'telegram'", state.canal)
+                continue
+
+            # Filtro por connection_id
+            required_connection = cconfig.get("connection_id", "")
+            if not required_connection:
+                logger.debug("[engine] trigger sin connection_id configurado — skip")
+                continue
+            if required_connection != state.connection_id:
+                logger.debug("[engine] Flow no aplica: connection_id %s != %s",
+                            required_connection, state.connection_id)
+                continue
+
+            # Filtro de contactos
+            contact_filter = cconfig.get("contact_filter")
+            if contact_filter is None:
+                from config import get_connection_default_filter
+                default_cf = get_connection_default_filter(cconfig.get("connection_id", ""))
+                if default_cf:
+                    contact_filter = default_cf
+            if contact_filter:
+                excluded  = contact_filter.get("excluded", [])
+                included  = contact_filter.get("included", [])
+                inc_all   = contact_filter.get("include_all_known", False)
+                inc_unk   = contact_filter.get("include_unknown", False)
+                empresa   = state.empresa_id or ""
+
+                excluded_phones: set[str] = set()
+                for v in excluded:
+                    excluded_phones |= await _resolve_filter_value(v, empresa)
+
+                included_phones: set[str] = set()
+                for v in included:
+                    included_phones |= await _resolve_filter_value(v, empresa)
+
+                if state.contact_phone in excluded_phones or state.contact_phone in excluded:
+                    logger.debug("[engine] Trigger no aplica: contacto %s excluido", state.contact_phone)
+                    continue
+
+                is_allowed = False
+                logger.debug("[engine] filter check: contact=%r included=%r included_phones=%r",
+                             state.contact_phone, included, included_phones)
+                if state.contact_phone in included_phones or state.contact_phone in included:
+                    is_allowed = True
+                elif inc_all or inc_unk:
+                    is_known = await _is_known_contact(state.contact_phone, state.empresa_id or "")
+                    if inc_all and is_known:
+                        is_allowed = True
+                    elif inc_unk and not is_known:
+                        is_allowed = True
+
+                if not is_allowed:
+                    logger.debug("[engine] Trigger no aplica: contacto %s no en ninguna lista de inclusión", state.contact_phone)
+                    continue
+            else:
+                # Legacy: contact_phone exacto
+                required_contact = cconfig.get("contact_phone", "")
+                if required_contact and required_contact != state.contact_phone:
+                    logger.debug("[engine] Trigger no aplica: contact_phone %s != %s",
+                                required_contact, state.contact_phone)
+                    continue
+
+            # Verificar message_pattern (regex opcional)
+            pattern = cconfig.get("message_pattern", "")
+            if pattern and state.message:
+                import re
+                try:
+                    if not re.search(pattern, state.message, re.IGNORECASE):
+                        logger.debug("[engine] Trigger no aplica: mensaje no matchea pattern '%s'", pattern)
+                        continue
+                except re.error:
+                    logger.warning("[engine] Regex inválido en message_pattern: '%s'", pattern)
+
+            # Este trigger aplica
+            entry_node = candidate
+            entry_type = ctype
+            entry_config = cconfig
             break
 
-    # Compatibilidad hacia atrás: si no hay trigger, usar __start__
-    if not entry_node:
+    else:
+        # Compatibilidad hacia atrás: sin triggers → usar __start__
         for node in nodes:
             if node.get("id") == "__start__":
                 entry_node = node
+                entry_type = ""
+                entry_config = {}
                 break
 
     if not entry_node:
-        logger.debug("[engine] Flow sin nodo de entrada (trigger o __start__) — skip")
+        logger.debug("[engine] Flow sin trigger aplicable (canal=%s, connection=%s) — skip",
+                     state.canal, state.connection_id)
         return state
 
-    # Verificar si el flow aplica a este mensaje
-    entry_type = entry_node.get("type", "")
-    entry_config = entry_node.get("config", {})
-
-    if entry_type == "message_trigger":
-        # Verificar connection_id — debe estar configurado en el nodo
-        required_connection = entry_config.get("connection_id", "")
-        if not required_connection:
-            logger.debug("[engine] message_trigger sin connection_id configurado — flow ignorado")
-            return state
-        if required_connection != state.connection_id:
-            logger.debug("[engine] Flow no aplica: connection_id %s != %s",
-                        required_connection, state.connection_id)
-            return state
-
-        # Verificar filtro de contactos
-        contact_filter = entry_config.get("contact_filter")
-        # Herencia: si el trigger no tiene contact_filter, heredar el default de la conexión
-        if contact_filter is None:
-            from config import get_connection_default_filter
-            default_cf = get_connection_default_filter(entry_config.get("connection_id", ""))
-            if default_cf:
-                contact_filter = default_cf
-        if contact_filter:
-            # Nuevo sistema: flags combinables
-            # include_all_known: responde a todos los contactos registrados
-            # include_unknown:   responde a contactos no registrados
-            # included:          lista específica de phones a incluir
-            # excluded:          lista de phones a siempre excluir (prioridad máxima)
-            excluded  = contact_filter.get("excluded", [])
-            included  = contact_filter.get("included", [])
-            inc_all   = contact_filter.get("include_all_known", False)
-            inc_unk   = contact_filter.get("include_unknown", False)
-            empresa   = state.empresa_id or ""
-
-            # Resolver cada valor (nombre o número) al set de teléfonos reales
-            excluded_phones: set[str] = set()
-            for v in excluded:
-                excluded_phones |= await _resolve_filter_value(v, empresa)
-
-            included_phones: set[str] = set()
-            for v in included:
-                included_phones |= await _resolve_filter_value(v, empresa)
-
-            # 1. Excluidos tienen prioridad absoluta
-            # Chequear tanto por teléfono resuelto como por valor literal (nombre o número tal cual llega de WA)
-            if state.contact_phone in excluded_phones or state.contact_phone in excluded:
-                logger.debug("[engine] Flow no aplica: contacto %s está excluido", state.contact_phone)
-                return state
-
-            # 2. Evaluar si el contacto está incluido
-            is_allowed = False
-
-            logger.debug("[engine] filter check: contact=%r included=%r included_phones=%r",
-                         state.contact_phone, included, included_phones)
-
-            # Chequear por teléfono resuelto Y por valor literal (por si WA entrega el nombre en lugar del número)
-            if state.contact_phone in included_phones or state.contact_phone in included:
-                is_allowed = True
-            elif inc_all or inc_unk:
-                # Necesitamos saber si el contacto es conocido
-                is_known = await _is_known_contact(state.contact_phone, state.empresa_id or "")
-                if inc_all and is_known:
-                    is_allowed = True
-                elif inc_unk and not is_known:
-                    is_allowed = True
-
-            if not is_allowed:
-                logger.debug("[engine] Flow no aplica: contacto %s no está en ninguna lista de inclusión", state.contact_phone)
-                return state
-
-        else:
-            # Legacy: contact_phone exacto (un solo contacto)
-            required_contact = entry_config.get("contact_phone", "")
-            if required_contact and required_contact != state.contact_phone:
-                logger.debug("[engine] Flow no aplica: contact_phone %s != %s",
-                            required_contact, state.contact_phone)
-                return state
-
-        # Verificar message_pattern (regex opcional)
-        pattern = entry_config.get("message_pattern", "")
-        if pattern and state.message:
-            import re
-            try:
-                if not re.search(pattern, state.message, re.IGNORECASE):
-                    logger.debug("[engine] Flow no aplica: mensaje no matchea pattern '%s'", pattern)
-                    return state
-            except re.error:
-                logger.warning("[engine] Regex inválido en message_pattern: '%s'", pattern)
-                # Si el regex es inválido, ignorar el filtro (safe default)
-    else:
-        # __start__: connection_id ya fue verificado por la DB
-        # Solo necesitamos verificar contact_phone si está en la DB
+    # __start__: verificar contact_phone desde DB
+    if not entry_type:
         db_contact = flow.get("contact_phone")
         if db_contact and db_contact != state.contact_phone:
             logger.debug("[engine] Flow (__start__) no aplica: contact_phone DB %s != %s",
@@ -226,7 +231,7 @@ async def execute_flow(flow: dict, state: FlowState) -> FlowState:
             return state
 
     # Cooldown: si el trigger tiene cooldown_hours configurado, verificar
-    if entry_type == "message_trigger":
+    if entry_type in TRIGGER_TYPES:
         cooldown_hours = float(entry_config.get("cooldown_hours") or 0)
         if cooldown_hours > 0:
             flow_id = flow.get("id", "")
@@ -372,7 +377,7 @@ async def run_flows(
             # Si este flow generó un reply nuevo, registrar timestamp para cooldown
             if state.reply and state.reply != prev_reply:
                 entry = next(
-                    (n for n in flow.get("definition", {}).get("nodes", []) if n.get("type") == "message_trigger"),
+                    (n for n in flow.get("definition", {}).get("nodes", []) if n.get("type") in TRIGGER_TYPES),
                     None,
                 )
                 if entry:

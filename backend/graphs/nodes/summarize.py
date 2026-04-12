@@ -129,26 +129,24 @@ class SummarizeNode(BaseNode):
     No produce reply — es un efecto de lado puro.
     Solo corre cuando from_poll=False (no previews del sidebar WA).
 
-    Si state.attachment_path tiene un archivo temporal (imagen, documento),
-    lo mueve a storage permanente antes de acumular.
+    Colocar en el flow DESPUÉS de transcribe_audio y save_attachment.
+    Este nodo ya no maneja archivos — solo escribe texto al .md.
     """
 
     async def run(self, state: FlowState) -> FlowState:
         if state.from_poll:
             return state
 
-        content = state.message
-
-        # Mover adjunto de ruta temporal a storage permanente
+        # Construir contenido: si hay adjunto guardado, registrarlo
         if state.attachment_path:
-            import shutil as _shutil
             from pathlib import Path as _Path
-            src = _Path(state.attachment_path)
-            if src.exists():
-                att_dir = get_attachments_dir(state.empresa_id, state.contact_phone)
-                dest = att_dir / src.name
-                _shutil.move(str(src), str(dest))
-                content = f"[{state.message_type}: {dest.name}]"
+            fname = _Path(state.attachment_path).name
+            content = state.message or f"[{state.message_type}: {fname}]"
+        else:
+            content = state.message
+
+        if not content:
+            return state
 
         accumulate(
             empresa_id=state.empresa_id,
