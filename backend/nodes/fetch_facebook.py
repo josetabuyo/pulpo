@@ -144,7 +144,7 @@ async def _load_posts(page_id: str, query: str, numeric_id: str = "") -> list[di
         )
         await page.wait_for_timeout(2_500)
 
-        if "login" in page.url or "checkpoint" in page.url:
+        if "login" in page.url or "checkpoint" in page.url or "index.php" in page.url:
             logger.warning("[fetch_facebook] Sesión expirada — cookies eliminadas, re-login requerido")
             cookies_path.unlink(missing_ok=True)
             await browser.close()
@@ -275,13 +275,23 @@ async def _scrape_post_page(ctx, url: str) -> dict:
         return {"text": "", "image_url": ""}
 
 
+def _parse_og_image(html: str) -> str:
+    """Extrae la URL de og:image de un HTML. Decodifica &amp;."""
+    import re as _re
+    match = _re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', html)
+    if not match:
+        match = _re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']', html)
+    if match:
+        return match.group(1).replace("&amp;", "&")
+    return ""
+
+
 async def _fetch_og_images(share_urls: list[str]) -> list[str]:
     """
-    Para cada share/p/ URL, obtiene la imagen principal via og:image meta tag.
-    HTTP simple, sin cookies. Corre en paralelo para no agregar latencia.
+    Stub de compatibilidad para tests — usa httpx sin cookies (no produce imágenes reales).
+    En producción se usa _fetch_og_images_browser(page, share_urls).
     """
     import httpx
-    import re as _re
 
     async def _get_one(url: str) -> str:
         try:
@@ -291,13 +301,7 @@ async def _fetch_og_images(share_urls: list[str]) -> list[str]:
                 headers={"User-Agent": _UA},
             ) as client:
                 resp = await client.get(url)
-                match = _re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', resp.text)
-                if not match:
-                    match = _re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']', resp.text)
-                if match:
-                    img = match.group(1).replace("&amp;", "&")
-                    logger.info("[fetch_facebook] og:image obtenida para %s", url[:60])
-                    return img
+                return _parse_og_image(resp.text)
         except Exception as e:
             logger.debug("[fetch_facebook] Error obteniendo og:image de %s: %s", url[:60], e)
         return ""
@@ -305,6 +309,47 @@ async def _fetch_og_images(share_urls: list[str]) -> list[str]:
     import asyncio as _asyncio
     results = await _asyncio.gather(*[_get_one(u) for u in share_urls])
     return list(results)
+
+
+async def _fetch_og_images_browser(page, share_urls: list[str]) -> list[str]:
+    """
+    Abre una pestaña nueva por cada share URL para leer og:image via DOM.
+    Usa el contexto autenticado → FB sirve el HTML completo con og:image.
+    Solo procesa la primera URL para no agregar demasiada latencia.
+    """
+    ctx = page.context
+    results = []
+    for i, url in enumerate(share_urls):
+        if i > 0:
+            # Solo imagen del primer post (el que lleva el texto)
+            results.append("")
+            continue
+        img = ""
+        tab = None
+        try:
+            tab = await ctx.new_page()
+            await tab.goto(url, wait_until="domcontentloaded", timeout=12_000)
+            await tab.wait_for_timeout(500)
+            meta = await tab.query_selector("meta[property='og:image']")
+            if meta:
+                content = await meta.get_attribute("content") or ""
+                img = content.replace("&amp;", "&")
+                if img:
+                    logger.info("[fetch_facebook] og:image via tab: %s...", img[:60])
+                else:
+                    logger.debug("[fetch_facebook] meta og:image sin content en %s", url[:60])
+            else:
+                logger.debug("[fetch_facebook] sin meta og:image en %s", url[:60])
+        except Exception as e:
+            logger.debug("[fetch_facebook] Error tab og:image %s: %s", url[:60], e)
+        finally:
+            if tab:
+                try:
+                    await tab.close()
+                except Exception:
+                    pass
+        results.append(img)
+    return results
 
 
 async def _extract_post_urls(page, max_posts: int = 3) -> list[str]:
@@ -459,10 +504,10 @@ async def _scrape_search_feed(page) -> tuple[str, list[str], list[str]]:
     except Exception as e:
         logger.warning("[fetch_facebook] Error extrayendo share URLs (no crítico): %s", e)
 
-    # Imágenes via og:image de cada share URL (HTTP paralelo, sin cookies necesarias)
+    # Imágenes via og:image de cada share URL (browser autenticado → cookies activas)
     images: list[str] = []
     if post_urls:
-        images = await _fetch_og_images(post_urls)
+        images = await _fetch_og_images_browser(page, post_urls)
 
     # Fallback imagen: primera scontent del feed si no hay og:images
     image_url = next((img for img in images if img), "")
@@ -516,11 +561,11 @@ async def _search_and_scrape(page, query: str, page_id: str = "", numeric_id: st
 
             text, image_url, images, post_urls = await _scrape_search_feed(page)
             if text:
-                img = images[0] if images else image_url
                 # Un dict por share URL; el primero lleva todo el texto
                 posts = []
                 for i, u in enumerate(post_urls):
-                    posts.append({"text": text if i == 0 else "", "image_url": images[i] if i < len(images) else img, "url": u})
+                    post_img = (images[i] if i < len(images) else "") or image_url
+                    posts.append({"text": text if i == 0 else "", "image_url": post_img, "url": u})
                 if not posts:
                     posts = [{"text": text, "image_url": img, "url": f"https://www.facebook.com/{page_id}"}]
                 logger.info("[fetch_facebook] Búsqueda: %d líneas, %d imágenes, %d URLs para '%s'", len(text.splitlines()), len(images), len(post_urls), query)
