@@ -17,6 +17,7 @@ Interfaz pública:
 
 Interfaz futura: cuando haya Graph API key, se reemplaza _load_posts() sin tocar el grafo.
 """
+import asyncio
 import json
 import logging
 import os
@@ -28,6 +29,9 @@ logger = logging.getLogger(__name__)
 _CACHE_TTL = 30 * 60       # 30 minutos
 _MAX_POSTS = 8
 _SESSIONS_DIR = Path(__file__).parent.parent.parent / "data" / "sessions"
+
+# Lock global para evitar múltiples logins simultáneos cuando las cookies expiran
+_login_lock = asyncio.Lock()
 
 _UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -107,10 +111,13 @@ async def _load_posts(page_id: str, query: str, numeric_id: str = "") -> list[di
     cookies_path.parent.mkdir(parents=True, exist_ok=True)
 
     if not cookies_path.exists():
-        logger.info("[fetch_facebook] Sin cookies → login con browser visible...")
-        ok = await _do_login_visible(email, password, cookies_path)
-        if not ok:
-            return []
+        async with _login_lock:
+            # Re-check dentro del lock: otra coroutine puede haber completado el login
+            if not cookies_path.exists():
+                logger.info("[fetch_facebook] Sin cookies → login con browser visible...")
+                ok = await _do_login_visible(email, password, cookies_path)
+                if not ok:
+                    return []
 
     async with async_playwright() as pw:
         headless = not os.getenv("FB_DEBUG")
@@ -195,7 +202,7 @@ async def _do_login_visible(email: str, password: str, cookies_path: Path) -> bo
 
             await page.wait_for_timeout(2_000)
 
-            if "login" in page.url or "checkpoint" in page.url:
+            if "login" in page.url or "checkpoint" in page.url or "index.php" in page.url:
                 logger.error("[fetch_facebook] Login falló. URL: %s", page.url)
                 await browser.close()
                 return False
@@ -268,12 +275,131 @@ async def _scrape_post_page(ctx, url: str) -> dict:
         return {"text": "", "image_url": ""}
 
 
-async def _scrape_search_feed(page) -> tuple[str, str]:
+async def _fetch_og_images(share_urls: list[str]) -> list[str]:
+    """
+    Para cada share/p/ URL, obtiene la imagen principal via og:image meta tag.
+    HTTP simple, sin cookies. Corre en paralelo para no agregar latencia.
+    """
+    import httpx
+    import re as _re
+
+    async def _get_one(url: str) -> str:
+        try:
+            async with httpx.AsyncClient(
+                timeout=8,
+                follow_redirects=True,
+                headers={"User-Agent": _UA},
+            ) as client:
+                resp = await client.get(url)
+                match = _re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', resp.text)
+                if not match:
+                    match = _re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']', resp.text)
+                if match:
+                    img = match.group(1).replace("&amp;", "&")
+                    logger.info("[fetch_facebook] og:image obtenida para %s", url[:60])
+                    return img
+        except Exception as e:
+            logger.debug("[fetch_facebook] Error obteniendo og:image de %s: %s", url[:60], e)
+        return ""
+
+    import asyncio as _asyncio
+    results = await _asyncio.gather(*[_get_one(u) for u in share_urls])
+    return list(results)
+
+
+async def _extract_post_urls(page, max_posts: int = 3) -> list[str]:
+    """
+    Extrae las URLs share/p/ de los posts del feed de búsqueda.
+
+    Estrategia: para cada post, hace click en el botón Compartir y luego en
+    Copiar enlace, capturando la URL share/p/ desde la respuesta de red que
+    FB genera al hacer click.
+    """
+    import re as _re
+
+    share_urls: list[str] = []
+
+    try:
+        feed = await page.query_selector("[role='feed']")
+        if not feed:
+            return []
+        posts = await feed.query_selector_all(":scope > div")
+        logger.info("[fetch_facebook] %d posts en feed para extraer share URLs", len(posts))
+    except Exception as e:
+        logger.warning("[fetch_facebook] Error buscando posts en feed: %s", e)
+        return []
+
+    for i, post in enumerate(posts[:max_posts + 3]):
+        if len(share_urls) >= max_posts:
+            break
+        try:
+            share_btn = await post.query_selector(
+                "[aria-label='Envía esto a tus amigos o publícalo en tu perfil.']"
+            )
+            if not share_btn:
+                continue
+
+            # Capturar respuestas de red que contengan share/p/
+            captured: list[str] = []
+
+            async def on_response(resp, _cap=captured):
+                try:
+                    if "share" in resp.url or "graphql" in resp.url or "ajax" in resp.url:
+                        body = await resp.text()
+                        found = _re.findall(r'https://www\.facebook\.com/share/p/[\w]+/?', body)
+                        _cap.extend(found)
+                except Exception:
+                    pass
+
+            page.on("response", on_response)
+
+            try:
+                await share_btn.click(force=True)
+                await page.wait_for_timeout(2_000)
+
+                # Click en Copiar enlace dentro del diálogo Compartir
+                await page.evaluate("""() => {
+                    const d = Array.from(document.querySelectorAll('[role=dialog]'))
+                        .find(d => d.innerText.includes('Compartir ahora'));
+                    if (!d) return;
+                    const btn = Array.from(d.querySelectorAll('div,span'))
+                        .find(el => el.innerText && el.innerText.trim() === 'Copiar enlace');
+                    if (btn) btn.click();
+                }""")
+                await page.wait_for_timeout(1_500)
+
+            finally:
+                page.remove_listener("response", on_response)
+
+            # Cerrar diálogo
+            await page.keyboard.press("Escape")
+            await page.wait_for_timeout(500)
+
+            if captured:
+                url = captured[0]
+                if url not in share_urls:
+                    share_urls.append(url)
+                    logger.info("[fetch_facebook] share URL extraída: %s", url)
+            else:
+                logger.info("[fetch_facebook] post %d: no se capturó share URL", i)
+
+        except Exception as e:
+            logger.warning("[fetch_facebook] Error extrayendo share URL post %d: %s", i, e)
+            try:
+                await page.keyboard.press("Escape")
+            except Exception:
+                pass
+
+    return share_urls
+
+
+async def _scrape_search_feed(page) -> tuple[str, list[str], list[str]]:
     """
     Extrae texto del feed de resultados de búsqueda de FB.
-    Retorna (texto_combinado, image_url).
-    Los resultados de búsqueda de FB no exponen links /posts/pfbid en el DOM —
-    el contenido está inline en el feed.
+    Retorna (texto_combinado, images_por_post, share_urls_por_post).
+    - texto_combinado: feed.inner_text() filtrado (mecanismo original, probado)
+    - images_por_post: una imagen por post (lectura de DOM, sin clicks)
+    - share_urls_por_post: URLs share/p/ via click Compartir → Copiar enlace
     """
     # Expandir "Ver más" visibles
     try:
@@ -302,7 +428,7 @@ async def _scrape_search_feed(page) -> tuple[str, str]:
         await page.screenshot(path=str(debug_dir / "fb_search_after_expand.png"), full_page=False)
         logger.info("[fetch_facebook] DEBUG screenshot guardado")
 
-    # Texto del feed
+    # Texto combinado del feed (mecanismo original — probado y funcionando)
     raw = ""
     try:
         feed = await page.query_selector("[role='feed']")
@@ -312,7 +438,7 @@ async def _scrape_search_feed(page) -> tuple[str, str]:
         pass
 
     if not raw.strip():
-        return "", ""
+        return "", "", [], []
 
     lines = [
         l.strip() for l in raw.split("\n")
@@ -322,24 +448,37 @@ async def _scrape_search_feed(page) -> tuple[str, str]:
         and "Audio original" not in l
     ]
     if not lines:
-        return "", ""
+        return "", "", [], []
 
     logger.info("[fetch_facebook] Search feed: %d líneas extraídas", len(lines))
 
-    # Primera imagen de contenido del feed (no avatares)
-    image_url = ""
+    # Share URLs via click Compartir
+    post_urls: list[str] = []
     try:
-        imgs = await page.query_selector_all("[role='feed'] img[src*='fbcdn.net']")
-        for img in imgs:
-            src = await img.get_attribute("src") or ""
-            if src and "scontent" in src:
-                image_url = src
-                logger.info("[fetch_facebook] imagen del feed de búsqueda capturada")
-                break
-    except Exception:
-        pass
+        post_urls = await _extract_post_urls(page, max_posts=3)
+    except Exception as e:
+        logger.warning("[fetch_facebook] Error extrayendo share URLs (no crítico): %s", e)
 
-    return "\n".join(lines[:150]), image_url
+    # Imágenes via og:image de cada share URL (HTTP paralelo, sin cookies necesarias)
+    images: list[str] = []
+    if post_urls:
+        images = await _fetch_og_images(post_urls)
+
+    # Fallback imagen: primera scontent del feed si no hay og:images
+    image_url = next((img for img in images if img), "")
+    if not image_url:
+        try:
+            imgs = await page.query_selector_all("[role='feed'] img[src*='fbcdn.net']")
+            for img in imgs:
+                src = await img.get_attribute("src") or ""
+                if src and "scontent" in src:
+                    image_url = src
+                    logger.info("[fetch_facebook] imagen del feed de búsqueda capturada (fallback)")
+                    break
+        except Exception:
+            pass
+
+    return "\n".join(lines[:150]), image_url, images, post_urls
 
 
 async def _search_and_scrape(page, query: str, page_id: str = "", numeric_id: str = "") -> list[dict]:
@@ -359,7 +498,7 @@ async def _search_and_scrape(page, query: str, page_id: str = "", numeric_id: st
             await page.goto(search_url, wait_until="domcontentloaded", timeout=30_000)
             await page.wait_for_timeout(5_000)
 
-            if "login" in page.url or "checkpoint" in page.url:
+            if "login" in page.url or "checkpoint" in page.url or "index.php" in page.url:
                 logger.warning("[fetch_facebook] Sesión expirada en búsqueda — cookies eliminadas, re-login requerido")
                 cookies_path = _SESSIONS_DIR / f"fb-{page_id}" / "cookies.json"
                 cookies_path.unlink(missing_ok=True)
@@ -375,13 +514,27 @@ async def _search_and_scrape(page, query: str, page_id: str = "", numeric_id: st
                     full_page=False,
                 )
 
-            text, image_url = await _scrape_search_feed(page)
+            text, image_url, images, post_urls = await _scrape_search_feed(page)
             if text:
-                return [{"text": text, "image_url": image_url, "url": f"https://www.facebook.com/{page_id}"}]
+                img = images[0] if images else image_url
+                # Un dict por share URL; el primero lleva todo el texto
+                posts = []
+                for i, u in enumerate(post_urls):
+                    posts.append({"text": text if i == 0 else "", "image_url": images[i] if i < len(images) else img, "url": u})
+                if not posts:
+                    posts = [{"text": text, "image_url": img, "url": f"https://www.facebook.com/{page_id}"}]
+                logger.info("[fetch_facebook] Búsqueda: %d líneas, %d imágenes, %d URLs para '%s'", len(text.splitlines()), len(images), len(post_urls), query)
+                return posts
             logger.info("[fetch_facebook] Búsqueda sin resultados para query '%s'", query)
             return []
         except Exception as e:
-            logger.warning("[fetch_facebook] Error en búsqueda directa: %s", e)
+            err_str = str(e)
+            if "ERR_TOO_MANY_REDIRECTS" in err_str or "net::ERR_" in err_str:
+                logger.warning("[fetch_facebook] Sesión expirada (redirect loop) — cookies eliminadas, re-login requerido")
+                cookies_path = _SESSIONS_DIR / f"fb-{page_id}" / "cookies.json"
+                cookies_path.unlink(missing_ok=True)
+            else:
+                logger.warning("[fetch_facebook] Error en búsqueda directa: %s", e)
             return []
     else:
         logger.info("[fetch_facebook] Sin ID numérico para '%s', usando feed", page_id)

@@ -14,9 +14,10 @@ from nodes import fetch_facebook
 
 @pytest.mark.asyncio
 async def test_static_posts_aparecen_en_logs(caplog):
-    """Los static posts deben loguearse aunque el browser falle."""
+    """Los static posts se loguean cuando hay posts scrapeados."""
     fetch_facebook.invalidate("luganense")
-    with patch.object(fetch_facebook, "_load_posts", new=AsyncMock(return_value=[])):
+    scraped = [{"text": "Post scrapeado", "image_url": "", "url": ""}]
+    with patch.object(fetch_facebook, "_load_posts", new=AsyncMock(return_value=scraped)):
         with caplog.at_level(logging.INFO, logger="nodes.fetch_facebook"):
             await fetch_facebook.fetch("luganense", "milanesas")
 
@@ -30,8 +31,8 @@ async def test_static_posts_aparecen_en_logs(caplog):
 async def test_log_incluye_primeras_80_chars(caplog):
     """El log de static post no debe tener newlines y no superar 80 chars."""
     fetch_facebook.invalidate("luganense")
-
-    with patch.object(fetch_facebook, "_load_posts", new=AsyncMock(return_value=[])):
+    scraped = [{"text": "Post scrapeado", "image_url": "", "url": ""}]
+    with patch.object(fetch_facebook, "_load_posts", new=AsyncMock(return_value=scraped)):
         with caplog.at_level(logging.INFO, logger="nodes.fetch_facebook"):
             await fetch_facebook.fetch("luganense", "polleria_test_log")
 
@@ -48,13 +49,13 @@ async def test_log_incluye_primeras_80_chars(caplog):
 
 @pytest.mark.asyncio
 async def test_fetch_posts_retorna_lista_de_dicts():
-    """fetch_posts retorna lista de dicts con text e image_url."""
+    """fetch_posts retorna lista de dicts con text e image_url cuando hay resultados."""
     fetch_facebook.invalidate("luganense")
-    with patch.object(fetch_facebook, "_load_posts", new=AsyncMock(return_value=[])):
+    scraped = [{"text": "Post de prueba", "image_url": "", "url": ""}]
+    with patch.object(fetch_facebook, "_load_posts", new=AsyncMock(return_value=scraped)):
         posts = await fetch_facebook.fetch_posts("luganense", "test")
 
     assert isinstance(posts, list)
-    # Los static posts siempre están
     assert len(posts) >= 1
     for p in posts:
         assert "text" in p

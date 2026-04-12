@@ -72,6 +72,17 @@ class FetchNode(BaseNode):
             state.context = "\n\n".join(parts)
             logger.info("[FetchNode] Facebook: %d posts, %d chars", len(fb_posts), len(state.context))
 
+            # Guardar URLs para appendar al reply
+            seen_urls: set[str] = set()
+            source_urls: list[str] = []
+            for p in fb_posts:
+                for u in (p.get("post_urls") or [p.get("url")] if p.get("url") else []):
+                    if u and u not in seen_urls:
+                        seen_urls.add(u)
+                        source_urls.append(u)
+            if source_urls:
+                state.vars["source_urls"] = source_urls[:3]
+
         except Exception as e:
             logger.error("[FetchNode] Error fetching Facebook: %s", e)
 

@@ -87,6 +87,14 @@ def build_telegram_app(bot_config: dict):
         reply = state.reply or ""
         image_url = state.image_url or ""
 
+        # Appendar URLs de fuentes en código (el LLM no lo hace consistentemente)
+        source_urls = state.vars.get("source_urls", [])
+        if source_urls and reply:
+            links = "\n".join(
+                f"[📎 Ver publicación {i+1}]({u})" for i, u in enumerate(source_urls)
+            )
+            reply += f"\n\n{links}"
+
         if not reply or text == reply:
             return
 
@@ -97,16 +105,16 @@ def build_telegram_app(bot_config: dict):
                     with urllib.request.urlopen(image_url, timeout=10) as resp:
                         image_data = resp.read()
                     await msg.reply_photo(image_data, caption=reply, parse_mode="Markdown")
-                    logger.info(f"{label}   → Respuesta con imagen enviada: {reply[:200]}")
+                    logger.info(f"{label}   → Respuesta con imagen enviada: {reply[:500]}")
                 except Exception as img_err:
                     logger.warning(f"{label}   → Error enviando imagen, fallback a texto: {img_err}")
                     await msg.reply_text(reply)
             else:
-                await msg.reply_text(reply)
+                await msg.reply_text(reply, parse_mode="Markdown")
             for eid, mid in msg_ids.items():
                 await mark_answered(mid)
                 await log_message(eid, token_id, sender_id, "Bot", reply, outbound=True)
-            logger.info(f"{label}   → Respuesta enviada: {reply[:200]}")
+            logger.info(f"{label}   → Respuesta enviada: {reply[:500]}")
         except Exception as e:
             logger.error(f"{label}   → Error al responder: {e}")
 
