@@ -1,6 +1,42 @@
 # Feature: Imágenes en el Summarizer
 
-## Estado
+---
+
+## Trabajo pendiente — FB og:image para Luganense
+
+**Branch**: `feat/fb-images` (pusheado a origin, 2026-04-12)
+
+### Qué se intentó
+Traer la imagen principal de cada post de Facebook junto con el texto en las respuestas de Luganense.
+
+### Tres enfoques probados, todos fallaron en headless
+
+| Enfoque | Por qué falla |
+|---------|--------------|
+| DOM `img[src*='scontent']` | FB lazy-load en headless — `src` vacío o placeholder |
+| httpx `og:image` (sin cookies) | FB redirige a login (`index.php`) |
+| `page.evaluate(fetch(url))` | FB detecta fetch interno, responde sin `og:image` |
+| Nueva pestaña (ctx.new_page + goto) | Tampoco devuelve og:image en headless (pendiente de confirmar) |
+
+### Hipótesis sin probar
+- Con `headless=False` (FB_DEBUG=1) sí puede funcionar la pestaña nueva — nunca se probó en prod
+- Interceptar respuestas de red durante el scroll inicial para capturar URLs de imágenes que el browser descarga naturalmente
+
+### Qué quedó en el branch
+- `_parse_og_image(html)` — función pura para extraer og:image del HTML
+- `_fetch_og_images_browser(page, share_urls)` — abre pestaña nueva por URL
+- `_fetch_og_images(share_urls)` — stub httpx para tests
+- `fb_debug.py` — endpoints de debug interactivo del browser FB
+- Tests completos para parsing og:image + mocks de pestaña
+
+### Para retomar
+1. Probar con `headless=False` (FB_DEBUG=1) si la pestaña nueva retorna og:image
+2. O interceptar respuestas de red durante el scroll con `page.on("response")`
+3. El texto y links funcionan perfecto en master — este branch solo agrega imágenes
+
+---
+
+## Estado (Summarizer WA)
 - **Planificado** — pendiente de worktree
 - **Prioridad**: media (audio y documentos ya funcionan; imágenes son el gap restante)
 

@@ -275,38 +275,6 @@ async def _scrape_post_page(ctx, url: str) -> dict:
         return {"text": "", "image_url": ""}
 
 
-async def _fetch_og_images(share_urls: list[str]) -> list[str]:
-    """
-    Para cada share/p/ URL, obtiene la imagen principal via og:image meta tag.
-    HTTP simple, sin cookies. Corre en paralelo para no agregar latencia.
-    """
-    import httpx
-    import re as _re
-
-    async def _get_one(url: str) -> str:
-        try:
-            async with httpx.AsyncClient(
-                timeout=8,
-                follow_redirects=True,
-                headers={"User-Agent": _UA},
-            ) as client:
-                resp = await client.get(url)
-                match = _re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', resp.text)
-                if not match:
-                    match = _re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']', resp.text)
-                if match:
-                    img = match.group(1).replace("&amp;", "&")
-                    logger.info("[fetch_facebook] og:image obtenida para %s", url[:60])
-                    return img
-        except Exception as e:
-            logger.debug("[fetch_facebook] Error obteniendo og:image de %s: %s", url[:60], e)
-        return ""
-
-    import asyncio as _asyncio
-    results = await _asyncio.gather(*[_get_one(u) for u in share_urls])
-    return list(results)
-
-
 async def _extract_post_urls(page, max_posts: int = 3) -> list[str]:
     """
     Extrae las URLs share/p/ de los posts del feed de búsqueda.
@@ -393,12 +361,11 @@ async def _extract_post_urls(page, max_posts: int = 3) -> list[str]:
     return share_urls
 
 
-async def _scrape_search_feed(page) -> tuple[str, list[str], list[str]]:
+async def _scrape_search_feed(page) -> tuple[str, list[str]]:
     """
     Extrae texto del feed de resultados de búsqueda de FB.
-    Retorna (texto_combinado, images_por_post, share_urls_por_post).
+    Retorna (texto_combinado, share_urls_por_post).
     - texto_combinado: feed.inner_text() filtrado (mecanismo original, probado)
-    - images_por_post: una imagen por post (lectura de DOM, sin clicks)
     - share_urls_por_post: URLs share/p/ via click Compartir → Copiar enlace
     """
     # Expandir "Ver más" visibles
@@ -438,7 +405,7 @@ async def _scrape_search_feed(page) -> tuple[str, list[str], list[str]]:
         pass
 
     if not raw.strip():
-        return "", "", [], []
+        return "", []
 
     lines = [
         l.strip() for l in raw.split("\n")
@@ -448,7 +415,7 @@ async def _scrape_search_feed(page) -> tuple[str, list[str], list[str]]:
         and "Audio original" not in l
     ]
     if not lines:
-        return "", "", [], []
+        return "", []
 
     logger.info("[fetch_facebook] Search feed: %d líneas extraídas", len(lines))
 
@@ -459,26 +426,7 @@ async def _scrape_search_feed(page) -> tuple[str, list[str], list[str]]:
     except Exception as e:
         logger.warning("[fetch_facebook] Error extrayendo share URLs (no crítico): %s", e)
 
-    # Imágenes via og:image de cada share URL (HTTP paralelo, sin cookies necesarias)
-    images: list[str] = []
-    if post_urls:
-        images = await _fetch_og_images(post_urls)
-
-    # Fallback imagen: primera scontent del feed si no hay og:images
-    image_url = next((img for img in images if img), "")
-    if not image_url:
-        try:
-            imgs = await page.query_selector_all("[role='feed'] img[src*='fbcdn.net']")
-            for img in imgs:
-                src = await img.get_attribute("src") or ""
-                if src and "scontent" in src:
-                    image_url = src
-                    logger.info("[fetch_facebook] imagen del feed de búsqueda capturada (fallback)")
-                    break
-        except Exception:
-            pass
-
-    return "\n".join(lines[:150]), image_url, images, post_urls
+    return "\n".join(lines[:150]), post_urls
 
 
 async def _search_and_scrape(page, query: str, page_id: str = "", numeric_id: str = "") -> list[dict]:
@@ -514,16 +462,15 @@ async def _search_and_scrape(page, query: str, page_id: str = "", numeric_id: st
                     full_page=False,
                 )
 
-            text, image_url, images, post_urls = await _scrape_search_feed(page)
+            text, post_urls = await _scrape_search_feed(page)
             if text:
-                img = images[0] if images else image_url
                 # Un dict por share URL; el primero lleva todo el texto
                 posts = []
                 for i, u in enumerate(post_urls):
-                    posts.append({"text": text if i == 0 else "", "image_url": images[i] if i < len(images) else img, "url": u})
+                    posts.append({"text": text if i == 0 else "", "image_url": "", "url": u})
                 if not posts:
-                    posts = [{"text": text, "image_url": img, "url": f"https://www.facebook.com/{page_id}"}]
-                logger.info("[fetch_facebook] Búsqueda: %d líneas, %d imágenes, %d URLs para '%s'", len(text.splitlines()), len(images), len(post_urls), query)
+                    posts = [{"text": text, "image_url": "", "url": f"https://www.facebook.com/{page_id}"}]
+                logger.info("[fetch_facebook] Búsqueda: %d líneas, %d URLs para '%s'", len(text.splitlines()), len(post_urls), query)
                 return posts
             logger.info("[fetch_facebook] Búsqueda sin resultados para query '%s'", query)
             return []
