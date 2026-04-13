@@ -112,6 +112,12 @@ NODE_TYPES: dict[str, NodeType] = {
         color="#b45309",
         description="Mueve el adjunto a almacenamiento permanente (data/summaries/). Colocar entre transcribe_audio y summarize.",
     ),
+    "check_contact": NodeType(
+        id="check_contact",
+        label="¿Contacto conocido?",
+        color="#0e7490",
+        description="Consulta la DB y setea la ruta: 'conocido' o 'desconocido'. Sin LLM — decisión pura.",
+    ),
 }
 
 
@@ -137,6 +143,7 @@ _CLASSIFY_SUBSTRINGS: list[tuple[str, str]] = [
     ("save_contact", "save_contact"),
     ("transcribe", "transcribe_audio"),
     ("save_attachment", "save_attachment"),
+    ("check_contact", "check_contact"),
     ("whatsapp_trigger", "whatsapp_trigger"),
     ("telegram_trigger", "telegram_trigger"),
     ("message_join", "message_join"),

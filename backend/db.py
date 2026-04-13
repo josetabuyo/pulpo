@@ -520,11 +520,6 @@ async def create_flow(
     contact_phone: str | None = None,
     contact_filter: dict | None = None,
 ) -> str:
-    if not connection_id:
-        raise ValueError(
-            "connection_id es obligatorio al crear un flow. "
-            "Un flow sin conexión no dispararía para nadie — asigná una conexión explícita."
-        )
     flow_id = str(_uuid.uuid4())
     async with AsyncSessionLocal() as session:
         await session.execute(

@@ -50,13 +50,8 @@ export default function FlowList({ empresaId, apiCall, connections }) {
     setCreating(true)
     try {
       const definition = {
-        nodes: [
-          { id: '__start__', type: 'start', position: { x: 250, y: 50 },  config: {} },
-          { id: '__end__',   type: 'end',   position: { x: 250, y: 250 }, config: {} },
-        ],
-        edges: [
-          { id: 'e1', source: '__start__', target: '__end__', label: null },
-        ],
+        nodes: [],
+        edges: [],
         viewport: { x: 0, y: 0, zoom: 1 },
       }
       const newFlow = await apiCall('POST', `/empresas/${empresaId}/flows`, {

@@ -18,6 +18,7 @@ from .fetch import FetchNode
 from .vector_search import VectorSearchNode
 from .set_state import SetStateNode
 from .save_contact import SaveContactNode
+from .check_contact import CheckContactNode
 from .transcribe_audio import TranscribeAudioNode
 from .save_attachment import SaveAttachmentNode
 from .whatsapp_trigger import WhatsappTriggerNode
@@ -37,6 +38,7 @@ NODE_REGISTRY: dict[str, type] = {
     "summarize":        SummarizeNode,
     "set_state":        SetStateNode,
     "save_contact":     SaveContactNode,
+    "check_contact":    CheckContactNode,
     "transcribe_audio": TranscribeAudioNode,
     "save_attachment":  SaveAttachmentNode,
 }
@@ -48,4 +50,5 @@ __all__ = [
     "SetStateNode", "SaveContactNode",
     "TranscribeAudioNode", "SaveAttachmentNode",
     "WhatsappTriggerNode", "TelegramTriggerNode", "MessageJoinNode",
+    "CheckContactNode",
 ]

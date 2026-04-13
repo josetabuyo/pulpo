@@ -17,6 +17,7 @@ export const PALETTE_TYPES = [
   'summarize',
   'set_state',
   'save_contact',
+  'check_contact',
 ]
 // Nota: luganense_flow eliminado — era un mega-nodo legacy, reemplazado por nodos individuales
 
@@ -36,6 +37,7 @@ const DEFAULT_CONFIGS = {
   summarize:        {},
   set_state:        { field: '', value: '' },
   save_contact:    { name_field: 'contact_name', phone_field: 'contact_phone', notes_field: 'contact_notes', update_if_exists: true },
+  check_contact:   { route_known: 'conocido', route_unknown: 'desconocido' },
 }
 
 /**
