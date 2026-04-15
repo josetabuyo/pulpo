@@ -265,12 +265,40 @@ Acumula el contexto de la conversación. Ya existe, sin cambios.
 
 | Aspecto | Hoy | Después |
 |---|---|---|
-| Filtrado de conexión | columna `connection_id` en DB + SQL | nodo `input_text` en el flow |
-| Ejecución | secuencial (orden del array `nodes[]`) | topológica (siguiendo edges) |
-| Routing | no implementado | `router` node + edge labels |
+| Filtrado de conexión | `whatsapp_trigger`/`telegram_trigger` en el nodo ✅ | igual |
+| Ejecución | BFS siguiendo edges ✅ | igual |
+| Multi-trigger | múltiples triggers en el mismo flow ✅ | igual |
+| Routing | `router` node + edge labels ✅ | igual |
+| Routing sin LLM | `check_contact` node (DB lookup) ✅ | más nodos determinísticos |
 | Luganense | `LuganenseFlowNode` → LangGraph hardcodeado | nodos genéricos configurados |
-| `__start__` / `__end__` | marcadores sin config | `input_text` configurable / eliminado |
-| Config por nodo | solo `reply` tiene config real | todos los nodos tienen schema de config |
+| `__start__` / `__end__` | eliminados del template de nuevo flow ✅ | igual |
+| Config por nodo | todos los nodos tienen `config_schema()` ✅ | igual |
+
+---
+
+## Implementado en sesión 2026-04-12 / 2026-04-14
+
+### Nodos nuevos en producción
+- **`whatsapp_trigger`**: trigger específico para canal WA. Reemplaza a `message_trigger` para flows nuevos.
+- **`telegram_trigger`**: trigger específico para Telegram.
+- **`message_join`**: nodo de convergencia (fan-in) para flows con múltiples triggers. No-op visual.
+- **`transcribe_audio`**: transcribe audio a texto (Groq + fallback whisper.cpp).
+- **`save_attachment`**: mueve adjunto temporal a storage permanente.
+- **`check_contact`**: consulta la DB y setea `state.route = "conocido"` o `"desconocido"`. Sin LLM.
+
+### Cambios al compiler
+- `execute_flow()` ahora itera **todos** los triggers del flow y usa el primero que aplique al canal + connection_id actual (antes tomaba el primero a ciegas con `break`).
+- Constante `TRIGGER_TYPES` compartida para cooldown, registro y selección.
+
+### Cambios al editor de flows
+- Nuevo flow empieza vacío (sin nodos `start`/`end` legacy).
+- `connection_id` ya no es obligatorio al crear un flow (vive en el trigger node).
+- Edges: flechas de dirección, labels visibles, modo borrar con botón 🗑 (toggle).
+- Paleta actualizada con todos los nodos nuevos.
+
+### Conexiones multi-empresa
+- El bot Telegram `8672986634` migrado de `bot_test` a `gm_herreria` en connections.json.
+- Flow de `gm_herreria` actualizado: `whatsapp_trigger` + `telegram_trigger` → `message_join` → `send_message`.
 
 ---
 
