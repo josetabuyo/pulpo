@@ -64,19 +64,21 @@ def _state(connection_id="5491155612767"):
 # ─── 1. connection_id NULL nunca dispara ───────────────────────���────────────
 
 @pytest.mark.asyncio
-async def test_create_flow_sin_connection_id_rechazado():
+async def test_create_flow_sin_connection_id_permitido():
     """
-    create_flow con connection_id=None debe lanzar ValueError.
-    No se puede crear un flow sin conexión — es el primer guard de seguridad.
+    Desde la migración a triggers-en-nodo, crear un flow sin connection_id
+    es válido: la conexión vive en el nodo whatsapp_trigger/telegram_trigger,
+    no en la tabla flows. Un flow sin trigger simplemente no disparará para nadie.
     """
     import db as db_module
-    with pytest.raises(ValueError, match="connection_id"):
-        await db_module.create_flow(
-            empresa_id="bot_test",
-            name="__test_null_engine__",
-            definition={"nodes": [], "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1}},
-            connection_id=None,
-        )
+    flow_id = await db_module.create_flow(
+        empresa_id="bot_test",
+        name="__test_sin_connection_id__",
+        definition={"nodes": [], "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1}},
+        connection_id=None,
+    )
+    assert flow_id, "create_flow sin connection_id debe retornar un ID válido"
+    await db_module.delete_flow(flow_id)
 
 
 @pytest.mark.asyncio
@@ -103,21 +105,31 @@ async def test_flow_con_connection_correcta_dispara():
 # ─── 2. DB: connection_id NULL no retorna el flow ───────────────────────────
 
 @pytest.mark.asyncio
-async def test_db_connection_null_rechazado_en_create():
+async def test_flow_sin_trigger_no_dispara():
     """
-    connection_id=NULL ya no puede insertarse — create_flow levanta ValueError antes.
-    Este test documenta la garantía: no existe ruta para crear un flow sin conexión.
+    La garantía de seguridad ahora vive en el engine, no en la DB:
+    un flow sin ningún nodo trigger en su definición no ejecuta para nadie,
+    porque execute_flow() retorna estado sin reply cuando no encuentra trigger.
     """
-    import db as db_module
+    from graphs.compiler import execute_flow
+    from graphs.nodes.state import FlowState
 
-    with pytest.raises(ValueError, match="connection_id"):
-        await db_module.create_flow(
-            empresa_id="bot_test",
-            name="__safety_test_null_connection__",
-            definition={"nodes": [], "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1}},
-            connection_id=None,
-            contact_phone=None,
-        )
+    flow_sin_trigger = {
+        "id": "safety-test",
+        "name": "Flow sin trigger",
+        "connection_id": None,
+        "contact_phone": None,
+        "created_at": "2020-01-01 00:00:00",
+        "definition": {
+            "nodes": [
+                {"id": "reply_node", "type": "send_message", "config": {"message": "NO DEBERÍA LLEGAR"}},
+            ],
+            "edges": [],
+        },
+    }
+    state = FlowState(message="Hola", contact_phone="5491199990000", canal="whatsapp", connection_id="5491199990000")
+    result = await execute_flow(flow_sin_trigger, state)
+    assert result.reply is None, "Flow sin trigger no debe producir reply"
 
 
 @pytest.mark.asyncio

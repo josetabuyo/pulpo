@@ -9,7 +9,7 @@ import pytest
 from graphs.node_types import NODE_TYPES, get as get_node_type, classify
 
 
-ADMIN = {"x-password": "admin"}
+from conftest import ADMIN
 
 
 # ─── node_types registry (unit, sin server) ──────────────────────────────────

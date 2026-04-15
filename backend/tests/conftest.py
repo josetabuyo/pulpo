@@ -12,10 +12,11 @@ from pathlib import Path
 # Cargar el .env de la raíz del worktree (dos niveles arriba de tests/)
 load_dotenv(Path(__file__).parent.parent.parent / ".env")
 
-PORT = os.getenv("BACKEND_PORT", "8000")
-BASE = f"http://localhost:{PORT}"
-ADMIN = {"x-password": "admin"}
-BAD   = {"x-password": "wrong"}
+PORT           = os.getenv("BACKEND_PORT", "8000")
+BASE           = f"http://localhost:{PORT}"
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin")
+ADMIN          = {"x-password": ADMIN_PASSWORD}
+BAD            = {"x-password": "wrong"}
 
 
 @pytest.fixture

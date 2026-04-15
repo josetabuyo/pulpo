@@ -139,22 +139,18 @@ def test_create_group_channel(client):
     """Canal WhatsApp con is_group=True acepta nombre (no número)."""
     auth = get_empresa_token(BOT_ID, BOT_PWD, client)
 
-    # Limpiar dato stale de ejecuciones anteriores que no llegaron al delete
-    existing = client.get(f"/api/bots/{BOT_ID}/contacts", headers=auth).json()
-    for c in existing:
-        for ch in c.get("channels", []):
-            if ch.get("value") == "Desarrollo SIGIRH 2025":
-                client.delete(f"/api/contacts/{c['id']}", headers=auth)
+    # Usar valor único por run para evitar colisión si el cleanup falló en una ejecución anterior
+    group_value = f"Grupo Test {int(time.time() * 1000) % 10_000_000}"
 
     r = client.post(f"/api/bots/{BOT_ID}/contacts", json={
-        "name": "Grupo SIGIRH 2025",
-        "channels": [{"type": "whatsapp", "value": "Desarrollo SIGIRH 2025", "is_group": True}],
+        "name": f"Contacto {group_value}",
+        "channels": [{"type": "whatsapp", "value": group_value, "is_group": True}],
     }, headers=auth)
     assert r.status_code == 201
     body = r.json()
     ch = body["channels"][0]
     assert ch["is_group"] is True
-    assert ch["value"] == "Desarrollo SIGIRH 2025"
+    assert ch["value"] == group_value
     client.delete(f"/api/contacts/{body['id']}", headers=auth)
 
 
