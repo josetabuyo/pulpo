@@ -78,7 +78,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved 
           onNodeDoubleClick={handleNodeDoubleClick}
         />
         {/* NodeConfigPanel como popup flotante sobre el canvas */}
-        <NodeConfigPanel empresaId={flow.empresa_id} connections={connections} apiCall={apiCall} />
+        <NodeConfigPanel empresaId={flow.empresa_id} flowId={flow.id} connections={connections} apiCall={apiCall} />
       </div>
     </div>
   )

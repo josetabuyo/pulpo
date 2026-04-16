@@ -178,6 +178,93 @@ async def has_node_type(
     return {"found": found}
 
 
+@router.post("/empresas/{empresa_id}/flows/{flow_id}/replay")
+async def replay_flow(
+    empresa_id: str,
+    flow_id: str,
+    request: Request,
+    x_password: Optional[str] = Header(None),
+):
+    """
+    Delta-sync: recorre los mensajes de la DB del connection_id del trigger
+    (de más nuevo a más viejo) y ejecuta el flow completo para cada uno,
+    con from_delta_sync=True (los nodos de reply/llm no envían nada).
+    Se detiene al llegar al timestamp del mensaje más antiguo ya procesado
+    por el flow (dedup por hash en summarize, sin-respuesta en reply).
+
+    Solo aplica a flows con trigger whatsapp_trigger o telegram_trigger.
+    """
+    _require_empresa(empresa_id, request, x_password)
+    flow = await db.get_flow(flow_id)
+    if not flow or flow["empresa_id"] != empresa_id:
+        raise HTTPException(status_code=404, detail="Flow no encontrado")
+
+    # Encontrar el nodo trigger y su connection_id + canal
+    nodes = flow.get("definition", {}).get("nodes", [])
+    trigger = next(
+        (n for n in nodes if n.get("type") in ("whatsapp_trigger", "telegram_trigger", "message_trigger")),
+        None,
+    )
+    if not trigger:
+        raise HTTPException(status_code=400, detail="El flow no tiene un nodo trigger de mensajes")
+
+    trigger_type = trigger.get("type", "")
+    connection_id = trigger.get("config", {}).get("connection_id", "")
+    if not connection_id:
+        raise HTTPException(status_code=400, detail="El trigger no tiene connection_id configurado")
+
+    canal = "telegram" if trigger_type == "telegram_trigger" else "whatsapp"
+
+    # Leer mensajes de DB ordenados de más nuevo a más viejo
+    from db import AsyncSessionLocal, text as _text
+    async with AsyncSessionLocal() as session:
+        rows = (await session.execute(
+            _text(
+                "SELECT phone, name, body, timestamp FROM messages "
+                "WHERE connection_id = :cid AND outbound = 0 "
+                "ORDER BY timestamp DESC"
+            ),
+            {"cid": connection_id},
+        )).fetchall()
+
+    if not rows:
+        return {"processed": 0, "skipped": 0}
+
+    from graphs.compiler import execute_flow
+    from graphs.nodes.state import FlowState
+    from datetime import datetime as _dt
+
+    processed = 0
+    skipped = 0
+
+    for phone, name, body, ts_raw in rows:
+        if not body or not body.strip():
+            skipped += 1
+            continue
+
+        ts = None
+        try:
+            ts = _dt.fromisoformat(str(ts_raw))
+        except (ValueError, TypeError):
+            pass
+
+        state = FlowState(
+            message=body.strip(),
+            message_type="text",
+            connection_id=connection_id,
+            canal=canal,
+            empresa_id=empresa_id,
+            contact_phone=phone,
+            contact_name=name or phone,
+            from_delta_sync=True,
+            timestamp=ts,
+        )
+        await execute_flow(flow, state)
+        processed += 1
+
+    return {"processed": processed, "skipped": skipped}
+
+
 @router.delete("/empresas/{empresa_id}/flows/{flow_id}", status_code=204)
 async def delete_flow(
     empresa_id: str,

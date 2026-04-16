@@ -420,7 +420,9 @@ function SummarizeInfo({ empresaId }) {
 
 // ─── Formulario principal ──────────────────────────────────────────────────────
 
-function ConfigForm({ node, schema, empresaId, connections, apiCall }) {
+const TRIGGER_TYPES = new Set(['whatsapp_trigger', 'telegram_trigger', 'message_trigger'])
+
+function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall }) {
   const updateNodeConfig  = useFlowStore(s => s.updateNodeConfig)
   const deleteNode        = useFlowStore(s => s.deleteNode)
   const setSelectedNodeId = useFlowStore(s => s.setSelectedNodeId)
@@ -429,9 +431,11 @@ function ConfigForm({ node, schema, empresaId, connections, apiCall }) {
   const [suggested, setSuggested] = useState([])
   const [cloning, setCloning]     = useState(false)
   const [cloneMsg, setCloneMsg]   = useState('')
+  const [replaying, setReplaying] = useState(false)
+  const [replayMsg, setReplayMsg] = useState('')
 
   const isFixed = nodeType === 'start' || nodeType === 'end'
-  const isTrigger = nodeType === 'message_trigger'
+  const isTrigger = TRIGGER_TYPES.has(nodeType)
 
   useEffect(() => {
     if (!empresaId || !apiCall) return
@@ -446,6 +450,21 @@ function ConfigForm({ node, schema, empresaId, connections, apiCall }) {
 
   function handleChange(newConfig) { updateNodeConfig(node.id, newConfig) }
   function handleDelete() { if (!isFixed) deleteNode(node.id) }
+
+  async function handleReplay() {
+    if (!flowId) return
+    setReplaying(true)
+    setReplayMsg('')
+    try {
+      const result = await apiCall('POST', `/empresas/${empresaId}/flows/${flowId}/replay`, {})
+      setReplayMsg(`✓ ${result.processed ?? 0} mensajes procesados`)
+    } catch {
+      setReplayMsg('Error al re-sincronizar')
+    } finally {
+      setReplaying(false)
+      setTimeout(() => setReplayMsg(''), 5000)
+    }
+  }
 
   async function cloneFilterToDefault() {
     const connectionId = config.connection_id
@@ -499,23 +518,42 @@ function ConfigForm({ node, schema, empresaId, connections, apiCall }) {
         )}
       </div>
 
-      {isTrigger && config.contact_filter && config.connection_id && (
-        <div style={{ paddingTop: 8, borderTop: '1px solid #1e293b' }}>
+      {isTrigger && config.connection_id && (
+        <div style={{ paddingTop: 8, borderTop: '1px solid #1e293b', display: 'flex', flexDirection: 'column', gap: 6 }}>
           <button
-            onClick={cloneFilterToDefault}
-            disabled={cloning}
+            onClick={handleReplay}
+            disabled={replaying}
             style={{
-              width: '100%', padding: '5px 12px',
-              background: 'transparent', border: '1px solid #1e3a5f',
-              borderRadius: 6, color: '#60a5fa', fontSize: 11, cursor: 'pointer',
+              width: '100%', padding: '7px 12px',
+              background: replaying ? '#0f172a' : 'transparent',
+              border: '1px solid #4c1d95',
+              borderRadius: 6, color: '#a78bfa', fontSize: 12, cursor: 'pointer',
+              fontWeight: 600,
             }}
           >
-            {cloning ? 'Copiando...' : '↓ Usar como default de la conexión'}
+            {replaying ? '⏳ Re-triggering...' : '↺ Re-trigger histórico'}
           </button>
-          {cloneMsg && (
-            <div style={{ fontSize: 10, color: '#60a5fa', marginTop: 4, textAlign: 'center' }}>
-              {cloneMsg}
-            </div>
+          {replayMsg && (
+            <div style={{ fontSize: 11, color: '#a78bfa', textAlign: 'center' }}>{replayMsg}</div>
+          )}
+
+          {config.contact_filter && (
+            <>
+              <button
+                onClick={cloneFilterToDefault}
+                disabled={cloning}
+                style={{
+                  width: '100%', padding: '5px 12px',
+                  background: 'transparent', border: '1px solid #1e3a5f',
+                  borderRadius: 6, color: '#60a5fa', fontSize: 11, cursor: 'pointer',
+                }}
+              >
+                {cloning ? 'Copiando...' : '↓ Usar como default de la conexión'}
+              </button>
+              {cloneMsg && (
+                <div style={{ fontSize: 10, color: '#60a5fa', textAlign: 'center' }}>{cloneMsg}</div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -545,7 +583,7 @@ function ConfigForm({ node, schema, empresaId, connections, apiCall }) {
 
 // ─── Export ───────────────────────────────────────────────────────────────────
 
-export default function NodeConfigPanel({ empresaId, connections, apiCall }) {
+export default function NodeConfigPanel({ empresaId, flowId, connections, apiCall }) {
   const nodes             = useFlowStore(s => s.nodes)
   const typeMap           = useFlowStore(s => s.typeMap)
   const selectedNodeId    = useFlowStore(s => s.selectedNodeId)
@@ -557,7 +595,6 @@ export default function NodeConfigPanel({ empresaId, connections, apiCall }) {
   const schema = typeMap[selectedNode.data.nodeType]?.schema || []
 
   return (
-    // Overlay semitransparente — click fuera cierra
     <div
       onClick={e => { if (e.target === e.currentTarget) setSelectedNodeId(null) }}
       style={{
@@ -567,7 +604,6 @@ export default function NodeConfigPanel({ empresaId, connections, apiCall }) {
         pointerEvents: 'all',
       }}
     >
-      {/* Panel flotante — anclado a la derecha, con scroll propio */}
       <div style={{
         width: 420,
         height: '100%',
@@ -583,6 +619,7 @@ export default function NodeConfigPanel({ empresaId, connections, apiCall }) {
           node={selectedNode}
           schema={schema}
           empresaId={empresaId}
+          flowId={flowId}
           connections={connections}
           apiCall={apiCall}
         />
