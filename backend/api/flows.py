@@ -165,6 +165,19 @@ async def update_flow(
     return await db.get_flow(flow_id)
 
 
+@router.get("/empresas/{empresa_id}/flows/has-node/{node_type}")
+async def has_node_type(
+    empresa_id: str,
+    node_type: str,
+    request: Request,
+    x_password: Optional[str] = Header(None),
+):
+    """Devuelve {found: bool} indicando si algún flow de la empresa contiene el tipo de nodo."""
+    _require_empresa(empresa_id, request, x_password)
+    found = await db.empresa_has_node_type(empresa_id, node_type)
+    return {"found": found}
+
+
 @router.delete("/empresas/{empresa_id}/flows/{flow_id}", status_code=204)
 async def delete_flow(
     empresa_id: str,

@@ -26,10 +26,16 @@ export default function ChatWidget({
   const [open, setOpen] = useState(defaultOpen)
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
-  const bottomRef = useRef(null)
+  const messagesRef = useRef(null)
+  const inputRef = useRef(null)
 
   useEffect(() => {
-    if (open) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (!open) return
+    if (messagesRef.current) {
+      messagesRef.current.scrollTop = messagesRef.current.scrollHeight
+    }
+    // Foco sin arrastrar la página
+    inputRef.current?.focus({ preventScroll: true })
   }, [messages, open])
 
   async function handleSend(e) {
@@ -60,7 +66,7 @@ export default function ChatWidget({
       {/* Body — solo cuando está abierto */}
       {open && (
         <>
-          <div className="cw-messages">
+          <div className="cw-messages" ref={messagesRef}>
             {messages.length === 0 && (
               <div className="cw-empty">{emptyText}</div>
             )}
@@ -73,18 +79,17 @@ export default function ChatWidget({
                 <div className="cw-bubble-time">{m.time}</div>
               </div>
             ))}
-            <div ref={bottomRef} />
           </div>
 
           <form className="cw-input-row" onSubmit={handleSend}>
             {extra}
             <input
+              ref={inputRef}
               type="text"
               placeholder="Escribí un mensaje..."
               value={text}
               onChange={e => setText(e.target.value)}
               disabled={sending}
-              autoFocus
             />
             <button type="submit" className="btn-primary btn-sm" disabled={sending || !text.trim()}>
               Enviar

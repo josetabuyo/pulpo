@@ -1,6 +1,14 @@
 export function api(method, path, body, password) {
   const headers = { 'Content-Type': 'application/json' }
   if (password) headers['x-password'] = password
+
+  if (method === 'GET_BLOB') {
+    return fetch('/api' + path, { headers }).then(r => r.blob())
+  }
+  if (method === 'GET_TEXT') {
+    return fetch('/api' + path, { headers }).then(r => r.text())
+  }
+
   return fetch('/api' + path, {
     method,
     headers,

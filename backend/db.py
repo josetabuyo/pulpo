@@ -553,6 +553,19 @@ async def get_flows(empresa_id: str) -> list[dict]:
     return [_flow_row_to_dict(r) for r in rows]
 
 
+async def empresa_has_node_type(empresa_id: str, node_type: str) -> bool:
+    """Devuelve True si algún flow de la empresa contiene un nodo del tipo dado."""
+    async with AsyncSessionLocal() as session:
+        row = (await session.execute(
+            text(
+                "SELECT 1 FROM flows "
+                "WHERE empresa_id = :e AND definition LIKE :pattern LIMIT 1"
+            ),
+            {"e": empresa_id, "pattern": f'%"type": "{node_type}"%'},
+        )).fetchone()
+    return row is not None
+
+
 async def get_flow(flow_id: str) -> dict | None:
     async with AsyncSessionLocal() as session:
         row = (await session.execute(

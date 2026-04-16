@@ -1063,3 +1063,194 @@ main { max-width: 900px; margin: 28px auto; padding: 0 16px; }
 .ec-config-tab { padding: 20px; }
 .ec-btn-active { background: #ede9fe !important; color: #7c3aed !important; }
 .error { font-size: 13px; color: #c00; }
+
+/* ─── SummaryView ───────────────────────────────────────────────────────────── */
+.sv-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 400px;
+  background: #0d1424;
+}
+.sv-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: #111827;
+  border-bottom: 1px solid #1e293b;
+  flex-shrink: 0;
+}
+.sv-back-btn {
+  background: none;
+  border: none;
+  color: #7c3aed;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.sv-back-btn:hover { background: #1e293b; }
+.sv-header-info { flex: 1; display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
+.sv-contact-name { font-size: 14px; font-weight: 600; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sv-contact-phone { font-size: 11px; color: #64748b; }
+.sv-md-btn {
+  background: none;
+  border: 1px solid #334155;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.sv-md-btn:hover { background: #1e293b; color: #e2e8f0; }
+
+.sv-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sv-loading, .sv-empty {
+  text-align: center;
+  color: #64748b;
+  font-size: 13px;
+  margin: 24px auto;
+}
+
+.sv-day-sep {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 12px 0 8px;
+}
+.sv-day-sep-label {
+  background: #1e293b;
+  color: #94a3b8;
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 10px;
+  text-transform: capitalize;
+}
+
+.sv-bubble {
+  display: flex;
+  max-width: 80%;
+  margin-bottom: 4px;
+}
+.sv-bubble--in { align-self: flex-start; }
+.sv-bubble--out { align-self: flex-end; }
+
+.sv-bubble-body {
+  background: #1e293b;
+  border-radius: 12px 12px 12px 2px;
+  padding: 8px 12px;
+  position: relative;
+  min-width: 80px;
+}
+.sv-bubble--out .sv-bubble-body {
+  background: #14532d;
+  border-radius: 12px 12px 2px 12px;
+}
+
+.sv-bubble-text {
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: #e2e8f0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.sv-bubble-time {
+  display: block;
+  font-size: 10px;
+  color: #64748b;
+  text-align: right;
+  margin-top: 2px;
+}
+
+/* Audio bubble */
+.sv-audio-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.sv-audio-icon { font-size: 16px; }
+.sv-audio-duration { font-size: 12px; color: #94a3b8; }
+.sv-toggle-btn {
+  background: none;
+  border: 1px solid #334155;
+  color: #7c3aed;
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.sv-toggle-btn:hover { background: #1e293b; }
+.sv-transcription {
+  font-size: 12px;
+  color: #cbd5e1;
+  font-style: italic;
+  margin: 6px 0 4px;
+  padding-left: 4px;
+  border-left: 2px solid #334155;
+}
+
+/* Document bubble */
+.sv-doc-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.sv-doc-icon { font-size: 20px; flex-shrink: 0; }
+.sv-doc-info { display: flex; flex-direction: column; gap: 1px; flex: 1; overflow: hidden; }
+.sv-doc-name { font-size: 13px; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sv-doc-size { font-size: 11px; color: #64748b; }
+.sv-download-btn {
+  background: none;
+  border: 1px solid #334155;
+  color: #7c3aed;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.sv-download-btn:hover { background: #1e293b; }
+
+/* Contact list (pestaña Resúmenes) */
+.sv-contact-list { padding: 12px 16px; }
+.sv-contact-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  border-bottom: 1px solid #1e293b;
+  transition: background 0.1s;
+}
+.sv-contact-item:hover { background: #1e293b; }
+.sv-contact-item-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #7c3aed;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.sv-contact-item-info { flex: 1; overflow: hidden; }
+.sv-contact-item-name { font-size: 13px; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sv-contact-item-phone { font-size: 11px; color: #64748b; }
+.sv-contact-item-arrow { color: #475569; font-size: 14px; }
+.sv-contacts-empty { color: #64748b; font-size: 13px; text-align: center; padding: 24px 0; }
