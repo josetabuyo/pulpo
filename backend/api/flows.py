@@ -215,7 +215,8 @@ async def replay_flow(
 
     canal = "telegram" if trigger_type == "telegram_trigger" else "whatsapp"
 
-    # Leer mensajes de DB ordenados de más nuevo a más viejo
+    # Los mensajes pueden estar guardados bajo el número WA (connection_id)
+    # o bajo el empresa_id. Probamos ambos y usamos el que tenga datos.
     from db import AsyncSessionLocal, text as _text
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(
@@ -226,6 +227,15 @@ async def replay_flow(
             ),
             {"cid": connection_id},
         )).fetchall()
+        if not rows:
+            rows = (await session.execute(
+                _text(
+                    "SELECT phone, name, body, timestamp FROM messages "
+                    "WHERE connection_id = :eid AND outbound = 0 "
+                    "ORDER BY timestamp DESC"
+                ),
+                {"eid": empresa_id},
+            )).fetchall()
 
     if not rows:
         return {"processed": 0, "skipped": 0}

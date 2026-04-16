@@ -86,7 +86,7 @@ def list_contacts(empresa_id: str) -> list[str]:
     d = _BASE / empresa_id
     if not d.exists():
         return []
-    return [f.stem for f in d.glob("*.md")]
+    return [f.stem for f in d.glob("*.md") if not f.name.endswith(".bak.md")]
 
 
 def get_attachments_dir(empresa_id: str, contact_phone: str) -> Path:
