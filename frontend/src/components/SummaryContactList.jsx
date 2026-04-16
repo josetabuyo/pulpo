@@ -6,7 +6,10 @@ export default function SummaryContactList({ botId, apiCall, onSelect }) {
   useEffect(() => {
     setContacts(null)
     apiCall('GET', `/summarizer/${botId}`, null)
-      .then(data => setContacts(Array.isArray(data?.contacts) ? data.contacts : []))
+      .then(data => {
+        const raw = data?.contacts ?? []
+        setContacts(raw.map(c => typeof c === 'string' ? { phone: c, name: c } : c))
+      })
       .catch(() => setContacts([]))
   }, [botId])
 
@@ -20,17 +23,17 @@ export default function SummaryContactList({ botId, apiCall, onSelect }) {
 
   return (
     <div className="sv-contact-list">
-      {contacts.map(phone => (
+      {contacts.map(({ phone, name }) => (
         <div
           key={phone}
           className="sv-contact-item"
-          onClick={() => onSelect({ phone, name: phone })}
+          onClick={() => onSelect({ phone, name })}
         >
           <div className="sv-contact-item-avatar">
-            {phone.slice(-2)}
+            {name.slice(0, 2).toUpperCase()}
           </div>
           <div className="sv-contact-item-info">
-            <span className="sv-contact-item-name">{phone}</span>
+            <span className="sv-contact-item-name">{name}</span>
           </div>
           <span className="sv-contact-item-arrow">›</span>
         </div>

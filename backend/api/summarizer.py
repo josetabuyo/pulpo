@@ -45,8 +45,22 @@ def _check_auth(empresa_id: str, token_bot_id: str = Depends(_require_empresa_or
 
 @router.get("/summarizer/{empresa_id}")
 async def list_summaries(empresa_id: str, _: str = Depends(_check_auth)):
-    """Lista los contactos que tienen resumen acumulado."""
-    return {"contacts": summarizer.list_contacts(empresa_id)}
+    """Lista los contactos que tienen resumen acumulado, con nombre si está en la agenda."""
+    phones = summarizer.list_contacts(empresa_id)
+    async with AsyncSessionLocal() as session:
+        rows = (await session.execute(
+            text(
+                "SELECT cc.value, c.name FROM contact_channels cc "
+                "JOIN contacts c ON cc.contact_id = c.id "
+                "WHERE c.connection_id = :eid AND cc.type = 'whatsapp'"
+            ),
+            {"eid": empresa_id},
+        )).fetchall()
+    phone_to_name = {r[0]: r[1] for r in rows}
+    return {"contacts": [
+        {"phone": p, "name": phone_to_name.get(p, p)}
+        for p in phones
+    ]}
 
 
 @router.get("/summarizer/{empresa_id}/{contact_phone}", response_class=PlainTextResponse)
