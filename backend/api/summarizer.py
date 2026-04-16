@@ -6,10 +6,6 @@ from datetime import datetime
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import PlainTextResponse, FileResponse
-from pydantic import BaseModel
-from sqlalchemy import text
-
-from db import AsyncSessionLocal
 from middleware_auth import get_empresa_id_from_token
 from api.deps import ADMIN_PASSWORD
 from graphs.nodes.summarize import (
@@ -58,55 +54,6 @@ async def get_summary(empresa_id: str, contact_phone: str, _: str = Depends(_che
     if content is None:
         raise HTTPException(status_code=404, detail="Sin resumen para este contacto")
     return content
-
-
-class SyncBody(BaseModel):
-    contact_phone: str | None = None
-
-
-@router.post("/summarizer/{empresa_id}/sync")
-async def sync_history(empresa_id: str, body: SyncBody = SyncBody(), _: str = Depends(_check_auth)):
-    """Backfill: lee mensajes de la DB y los acumula en los archivos .md.
-    Si contact_phone está presente, solo sincroniza ese contacto.
-    Borra los archivos existentes antes de escribir para evitar duplicados."""
-    if body.contact_phone:
-        summarizer.clear_contact(empresa_id, body.contact_phone)
-    else:
-        summarizer.clear_empresa(empresa_id)
-
-    extra_filter = "AND m.phone = :phone " if body.contact_phone else ""
-    params: dict = {"eid": empresa_id}
-    if body.contact_phone:
-        params["phone"] = body.contact_phone
-
-    async with AsyncSessionLocal() as session:
-        rows = (await session.execute(
-            text(
-                "SELECT m.phone, m.name, m.body, m.timestamp "
-                "FROM messages m "
-                "JOIN contacts c ON c.connection_id = :eid "
-                "JOIN contact_channels cc ON cc.contact_id = c.id AND cc.value = m.phone "
-                f"WHERE m.connection_id = :eid AND m.outbound = 0 {extra_filter}"
-                "ORDER BY m.timestamp ASC"
-            ),
-            params,
-        )).fetchall()
-
-    for phone, name, body, ts_raw in rows:
-        try:
-            ts = datetime.fromisoformat(str(ts_raw)) if ts_raw else None
-        except ValueError:
-            ts = None
-        summarizer.accumulate(
-            empresa_id=empresa_id,
-            contact_phone=phone,
-            contact_name=name or phone,
-            msg_type="text",
-            content=body,
-            timestamp=ts,
-        )
-
-    return {"synced": len(rows)}
 
 
 # ─── Helpers de parseo ──────────────────────────────────────────────────────
