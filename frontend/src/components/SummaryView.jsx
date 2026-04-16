@@ -108,9 +108,10 @@ function DaySeparator({ label }) {
 export default function SummaryView({ empresaId, contactPhone, contactName, apiCall, onBack }) {
   const [messages, setMessages] = useState(null)
   const [error, setError] = useState(null)
+  const [syncing, setSyncing] = useState(false)
   const messagesRef = useRef(null)
 
-  useEffect(() => {
+  function loadMessages() {
     setMessages(null)
     setError(null)
     apiCall('GET', `/summarizer/${empresaId}/${contactPhone}/messages`, null)
@@ -119,7 +120,21 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
         else setError('Sin mensajes')
       })
       .catch(() => setError('Error al cargar'))
-  }, [empresaId, contactPhone])
+  }
+
+  useEffect(() => { loadMessages() }, [empresaId, contactPhone])
+
+  async function handleSync() {
+    setSyncing(true)
+    try {
+      await apiCall('POST', `/summarizer/${empresaId}/${contactPhone}/sync`, {})
+      loadMessages()
+    } catch {
+      setError('Error al sincronizar')
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   useEffect(() => {
     if (messages && messagesRef.current) {
@@ -162,6 +177,9 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
           <span className="sv-contact-name">{contactName || contactPhone}</span>
           <span className="sv-contact-phone">{contactPhone}</span>
         </div>
+        <button className="sv-md-btn" onClick={handleSync} disabled={syncing} title="Re-sincronizar desde historial">
+          {syncing ? '...' : '↻'}
+        </button>
         <button className="sv-md-btn" onClick={handleDownloadMd} title="Descargar resumen completo">
           ↓ MD
         </button>

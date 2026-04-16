@@ -1224,18 +1224,17 @@ main { max-width: 900px; margin: 28px auto; padding: 0 16px; }
 .sv-download-btn:hover { background: #1e293b; }
 
 /* Contact list (pestaña Resúmenes) */
-.sv-contact-list { padding: 12px 16px; }
+.sv-contact-list { padding: 4px 0; }
 .sv-contact-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 8px;
+  gap: 12px;
+  padding: 10px 20px;
   cursor: pointer;
-  border-bottom: 1px solid #1e293b;
+  border-bottom: 1px solid #f1f5f9;
   transition: background 0.1s;
 }
-.sv-contact-item:hover { background: #1e293b; }
+.sv-contact-item:hover { background: #f8fafc; }
 .sv-contact-item-avatar {
   width: 36px;
   height: 36px;
@@ -1245,12 +1244,12 @@ main { max-width: 900px; margin: 28px auto; padding: 0 16px; }
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   flex-shrink: 0;
 }
 .sv-contact-item-info { flex: 1; overflow: hidden; }
-.sv-contact-item-name { font-size: 13px; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sv-contact-item-name { font-size: 14px; color: #1e293b; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sv-contact-item-phone { font-size: 11px; color: #64748b; }
-.sv-contact-item-arrow { color: #475569; font-size: 14px; }
+.sv-contact-item-arrow { color: #94a3b8; font-size: 16px; }
 .sv-contacts-empty { color: #64748b; font-size: 13px; text-align: center; padding: 24px 0; }

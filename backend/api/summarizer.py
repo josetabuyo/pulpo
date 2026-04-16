@@ -6,6 +6,8 @@ from datetime import datetime
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import PlainTextResponse, FileResponse
+from sqlalchemy import text
+from db import AsyncSessionLocal
 from middleware_auth import get_empresa_id_from_token
 from api.deps import ADMIN_PASSWORD
 from graphs.nodes.summarize import (
@@ -141,6 +143,55 @@ async def get_messages(empresa_id: str, contact_phone: str, _: str = Depends(_ch
     if content is None:
         raise HTTPException(status_code=404, detail="Sin resumen para este contacto")
     return {"messages": _parse_messages(content, empresa_id, contact_phone)}
+
+
+_SKIP_EXACT = {"Foto", "GIF", "Video", "Imagen", "Sticker", "Se eliminó este mensaje."}
+_SKIP_CONTAINS = ["[audio", "audio — sin blob", "audio — no disponible", "audio — error"]
+
+def _is_useful(body: str) -> bool:
+    if not body or len(body.strip()) < 3:
+        return False
+    b = body.strip()
+    if b in _SKIP_EXACT:
+        return False
+    return not any(p.lower() in b.lower() for p in _SKIP_CONTAINS)
+
+
+@router.post("/summarizer/{empresa_id}/{contact_phone}/sync")
+async def sync_contact(empresa_id: str, contact_phone: str, _: str = Depends(_check_auth)):
+    """Re-sincroniza el resumen de UN contacto desde la DB, filtrando ruido (audios sin transcripción, etc.)."""
+    summarizer.clear_contact(empresa_id, contact_phone)
+
+    async with AsyncSessionLocal() as session:
+        rows = (await session.execute(
+            text(
+                "SELECT body, timestamp FROM messages "
+                "WHERE connection_id = :eid AND outbound = 0 AND phone = :phone "
+                "ORDER BY timestamp ASC"
+            ),
+            {"eid": empresa_id, "phone": contact_phone},
+        )).fetchall()
+
+    synced = 0
+    for body, ts_raw in rows:
+        if not _is_useful(body):
+            continue
+        ts = None
+        try:
+            ts = datetime.fromisoformat(str(ts_raw))
+        except ValueError:
+            pass
+        summarizer.accumulate(
+            empresa_id=empresa_id,
+            contact_phone=contact_phone,
+            contact_name=contact_phone,
+            msg_type="text",
+            content=body.strip(),
+            timestamp=ts,
+        )
+        synced += 1
+
+    return {"synced": synced}
 
 
 @router.get("/summarizer/{empresa_id}/{contact_phone}/docs/{filename}")
