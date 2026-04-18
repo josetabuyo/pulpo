@@ -30,6 +30,7 @@ from api.empresa import router as empresa_router
 from api.contacts import router as contacts_router
 from api.summarizer import router as summarizer_router
 from api.flows import router as flows_router, seed_default_flows
+from api.fb_session import router as fb_session_router
 import sim as sim_engine
 
 logging.basicConfig(
@@ -157,6 +158,7 @@ app.include_router(empresa_router, prefix="/api")
 app.include_router(contacts_router, prefix="/api")
 app.include_router(summarizer_router, prefix="/api")
 app.include_router(flows_router, prefix="/api")
+app.include_router(fb_session_router, prefix="/api")
 
 
 @app.get("/health")

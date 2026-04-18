@@ -389,9 +389,18 @@ function Field({ field, config, onChange }) {
 
 // ─── Info especial: Sumarizador ────────────────────────────────────────────────
 
-function SummarizeInfo({ empresaId }) {
-  const path = `data/summaries/${empresaId || '<empresa_id>'}/`
-  const url  = `http://localhost:8000/api/summarizer/${empresaId || ''}`
+function SummarizeInfo({ empresaId, apiCall, onGoToUIs }) {
+  const [absPath, setAbsPath] = useState(null)
+
+  useEffect(() => {
+    if (!empresaId || !apiCall) return
+    apiCall('GET', `/summarizer/${empresaId}`, null)
+      .then(data => { if (data?.path) setAbsPath(data.path) })
+      .catch(() => {})
+  }, [empresaId, apiCall])
+
+  const displayPath = absPath || `data/summaries/${empresaId || '<empresa_id>'}/`
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.5 }}>
@@ -400,19 +409,17 @@ function SummarizeInfo({ empresaId }) {
       </div>
       <div style={S.fieldWrap}>
         <span style={S.label}>RUTA DE ARCHIVOS</span>
-        <code style={{ fontSize: 11, color: '#7dd3fc', background: '#0f172a', padding: '5px 8px', borderRadius: 5, wordBreak: 'break-all' }}>
-          {path}
+        <code style={{ fontSize: 11, color: '#7dd3fc', background: '#0f172a', padding: '5px 8px', borderRadius: 5, wordBreak: 'break-all', userSelect: 'all' }}>
+          {displayPath}
         </code>
       </div>
-      {empresaId && (
-        <a
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ fontSize: 12, color: '#818cf8', textDecoration: 'none' }}
+      {empresaId && onGoToUIs && (
+        <button
+          onClick={onGoToUIs}
+          style={{ fontSize: 12, color: '#818cf8', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0 }}
         >
           Ver resúmenes acumulados →
-        </a>
+        </button>
       )}
     </div>
   )
@@ -422,20 +429,23 @@ function SummarizeInfo({ empresaId }) {
 
 const TRIGGER_TYPES = new Set(['whatsapp_trigger', 'telegram_trigger', 'message_trigger'])
 
-function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall }) {
+function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onGoToUIs }) {
   const updateNodeConfig  = useFlowStore(s => s.updateNodeConfig)
   const deleteNode        = useFlowStore(s => s.deleteNode)
   const setSelectedNodeId = useFlowStore(s => s.setSelectedNodeId)
   const { nodeType, config, label, color } = node.data
   const [contacts, setContacts]   = useState([])
   const [suggested, setSuggested] = useState([])
-  const [cloning, setCloning]     = useState(false)
-  const [cloneMsg, setCloneMsg]   = useState('')
-  const [replaying, setReplaying] = useState(false)
-  const [replayMsg, setReplayMsg] = useState('')
+  const [cloning, setCloning]       = useState(false)
+  const [cloneMsg, setCloneMsg]     = useState('')
+  const [replaying, setReplaying]   = useState(false)
+  const [replayMsg, setReplayMsg]   = useState('')
+  const [fbRefreshing, setFbRefreshing] = useState(false)
+  const [fbRefreshMsg, setFbRefreshMsg] = useState('')
 
   const isFixed = nodeType === 'start' || nodeType === 'end'
   const isTrigger = TRIGGER_TYPES.has(nodeType)
+  const isFbFetch = nodeType === 'fetch' && config.source === 'facebook'
 
   useEffect(() => {
     if (!empresaId || !apiCall) return
@@ -450,6 +460,39 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall }) {
 
   function handleChange(newConfig) { updateNodeConfig(node.id, newConfig) }
   function handleDelete() { if (!isFixed) deleteNode(node.id) }
+
+  async function handleFbRefresh() {
+    const pageId = config.fb_page_id || empresaId || 'luganense'
+    setFbRefreshing(true)
+    setFbRefreshMsg('Abriendo browser…')
+    try {
+      const res = await apiCall('POST', `/fb/refresh-session?page_id=${pageId}`, {})
+      if (!res.ok) {
+        setFbRefreshMsg('⚠ ' + (res.message || 'Error'))
+        setTimeout(() => { setFbRefreshMsg(''); setFbRefreshing(false) }, 5000)
+        return
+      }
+      setFbRefreshMsg('Esperando login en browser…')
+      const poll = setInterval(async () => {
+        try {
+          const st = await apiCall('GET', `/fb/session-status?page_id=${pageId}`, null)
+          if (st.state === 'ok') {
+            setFbRefreshMsg('✓ Sesión renovada')
+            clearInterval(poll)
+            setTimeout(() => { setFbRefreshMsg(''); setFbRefreshing(false) }, 4000)
+          } else if (st.state === 'error') {
+            setFbRefreshMsg('⚠ ' + (st.message || 'Error'))
+            clearInterval(poll)
+            setTimeout(() => { setFbRefreshMsg(''); setFbRefreshing(false) }, 5000)
+          }
+        } catch { clearInterval(poll); setFbRefreshMsg(''); setFbRefreshing(false) }
+      }, 3000)
+      setTimeout(() => { clearInterval(poll); setFbRefreshMsg(''); setFbRefreshing(false) }, 130_000)
+    } catch {
+      setFbRefreshMsg('⚠ Error de red')
+      setTimeout(() => { setFbRefreshMsg(''); setFbRefreshing(false) }, 4000)
+    }
+  }
 
   async function handleReplay() {
     if (!flowId) return
@@ -505,7 +548,7 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall }) {
 
       <div style={{ borderTop: '1px solid #1e293b', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 12, flex: 1, overflowY: 'auto' }}>
 
-        {nodeType === 'summarize' && <SummarizeInfo empresaId={empresaId} />}
+        {nodeType === 'summarize' && <SummarizeInfo empresaId={empresaId} apiCall={apiCall} onGoToUIs={onGoToUIs} />}
 
         {visibleFields.map(field => (
           <Field key={field.key} field={field} config={config} onChange={handleChange} />
@@ -558,6 +601,29 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall }) {
         </div>
       )}
 
+      {isFbFetch && (
+        <div style={{ paddingTop: 8, borderTop: '1px solid #1e293b', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <button
+            onClick={handleFbRefresh}
+            disabled={fbRefreshing}
+            style={{
+              width: '100%', padding: '7px 12px',
+              background: 'transparent',
+              border: '1px solid #1e3a5f',
+              borderRadius: 6, color: '#60a5fa', fontSize: 12, cursor: 'pointer',
+              fontWeight: 600,
+            }}
+          >
+            {fbRefreshing ? '⏳ Esperando login…' : '↺ Renovar sesión FB'}
+          </button>
+          {fbRefreshMsg && (
+            <div style={{ fontSize: 11, color: fbRefreshMsg.startsWith('✓') ? '#4ade80' : fbRefreshMsg.startsWith('⚠') ? '#f87171' : '#60a5fa', textAlign: 'center' }}>
+              {fbRefreshMsg}
+            </div>
+          )}
+        </div>
+      )}
+
       {!isFixed && (
         <div style={{ paddingTop: 8 }}>
           <button
@@ -583,7 +649,7 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall }) {
 
 // ─── Export ───────────────────────────────────────────────────────────────────
 
-export default function NodeConfigPanel({ empresaId, flowId, connections, apiCall }) {
+export default function NodeConfigPanel({ empresaId, flowId, connections, apiCall, onGoToUIs }) {
   const nodes             = useFlowStore(s => s.nodes)
   const typeMap           = useFlowStore(s => s.typeMap)
   const selectedNodeId    = useFlowStore(s => s.selectedNodeId)
@@ -622,6 +688,7 @@ export default function NodeConfigPanel({ empresaId, flowId, connections, apiCal
           flowId={flowId}
           connections={connections}
           apiCall={apiCall}
+          onGoToUIs={onGoToUIs}
         />
       </div>
     </div>

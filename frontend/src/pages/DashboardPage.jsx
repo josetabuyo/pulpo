@@ -305,6 +305,8 @@ export default function DashboardPage() {
   const [syncRunning, setSyncRunning] = useState(false)
   const [recentSyncLabel, setRecentSyncLabel] = useState('↑ Actualizar')
   const [simMode, setSimMode] = useState(false)
+  const [fbSessionLabel, setFbSessionLabel] = useState('FB Sesión')
+  const [fbSessionRunning, setFbSessionRunning] = useState(false)
 
   // Modales
   const [botModal, setBotModal] = useState({ open: false, editBot: null })
@@ -363,6 +365,41 @@ export default function DashboardPage() {
   function logout() {
     sessionStorage.removeItem('admin_pwd')
     navigate('/')
+  }
+
+  async function handleFbSession(pageId = 'luganense') {
+    if (fbSessionRunning) return
+    setFbSessionRunning(true)
+    setFbSessionLabel('Abriendo browser…')
+    try {
+      const res = await call('POST', `/fb/refresh-session?page_id=${pageId}`, {})
+      if (!res.ok) {
+        setFbSessionLabel('⚠ ' + (res.message || 'Error'))
+        setTimeout(() => { setFbSessionLabel('FB Sesión'); setFbSessionRunning(false) }, 5000)
+        return
+      }
+      // Polling del estado hasta que termine
+      setFbSessionLabel('Esperando login…')
+      const poll = setInterval(async () => {
+        try {
+          const st = await call('GET', `/fb/session-status?page_id=${pageId}`, null)
+          if (st.state === 'ok') {
+            setFbSessionLabel('✓ Sesión renovada')
+            clearInterval(poll)
+            setTimeout(() => { setFbSessionLabel('FB Sesión'); setFbSessionRunning(false) }, 4000)
+          } else if (st.state === 'error') {
+            setFbSessionLabel('⚠ ' + (st.message || 'Error'))
+            clearInterval(poll)
+            setTimeout(() => { setFbSessionLabel('FB Sesión'); setFbSessionRunning(false) }, 5000)
+          }
+        } catch { clearInterval(poll); setFbSessionLabel('FB Sesión'); setFbSessionRunning(false) }
+      }, 3000)
+      // Timeout máximo 130s
+      setTimeout(() => { clearInterval(poll); if (fbSessionRunning) { setFbSessionLabel('FB Sesión'); setFbSessionRunning(false) } }, 130_000)
+    } catch {
+      setFbSessionLabel('⚠ Error')
+      setTimeout(() => { setFbSessionLabel('FB Sesión'); setFbSessionRunning(false) }, 4000)
+    }
   }
 
   async function handleRefresh() {
@@ -510,6 +547,14 @@ export default function DashboardPage() {
         <div className="header-actions">
           <button className="btn-ghost btn-sm" onClick={handleRefresh} disabled={refreshLabel !== '↺ Refresh'}>
             {refreshLabel}
+          </button>
+          <button
+            className="btn-ghost btn-sm"
+            onClick={() => handleFbSession('luganense')}
+            disabled={fbSessionRunning}
+            title="Renovar cookies de Facebook (abre browser en el servidor)"
+          >
+            {fbSessionLabel}
           </button>
           <button className="btn-ghost btn-sm" onClick={handleRecentSync} disabled={recentSyncLabel === 'Actualizando...'} title="Captura los mensajes recientes visibles en cada chat (sin scroll histórico). Ideal tras un reinicio.">
             {recentSyncLabel}
