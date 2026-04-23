@@ -28,6 +28,23 @@ TRIGGER_TYPES: frozenset[str] = frozenset({"message_trigger", "whatsapp_trigger"
 _flow_cooldown: dict[tuple[str, str], float] = {}
 
 
+def _cooldown_hours(trigger_config: dict, trigger_type: str) -> float:
+    """
+    Lee cooldown_hours del config del trigger.
+    Si la clave no está (flow creado antes de que existiera el campo),
+    usa el default del schema del nodo en lugar de 0.
+    Esto evita que flows viejos queden sin cooldown silenciosamente.
+    """
+    val = trigger_config.get("cooldown_hours")
+    if val is None:
+        node_cls = NODE_REGISTRY.get(trigger_type)
+        if node_cls and hasattr(node_cls, "config_schema"):
+            val = node_cls.config_schema().get("cooldown_hours", {}).get("default", 0)
+        else:
+            val = 0
+    return float(val or 0)
+
+
 async def _is_known_contact(contact_phone: str, empresa_id: str) -> bool:
     """True si contact_phone está registrado en contact_channels de esta empresa."""
     from db import AsyncSessionLocal, text as _text
@@ -230,9 +247,10 @@ async def execute_flow(flow: dict, state: FlowState) -> FlowState:
                         db_contact, state.contact_phone)
             return state
 
-    # Cooldown: si el trigger tiene cooldown_hours configurado, verificar
+    # Cooldown: si el trigger tiene cooldown_hours configurado, verificar.
+    # Si el campo no está en el config (flow viejo), usa el default del schema.
     if entry_type in TRIGGER_TYPES:
-        cooldown_hours = float(entry_config.get("cooldown_hours") or 0)
+        cooldown_hours = _cooldown_hours(entry_config, entry_type)
         if cooldown_hours > 0:
             flow_id = flow.get("id", "")
             ck = (str(flow_id), state.contact_phone or "")
@@ -400,7 +418,7 @@ async def run_flows(
                     None,
                 )
                 if entry:
-                    ch = float((entry.get("config") or {}).get("cooldown_hours") or 0)
+                    ch = _cooldown_hours(entry.get("config") or {}, entry.get("type", ""))
                     if ch > 0:
                         _flow_cooldown[(str(flow["id"]), state.contact_phone or "")] = _time.time()
 

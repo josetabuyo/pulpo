@@ -39,6 +39,16 @@ from graphs.compiler import run_flows
 import graphs.compiler as _compiler
 
 
+# ─── Fixture: aislamiento del cooldown entre tests ───────────────────────────
+
+@pytest.fixture(autouse=True)
+def reset_cooldown():
+    """Limpia el dict de cooldown antes de cada test para evitar contaminación."""
+    _compiler._flow_cooldown.clear()
+    yield
+    _compiler._flow_cooldown.clear()
+
+
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _state_with_ts(hours_old: float | None, connection_id="5491171876959") -> FlowState:
@@ -255,13 +265,11 @@ async def test_cooldown_tg_otro_contacto_no_afectado():
 
 
 @pytest.mark.asyncio
-async def test_cooldown_tg_sin_campo_en_config_equivale_a_cero():
+async def test_cooldown_tg_sin_campo_usa_default_schema():
     """
     Flow creado antes de que existiera cooldown_hours (campo ausente en config) →
-    cooldown_hours se trata como 0 → sin cooldown → responde siempre.
-
-    El fix real está en el frontend (dbNodeToRF mezcla DEFAULT_CONFIGS). Este test
-    documenta el comportamiento del backend cuando el campo no está en el config guardado.
+    el backend usa el default del schema (4h) en lugar de 0.
+    Esto evita que flows viejos queden sin cooldown silenciosamente.
     """
     import time
     bot_id = "empresa_test-tg-12345"
@@ -269,7 +277,7 @@ async def test_cooldown_tg_sin_campo_en_config_equivale_a_cero():
     # Flow sin cooldown_hours en el trigger config (simula flow creado antes del campo)
     flow = _tg_flow_with_cooldown(bot_id, cooldown_hours=0, include_cooldown_key=False)
 
-    # Simular cooldown activo (como si alguien lo hubiera forzado manualmente)
+    # Simular cooldown activo (respuesta enviada hace 30 segundos, dentro del default 4h)
     _compiler._flow_cooldown[("test-tg-cooldown", contact)] = time.time() - 30
 
     state = _tg_state(contact, bot_id)
@@ -281,7 +289,7 @@ async def test_cooldown_tg_sin_campo_en_config_equivale_a_cero():
          patch("paused.is_paused", return_value=False):
         result = await run_flows(state, connection_id=bot_id)
 
-    assert result.reply == "Hola desde TG", "Sin cooldown_hours en config → no se aplica cooldown"
+    assert result.reply is None, "Sin cooldown_hours en config → usa default 4h → bloqueado dentro del cooldown"
 
 
 # ─── 3. max_age en run_flows (integración con mocks) ─────────────────────────
