@@ -66,6 +66,11 @@ function humanizeId(id) {
  */
 export function dbNodeToRF(node, typeMap = {}) {
   const meta = typeMap[node.type] || typeMap['generic'] || {}
+  // Mezclar defaults: los valores guardados en DB tienen prioridad, pero los
+  // campos faltantes toman el default de DEFAULT_CONFIGS. Esto evita que campos
+  // nuevos (ej: cooldown_hours) queden undefined en flows creados antes de que
+  // el campo existiera, causando que el backend los ignore (trata undefined como 0).
+  const defaultConfig = DEFAULT_CONFIGS[node.type] || {}
   return {
     id: node.id,
     type: 'flowNode',
@@ -74,7 +79,7 @@ export function dbNodeToRF(node, typeMap = {}) {
     height: 40,
     data: {
       nodeType:    node.type,
-      config:      node.config || {},
+      config:      { ...defaultConfig, ...(node.config || {}) },
       label:       node.label || humanizeId(node.id) || meta.label || node.type,
       color:       meta.color       || '#1e293b',
       description: meta.description || '',

@@ -8,7 +8,14 @@ Tests de seguridad anti-spam — nuevas protecciones.
      - max_age_hours=0 → desactivado, siempre pasa
      - from_delta_sync → siempre bloqueado (cobertura existente, reafirmada aquí)
 
-  2. Pausa por empresa (paused.py)
+  2. Cooldown por flow+contacto (telegram_trigger y whatsapp_trigger)
+     - Primer mensaje → reply pasa, cooldown registrado
+     - Segundo mensaje dentro del cooldown → reply bloqueado
+     - Mismo flow distinto contacto → no afectado
+     - Config sin cooldown_hours (flow viejo, campo no guardado) → usa default 0 → sin cooldown
+       (el fix real está en el frontend: dbNodeToRF mezcla DEFAULT_CONFIGS)
+
+  3. Pausa por empresa (paused.py)
      - pause() → is_paused() True
      - resume() → is_paused() False
      - run_flows con empresa pausada → reply None, flow se ejecutó igual
@@ -29,6 +36,7 @@ from unittest.mock import AsyncMock, patch
 from graphs.nodes.reply import SendMessageNode
 from graphs.nodes.state import FlowState
 from graphs.compiler import run_flows
+import graphs.compiler as _compiler
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -133,7 +141,150 @@ async def test_max_age_en_to_explicito_no_aplica():
     node._send.assert_called_once()   # llegó a _send (no fue bloqueado antes)
 
 
-# ─── 2. max_age en run_flows (integración con mocks) ─────────────────────────
+# ─── helpers de cooldown ─────────────────────────────────────────────────────
+
+def _tg_flow_with_cooldown(connection_id: str, cooldown_hours: float = 4.0, include_cooldown_key: bool = True) -> dict:
+    """Flow con telegram_trigger y cooldown configurable."""
+    trigger_config = {"connection_id": connection_id, "message_pattern": ""}
+    if include_cooldown_key:
+        trigger_config["cooldown_hours"] = cooldown_hours
+    return {
+        "id": "test-tg-cooldown",
+        "name": "Test TG cooldown",
+        "connection_id": connection_id,
+        "contact_phone": None,
+        "created_at": "2020-01-01 00:00:00",
+        "definition": {
+            "nodes": [
+                {"id": "t", "type": "telegram_trigger", "config": trigger_config},
+                {"id": "s", "type": "send_message",
+                 "config": {"message": "Hola desde TG", "max_age_hours": 0}},
+            ],
+            "edges": [{"id": "e1", "source": "t", "target": "s", "label": None}],
+        },
+    }
+
+
+def _tg_state(contact_phone: str, connection_id: str) -> FlowState:
+    return FlowState(
+        message="Hola",
+        contact_phone=contact_phone,
+        canal="telegram",
+        connection_id=connection_id,
+    )
+
+
+ENV_PATCHES = {
+    "DISABLE_AUTO_REPLY": "false",
+    "DISABLE_AUTO_REPLY_PHONES": "",
+}
+
+CONFIG_MOCK = {"empresas": [{"id": "empresa_test", "name": "Test"}]}
+
+
+# ─── 2. Cooldown (telegram_trigger) ──────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_cooldown_tg_primer_mensaje_pasa():
+    """Primer mensaje de un contacto → reply pasa y cooldown se registra."""
+    bot_id = "empresa_test-tg-12345"
+    contact = "9876543"
+    flow = _tg_flow_with_cooldown(bot_id, cooldown_hours=4.0)
+    state = _tg_state(contact, bot_id)
+
+    # Limpiar cooldown para que el test sea aislado
+    _compiler._flow_cooldown.clear()
+
+    with patch.dict(os.environ, ENV_PATCHES), \
+         patch("config.get_empresas_for_connection", return_value=["empresa_test"]), \
+         patch("config.load_config", return_value=CONFIG_MOCK), \
+         patch("graphs.compiler.resolve_flows", new_callable=AsyncMock, return_value=[flow]), \
+         patch("paused.is_paused", return_value=False):
+        result = await run_flows(state, connection_id=bot_id)
+
+    assert result.reply == "Hola desde TG", "Primer mensaje debe pasar"
+    assert ("test-tg-cooldown", contact) in _compiler._flow_cooldown, "Cooldown debe quedar registrado"
+
+
+@pytest.mark.asyncio
+async def test_cooldown_tg_segundo_mensaje_bloqueado():
+    """Segundo mensaje dentro del cooldown → reply bloqueado."""
+    import time
+    bot_id = "empresa_test-tg-12345"
+    contact = "9876543"
+    flow = _tg_flow_with_cooldown(bot_id, cooldown_hours=4.0)
+
+    # Simular que ya respondimos hace 30 segundos (dentro del cooldown de 4h)
+    _compiler._flow_cooldown[("test-tg-cooldown", contact)] = time.time() - 30
+
+    state = _tg_state(contact, bot_id)
+
+    with patch.dict(os.environ, ENV_PATCHES), \
+         patch("config.get_empresas_for_connection", return_value=["empresa_test"]), \
+         patch("config.load_config", return_value=CONFIG_MOCK), \
+         patch("graphs.compiler.resolve_flows", new_callable=AsyncMock, return_value=[flow]), \
+         patch("paused.is_paused", return_value=False):
+        result = await run_flows(state, connection_id=bot_id)
+
+    assert result.reply is None, "Mensaje dentro del cooldown debe ser bloqueado"
+
+
+@pytest.mark.asyncio
+async def test_cooldown_tg_otro_contacto_no_afectado():
+    """Cooldown de un contacto no bloquea a otro contacto distinto."""
+    import time
+    bot_id = "empresa_test-tg-12345"
+    contact_a = "111111"
+    contact_b = "222222"
+    flow = _tg_flow_with_cooldown(bot_id, cooldown_hours=4.0)
+
+    # Solo contact_a tiene cooldown activo
+    _compiler._flow_cooldown[("test-tg-cooldown", contact_a)] = time.time() - 30
+    _compiler._flow_cooldown.pop(("test-tg-cooldown", contact_b), None)
+
+    state_b = _tg_state(contact_b, bot_id)
+
+    with patch.dict(os.environ, ENV_PATCHES), \
+         patch("config.get_empresas_for_connection", return_value=["empresa_test"]), \
+         patch("config.load_config", return_value=CONFIG_MOCK), \
+         patch("graphs.compiler.resolve_flows", new_callable=AsyncMock, return_value=[flow]), \
+         patch("paused.is_paused", return_value=False):
+        result = await run_flows(state_b, connection_id=bot_id)
+
+    assert result.reply == "Hola desde TG", "Contacto distinto no debe estar bloqueado por cooldown ajeno"
+
+
+@pytest.mark.asyncio
+async def test_cooldown_tg_sin_campo_en_config_equivale_a_cero():
+    """
+    Flow creado antes de que existiera cooldown_hours (campo ausente en config) →
+    cooldown_hours se trata como 0 → sin cooldown → responde siempre.
+
+    El fix real está en el frontend (dbNodeToRF mezcla DEFAULT_CONFIGS). Este test
+    documenta el comportamiento del backend cuando el campo no está en el config guardado.
+    """
+    import time
+    bot_id = "empresa_test-tg-12345"
+    contact = "9876543"
+    # Flow sin cooldown_hours en el trigger config (simula flow creado antes del campo)
+    flow = _tg_flow_with_cooldown(bot_id, cooldown_hours=0, include_cooldown_key=False)
+
+    # Simular cooldown activo (como si alguien lo hubiera forzado manualmente)
+    _compiler._flow_cooldown[("test-tg-cooldown", contact)] = time.time() - 30
+
+    state = _tg_state(contact, bot_id)
+
+    with patch.dict(os.environ, ENV_PATCHES), \
+         patch("config.get_empresas_for_connection", return_value=["empresa_test"]), \
+         patch("config.load_config", return_value=CONFIG_MOCK), \
+         patch("graphs.compiler.resolve_flows", new_callable=AsyncMock, return_value=[flow]), \
+         patch("paused.is_paused", return_value=False):
+        result = await run_flows(state, connection_id=bot_id)
+
+    assert result.reply == "Hola desde TG", "Sin cooldown_hours en config → no se aplica cooldown"
+
+
+# ─── 3. max_age en run_flows (integración con mocks) ─────────────────────────
 
 @pytest.mark.asyncio
 async def test_run_flows_bloquea_mensaje_viejo():
