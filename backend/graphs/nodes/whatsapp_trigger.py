@@ -44,4 +44,10 @@ class WhatsappTriggerNode(BaseNode):
                 "default": 4,
                 "hint": "Tiempo mínimo entre respuestas al mismo contacto. 0 = sin límite.",
             },
+            "sync_interval_minutes": {
+                "type": "number",
+                "label": "Intervalo de sync del sumarizador (minutos)",
+                "default": 4,
+                "hint": "Cada cuántos minutos se sincroniza el sumarizador automáticamente. 0 = desactivado.",
+            },
         }

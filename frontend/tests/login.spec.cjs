@@ -1,5 +1,7 @@
 const { test, expect } = require('@playwright/test')
 
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || ADMIN_PASSWORD
+
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await page.evaluate(() => sessionStorage.clear())
@@ -19,14 +21,14 @@ test('contraseña incorrecta muestra error', async ({ page }) => {
 })
 
 test('login con admin navega al dashboard', async ({ page }) => {
-  await page.getByPlaceholder('Contraseña').fill('admin')
+  await page.getByPlaceholder('Contraseña').fill(ADMIN_PASSWORD)
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL('/dashboard')
   await expect(page.getByText('Pulpo — Admin')).toBeVisible()
 })
 
 test('dashboard muestra sección de empresas', async ({ page }) => {
-  await page.getByPlaceholder('Contraseña').fill('admin')
+  await page.getByPlaceholder('Contraseña').fill(ADMIN_PASSWORD)
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL('/dashboard')
   await expect(page.getByText(/Empresas y teléfonos/i).first()).toBeVisible()
@@ -34,9 +36,9 @@ test('dashboard muestra sección de empresas', async ({ page }) => {
 })
 
 test('proxy /api/auth no devuelve 500', async ({ request }) => {
-  const res = await request.post('/api/auth', { data: { password: 'admin' } })
+  const res = await request.post('/api/auth', { data: { password: ADMIN_PASSWORD } })
   expect(res.status()).toBe(200)
   const body = await res.json()
   expect(body.ok).toBe(true)
-  expect(body.role).toBe('admin')
+  expect(body.role).toBe(ADMIN_PASSWORD)
 })

@@ -1,10 +1,12 @@
 const { test, expect } = require('@playwright/test')
 
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin'
+
 async function login(page) {
   await page.goto('/')
   await page.evaluate(() => sessionStorage.clear())
   await page.goto('/')
-  await page.getByPlaceholder('Contraseña').fill('admin')
+  await page.getByPlaceholder('Contraseña').fill(ADMIN_PASSWORD)
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL('/dashboard')
 }

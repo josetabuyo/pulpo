@@ -64,17 +64,6 @@ class LLMNode(BaseNode):
                 text = data.get(reply_key, "")
                 if route_key and data.get(route_key):
                     state.route = str(data[route_key])
-                # Guardar fb_posts image info si viene en el JSON
-                if "needs_image" in data and data.get("needs_image") and state.fb_posts:
-                    idx = int(data.get("source_post_index", -1))
-                    state.route = state.route or "imagen"  # señal para edge condicional
-                    if 0 <= idx < len(state.fb_posts):
-                        state.image_url = state.fb_posts[idx].get("image_url", "")
-                    if not state.image_url:
-                        for post in state.fb_posts:
-                            if post.get("image_url"):
-                                state.image_url = post["image_url"]
-                                break
             else:
                 text = content
 
@@ -96,11 +85,26 @@ class LLMNode(BaseNode):
     def config_schema(cls) -> dict:
         return {
             "prompt":         {"type": "textarea", "label": "System prompt",        "default": "", "rows": 8},
-            "model":          {"type": "string",   "label": "Modelo",               "default": "llama-3.3-70b-versatile"},
+            "model":          {"type": "select",   "label": "Modelo",               "default": "llama-3.3-70b-versatile",
+                               "options": [
+                                   {"value": "llama-3.3-70b-versatile",  "label": "llama-3.3-70b-versatile (recomendado)"},
+                                   {"value": "llama-3.1-70b-versatile",  "label": "llama-3.1-70b-versatile"},
+                                   {"value": "llama-3.1-8b-instant",     "label": "llama-3.1-8b-instant (rápido)"},
+                                   {"value": "llama3-70b-8192",          "label": "llama3-70b-8192"},
+                                   {"value": "llama3-8b-8192",           "label": "llama3-8b-8192"},
+                                   {"value": "mixtral-8x7b-32768",       "label": "mixtral-8x7b-32768"},
+                                   {"value": "gemma2-9b-it",             "label": "gemma2-9b-it"},
+                               ]},
             "temperature":    {"type": "float",    "label": "Temperatura",          "default": 0.3},
             "output":         {"type": "select",   "label": "Destino de la salida", "default": "reply",
-                               "options": ["reply", "context", "query"]},
+                               "hint": "reply = responde al usuario · context = pasa al siguiente nodo · query = para búsqueda/fetch",
+                               "options": [
+                                   {"value": "reply",   "label": "reply — responde al usuario"},
+                                   {"value": "context", "label": "context — pasa al siguiente nodo"},
+                                   {"value": "query",   "label": "query — para búsqueda vectorial / fetch"},
+                               ]},
             "json_output":    {"type": "bool",     "label": "Respuesta JSON",       "default": False},
             "json_reply_key": {"type": "string",   "label": "Clave JSON del reply", "default": "reply",
-                               "hint": "Solo si Respuesta JSON está activa"},
+                               "hint": "Clave dentro del JSON que contiene el texto a responder",
+                               "show_if": {"json_output": True}},
         }

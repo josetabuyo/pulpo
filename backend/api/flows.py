@@ -55,11 +55,15 @@ def list_node_types():
         node_class = NODE_REGISTRY.get(nt.id)
         schema_dict = node_class.config_schema() if node_class else {}
         schema = [{"key": k, **v} for k, v in schema_dict.items()]
+        # Primer párrafo del docstring de la clase (sin los Config: detallados)
+        raw_doc = (node_class.__doc__ or '').strip() if node_class else ''
+        help_text = raw_doc.split('\n\nConfig:')[0].strip() if raw_doc else ''
         result.append({
             "id":          nt.id,
             "label":       nt.label,
             "color":       nt.color,
             "description": nt.description,
+            "help":        help_text,
             "schema":      schema,
         })
     return result

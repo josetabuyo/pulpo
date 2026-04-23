@@ -34,9 +34,11 @@ class FlowState:
     route: str = ""                    # router node setea esto; engine sigue solo edges con ese label
     context: str = ""                  # texto acumulado de fetch/search/llm para el siguiente nodo
     query: str = ""                    # query expandida (llm output=query → fetch/search la lee)
-    fb_posts: list = field(default_factory=list)  # posts de Facebook con text + image_url
+    fb_posts: list = field(default_factory=list)  # posts de Facebook con text + url
     vars: dict = field(default_factory=dict)       # valores arbitrarios: nodos escriben, placeholders leen
+
+    # ── Metadatos de grupo ────────────────────────────────────────
+    group_sender: str = ""              # en grupos: nombre del miembro que envió (vacío fuera de grupos)
 
     # ── Salida (producida por nodos) ──────────────────────────────
     reply: Optional[str] = None
-    image_url: Optional[str] = None

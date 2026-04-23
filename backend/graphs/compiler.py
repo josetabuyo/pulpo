@@ -4,7 +4,7 @@ Flow Engine — el motor que ejecuta flows.
 Responsabilidades:
   - resolve_flows(): encuentra los flows activos para un (bot_id, contact, empresa)
   - execute_flow(): corre los nodos de un flow en secuencia
-  - run_flows(): orquesta ambos y devuelve (reply, image_url)
+  - run_flows(): orquesta ambos y devuelve el FlowState con reply
 
 Los adapters (WA, Telegram, Sim) normalizan el mensaje a FlowState
 y llaman a run_flows(). El engine no sabe nada de protocolos.
@@ -323,7 +323,7 @@ async def run_flows(
     2. Para cada empresa: resuelve sus flows activos y los ejecuta
     3. Primer reply no-None gana; todos los nodos sin reply (ej: SummarizeNode) corren igual
 
-    Retorna el FlowState con reply y image_url si algún nodo los produjo.
+    Retorna el FlowState con reply si algún nodo lo produjo.
     """
     from config import get_empresas_for_connection, load_config
 
@@ -346,8 +346,27 @@ async def run_flows(
     _blocked_nums = {n.strip() for n in os.getenv("DISABLE_AUTO_REPLY_PHONES", "").split(",") if n.strip()}
     disable_reply = _global_off or (connection_id in _blocked_nums)
 
+    from paused import is_paused
+
     for empresa_id in empresa_ids:
         state.empresa_id = empresa_id
+
+        # Bot pausado — la conexión sigue viva pero no genera replies
+        if is_paused(empresa_id):
+            logger.info("[engine] Bot pausado: %s — flows ejecutados sin reply", empresa_id)
+            state_copy = FlowState(**{f: getattr(state, f) for f in state.__dataclass_fields__})
+            state_copy.from_delta_sync = True  # bloquea replies en todos los nodos
+            # Ejecutar de todas formas para que summarize y otros efectos de lado sigan funcionando
+            config = load_config()
+            empresa_entry = next((e for e in config.get("empresas", []) if e["id"] == empresa_id), {})
+            if not state.bot_name:
+                state.bot_name = empresa_entry.get("name", empresa_id)
+            flows = await resolve_flows(empresa_id)
+            for flow in flows:
+                state_copy.empresa_id = empresa_id
+                state_copy.bot_name = state.bot_name
+                await execute_flow(flow, state_copy)
+            continue
 
         # Obtener nombre de la empresa para contexto del LLM
         config = load_config()
@@ -389,6 +408,5 @@ async def run_flows(
         logger.info("[engine] Kill switch activado — reply descartado (global_off=%s, connection_id=%s bloqueado=%s)",
                     _global_off, connection_id, connection_id in _blocked_nums)
         state.reply = None
-        state.image_url = None
 
     return state

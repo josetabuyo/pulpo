@@ -66,6 +66,7 @@ class WhatsAppSession(BrowserAutomation):
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
+                "--remote-debugging-port=9222",  # permite inspección vía chrome://inspect
             ],
             user_agent=(
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -315,6 +316,20 @@ class WhatsAppSession(BrowserAutomation):
             if not from_poll:
                 if is_audio:
                     audio_dl = await self._download_audio_blob(page, name, session_id)
+                    if not audio_dl:
+                        # Fallback IDB: buscar el audio más reciente en IndexedDB (recibido en los últimos 5 min)
+                        import time as _live_time
+                        _now = int(_live_time.time())
+                        idb_keys = await self._fetch_audio_idb_keys(page, session_id)
+                        recent = [k for k in idb_keys if (_now - k["t"]) < 300]
+                        if recent:
+                            # El más reciente es el que acaba de llegar
+                            best = max(recent, key=lambda k: k["t"])
+                            audio_dl = await self._download_decrypt_audio_cdn(
+                                best["directPath"], best["mediaKey"], session_id
+                            )
+                            if audio_dl:
+                                logger.info(f"[{session_id}] Audio live: IDB fallback OK para {name}")
                     if audio_dl:
                         # Pasar el archivo al flow — el nodo transcribe_audio se encarga
                         attachment_path = audio_dl
@@ -337,15 +352,36 @@ class WhatsAppSession(BrowserAutomation):
                 elif _is_image:
                     img_dl = await self._download_image_blob(page, name, session_id)
                     if img_dl:
-                        msg_text = f"[imagen: {img_dl.name}]"
+                        msg_text = f"[imagen guardada: {img_dl.name}]"
                         attachment_path = str(img_dl)
                     else:
                         msg_text = "[imagen — no disponible]"
                     msg_type = "image"
 
-            # Para grupos: incluir remitente en el texto
-            if sender_in_group:
+            # Para grupos: incluir remitente en el texto.
+            # Si es audio con blob descargado (msg_text vacío), NO prepender aquí —
+            # TranscribeAudioNode vería "Nombre: " como texto real y saltaría la transcripción.
+            # En ese caso, group_sender se pasa en FlowState y SummarizeNode lo prepende después.
+            if sender_in_group and msg_text:
                 msg_text = f"{sender_in_group}: {msg_text}"
+
+            # Parsear timestamp real del mensaje si viene del DOM de WA Web.
+            # Previene que accumulate() use datetime.now() para mensajes re-entregados.
+            _msg_ts = None
+            if wa_ts_str:
+                from datetime import datetime as _dt_parse
+                import re as _re_ts
+                # WA usa formato "H:MM p. m., D/M/YYYY" o "H:MM AM, M/D/YYYY"
+                # Limpiar: quitar puntos de "p. m." → "PM", etc.
+                _cleaned = (_re_ts.sub(r'\bp\.\s*m\.\b', 'PM', wa_ts_str, flags=_re_ts.IGNORECASE)
+                            .replace('a. m.', 'AM').replace('A. M.', 'AM'))
+                for _fmt in ("%I:%M %p, %d/%m/%Y", "%I:%M %p, %m/%d/%Y",
+                             "%H:%M, %d/%m/%Y", "%H:%M, %m/%d/%Y"):
+                    try:
+                        _msg_ts = _dt_parse.strptime(_cleaned.strip(), _fmt)
+                        break
+                    except ValueError:
+                        pass
 
             # Flow engine
             from graphs.compiler import run_flows
@@ -359,6 +395,8 @@ class WhatsAppSession(BrowserAutomation):
                 contact_name=name,
                 canal="whatsapp",
                 from_poll=from_poll,
+                group_sender=sender_in_group if sender_in_group and not msg_text else "",
+                timestamp=_msg_ts,
             )
             state = await run_flows(state, connection_id=session_id)
             reply = state.reply or ""
@@ -471,9 +509,24 @@ class WhatsAppSession(BrowserAutomation):
                 if (children.length >= 2) {
                     const realEl = children[children.length - 1].querySelector('span.copyable-text, [data-testid="selectable-text"]');
                     body = realEl ? realEl.innerText.trim() : '';
-                    const quotedText = children[0].querySelector('span.copyable-text, [data-testid="selectable-text"]');
+                    const qb = children[0];
+                    const quotedText = qb.querySelector('span.copyable-text, [data-testid="selectable-text"]');
                     const quotedBody = quotedText ? quotedText.innerText.trim() : '';
-                    if (quotedBody) body = body + '\\n> ↩ ' + quotedBody;
+                    if (quotedBody) {
+                        // Capturar sender del mensaje citado (mismo patrón que senders de grupo)
+                        let quotedSender = '';
+                        const qsAuthor = qb.querySelector('[data-testid="author"]');
+                        const qsColor  = qb.querySelector('span[style*="color:#"], span[style*="color: #"]');
+                        const qsDir    = qb.querySelector('span[dir="ltr"]:not(.copyable-text), span[dir="auto"]:not(.copyable-text)');
+                        if (qsAuthor) quotedSender = qsAuthor.innerText.trim();
+                        else if (qsColor) quotedSender = qsColor.innerText.trim();
+                        else if (qsDir) {
+                            const t = qsDir.innerText.trim();
+                            if (t && t.length < 60 && t !== quotedBody) quotedSender = t;
+                        }
+                        const replyMeta = quotedSender ? '[' + quotedSender + '] ' : '';
+                        body = body + '\\n> ↩ ' + replyMeta + quotedBody;
+                    }
                 } else {
                     const textEl = msgRoot.querySelector('span.copyable-text, [data-testid="msg-text"]');
                     body = textEl ? textEl.innerText.trim() : '';
@@ -597,7 +650,10 @@ class WhatsAppSession(BrowserAutomation):
                         const phoneMatch = rawId ? rawId.match(/(\\d{8,15})/) : null;
                         const phone = phoneMatch ? phoneMatch[1] : '';
 
-                        chats.push({ name, body, phone });
+                        // Timestamp del último mensaje (del sidebar, no del chat abierto)
+                        const tsEl = row.querySelector('[data-testid="last-msg-status"] ~ span, .x1rg5ohu span[dir]');
+                        const waTs = tsEl ? tsEl.textContent.trim() : '';
+                        chats.push({ name, body, phone, waTs });
                     }
                     if (!chats.length) return null;
                     return { chats, count: rows.length };
@@ -621,7 +677,8 @@ class WhatsAppSession(BrowserAutomation):
                         logger.debug(f"[{session_id}] open-chat warmup: {name} → {body[:40]}")
                         continue
                     logger.debug(f"[{session_id}] open-chat detectó: {name} ({phone}) → {body[:40]}")
-                    await on_message(phone, name, body, from_poll=False)
+                    wa_ts = chat.get("waTs", "")
+                    await on_message(phone, name, body, from_poll=True, wa_ts_str=wa_ts)
 
             except Exception as e:
                 if "closed" in str(e).lower() or "target" in str(e).lower():
@@ -1479,13 +1536,28 @@ class WhatsAppSession(BrowserAutomation):
                             const realEl = children[children.length - 1].querySelector('span.copyable-text, [data-testid="selectable-text"]');
                             body = realEl ? realEl.innerText.trim() : '';
                             // El bloque citado está en el primer hijo
-                            const quotedText = children[0].querySelector('span.copyable-text, [data-testid="selectable-text"]');
+                            const qb = children[0];
+                            const quotedText = qb.querySelector('span.copyable-text, [data-testid="selectable-text"]');
                             quotedBody = quotedText ? quotedText.innerText.trim() : '';
+                            if (quotedBody) {
+                                // Capturar sender del mensaje citado
+                                let quotedSender = '';
+                                const qsAuthor = qb.querySelector('[data-testid="author"]');
+                                const qsColor  = qb.querySelector('span[style*="color:#"], span[style*="color: #"]');
+                                const qsDir    = qb.querySelector('span[dir="ltr"]:not(.copyable-text), span[dir="auto"]:not(.copyable-text)');
+                                if (qsAuthor) quotedSender = qsAuthor.innerText.trim();
+                                else if (qsColor) quotedSender = qsColor.innerText.trim();
+                                else if (qsDir) {
+                                    const t = qsDir.innerText.trim();
+                                    if (t && t.length < 60 && t !== quotedBody) quotedSender = t;
+                                }
+                                const replyMeta = quotedSender ? '[' + quotedSender + '] ' : '';
+                                body = body + '\\n> ↩ ' + replyMeta + quotedBody;
+                            }
                         } else {
                             const textEl = el.querySelector('span.copyable-text, [data-testid="msg-text"]');
                             body = textEl ? textEl.innerText.trim() : '';
                         }
-                        if (quotedBody) body = body + '\\n> ↩ ' + quotedBody;
                         const parent = el.parentElement || el;
                         const hasAudio = !!el.querySelector('audio, [data-testid^="audio"]')
                                       || !!parent.querySelector('audio, [data-testid^="audio"]')
@@ -2266,6 +2338,497 @@ class WhatsAppSession(BrowserAutomation):
             return []
 
     # ------------------------------------------------------------------
+    # scrape_full_history_v2 — arquitectura mensaje-primero
+    # ------------------------------------------------------------------
+
+    async def scrape_full_history_v2(
+        self,
+        session_id: str,
+        contact_name: str,
+        doc_save_dir: "Path | None" = None,
+        stop_before_ts: "datetime | None" = None,
+        max_scroll_rounds: int = 120,
+    ) -> list[dict]:
+        """
+        Reemplaza scrape_full_history con arquitectura correcta:
+        - La entidad es el MENSAJE, no el tipo de contenido.
+        - Un solo loop: por cada mensaje visible → extraer TODO (texto / audio / doc / imagen).
+        - Empieza por el más reciente (fondo) y sube.
+        - Para cuando todos los mensajes visibles son anteriores a stop_before_ts (delta).
+        - Sin IDB, sin timestamp matching, sin fallbacks inventados.
+        - Audio: click play → esperar blob (15s) → transcribir. Si no llega → sin blob.
+        """
+        import re as _re
+        import base64 as _b64
+        import time as _time_mod
+        import os as _os
+        import hashlib as _hashlib
+        from datetime import datetime as _dt
+
+        page = self.get_page(session_id)
+        if not page:
+            return []
+
+        # ── JS: función auxiliar de fecha (reutilizada en el scan) ──────────
+        _DATE_HELPERS_JS = r"""
+        const _today = new Date();
+        const _monthES = {
+            'enero':1,'febrero':2,'marzo':3,'abril':4,'mayo':5,'junio':6,
+            'julio':7,'agosto':8,'septiembre':9,'octubre':10,'noviembre':11,'diciembre':12
+        };
+        const _dayES = {
+            'domingo':0,'lunes':1,'martes':2,'miercoles':3,'miércoles':3,
+            'jueves':4,'viernes':5,'sabado':6,'sábado':6
+        };
+        function _dateFromStr(dateStr) {
+            // "DD/MM/YYYY" → Date
+            const [d,m,y] = dateStr.split('/').map(Number);
+            return new Date(y, m-1, d);
+        }
+        function _nearestDateBefore(container) {
+            // Fecha del data-pre-plain-text más cercano + separadores de día
+            let msgDate = '';
+            let lastPPEl = null;
+            for (const el of document.querySelectorAll('[data-pre-plain-text]')) {
+                if (!(container.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING)) break;
+                const m = el.getAttribute('data-pre-plain-text').match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
+                if (m) { lastPPEl = el; msgDate = m[1]; }
+            }
+            for (const el of document.querySelectorAll('span')) {
+                if (lastPPEl && !(lastPPEl.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
+                if (!(container.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING)) break;
+                const ownTxt = [...el.childNodes].filter(n=>n.nodeType===3).map(n=>n.textContent.trim()).join('').trim();
+                if (!ownTxt || ownTxt.length > 60) continue;
+                const low = ownTxt.toLowerCase()
+                    .replace(/\u00e9/g,'e').replace(/\u00e1/g,'a')
+                    .replace(/\u00f3/g,'o').replace(/\u00fa/g,'u');
+                let sepDate = null;
+                const fd = ownTxt.match(/(\d{1,2})\s+de\s+(\w+)\s+de\s+(\d{4})/i);
+                if (fd) {
+                    const d=parseInt(fd[1]),mo=_monthES[fd[2].toLowerCase()]||0,y=parseInt(fd[3]);
+                    if (mo) sepDate = d+'/'+mo+'/'+y;
+                } else if (low==='hoy') {
+                    sepDate = _today.getDate()+'/'+(_today.getMonth()+1)+'/'+_today.getFullYear();
+                } else if (low==='ayer') {
+                    const d2=new Date(_today); d2.setDate(d2.getDate()-1);
+                    sepDate = d2.getDate()+'/'+( d2.getMonth()+1)+'/'+d2.getFullYear();
+                } else if (_dayES[low]!==undefined) {
+                    const target=_dayES[low];
+                    let ago=(_today.getDay()-target+7)%7; if(ago===0)ago=7;
+                    const d3=new Date(_today); d3.setDate(d3.getDate()-ago);
+                    sepDate = d3.getDate()+'/'+( d3.getMonth()+1)+'/'+d3.getFullYear();
+                }
+                if (sepDate) { msgDate = sepDate; break; }
+            }
+            return msgDate;
+        }
+        function _getTime(container) {
+            const w = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+            let n, t='';
+            while (n=w.nextNode()) {
+                const s=n.textContent.trim();
+                if (/^\d{1,2}:\d{2}(\s*(a|p)[\.\s]*m\.?)?$/i.test(s)) t=s;
+            }
+            return t;
+        }
+        function _getSender(container) {
+            const els = [
+                container.querySelector('[data-testid="author"]'),
+                container.querySelector('span[aria-label$=":"]'),
+                container.querySelector('span[style*="color:#"],span[style*="color: #"]'),
+                container.querySelector('._ak4h span[dir="auto"]'),
+            ];
+            for (const el of els) {
+                if (!el) continue;
+                const v = el.hasAttribute('aria-label')
+                    ? (el.getAttribute('aria-label')||'').replace(/:$/,'').trim()
+                    : el.innerText.trim();
+                if (v) return v;
+            }
+            return '';
+        }
+        """
+
+        # ── JS: escanear mensajes visibles NO procesados ─────────────────────
+        _SCAN_JS = f"""
+        () => {{
+            {_DATE_HELPERS_JS}
+            const results = [];
+            const allContainers = document.querySelectorAll(
+                '.message-in:not([data-pulpo-done]), .message-out:not([data-pulpo-done])'
+            );
+            for (const c of allContainers) {{
+                const rect = c.getBoundingClientRect();
+                if (rect.bottom < -300 || rect.top > window.innerHeight + 300) continue;
+
+                const isOut = c.classList.contains('message-out');
+
+                // ── Detectar tipo ──────────────────────────────────────────
+                const ppEl = c.querySelector('[data-pre-plain-text]');
+                const audioInd = c.querySelector(
+                    '[data-icon="ptt-status"],[data-icon="ptt-play"],[data-icon="audio-play"],' +
+                    'button[aria-label*="voz"],button[aria-label*="voice"],' +
+                    'button[aria-label*="Voice"],button[aria-label*="Reproducir"]'
+                );
+                const imgEl = !ppEl ? c.querySelector('img[src^="blob:"]') : null;
+
+                // ── Timestamp ─────────────────────────────────────────────
+                let time='', date='', sender='';
+                if (ppEl) {{
+                    const pp = ppEl.getAttribute('data-pre-plain-text')||'';
+                    const m = pp.match(/\\[(\\d{{1,2}}:\\d{{2}}(?:\\s*[ap]\\.?m\\.?)?),?\\s*(\\d{{1,2}}\\/\\d{{1,2}}\\/\\d{{4}})\\]\\s*(.*?):\\s*$/i);
+                    if (m) {{ time=m[1].trim(); date=m[2]; sender=m[3].trim(); }}
+                    else {{
+                        const m2 = pp.match(/\\[(\\d{{1,2}}:\\d{{2}}(?:\\s*[ap]\\.?m\\.?)?),?\\s*(\\d{{1,2}}\\/\\d{{1,2}}\\/\\d{{4}})\\]/i);
+                        if (m2) {{ time=m2[1].trim(); date=m2[2]; }}
+                    }}
+                }} else {{
+                    time = _getTime(c);
+                    date = _nearestDateBefore(c);
+                    sender = _getSender(c);
+                }}
+                if (!time) {{ c.setAttribute('data-pulpo-done','1'); continue; }}
+
+                // ── Audio sin data-pre-plain-text ─────────────────────────
+                if (audioInd && !ppEl) {{
+                    const btn = c.querySelector(
+                        'button[aria-label*="voz"],button[aria-label*="voice"],' +
+                        'button[aria-label*="Voice"],button[aria-label*="Reproducir"],' +
+                        'button[aria-label*="Escuchar"]'
+                    ) || audioInd.closest('button') || audioInd.parentElement?.querySelector('button');
+                    const aid = 'pa-' + Date.now() + '-' + Math.random().toString(36).slice(2,8);
+                    if (btn) btn.setAttribute('data-pulpo-audio-id', aid);
+                    c.setAttribute('data-pulpo-done','1');
+                    results.push({{ type:'audio', time, date, sender, isOut, audioId: btn ? aid : null }});
+                    continue;
+                }}
+
+                // ── Imagen sin caption ────────────────────────────────────
+                if (imgEl) {{
+                    c.setAttribute('data-pulpo-done','1');
+                    results.push({{ type:'image', time, date, sender, isOut, imgSrc: imgEl.src }});
+                    continue;
+                }}
+
+                // ── Texto (incluye audio CON caption, docs con caption) ───
+                if (ppEl) {{
+                    // Sub-tipo audio con data-pre-plain-text (raro pero posible)
+                    if (audioInd) {{
+                        const btn = c.querySelector(
+                            'button[aria-label*="voz"],button[aria-label*="voice"],' +
+                            'button[aria-label*="Voice"],button[aria-label*="Reproducir"]'
+                        ) || audioInd.closest('button');
+                        const aid = 'pa-' + Date.now() + '-' + Math.random().toString(36).slice(2,8);
+                        if (btn) btn.setAttribute('data-pulpo-audio-id', aid);
+                        c.setAttribute('data-pulpo-done','1');
+                        results.push({{ type:'audio', time, date, sender, isOut, audioId: btn ? aid : null }});
+                        continue;
+                    }}
+                    // Documento
+                    const docNameEl = c.querySelector('[data-testid="document-title"]');
+                    if (docNameEl) {{
+                        const fname = docNameEl.innerText.trim();
+                        const sizeEl = c.querySelector('[data-testid="document-size"]');
+                        const fsize = sizeEl ? sizeEl.innerText.trim() : '';
+                        c.setAttribute('data-pulpo-done','1');
+                        results.push({{ type:'document', time, date, sender, isOut, filename: fname, size: fsize }});
+                        continue;
+                    }}
+                    // Texto plano
+                    const children = [...ppEl.children];
+                    let body='', quoted='';
+                    if (children.length >= 2) {{
+                        const realEl = children[children.length-1].querySelector('span.copyable-text,[data-testid="selectable-text"]');
+                        body = realEl ? realEl.innerText.trim() : '';
+                        const qEl = children[0].querySelector('span.copyable-text,[data-testid="selectable-text"]');
+                        quoted = qEl ? qEl.innerText.trim() : '';
+                    }} else {{
+                        const textEl = ppEl.querySelector('span.copyable-text,[data-testid="msg-text"]');
+                        body = textEl ? textEl.innerText.trim() : ppEl.innerText.trim();
+                    }}
+                    // Duración de audio raw ("1:55") → es audio sin botón aún cargado
+                    if (!body || /^\\d{{1,2}}:\\d{{2}}$/.test(body.trim())) {{
+                        c.setAttribute('data-pulpo-done','1');
+                        results.push({{ type:'audio', time, date, sender, isOut, audioId: null }});
+                        continue;
+                    }}
+                    c.setAttribute('data-pulpo-done','1');
+                    results.push({{ type:'text', time, date, sender, isOut, body, quoted }});
+                }}
+            }}
+            return results;
+        }}
+        """
+
+        # ── JS: click audio por data-pulpo-audio-id ──────────────────────────
+        _CLICK_AUDIO_JS = """
+        (audioId) => {
+            const btn = document.querySelector('[data-pulpo-audio-id="' + audioId + '"]');
+            if (!btn) return false;
+            if (window.__capturedAudioBlobsB64) window.__capturedAudioBlobsB64 = [];
+            btn.scrollIntoView({ block: 'center', behavior: 'instant' });
+            btn.click();
+            return true;
+        }
+        """
+
+        # ── JS: scrollear un paso hacia arriba ───────────────────────────────
+        _SCROLL_UP_JS = """
+        (step) => {
+            for (const el of document.querySelectorAll('#main div')) {
+                if (el.scrollHeight > el.clientHeight && el.scrollHeight > 500 && el.scrollTop > 0) {
+                    const prev = el.scrollTop;
+                    el.scrollTop = Math.max(0, el.scrollTop - step);
+                    return prev !== el.scrollTop;
+                }
+            }
+            return false;
+        }
+        """
+
+        # ── JS: scroll al fondo ───────────────────────────────────────────────
+        _SCROLL_BOTTOM_JS = """
+        () => {
+            for (const el of document.querySelectorAll('#main div')) {
+                if (el.scrollHeight > el.clientHeight && el.scrollHeight > 500) {
+                    el.scrollTop = el.scrollHeight;
+                    return;
+                }
+            }
+        }
+        """
+
+        # ── Helpers Python ────────────────────────────────────────────────────
+        def _parse_ts(time: str, date: str) -> str | None:
+            """'HH:MM, DD/MM/YYYY' → 'YYYY-MM-DD HH:MM:SS'"""
+            if not time or not date:
+                return None
+            try:
+                # Normalizar hora 12h → 24h
+                t = time.strip()
+                is_pm = bool(_re.search(r'p\.?m\.?', t, _re.I))
+                is_am = bool(_re.search(r'a\.?m\.?', t, _re.I))
+                t = _re.sub(r'\s*(a|p)\.?m\.?.*', '', t, flags=_re.I).strip()
+                h, m = map(int, t.split(':'))
+                if is_pm and h != 12:
+                    h += 12
+                elif is_am and h == 12:
+                    h = 0
+                d, mo, y = map(int, date.split('/'))
+                return f"{y:04d}-{mo:02d}-{d:02d} {h:02d}:{m:02d}:00"
+            except Exception:
+                return None
+
+        async def _wait_blob(timeout_ms: int = 15000) -> str | None:
+            """Espera hasta timeout_ms que el interceptor capture un blob."""
+            for _ in range(timeout_ms // 200):
+                await page.wait_for_timeout(200)
+                b64 = await page.evaluate(
+                    "() => window.__capturedAudioBlobsB64?.shift() || null"
+                )
+                if b64:
+                    return b64
+                # Fallback: fetch directo del elemento <audio> en DOM
+                b64 = await page.evaluate("""
+                async () => {
+                    const a = document.querySelector('audio[src^="blob:"]');
+                    if (!a) return null;
+                    try {
+                        const r = await fetch(a.src);
+                        if (!r.ok) return null;
+                        const buf = await r.arrayBuffer();
+                        const bytes = new Uint8Array(buf);
+                        let bin=''; for (const b of bytes) bin+=String.fromCharCode(b);
+                        return btoa(bin);
+                    } catch(e) { return null; }
+                }
+                """)
+                if b64:
+                    return b64
+            return None
+
+        async def _transcribe_b64(b64: str) -> str | None:
+            path = f"/tmp/pulpo_audio_{int(_time_mod.time()*1000)}.ogg"
+            try:
+                with open(path, "wb") as f:
+                    f.write(_b64.b64decode(b64))
+                from tools import transcription as _tr
+                return await _tr.transcribe(path)
+            except Exception as exc:
+                logger.warning(f"[{session_id}] v2 transcribe error: {exc}")
+                return None
+            finally:
+                try:
+                    _os.unlink(path)
+                except Exception:
+                    pass
+
+        async def _save_image_b64(b64: str, save_dir: "Path") -> str | None:
+            try:
+                data = _b64.b64decode(b64)
+                digest = _hashlib.sha256(data).hexdigest()[:16]
+                fn = f"img_{digest}.jpg"
+                p = save_dir / fn
+                if not p.exists():
+                    p.write_bytes(data)
+                return fn
+            except Exception:
+                return None
+
+        # ──────────────────────────────────────────────────────────────────────
+        try:
+            # 1. Abrir chat
+            def _normalize(s: str) -> str:
+                import unicodedata
+                return unicodedata.normalize("NFKC", s).strip()
+
+            row_handle = await page.evaluate_handle(
+                """(target) => {
+                    const norm = s => s.replace(/[\\u00a0\\u202a\\u202c\\u200e\\u200f]/g, ' ').trim();
+                    const grid = document.querySelector('[role="grid"]');
+                    if (!grid) return null;
+                    for (const s of grid.querySelectorAll('span[title]')) {
+                        if (norm(s.getAttribute('title')) === norm(target))
+                            return s.closest('[role="row"]') || s.closest('[data-id]') || s;
+                    }
+                    return null;
+                }""",
+                _normalize(contact_name),
+            )
+            if not row_handle or await row_handle.evaluate("el => el === null"):
+                logger.warning(f"[{session_id}] v2: no encontré '{contact_name}' en el sidebar")
+                return []
+            await row_handle.scroll_into_view_if_needed()
+            await row_handle.click()
+            await page.wait_for_timeout(2000)
+
+            # 2. Instalar interceptor de blobs
+            await self._install_blob_interceptor(page)
+
+            # 3. Ir al fondo (mensajes más recientes)
+            await page.evaluate(_SCROLL_BOTTOM_JS)
+            await page.wait_for_timeout(1500)
+
+            results: list[dict] = []
+            seen_keys: set[str] = set()
+            stale_rounds = 0
+
+            # 4. Loop principal: escanear → procesar → subir
+            for _round in range(max_scroll_rounds):
+                batch = await page.evaluate(_SCAN_JS)
+
+                new_in_batch = 0
+                for msg in batch:
+                    ts_str = _parse_ts(msg.get("time", ""), msg.get("date", ""))
+                    key = f"{ts_str}|{msg.get('sender','')}|{msg.get('type','')}"
+                    if key in seen_keys:
+                        continue
+                    seen_keys.add(key)
+                    new_in_batch += 1
+
+                    # ── Condición de parada (delta sync) ──────────────────
+                    if stop_before_ts and ts_str:
+                        try:
+                            msg_dt = _dt.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
+                            if msg_dt <= stop_before_ts:
+                                logger.info(f"[{session_id}] v2: delta alcanzado en {ts_str}")
+                                return results
+                        except Exception:
+                            pass
+
+                    entry: dict = {
+                        "timestamp": ts_str,
+                        "sender": msg.get("sender") or None,
+                        "is_outbound": msg.get("isOut", False),
+                        "msg_type": msg["type"],
+                        "body": "",
+                    }
+
+                    # ── Procesar por tipo ──────────────────────────────────
+                    if msg["type"] == "audio":
+                        audio_id = msg.get("audioId")
+                        if audio_id:
+                            clicked = await page.evaluate(_CLICK_AUDIO_JS, audio_id)
+                            if clicked:
+                                b64 = await _wait_blob(timeout_ms=15000)
+                                if b64:
+                                    # Pausar audio
+                                    await page.evaluate("() => { try { document.querySelector('audio')?.pause(); } catch(e){} }")
+                                    text = await _transcribe_b64(b64)
+                                    if text:
+                                        entry["body"] = text
+                                        logger.info(f"[{session_id}] v2 audio OK: {text[:60]}")
+                                    else:
+                                        entry["body"] = "[audio — error al transcribir]"
+                                else:
+                                    entry["body"] = "[audio — sin blob]"
+                                    logger.info(f"[{session_id}] v2 audio sin blob (CDN expirado o cargando): {ts_str}")
+                            else:
+                                entry["body"] = "[audio — sin blob]"
+                        else:
+                            entry["body"] = "[audio — sin blob]"
+
+                    elif msg["type"] == "image":
+                        img_src = msg.get("imgSrc", "")
+                        if img_src and doc_save_dir:
+                            b64 = await page.evaluate("""
+                            async (src) => {
+                                try {
+                                    const r = await fetch(src);
+                                    if (!r.ok) return null;
+                                    const buf = await r.arrayBuffer();
+                                    const bytes = new Uint8Array(buf);
+                                    let bin=''; for (const b of bytes) bin+=String.fromCharCode(b);
+                                    return btoa(bin);
+                                } catch(e) { return null; }
+                            }
+                            """, img_src)
+                            if b64:
+                                fn = await _save_image_b64(b64, doc_save_dir)
+                                entry["body"] = f"[imagen guardada: {fn}]" if fn else "[imagen]"
+                            else:
+                                entry["body"] = "[imagen]"
+                        else:
+                            entry["body"] = "[imagen]"
+
+                    elif msg["type"] == "document":
+                        fname = msg.get("filename", "")
+                        fsize = msg.get("size", "")
+                        entry["body"] = f"`{fname}` ({fsize})" if fsize else f"`{fname}`"
+                        if fname and doc_save_dir:
+                            await self._download_document_from_page(page, fname, doc_save_dir / fname)
+
+                    else:  # text
+                        body = msg.get("body", "")
+                        quoted = msg.get("quoted", "")
+                        entry["body"] = body
+                        if quoted:
+                            entry["quoted"] = quoted
+
+                    results.append(entry)
+
+                # ── Stale detection + scroll up ────────────────────────────
+                if new_in_batch == 0:
+                    stale_rounds += 1
+                    if stale_rounds >= 4:
+                        logger.info(f"[{session_id}] v2: sin mensajes nuevos, fin del historial")
+                        break
+                else:
+                    stale_rounds = 0
+
+                scrolled = await page.evaluate(_SCROLL_UP_JS, 600)
+                await page.wait_for_timeout(700)
+                if not scrolled:
+                    stale_rounds += 1
+
+            logger.info(f"[{session_id}] v2 scrape_full_history '{contact_name}': {len(results)} mensajes")
+            return results
+
+        except Exception as e:
+            logger.warning(f"[{session_id}] scrape_full_history_v2 error: {e}", exc_info=True)
+            return []
+
+    # ------------------------------------------------------------------
     # Estado
     # ------------------------------------------------------------------
 
@@ -2283,6 +2846,84 @@ class WhatsAppSession(BrowserAutomation):
     # ------------------------------------------------------------------
     # Envío de mensajes — usa página temporal para no interrumpir el observer
     # ------------------------------------------------------------------
+
+    async def purge_drafts(self, session_id: str) -> int:
+        """
+        Recorre todos los chats con borrador en WA Web y limpia el compose box.
+        Usa la Store interna de WA para encontrar los chats afectados, luego
+        hace click + Ctrl+A + Backspace en cada uno.
+        Devuelve la cantidad de borradores eliminados.
+        """
+        page = self.get_page(session_id)
+        if not page:
+            logger.warning(f"[{session_id}] purge_drafts: no hay página activa")
+            return 0
+
+        compose_sel = (
+            "footer [contenteditable='true'], "
+            "[data-testid='conversation-compose-box-input'] [contenteditable='true'], "
+            "[contenteditable='true'][spellcheck='true']"
+        )
+
+        try:
+            # Obtener chats con borrador via Store interna de WA Web
+            draft_ids: list = await page.evaluate("""
+                () => {
+                    try {
+                        const store = window.Store && window.Store.Chat;
+                        if (store && store.getModelsArray) {
+                            return store.getModelsArray()
+                                .filter(c => c.hasDraftMessage || (c.draft && c.draft.trim() !== ''))
+                                .map(c => c.id && (c.id.user || c.id._serialized || ''))
+                                .filter(Boolean);
+                        }
+                    } catch(e) {}
+                    // Fallback DOM: buscar indicador visual de borrador en el sidebar
+                    const ids = [];
+                    document.querySelectorAll('[data-testid="cell-frame-container"]').forEach(row => {
+                        const hasDraft = row.querySelector(
+                            '[data-testid="msg-draftmsg"], span[data-icon="draft"], [data-testid="draft-true"]'
+                        );
+                        if (hasDraft) {
+                            const titleEl = row.querySelector('[title]');
+                            if (titleEl) ids.push(titleEl.getAttribute('title'));
+                        }
+                    });
+                    return ids;
+                }
+            """)
+
+            if not draft_ids:
+                logger.info(f"[{session_id}] purge_drafts: sin borradores")
+                return 0
+
+            cleared = 0
+            for contact_id in draft_ids:
+                try:
+                    contact_span = page.locator(
+                        f"[role='grid'] span[title='{contact_id}']"
+                    ).first
+                    if not await contact_span.is_visible(timeout=2000):
+                        continue
+                    await contact_span.click()
+
+                    compose = page.locator(compose_sel).first
+                    await compose.wait_for(state="visible", timeout=4000)
+                    await compose.click()
+                    await page.keyboard.press("Control+a")
+                    await page.keyboard.press("Backspace")
+                    await page.wait_for_timeout(300)
+                    cleared += 1
+                    logger.info(f"[{session_id}] purge_drafts: borrador eliminado de '{contact_id}'")
+                except Exception as e:
+                    logger.warning(f"[{session_id}] purge_drafts: no se pudo limpiar '{contact_id}': {e}")
+
+            logger.info(f"[{session_id}] purge_drafts: {cleared}/{len(draft_ids)} borradores eliminados")
+            return cleared
+
+        except Exception as e:
+            logger.error(f"[{session_id}] purge_drafts error: {e}")
+            return 0
 
     async def send_message(self, session_id: str, phone: str, text: str) -> bool:
         """

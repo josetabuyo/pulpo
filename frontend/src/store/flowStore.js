@@ -75,7 +75,7 @@ export function dbNodeToRF(node, typeMap = {}) {
     data: {
       nodeType:    node.type,
       config:      node.config || {},
-      label:       humanizeId(node.id) || meta.label || node.type,
+      label:       node.label || humanizeId(node.id) || meta.label || node.type,
       color:       meta.color       || '#1e293b',
       description: meta.description || '',
     },
@@ -92,6 +92,7 @@ function nodesToDefinition(rfNodes, rfEdges) {
       type:     n.data.nodeType,
       position: n.position,
       config:   n.data.config || {},
+      label:    n.data.label || undefined,
     })),
     edges: rfEdges.map(e => ({
       id:     e.id,
@@ -127,6 +128,13 @@ export const useFlowStore = create((set, get) => ({
   updateNodeConfig: (nodeId, config) => set(state => ({
     nodes: state.nodes.map(n =>
       n.id === nodeId ? { ...n, data: { ...n.data, config } } : n
+    ),
+    isDirty: true,
+  })),
+
+  updateNodeLabel: (nodeId, label) => set(state => ({
+    nodes: state.nodes.map(n =>
+      n.id === nodeId ? { ...n, data: { ...n.data, label } } : n
     ),
     isDirty: true,
   })),

@@ -20,7 +20,7 @@ const DeleteModeCtx = createContext(false)
 
 // ─── Edge custom ──────────────────────────────────────────────────────────────
 
-function LabeledEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, label, selected }) {
+function LabeledEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, label, selected, markerEnd, markerStart }) {
   const { setEdges } = useReactFlow()
   const deleteMode = useContext(DeleteModeCtx)
 
@@ -35,6 +35,8 @@ function LabeledEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, t
     <>
       <BaseEdge
         path={edgePath}
+        markerEnd={markerEnd}
+        markerStart={markerStart}
         style={{ stroke: deleteMode ? '#ef4444' : selected ? '#94a3b8' : '#475569', strokeWidth: 2 }}
       />
       <EdgeLabelRenderer>
@@ -113,23 +115,22 @@ function FlowNode({ id, data }) {
         borderRadius: 8,
         border: data.selected ? '2px solid #fff' : '2px solid transparent',
         width: 160,
-        height: 40,
+        minHeight: 40,
         display: 'flex',
+        flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        fontSize: 13,
-        fontWeight: 500,
         cursor: 'pointer',
         userSelect: 'none',
         boxSizing: 'border-box',
-        padding: '0 12px',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
+        padding: '6px 12px',
       }}
     >
       {!isStart && <Handle type="target" position={Position.Top}    style={handleStyle} />}
-      {data.label}
+      <span style={{ fontSize: 13, fontWeight: 500, textAlign: 'center', lineHeight: 1.2 }}>{data.label}</span>
+      {!isStart && !isEnd && (
+        <span style={{ fontSize: 9, opacity: 0.55, marginTop: 2, fontFamily: 'monospace', letterSpacing: '0.03em' }}>{data.nodeType}</span>
+      )}
       {!isEnd   && <Handle type="source" position={Position.Bottom} style={handleStyle} />}
     </div>
   )

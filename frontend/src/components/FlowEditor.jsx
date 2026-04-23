@@ -21,7 +21,7 @@ import FlowHeader     from './FlowHeader.jsx'
 
 // ─── Inner — necesita estar dentro de ReactFlowProvider para useReactFlow ────
 
-function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved }) {
+function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved, onGoToUIs }) {
   const { screenToFlowPosition } = useReactFlow()
 
   const loadFlow         = useFlowStore(s => s.loadFlow)
@@ -78,7 +78,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved 
           onNodeDoubleClick={handleNodeDoubleClick}
         />
         {/* NodeConfigPanel como popup flotante sobre el canvas */}
-        <NodeConfigPanel empresaId={flow.empresa_id} flowId={flow.id} connections={connections} apiCall={apiCall} />
+        <NodeConfigPanel empresaId={flow.empresa_id} flowId={flow.id} connections={connections} apiCall={apiCall} onGoToUIs={onGoToUIs} />
       </div>
     </div>
   )
@@ -86,7 +86,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved 
 
 // ─── FlowEditor — wrappea con ReactFlowProvider ───────────────────────────────
 
-export default function FlowEditor({ flow, connections, apiCall, typeMap, onBack, onSaved }) {
+export default function FlowEditor({ flow, connections, apiCall, typeMap, onBack, onSaved, onGoToUIs }) {
   return (
     <ReactFlowProvider>
       <FlowEditorInner
@@ -96,6 +96,7 @@ export default function FlowEditor({ flow, connections, apiCall, typeMap, onBack
         typeMap={typeMap}
         onBack={onBack}
         onSaved={onSaved}
+        onGoToUIs={onGoToUIs}
       />
     </ReactFlowProvider>
   )

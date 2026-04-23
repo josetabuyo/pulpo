@@ -5,13 +5,17 @@ Si `to` está vacío → escribe en state.reply (el adapter lo envía al usuario
 Si `to` tiene valor → envía inmediatamente al destinatario via Telegram o WA.
 
 Config:
-  to:      str  — destinatario. Vacío = usuario de la conversación.
-                  Soporta placeholders: "{{worker_telegram_id}}", "{{contact_phone}}", etc.
-  message: str  — texto con placeholders.
-  channel: str  — "auto" | "telegram" | "whatsapp"  (default: "auto")
-                  auto: numérico → telegram, con + o 10+ dígitos → whatsapp
+  to:            str   — destinatario. Vacío = usuario de la conversación.
+                         Soporta placeholders: "{{worker_telegram_id}}", "{{contact_phone}}", etc.
+  message:       str   — texto con placeholders.
+  channel:       str   — "auto" | "telegram" | "whatsapp"  (default: "auto")
+                         auto: numérico → telegram, con + o 10+ dígitos → whatsapp
+  max_age_hours: float — edad máxima del mensaje original para responder (solo reply al usuario).
+                         0 = sin límite. Default: 1.
+                         Previene respuestas automáticas a mensajes retroactivos.
 """
 import logging
+from datetime import datetime, timezone
 from .base import BaseNode, interpolate
 from .state import FlowState
 
@@ -28,6 +32,19 @@ class SendMessageNode(BaseNode):
         channel = interpolate(self.config.get("channel", "auto"), state).strip() or "auto"
 
         if not to:
+            # Validar antigüedad del mensaje original antes de responder al usuario
+            max_age = float(self.config.get("max_age_hours", 1.0))
+            if max_age > 0 and state.timestamp is not None:
+                now = datetime.now()
+                # Normalizar: state.timestamp puede ser naive o aware
+                msg_ts = state.timestamp.replace(tzinfo=None) if state.timestamp.tzinfo else state.timestamp
+                age_hours = (now - msg_ts).total_seconds() / 3600
+                if age_hours > max_age:
+                    logger.warning(
+                        "[SendMessageNode] Mensaje de %s tiene %.1fh de antigüedad (límite %.1fh) — reply bloqueado.",
+                        state.contact_phone, age_hours, max_age,
+                    )
+                    return state
             state.reply = message
             return state
 
@@ -94,7 +111,7 @@ class SendMessageNode(BaseNode):
                 "type":    "string",
                 "label":   "Destinatario",
                 "default": "",
-                "hint":    "Vacío = usuario de la conversación. Soporta {{placeholders}}",
+                "hint":    "Vacío = reply al usuario de la conversación. Soporta {{placeholders}}",
             },
             "message": {
                 "type":     "textarea",
@@ -109,5 +126,11 @@ class SendMessageNode(BaseNode):
                 "label":   "Canal",
                 "default": "auto",
                 "options": ["auto", "telegram", "whatsapp"],
+            },
+            "max_age_hours": {
+                "type":    "float",
+                "label":   "Edad máxima para responder (horas)",
+                "default": 1.0,
+                "hint":    "Solo aplica al reply al usuario (destinatario vacío). 0 = sin límite.",
             },
         }

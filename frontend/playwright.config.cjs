@@ -2,20 +2,21 @@ const { defineConfig } = require('@playwright/test')
 const fs = require('fs')
 const path = require('path')
 
-// Lee FRONTEND_PORT del .env del worktree (un nivel arriba de /frontend).
-// Fallback: 5173 (puerto por defecto de Vite).
-function readFrontendPort() {
+// Lee variables del .env del worktree (un nivel arriba de /frontend).
+function readEnvVar(key, fallback) {
   const envPath = path.resolve(__dirname, '../.env')
   try {
     const content = fs.readFileSync(envPath, 'utf8')
-    const match = content.match(/^FRONTEND_PORT=(\d+)/m)
-    return match ? match[1] : '5173'
+    const match = content.match(new RegExp(`^${key}=(.+)`, 'm'))
+    return match ? match[1].trim() : fallback
   } catch {
-    return '5173'
+    return fallback
   }
 }
 
-const PORT = process.env.FRONTEND_PORT || readFrontendPort()
+const PORT = process.env.FRONTEND_PORT || readEnvVar('FRONTEND_PORT', '5173')
+// Exponer ADMIN_PASSWORD para los tests
+process.env.ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || readEnvVar('ADMIN_PASSWORD', 'admin')
 const BASE_URL = `http://localhost:${PORT}`
 
 module.exports = defineConfig({

@@ -431,6 +431,7 @@ const TRIGGER_TYPES = new Set(['whatsapp_trigger', 'telegram_trigger', 'message_
 
 function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onGoToUIs }) {
   const updateNodeConfig  = useFlowStore(s => s.updateNodeConfig)
+  const updateNodeLabel   = useFlowStore(s => s.updateNodeLabel)
   const deleteNode        = useFlowStore(s => s.deleteNode)
   const setSelectedNodeId = useFlowStore(s => s.setSelectedNodeId)
   const { nodeType, config, label, color } = node.data
@@ -442,6 +443,9 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
   const [replayMsg, setReplayMsg]   = useState('')
   const [fbRefreshing, setFbRefreshing] = useState(false)
   const [fbRefreshMsg, setFbRefreshMsg] = useState('')
+  const [syncDate, setSyncDate]     = useState(() => new Date().toISOString().slice(0, 10))
+  const [syncing, setSyncing]       = useState(false)
+  const [syncMsg, setSyncMsg]       = useState('')
 
   const isFixed = nodeType === 'start' || nodeType === 'end'
   const isTrigger = TRIGGER_TYPES.has(nodeType)
@@ -494,6 +498,20 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
     }
   }
 
+  async function handleSyncAll() {
+    setSyncing(true)
+    setSyncMsg('')
+    try {
+      const result = await apiCall('POST', `/summarizer/${empresaId}/sync-all?from_date=${syncDate}`, {})
+      setSyncMsg(`✓ ${result.contacts} contactos sincronizados`)
+    } catch {
+      setSyncMsg('Error al sincronizar')
+    } finally {
+      setSyncing(false)
+      setTimeout(() => setSyncMsg(''), 5000)
+    }
+  }
+
   async function handleReplay() {
     if (!flowId) return
     setReplaying(true)
@@ -537,8 +555,31 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <div style={{ width: 10, height: 10, borderRadius: 3, background: color, flexShrink: 0 }} />
-        <span style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0', flex: 1 }}>{label}</span>
-        <span style={{ fontSize: 10, color: '#475569', fontFamily: 'monospace' }}>{nodeType}</span>
+        <input
+          style={{
+            flex: 1,
+            background: 'transparent',
+            border: 'none',
+            borderBottom: '1px solid transparent',
+            color: '#e2e8f0',
+            fontSize: 13,
+            fontWeight: 600,
+            fontFamily: 'inherit',
+            outline: 'none',
+            padding: '1px 2px',
+            cursor: 'text',
+          }}
+          value={label}
+          onChange={e => updateNodeLabel(node.id, e.target.value)}
+          onFocus={e => e.target.style.borderBottomColor = '#334155'}
+          onBlur={e => e.target.style.borderBottomColor = 'transparent'}
+          title="Editar nombre del nodo"
+        />
+        <span style={{
+          fontSize: 10, color: '#94a3b8', fontFamily: 'monospace', flexShrink: 0,
+          background: '#1e293b', border: '1px solid #334155', borderRadius: 4,
+          padding: '2px 6px',
+        }}>{nodeType}</span>
         <button
           onClick={() => setSelectedNodeId(null)}
           style={{ background: 'none', border: 'none', color: '#475569', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 2 }}
@@ -578,6 +619,41 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
           </button>
           {replayMsg && (
             <div style={{ fontSize: 11, color: '#a78bfa', textAlign: 'center' }}>{replayMsg}</div>
+          )}
+
+          {nodeType === 'whatsapp_trigger' && (
+            <>
+              <div style={{ borderTop: '1px solid #1e293b', marginTop: 4, paddingTop: 8 }}>
+                <span style={S.label}>SYNC HISTÓRICO SUMARIZADOR</span>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
+                  <span style={{ fontSize: 11, color: '#64748b', flexShrink: 0 }}>Desde</span>
+                  <input
+                    type="date"
+                    style={{ ...S.input, flex: 1, colorScheme: 'dark' }}
+                    value={syncDate}
+                    onChange={e => setSyncDate(e.target.value)}
+                  />
+                </div>
+                <button
+                  onClick={handleSyncAll}
+                  disabled={syncing || !syncDate}
+                  style={{
+                    width: '100%', padding: '7px 12px',
+                    background: syncing ? '#0f172a' : 'transparent',
+                    border: '1px solid #155e75',
+                    borderRadius: 6, color: '#22d3ee', fontSize: 12, cursor: 'pointer',
+                    fontWeight: 600,
+                  }}
+                >
+                  {syncing ? '⏳ Sincronizando...' : '⟳ Sync todos los contactos desde esta fecha'}
+                </button>
+                {syncMsg && (
+                  <div style={{ fontSize: 11, color: syncMsg.startsWith('✓') ? '#4ade80' : '#f87171', textAlign: 'center', marginTop: 4 }}>
+                    {syncMsg}
+                  </div>
+                )}
+              </div>
+            </>
           )}
 
           {config.contact_filter && (

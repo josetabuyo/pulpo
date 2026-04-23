@@ -1,7 +1,7 @@
 """Endpoints del portal de empresa — acceso con JWT Bearer token."""
 import re
 import logging
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Request
 
 logger = logging.getLogger(__name__)
 from pydantic import BaseModel
@@ -40,6 +40,39 @@ def _require_empresa(bot_id: str, token_bot_id: str = Depends(require_empresa_au
     if not bot:
         raise HTTPException(status_code=404, detail="Empresa no encontrada")
     return bot
+
+
+async def _require_empresa_or_admin(bot_id: str, request: Request) -> dict:
+    """
+    Dependencia dual: acepta JWT Bearer (empresa) o x-password admin.
+    Permite que tanto el portal de empresa como el dashboard admin
+    accedan a los mismos endpoints.
+    """
+    import os
+    from middleware_auth import get_empresa_id_from_token
+
+    # 1. Intentar JWT Bearer (empresa)
+    empresa_id = get_empresa_id_from_token(request)
+    if empresa_id is not None:
+        if empresa_id != bot_id:
+            raise HTTPException(status_code=403, detail="No autorizado para esta empresa")
+        config = load_config()
+        bot = next((b for b in config.get("empresas", []) if b["id"] == bot_id), None)
+        if not bot:
+            raise HTTPException(status_code=404, detail="Empresa no encontrada")
+        return bot
+
+    # 2. Fallback: x-password admin
+    admin_pwd = os.getenv("ADMIN_PASSWORD", "admin")
+    x_password = request.headers.get("x-password")
+    if x_password and x_password == admin_pwd:
+        config = load_config()
+        bot = next((b for b in config.get("empresas", []) if b["id"] == bot_id), None)
+        if not bot:
+            raise HTTPException(status_code=404, detail="Empresa no encontrada")
+        return bot
+
+    raise HTTPException(status_code=401, detail="Token o contraseña requerida")
 
 
 def _generate_bot_id(name: str, config: dict) -> str:
@@ -780,6 +813,36 @@ async def empresa_clear_suggested_contacts(
         )
         await db_session.commit()
     return {"deleted": result.rowcount}
+
+
+@router.put("/empresa/{bot_id}/paused")
+async def set_empresa_paused(
+    bot_id: str,
+    body: dict,
+    _: dict = Depends(_require_empresa_or_admin),
+):
+    """
+    Pausa o reanuda el bot de una empresa.
+    body: { "paused": true | false }
+    Bot pausado = conexión viva pero sin replies automáticos.
+    Acepta tanto JWT Bearer (empresa) como x-password (admin).
+    """
+    import paused as _paused_mod
+    should_pause = bool(body.get("paused", False))
+    if should_pause:
+        _paused_mod.pause(bot_id)
+    else:
+        _paused_mod.resume(bot_id)
+    return {"ok": True, "paused": should_pause, "empresa_id": bot_id}
+
+
+@router.get("/empresa/{bot_id}/paused")
+async def get_empresa_paused(
+    bot_id: str,
+    _: dict = Depends(_require_empresa_or_admin),
+):
+    import paused as _paused_mod
+    return {"paused": _paused_mod.is_paused(bot_id), "empresa_id": bot_id}
 
 
 @router.delete("/empresa/{bot_id}/suggested-contacts/{name}")

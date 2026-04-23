@@ -322,7 +322,19 @@ function ConnectionRow({
   const [qrStatus, setQrStatus] = useState('')
   const [localStatus, setLocalStatus] = useState(conn.status)
   const [showFilter, setShowFilter] = useState(false)
+  const [purgeLabel, setPurgeLabel] = useState('Purgar')
   const stopRef = useRef(null)
+
+  async function handlePurge() {
+    setPurgeLabel('...')
+    try {
+      const res = await apiCall('POST', `/whatsapp/purge-drafts-session/${conn.number}`, {})
+      setPurgeLabel(res?.cleared > 0 ? `${res.cleared} ✓` : 'OK')
+    } catch {
+      setPurgeLabel('Error')
+    }
+    setTimeout(() => setPurgeLabel('Purgar'), 3000)
+  }
 
   useEffect(() => setLocalStatus(conn.status), [conn.status])
   useEffect(() => () => stopRef.current?.(), [])
@@ -393,6 +405,17 @@ function ConnectionRow({
           )}
           {mode === 'admin' && connected && !isTg && !simMode && (
             <button className="btn-ghost btn-sm" onClick={() => onScreenshot?.(conn)} title="Ver browser headless">👁 Ver</button>
+          )}
+          {mode === 'admin' && connected && !isTg && !simMode && (
+            <button
+              className="btn-ghost btn-sm"
+              onClick={handlePurge}
+              disabled={purgeLabel === '...'}
+              title="Eliminar borradores que quedaron en los chats de esta sesión WA"
+              style={{ fontSize: 11 }}
+            >
+              {purgeLabel === 'Purgar' ? '🧹 Purgar' : purgeLabel}
+            </button>
           )}
           {mode === 'admin' && connected && (
             <button className="btn-danger btn-sm" onClick={() => onDisconnect?.(conn)}>Desconectar</button>
@@ -485,6 +508,24 @@ export default function EmpresaCard({
   onDragOver, onDragLeave, onDrop,
 }) {
   const [activeTab, setActiveTab] = useState('connections')
+  const [paused, setPaused] = useState(false)
+  const [pauseLoading, setPauseLoading] = useState(false)
+
+  useEffect(() => {
+    apiCall('GET', `/empresa/${bot.id}/paused`, null)
+      .then(r => { if (r?.paused !== undefined) setPaused(r.paused) })
+      .catch(() => {})
+  }, [bot.id])
+
+  async function togglePause() {
+    setPauseLoading(true)
+    try {
+      const res = await apiCall('PUT', `/empresa/${bot.id}/paused`, { paused: !paused })
+      if (res?.ok) setPaused(!paused)
+    } finally {
+      setPauseLoading(false)
+    }
+  }
 
   // Empresa mode: inline add forms for connections
   const [waInput, setWaInput] = useState('')
@@ -570,18 +611,30 @@ export default function EmpresaCard({
               ))}
               {conns.length === 0 && <span style={{ fontSize: 11, color: '#94a3b8' }}>Sin canales</span>}
             </div>
-            {mode === 'admin' && (
-              <div className="ec-header-actions">
-                <button className="btn-ghost btn-sm" onClick={() => onExpand?.(bot)} title="Expandir">⤢</button>
-                <button className="btn-ghost btn-sm" onClick={() => onEditBot?.(bot)}>Editar</button>
-                <button
-                  className="btn-danger btn-sm"
-                  onClick={() => onDeleteBot?.(bot.id)}
-                  title="Eliminar empresa (pedirá confirmación)"
-                  style={{ padding: '4px 7px', fontSize: 14 }}
-                >🗑</button>
-              </div>
-            )}
+            <div className="ec-header-actions">
+              {/* Pausa visible en ambos modos */}
+              <button
+                className="btn-ghost btn-sm"
+                onClick={togglePause}
+                disabled={pauseLoading}
+                title={paused ? 'Bot pausado — click para reanudar' : 'Pausar bot (sin desconectar)'}
+                style={paused ? { color: '#f59e0b', borderColor: '#f59e0b' } : {}}
+              >
+                {pauseLoading ? '...' : paused ? '▶ Reanudar' : '⏸ Pausar'}
+              </button>
+              {mode === 'admin' && (
+                <>
+                  <button className="btn-ghost btn-sm" onClick={() => onExpand?.(bot)} title="Expandir">⤢</button>
+                  <button className="btn-ghost btn-sm" onClick={() => onEditBot?.(bot)}>Editar</button>
+                  <button
+                    className="btn-danger btn-sm"
+                    onClick={() => onDeleteBot?.(bot.id)}
+                    title="Eliminar empresa (pedirá confirmación)"
+                    style={{ padding: '4px 7px', fontSize: 14 }}
+                  >🗑</button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -684,7 +737,7 @@ export default function EmpresaCard({
 
         {/* ── Flow ── */}
         {activeTab === 'flow' && (
-          <FlowList empresaId={botId} apiCall={apiCall} connections={conns} />
+          <FlowList empresaId={botId} apiCall={apiCall} connections={conns} onGoToUIs={() => setActiveTab('uis')} />
         )}
 
         {/* ── Config (empresa only) ── */}

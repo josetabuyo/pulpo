@@ -307,6 +307,7 @@ export default function DashboardPage() {
   const [simMode, setSimMode] = useState(false)
   const [fbSessionLabel, setFbSessionLabel] = useState('FB Sesión')
   const [fbSessionRunning, setFbSessionRunning] = useState(false)
+  const [purgeLabel, setPurgeLabel] = useState('Purgar borradores WA')
 
   // Modales
   const [botModal, setBotModal] = useState({ open: false, editBot: null })
@@ -400,6 +401,17 @@ export default function DashboardPage() {
       setFbSessionLabel('⚠ Error')
       setTimeout(() => { setFbSessionLabel('FB Sesión'); setFbSessionRunning(false) }, 4000)
     }
+  }
+
+  async function handlePurgeDrafts() {
+    setPurgeLabel('Purgando...')
+    try {
+      const res = await call('POST', '/whatsapp/purge-drafts')
+      setPurgeLabel(res.total > 0 ? `Purgados: ${res.total}` : 'Sin borradores')
+    } catch {
+      setPurgeLabel('Error')
+    }
+    setTimeout(() => setPurgeLabel('Purgar borradores WA'), 4000)
   }
 
   async function handleRefresh() {
@@ -545,7 +557,7 @@ export default function DashboardPage() {
       <header>
         <span>🐙 Pulpo — Admin</span>
         <div className="header-actions">
-          <button className="btn-ghost btn-sm" onClick={handleRefresh} disabled={refreshLabel !== '↺ Refresh'}>
+          <button className="btn-ghost btn-sm" onClick={handleRefresh} disabled={refreshLabel !== '↺ Refresh'} title="Reconectar bots de WhatsApp y Telegram">
             {refreshLabel}
           </button>
           <button
@@ -562,7 +574,7 @@ export default function DashboardPage() {
           <button className="btn-ghost btn-sm" onClick={handleFullSync} disabled={syncRunning} title="Scrapea historial completo de todos los contactos WA">
             {syncLabel}
           </button>
-          <button className="btn-ghost btn-sm" onClick={logout}>Salir</button>
+          <button className="btn-ghost btn-sm" onClick={logout} title="Cerrar sesión">Salir</button>
         </div>
       </header>
 

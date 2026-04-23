@@ -6,13 +6,15 @@
  */
 const { test, expect } = require('@playwright/test')
 
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin'
+
 // Helper: login y navegar a la tab "Flow" de la primera empresa
 // Devuelve { card, flowSection } para que los tests puedan escopar sus selectores
 async function goToFlowTab(page) {
   await page.goto('/')
   await page.evaluate(() => sessionStorage.clear())
   await page.goto('/')
-  await page.getByPlaceholder('Contraseña').fill('admin')
+  await page.getByPlaceholder('Contraseña').fill(ADMIN_PASSWORD)
   await page.getByRole('button', { name: 'Entrar' }).click()
   await page.waitForURL('/dashboard')
 

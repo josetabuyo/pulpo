@@ -374,9 +374,12 @@ async def _contact_has_summarizer(empresa_id: str, connection_id: str, contact_p
     """
     Devuelve True si hay un flow activo con nodo 'summarize' que aplique
     a este contacto específico (contact_phone) en esta conexión.
-    Usa get_active_flows_for_bot para respetar el filtro por contacto.
+
+    Busca tanto por la columna connection_id del flow como por el connection_id
+    dentro del nodo trigger (pueden diferir si el flow fue creado con un ID genérico).
     """
-    from db import get_active_flows_for_bot, get_flow as _get_flow
+    from db import get_active_flows_for_bot, get_flow as _get_flow, get_flows as _list_flows
+    # Intento 1: búsqueda normal por columna connection_id del flow
     flows = await get_active_flows_for_bot(connection_id, contact_phone, empresa_id)
     for f in flows:
         detail = await _get_flow(f["id"])
@@ -384,6 +387,26 @@ async def _contact_has_summarizer(empresa_id: str, connection_id: str, contact_p
             nodes = detail.get("definition", {}).get("nodes", [])
             if any(n.get("type") == "summarize" for n in nodes):
                 return True
+    # Intento 2: buscar flows de la empresa donde el trigger node usa este connection_id
+    # (get_flows no incluye definition — necesitamos get_flow por cada uno)
+    all_stubs = await _list_flows(empresa_id)
+    for stub in all_stubs:
+        if not stub.get("active"):
+            continue
+        detail = await _get_flow(stub["id"])
+        if not detail:
+            continue
+        nodes = detail.get("definition", {}).get("nodes", [])
+        trigger = next(
+            (n for n in nodes if n.get("type") in ("whatsapp_trigger", "message_trigger")),
+            None,
+        )
+        if not trigger:
+            continue
+        if trigger.get("config", {}).get("connection_id") != connection_id:
+            continue
+        if any(n.get("type") == "summarize" for n in nodes):
+            return True
     return False
 
 
@@ -460,9 +483,7 @@ async def _run_sync(from_date: "date | None" = None, contact_phone: "str | None"
                 # Carpeta para adjuntos: usa el primer canal WA del contacto
                 _first_phone = wa_channels[0]["value"] if wa_channels else None
                 _doc_dir = _get_att_dir(item["summarizer_eid"], _first_phone) if _first_phone else None
-                messages = await wa_session.scrape_full_history(session_id, contact_name, scroll_rounds=scroll_rounds, doc_save_dir=_doc_dir, from_date=from_date)
-                # Ordenar cronológicamente antes de acumular: el scrape devuelve
-                # textos (Part A) + audios (Part B) concatenados, no mezclados por fecha.
+                messages = await wa_session.scrape_full_history_v2(session_id, contact_name, doc_save_dir=_doc_dir)
                 messages.sort(key=lambda m: m.get("timestamp") or "")
 
                 for msg in messages:
@@ -578,11 +599,16 @@ async def _run_delta_sync(contact_phone: "str | None" = None) -> None:
                 _doc_dir = _get_att_dir(item["summarizer_eid"], _first_phone) if _first_phone else None
 
                 _log.info(f"[{mode}] Escaneando '{contact_name}'...")
-                # Scrapear con scroll limitado (delta, no full-history)
-                messages = await wa_session.scrape_full_history(
-                    session_id, contact_name, scroll_rounds=10, doc_save_dir=_doc_dir
+                # Obtener el timestamp más reciente ya registrado → punto de corte del delta
+                _stop_before_ts = None
+                if _first_phone:
+                    from api.summarizer import _newest_message_ts
+                    _stop_before_ts = _newest_message_ts(item["summarizer_eid"], _first_phone)
+
+                messages = await wa_session.scrape_full_history_v2(
+                    session_id, contact_name, doc_save_dir=_doc_dir,
+                    stop_before_ts=_stop_before_ts,
                 )
-                # Ordenar de más nuevo a más viejo para parar en el primer existente
                 messages.sort(key=lambda m: m.get("timestamp") or "", reverse=True)
 
                 new_count = 0
@@ -641,6 +667,24 @@ async def _run_delta_sync(contact_phone: "str | None" = None) -> None:
         _sync_running = False
 
 
+@router.post("/whatsapp/purge-drafts-session/{number}", dependencies=[Depends(require_admin)])
+async def purge_drafts_session(number: str):
+    """
+    Elimina borradores de la sesión WA del número indicado.
+    Útil para limpiar chats con texto residual tras un incidente de envío masivo.
+    """
+    # Buscar session_id cuyo connection_id coincide con el número
+    session_id = next(
+        (sid for sid, st in clients.items()
+         if st.get("type") == "whatsapp" and st.get("connection_id") == number),
+        None,
+    )
+    if not session_id:
+        return {"ok": False, "error": f"No hay sesión activa para {number}"}
+    cleared = await wa_session.purge_drafts(session_id)
+    return {"ok": True, "cleared": cleared, "session_id": session_id}
+
+
 @router.post("/refresh", dependencies=[Depends(require_admin)])
 async def refresh():
     reconnected = 0
@@ -653,6 +697,323 @@ async def refresh():
             if result in ("restored", "qr_needed"):
                 reconnected += 1
     return {"ok": True, "reconnected": reconnected}
+
+
+# ------------------------------------------------------------------
+# Debug de audio: instala interceptor JS + transcribe blobs capturados
+# ------------------------------------------------------------------
+
+_BLOB_INTERCEPTOR_JS = """
+(function() {
+    if (window.__pulpo_debug_installed) return 'already_installed';
+    window.__pulpo_debug_installed = true;
+    window.__pulpo_captured_blobs = [];
+    window.__pulpo_seen_blobs = new Set();
+
+    const origDesc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src');
+    Object.defineProperty(HTMLMediaElement.prototype, 'src', {
+        set(url) {
+            if (url && url.startsWith('blob:') && !window.__pulpo_seen_blobs.has(url)) {
+                window.__pulpo_seen_blobs.add(url);
+                // Buscar contexto del mensaje (pre-plain-text puede estar en ancestros)
+                const container = this.closest('[data-pre-plain-text]')
+                    || this.closest('[class*="message"]')
+                    || this.closest('[class*="_amjl"]');
+                const prePlain = container?.getAttribute('data-pre-plain-text') || '';
+                window.__pulpo_captured_blobs.push({ url, prePlain, ts: Date.now() });
+            }
+            if (origDesc?.set) origDesc.set.call(this, url);
+        },
+        get() { return origDesc?.get ? origDesc.get.call(this) : undefined; },
+        configurable: true,
+    });
+    return 'installed';
+})()
+"""
+
+_DRAIN_BLOBS_JS = """
+() => {
+    const items = window.__pulpo_captured_blobs || [];
+    window.__pulpo_captured_blobs = [];
+    return items;
+}
+"""
+
+_FETCH_BLOB_JS = """
+async (blobUrl) => {
+    try {
+        const resp = await fetch(blobUrl);
+        const buf = await resp.arrayBuffer();
+        const bytes = new Uint8Array(buf);
+        let bin = '';
+        for (let b of bytes) bin += String.fromCharCode(b);
+        return btoa(bin);
+    } catch(e) { return null; }
+}
+"""
+
+_LIST_AUDIOS_JS = """
+() => {
+    // Solo botones reales de play (no ptt-status icons que no son clickeables de la misma forma)
+    const btns = document.querySelectorAll(
+        'button[aria-label="Reproducir mensaje de voz"], button[aria-label="Play voice message"]'
+    );
+    const result = [];
+    btns.forEach((btn, i) => {
+        // Subir al ancestro con data-pre-plain-text o buscar en el contenedor del mensaje
+        let prePlain = '';
+        let el = btn;
+        while (el && el !== document.body) {
+            if (el.getAttribute('data-pre-plain-text')) {
+                prePlain = el.getAttribute('data-pre-plain-text'); break;
+            }
+            // Buscar data-pre-plain-text en hijos del mismo contenedor
+            const found = el.querySelector('[data-pre-plain-text]');
+            if (found) { prePlain = found.getAttribute('data-pre-plain-text'); break; }
+            el = el.parentElement;
+        }
+        const audio = btn.closest('[class]')?.querySelector('audio');
+        result.push({
+            index: i,
+            prePlain,
+            hasBlobSrc: audio?.src?.startsWith('blob:') || false,
+            blobUrl: audio?.src?.startsWith('blob:') ? audio.src : null,
+        });
+    });
+    return result;
+}
+"""
+
+_CLICK_AUDIO_JS = """
+(index) => {
+    const btns = document.querySelectorAll(
+        'button[aria-label="Reproducir mensaje de voz"], button[aria-label="Play voice message"]'
+    );
+    const btn = btns[index];
+    if (!btn) return { ok: false, error: 'index out of range', total: btns.length };
+    btn.scrollIntoView({ block: 'center', behavior: 'instant' });
+    btn.click();
+    return { ok: true, clicked: btn.getAttribute('aria-label'), index };
+}
+"""
+
+
+@router.post("/debug/eval/{session_id}", dependencies=[Depends(require_admin)])
+async def debug_eval(session_id: str, body: dict):
+    """
+    Evalúa JS arbitrario en el browser headless. Útil para debug interactivo.
+    Body: { "js": "() => document.title" }
+    El JS se ejecuta con page.evaluate() — puede retornar cualquier valor JSON-serializable.
+    """
+    js = body.get("js", "")
+    if not js:
+        raise HTTPException(status_code=400, detail="js requerido")
+    page = wa_session._pages.get(session_id)
+    if not page:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+    try:
+        result = await page.evaluate(js)
+        return {"result": result}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.post("/debug/audio/install-interceptor/{session_id}", dependencies=[Depends(require_admin)])
+async def debug_install_interceptor(session_id: str):
+    """Instala el interceptor JS en el browser para capturar blob URLs de audio."""
+    page = wa_session._pages.get(session_id)
+    if not page:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+    result = await page.evaluate(_BLOB_INTERCEPTOR_JS)
+    return {"status": result}
+
+
+@router.get("/debug/audio/list/{session_id}", dependencies=[Depends(require_admin)])
+async def debug_list_audios(session_id: str, chat: str = ""):
+    """
+    Lista todos los <audio> visibles en el DOM del chat activo.
+    Opcional: ?chat=NombreContacto para abrir ese chat primero.
+    """
+    page = wa_session._pages.get(session_id)
+    if not page:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    if chat:
+        import unicodedata
+        def _norm(s): return unicodedata.normalize("NFKC", s).strip()
+        row_handle = await page.evaluate_handle(
+            """(target) => {
+                const norm = s => s.replace(/[\\u00a0\\u202a\\u202c\\u200e\\u200f]/g,' ').trim();
+                const grid = document.querySelector('[role="grid"]');
+                if (!grid) return null;
+                for (const s of grid.querySelectorAll('span[title]')) {
+                    if (norm(s.getAttribute('title')) === norm(target)) {
+                        return s.closest('[role="row"]') || s;
+                    }
+                }
+                return null;
+            }""",
+            _norm(chat),
+        )
+        if row_handle and not await row_handle.evaluate("el => el === null"):
+            await row_handle.scroll_into_view_if_needed()
+            await row_handle.click()
+            await page.wait_for_timeout(2000)
+
+    audios = await page.evaluate(_LIST_AUDIOS_JS)
+    return {"chat": chat, "audios": audios, "count": len(audios)}
+
+
+@router.post("/debug/audio/click/{session_id}/{index}", dependencies=[Depends(require_admin)])
+async def debug_click_audio(session_id: str, index: int):
+    """
+    Clickea el botón play del audio en la posición [index] del DOM.
+    Usar después de install-interceptor para que el blob quede capturado.
+    """
+    page = wa_session._pages.get(session_id)
+    if not page:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+    result = await page.evaluate(_CLICK_AUDIO_JS, index)
+    await page.wait_for_timeout(2000)
+    return result
+
+
+@router.get("/debug/audio/drain/{session_id}", dependencies=[Depends(require_admin)])
+async def debug_drain_blobs(session_id: str):
+    """Drena los blob URLs capturados por el interceptor desde la última llamada."""
+    page = wa_session._pages.get(session_id)
+    if not page:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+    blobs = await page.evaluate(_DRAIN_BLOBS_JS)
+    return {"blobs": blobs, "count": len(blobs)}
+
+
+@router.post("/debug/audio/transcribe-blob/{session_id}", dependencies=[Depends(require_admin)])
+async def debug_transcribe_blob(session_id: str, body: dict):
+    """
+    Descarga y transcribe un blob URL capturado.
+    Body: { "blob_url": "blob:https://..." }
+    """
+    import tempfile
+    import base64 as _b64
+    from pathlib import Path
+
+    blob_url = body.get("blob_url")
+    if not blob_url:
+        raise HTTPException(status_code=400, detail="blob_url requerido")
+
+    page = wa_session._pages.get(session_id)
+    if not page:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    b64 = await page.evaluate(_FETCH_BLOB_JS, blob_url)
+    if not b64:
+        raise HTTPException(status_code=422, detail="No se pudo descargar el blob (expirado o inaccesible)")
+
+    audio_bytes = _b64.b64decode(b64)
+    with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as f:
+        f.write(audio_bytes)
+        tmp_path = f.name
+
+    try:
+        from tools.transcription import transcribe
+        text = await transcribe(tmp_path)
+        return {"transcription": text, "blob_url": blob_url}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al transcribir: {e}")
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+
+@router.post("/debug/audio/transcribe-all/{session_id}", dependencies=[Depends(require_admin)])
+async def debug_transcribe_all(session_id: str, body: dict = None):
+    """
+    Todo en uno: instala interceptor, clickea TODOS los audios del chat activo,
+    espera que se capturen los blobs y los transcribe.
+    Opcional body: { "chat": "Nombre del contacto" }
+    Returns: lista de transcripciones con contexto (pre_plain).
+    """
+    import tempfile
+    import base64 as _b64
+    import asyncio
+    from pathlib import Path
+
+    chat = (body or {}).get("chat", "")
+    page = wa_session._pages.get(session_id)
+    if not page:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    # 1. Abrir chat si se especificó
+    if chat:
+        import unicodedata
+        def _norm(s): return unicodedata.normalize("NFKC", s).strip()
+        row_handle = await page.evaluate_handle(
+            """(target) => {
+                const norm = s => s.replace(/[\\u00a0\\u202a\\u202c\\u200e\\u200f]/g,' ').trim();
+                const grid = document.querySelector('[role="grid"]');
+                if (!grid) return null;
+                for (const s of grid.querySelectorAll('span[title]')) {
+                    if (norm(s.getAttribute('title')) === norm(target)) {
+                        return s.closest('[role="row"]') || s;
+                    }
+                }
+                return null;
+            }""",
+            _norm(chat),
+        )
+        if row_handle and not await row_handle.evaluate("el => el === null"):
+            await row_handle.scroll_into_view_if_needed()
+            await row_handle.click()
+            await page.wait_for_timeout(2000)
+
+    # 2. Instalar interceptor
+    await page.evaluate(_BLOB_INTERCEPTOR_JS)
+
+    # 3. Listar audios
+    audios = await page.evaluate(_LIST_AUDIOS_JS)
+
+    results = []
+    for audio_info in audios:
+        idx = audio_info["index"]
+        pre_plain = audio_info["prePlain"]
+
+        # Limpiar blobs anteriores antes de clickear
+        await page.evaluate(_DRAIN_BLOBS_JS)
+
+        # Si ya tiene blob cargado, intentar directamente
+        if audio_info["blobUrl"]:
+            blob_url = audio_info["blobUrl"]
+        else:
+            # Clickear play y esperar que el interceptor lo capture
+            await page.evaluate(_CLICK_AUDIO_JS, idx)
+            await page.wait_for_timeout(5000)
+            blobs = await page.evaluate(_DRAIN_BLOBS_JS)
+            blob_url = blobs[-1]["url"] if blobs else None
+
+        if not blob_url:
+            results.append({"index": idx, "prePlain": pre_plain, "error": "blob no capturado"})
+            continue
+
+        b64 = await page.evaluate(_FETCH_BLOB_JS, blob_url)
+        if not b64:
+            results.append({"index": idx, "prePlain": pre_plain, "error": "blob expirado"})
+            continue
+
+        audio_bytes = _b64.b64decode(b64)
+        with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as f:
+            f.write(audio_bytes)
+            tmp_path = f.name
+
+        try:
+            from tools.transcription import transcribe
+            text = await transcribe(tmp_path)
+            results.append({"index": idx, "prePlain": pre_plain, "transcription": text})
+        except Exception as e:
+            results.append({"index": idx, "prePlain": pre_plain, "error": str(e)})
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
+
+    return {"chat": chat, "results": results, "total": len(results)}
 
 
 # ------------------------------------------------------------------
