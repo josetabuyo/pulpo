@@ -375,13 +375,20 @@ def empresa_add_whatsapp(bot_id: str, body: AddWhatsappBody, _: dict = Depends(_
     bot = next(b for b in config["empresas"] if b["id"] == bot_id)
     if any(p["number"] == number for p in bot.get("phones", [])):
         raise HTTPException(status_code=409, detail=f"El número {number} ya está configurado en esta empresa")
+
+    # Detectar si el número ya existe en otra empresa (conexión compartida)
+    shared_with = [
+        e["name"] for e in config["empresas"]
+        if e["id"] != bot_id and any(p["number"] == number for p in e.get("phones", []))
+    ]
+
     bot.setdefault("phones", []).append({"number": number})
     save_config(config)
 
     if sim_engine.SIM_MODE:
         sim_engine.sim_connect(number, bot_id)
 
-    return {"ok": True, "number": number}
+    return {"ok": True, "number": number, "shared": bool(shared_with), "shared_with": shared_with}
 
 
 @router.delete("/empresa/{bot_id}/whatsapp/{number}")

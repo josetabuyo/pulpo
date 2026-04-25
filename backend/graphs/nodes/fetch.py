@@ -2,7 +2,7 @@
 FetchNode — obtiene contenido externo y lo guarda en state.context.
 
 Config:
-  source:     str — "facebook" | "fb_image" | "http"
+  source:     str — "facebook" | "http"
   empresa_id: str — empresa para credenciales de Facebook (si vacío, usa state.empresa_id)
   url:        str — URL para HTTP GET (solo si source="http")
   extract:    str — "text" | "json" | "html" (para source="http")
@@ -20,8 +20,6 @@ class FetchNode(BaseNode):
 
         if source == "facebook":
             await self._fetch_facebook(state)
-        elif source == "fb_image":
-            self._extract_fb_image(state)
         elif source == "http":
             await self._fetch_http(state)
         else:
@@ -81,20 +79,11 @@ class FetchNode(BaseNode):
                         seen_urls.add(u)
                         source_urls.append(u)
             if source_urls:
-                state.vars["source_urls"] = source_urls[:3]
+                # BUG: solo el primer link tiene sentido — ver BUG_LUGANENSE_LINKS.md
+                state.vars["source_urls"] = source_urls[:1]
 
         except Exception as e:
             logger.error("[FetchNode] Error fetching Facebook: %s", e)
-
-    def _extract_fb_image(self, state: FlowState) -> None:
-        """Extrae la imagen del post relevante ya cargado en state.fb_posts."""
-        if state.image_url:
-            return  # ya tiene imagen (seteada por LLMNode con json_output)
-        for post in state.fb_posts:
-            if post.get("image_url"):
-                state.image_url = post["image_url"]
-                logger.info("[FetchNode] fb_image: %s...", state.image_url[:60])
-                break
 
     async def _fetch_http(self, state: FlowState) -> None:
         url     = self.config.get("url", "")
@@ -130,7 +119,6 @@ class FetchNode(BaseNode):
                 "default": "facebook",
                 "options": [
                     {"value": "facebook", "label": "Scrapear posts de Facebook"},
-                    {"value": "fb_image", "label": "Extraer imagen de posts ya cargados"},
                     {"value": "http",     "label": "Fetch HTTP externo"},
                 ],
             },

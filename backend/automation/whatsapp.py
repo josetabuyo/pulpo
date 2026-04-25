@@ -261,6 +261,13 @@ class WhatsAppSession(BrowserAutomation):
             # WA usa el nombre como identificador (phone suele llegar vacío del scraper)
             sender = phone or name
 
+            # Pre-filtro: solo procesar mensajes de contactos que pasan algún filtro activo.
+            # Si la conexión tiene flows con contact_filter y este contacto no califica
+            # en ninguno → descartar silencioso (sin log, sin DB, sin reply).
+            if not await _passes_any_flow_filter(bot_phone, name, phone):
+                logger.debug(f"[{session_id}] descartado (sin filtro activo): {name} ({phone})")
+                return
+
             logger.info(f"[{session_id}] Mensaje de {name} ({phone}): {body[:60]}")
 
             # Dispatch multi-empresa: loguar bajo todos los bots que tienen esta conexión
@@ -2869,27 +2876,33 @@ class WhatsAppSession(BrowserAutomation):
             # Obtener chats con borrador via Store interna de WA Web
             draft_ids: list = await page.evaluate("""
                 () => {
+                    // Intento 1: Store interna de WA Web
                     try {
                         const store = window.Store && window.Store.Chat;
                         if (store && store.getModelsArray) {
-                            return store.getModelsArray()
+                            const ids = store.getModelsArray()
                                 .filter(c => c.hasDraftMessage || (c.draft && c.draft.trim() !== ''))
                                 .map(c => c.id && (c.id.user || c.id._serialized || ''))
                                 .filter(Boolean);
+                            if (ids.length > 0) return ids;
                         }
                     } catch(e) {}
-                    // Fallback DOM: buscar indicador visual de borrador en el sidebar
+
+                    // Intento 2: buscar filas del sidebar que contengan el texto "Borrador"
                     const ids = [];
-                    document.querySelectorAll('[data-testid="cell-frame-container"]').forEach(row => {
-                        const hasDraft = row.querySelector(
-                            '[data-testid="msg-draftmsg"], span[data-icon="draft"], [data-testid="draft-true"]'
-                        );
-                        if (hasDraft) {
-                            const titleEl = row.querySelector('[title]');
-                            if (titleEl) ids.push(titleEl.getAttribute('title'));
+                    const rows = document.querySelectorAll('[role="row"], [data-testid="cell-frame-container"], [tabindex="-1"]');
+                    rows.forEach(row => {
+                        const text = row.innerText || '';
+                        if (text.includes('Borrador') || text.includes('Draft')) {
+                            // Buscar el título del contacto en la fila
+                            const titleEl = row.querySelector('span[title], [title]');
+                            if (titleEl) {
+                                const t = titleEl.getAttribute('title');
+                                if (t && t.trim()) ids.push(t.trim());
+                            }
                         }
                     });
-                    return ids;
+                    return [...new Set(ids)];
                 }
             """)
 
@@ -2968,6 +2981,49 @@ class WhatsAppSession(BrowserAutomation):
 # ------------------------------------------------------------------
 # Helpers internos
 # ------------------------------------------------------------------
+
+async def _passes_any_flow_filter(connection_id: str, name: str, phone: str) -> bool:
+    """
+    Verifica si un contacto (name/phone) califica en al menos un flow activo
+    de la conexión. Si no hay flows → True (sin restricción). Si hay flows
+    pero ninguno acepta este contacto → False (descartar sin loguear).
+    """
+    import json as _json
+    from db import AsyncSessionLocal, text as _text
+
+    async with AsyncSessionLocal() as sess:
+        rows = (await sess.execute(_text("""
+            SELECT json_extract(definition, '$.nodes[0].config.contact_filter') AS cf
+            FROM flows
+            WHERE active = 1
+              AND json_extract(definition, '$.nodes[0].config.connection_id') = :conn
+        """), {"conn": connection_id})).fetchall()
+
+    if not rows:
+        return True  # sin flows configurados → no filtrar
+
+    for (cf_raw,) in rows:
+        if not cf_raw:
+            return True  # flow sin filtro → acepta todo
+        cf = _json.loads(cf_raw) if isinstance(cf_raw, str) else cf_raw
+        if not cf:
+            return True
+
+        excluded = cf.get("excluded", [])
+        included = cf.get("included", [])
+        inc_all  = cf.get("include_all_known", False)
+        inc_unk  = cf.get("include_unknown", False)
+
+        if name in excluded or phone in excluded:
+            continue  # este flow lo excluye, probar siguiente
+
+        if name in included or phone in included:
+            return True
+        if inc_all or inc_unk:
+            return True  # filtro abierto (todos los conocidos / desconocidos)
+
+    return False  # ningún flow lo acepta
+
 
 def _update(session_id: str, *, connection_id: str = "", status: str, qr: str | None = None) -> None:
     if session_id not in clients:

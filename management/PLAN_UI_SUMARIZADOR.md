@@ -150,7 +150,32 @@ frontend/src/components/EmpresaCard.jsx — punto de entrada desde lista UIs (ya
 
 ## Estado
 
-- [ ] Fase 1 — Vista básica burbujas de texto
-- [ ] Fase 2 — Audios + documentos + descarga
-- [ ] Fase 3 — Acceso desde panel del nodo summarize
+- [x] Fase 1 — Vista básica burbujas de texto
+- [x] Fase 2 — Audios + documentos + descarga
+- [x] Fase 3 — Acceso desde panel del nodo summarize
 - [ ] Fase 4 — Botón generar informe IA
+
+## Implementado (sesión 2026-04-16/17)
+
+### Backend (`backend/api/summarizer.py`)
+- `GET /summarizer/{empresa_id}` → devuelve `{contacts: [{phone, name}], path: "/abs/path/..."}`
+- `GET /summarizer/{empresa_id}/{contact_phone}/messages` → inbound (.md parseado) + outbound (DB), ordenados por timestamp. Parsea `"Nombre: contenido"` en grupo → campo `sender` separado.
+- `POST /summarizer/{empresa_id}/{contact_phone}/sync` → re-sync seguro por contacto con filtrado de ruido
+- `GET /summarizer/{empresa_id}/{contact_phone}/docs/{filename}` → descarga adjunto
+
+### Frontend
+- `SummaryView.jsx` — burbujas in (izq) / out (der), separadores de día, AudioBubble, DocumentBubble, botón ↻ sync, botón ↓ MD
+- `SummaryContactList.jsx` — muestra nombre resuelto desde agenda, avatar con iniciales
+- `NodeConfigPanel.jsx` — nodo summarize muestra path absoluto (fetched del backend) + botón "Ver resúmenes" que cambia a tab UIs
+- `EmpresaCard → FlowList → FlowEditor → NodeConfigPanel` — cadena `onGoToUIs` prop
+
+### Bugs corregidos
+- `group_sender` en FlowState: audios de grupo ya no saltean transcripción por el prefijo "Nombre: "
+- `list_contacts()` excluye archivos `.bak.md`
+- Re-trigger histórico (`POST /empresas/{id}/flows/{flow_id}/replay`) con `from_delta_sync=True`
+- `.md` de SIGIRH reordenado por fecha (tenía mensajes desordenados)
+
+### Pendiente / conocido
+- Duplicados en DB: el polling guarda algunas veces el mismo mensaje dos veces con el mismo timestamp (10 grupos detectados en la_piquiteria)
+- Audios `[audio — sin blob]` históricos: blob expiró en WA Web, irrecuperables
+- Fase 4: botón "Generar informe IA" no implementado

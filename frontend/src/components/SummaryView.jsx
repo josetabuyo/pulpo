@@ -20,10 +20,32 @@ function dayKey(isoTs) {
 
 // ─── Burbujas ─────────────────────────────────────────────────────────────────
 
-function TextBubble({ msg }) {
+function ReplyQuote({ text }) {
+  if (!text) return null
+  // Formato nuevo: "[SenderName] quoted text"  (el sender viene entre corchetes del scraper)
+  const senderMatch = text.match(/^\[([^\]]+)\]\s*(.*)/)
+  const sender = senderMatch ? senderMatch[1] : null
+  const content = senderMatch ? senderMatch[2].trim() : text.trim()
+  // Si el contenido parece una duración de audio (ej: "1:55", "0:37")
+  const isAudioDuration = /^\d{1,2}:\d{2}$/.test(content)
+  const preview = isAudioDuration ? `🎵 audio ${content}` : content
   return (
-    <div className="sv-bubble sv-bubble--in">
+    <div className="sv-reply-quote">
+      <div className="sv-reply-quote-inner">
+        {sender && <span className="sv-reply-sender">{sender}</span>}
+        <span className="sv-reply-text">{preview || '↩'}</span>
+      </div>
+    </div>
+  )
+}
+
+function TextBubble({ msg }) {
+  const isOut = msg.direction === 'out'
+  return (
+    <div className={`sv-bubble ${isOut ? 'sv-bubble--out' : 'sv-bubble--in'}`}>
       <div className="sv-bubble-body">
+        {msg.sender && <span className="sv-bubble-sender">{msg.sender}</span>}
+        <ReplyQuote text={msg.reply_to} />
         <p className="sv-bubble-text">{msg.content}</p>
         <span className="sv-bubble-time">{formatTime(msg.timestamp)}</span>
       </div>
@@ -33,13 +55,16 @@ function TextBubble({ msg }) {
 
 function AudioBubble({ msg }) {
   const [expanded, setExpanded] = useState(false)
+  const hasRealTranscription = msg.transcription && !msg.transcription.startsWith('[audio')
   return (
     <div className="sv-bubble sv-bubble--in">
       <div className="sv-bubble-body">
+        {msg.sender && <span className="sv-bubble-sender">{msg.sender}</span>}
+        <ReplyQuote text={msg.reply_to} />
         <div className="sv-audio-row">
           <span className="sv-audio-icon">🎵</span>
           <span className="sv-audio-duration">{msg.duration || 'audio'}</span>
-          {msg.transcription && (
+          {hasRealTranscription && (
             <button
               className="sv-toggle-btn"
               onClick={() => setExpanded(e => !e)}
@@ -48,9 +73,25 @@ function AudioBubble({ msg }) {
             </button>
           )}
         </div>
-        {expanded && msg.transcription && (
+        {expanded && hasRealTranscription && (
           <p className="sv-transcription">{msg.transcription}</p>
         )}
+        <span className="sv-bubble-time">{formatTime(msg.timestamp)}</span>
+      </div>
+    </div>
+  )
+}
+
+function ImageBubble({ msg }) {
+  return (
+    <div className="sv-bubble sv-bubble--in">
+      <div className="sv-bubble-body">
+        {msg.sender && <span className="sv-bubble-sender">{msg.sender}</span>}
+        <ReplyQuote text={msg.reply_to} />
+        <div className="sv-img-row">
+          <span className="sv-img-icon">🖼</span>
+          <span className="sv-img-name">{msg.filename || 'imagen'}</span>
+        </div>
         <span className="sv-bubble-time">{formatTime(msg.timestamp)}</span>
       </div>
     </div>
@@ -136,6 +177,19 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
     }
   }
 
+  async function handleFullResync() {
+    if (!window.confirm('¿Borrar todo el historial local y re-scrapear desde WA Web? Esto puede tardar varios minutos.')) return
+    setSyncing(true)
+    try {
+      await apiCall('POST', `/summarizer/${empresaId}/${contactPhone}/full-resync`, {})
+      loadMessages()
+    } catch {
+      setError('Error en full re-sync')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   useEffect(() => {
     if (messages && messagesRef.current) {
       messagesRef.current.scrollTop = messagesRef.current.scrollHeight
@@ -177,8 +231,11 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
           <span className="sv-contact-name">{contactName || contactPhone}</span>
           <span className="sv-contact-phone">{contactPhone}</span>
         </div>
-        <button className="sv-md-btn" onClick={handleSync} disabled={syncing} title="Re-sincronizar desde historial">
+        <button className="sv-md-btn" onClick={handleSync} disabled={syncing} title="Delta sync desde historial WA">
           {syncing ? '...' : '↻'}
+        </button>
+        <button className="sv-md-btn sv-md-btn--danger" onClick={handleFullResync} disabled={syncing} title="Full re-sync: borra todo y re-scrape desde WA Web">
+          {syncing ? '...' : '⟳ Full'}
         </button>
         <button className="sv-md-btn" onClick={handleDownloadMd} title="Descargar resumen completo">
           ↓ MD
@@ -203,6 +260,9 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
           const { msg } = item
           if (msg.type === 'audio') {
             return <AudioBubble key={i} msg={msg} />
+          }
+          if (msg.type === 'image') {
+            return <ImageBubble key={i} msg={msg} />
           }
           if (msg.type === 'document') {
             return (

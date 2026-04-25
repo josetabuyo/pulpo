@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 from contextlib import asynccontextmanager
+from logging.handlers import RotatingFileHandler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from telegram.ext import Application
@@ -33,10 +34,23 @@ from api.flows import router as flows_router, seed_default_flows
 from api.fb_session import router as fb_session_router
 import sim as sim_engine
 
+# ── Logging con rotación automática ──────────────────────────────────────────
+_PROJECT_DIR = Path(__file__).parent.parent
+_LOG_PATH = _PROJECT_DIR / "monitor" / "backend.log"
+_log_handler = RotatingFileHandler(
+    _LOG_PATH,
+    maxBytes=5 * 1024 * 1024,   # 5 MB por archivo
+    backupCount=3,               # backend.log + .1 + .2 + .3 → máx ~20 MB
+    encoding="utf-8",
+)
+_log_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+
+_stdout_handler = logging.StreamHandler(sys.stdout)
+_stdout_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s",
-    stream=sys.stdout,
+    handlers=[_log_handler, _stdout_handler],
 )
 # El módulo de automatización en INFO — los mensajes ignorados y WebGL noise quedan en DEBUG
 logging.getLogger("automation").setLevel(logging.INFO)

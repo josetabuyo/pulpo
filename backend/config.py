@@ -53,10 +53,11 @@ def get_empresas_for_connection(connection_id: str) -> list[str]:
     return result
 
 
-def get_connection_default_filter(conn_id: str) -> dict | None:
+def get_connection_default_filter(conn_id: str, empresa_id: str | None = None) -> dict | None:
     """
     Retorna el default_filter configurado para una conexión (número WA).
     Se almacena bajo phones[].default_filter en connections.json.
+    Si empresa_id se provee, busca el filtro específico de esa empresa (conexión compartida).
     Retorna None si no hay filtro configurado.
     """
     try:
@@ -64,19 +65,24 @@ def get_connection_default_filter(conn_id: str) -> dict | None:
     except Exception:
         return None
     for empresa in config.get("empresas", []):
+        if empresa_id and empresa["id"] != empresa_id:
+            continue
         for phone in empresa.get("phones", []):
             if phone.get("number") == conn_id:
                 return phone.get("default_filter")
     return None
 
 
-def set_connection_default_filter(conn_id: str, default_filter: dict | None) -> bool:
+def set_connection_default_filter(conn_id: str, default_filter: dict | None, empresa_id: str | None = None) -> bool:
     """
     Guarda (o elimina) el default_filter para una conexión en connections.json.
+    Si empresa_id se provee, solo actualiza el entry de esa empresa (conexión compartida).
     Retorna True si encontró y modificó la conexión, False si no existe.
     """
     config = load_config()
     for empresa in config.get("empresas", []):
+        if empresa_id and empresa["id"] != empresa_id:
+            continue
         for phone in empresa.get("phones", []):
             if phone.get("number") == conn_id:
                 if default_filter is None:

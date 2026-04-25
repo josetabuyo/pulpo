@@ -655,7 +655,6 @@ async def test_kill_switch_global_descarta_reply():
         state = await run_flows(_state(bot_id), connection_id=bot_id)
 
     assert state.reply is None, "DISABLE_AUTO_REPLY=true debe bloquear el reply."
-    assert state.image_url is None
 
 
 @pytest.mark.asyncio

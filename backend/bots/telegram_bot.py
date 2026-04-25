@@ -85,7 +85,6 @@ def build_telegram_app(bot_config: dict):
         )
         state = await run_flows(state, connection_id=session_id)
         reply = state.reply or ""
-        image_url = state.image_url or ""
 
         # Appendar URLs de fuentes en código (el LLM no lo hace consistentemente)
         source_urls = state.vars.get("source_urls", [])
@@ -99,18 +98,7 @@ def build_telegram_app(bot_config: dict):
             return
 
         try:
-            if image_url:
-                try:
-                    import urllib.request
-                    with urllib.request.urlopen(image_url, timeout=10) as resp:
-                        image_data = resp.read()
-                    await msg.reply_photo(image_data, caption=reply, parse_mode="Markdown")
-                    logger.info(f"{label}   → Respuesta con imagen enviada: {reply[:500]}")
-                except Exception as img_err:
-                    logger.warning(f"{label}   → Error enviando imagen, fallback a texto: {img_err}")
-                    await msg.reply_text(reply)
-            else:
-                await msg.reply_text(reply, parse_mode="Markdown")
+            await msg.reply_text(reply, parse_mode="Markdown")
             for eid, mid in msg_ids.items():
                 await mark_answered(mid)
                 await log_message(eid, token_id, sender_id, "Bot", reply, outbound=True)

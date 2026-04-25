@@ -69,9 +69,9 @@ def create_connection(body: PhoneCreate):
         empresa = {"id": body.empresaId, "name": body.empresaName, "phones": []}
         config.setdefault("empresas", []).append(empresa)
 
-    for e in config.get("empresas", []):
-        if any(p["number"] == body.number for p in e.get("phones", [])):
-            raise HTTPException(status_code=409, detail=f'El número ya está en la empresa "{e["name"]}". Movelo desde ahí.')
+    # Permitir que el mismo número esté en varias empresas (conexión compartida con filtros distintos)
+    if any(p["number"] == body.number for p in empresa.get("phones", [])):
+        raise HTTPException(status_code=409, detail=f'El número ya está en esta empresa.')
 
     empresa.setdefault("phones", []).append({"number": body.number})
 
@@ -142,25 +142,27 @@ class DefaultFilterBody(BaseModel):
     excluded: list[str] = []
 
 
+@router.put("/connections/{number}/filter-config")
+def put_connection_filter(number: str, body: DefaultFilterBody, token: str = Depends(_require_empresa_or_admin)):
+    """Guarda el filtro default de una conexión (empresa-aware para conexiones compartidas)."""
+    _check_number_access(number, token)
+    filter_dict = body.model_dump()
+    empresa_id = None if token == _ADMIN_SENTINEL else token
+    ok = set_connection_default_filter(number, filter_dict, empresa_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Número no encontrado")
+    return {"ok": True, "filter": filter_dict}
+
+
 @router.get("/connections/{number}/filter-config")
 def get_connection_filter(number: str, token: str = Depends(_require_empresa_or_admin)):
     """Retorna el filtro default de una conexión (o vacío si no tiene)."""
     _check_number_access(number, token)
-    df = get_connection_default_filter(number)
+    empresa_id = None if token == _ADMIN_SENTINEL else token
+    df = get_connection_default_filter(number, empresa_id)
     if df is None:
         return {"include_all_known": False, "include_unknown": False, "included": [], "excluded": []}
     return df
-
-
-@router.put("/connections/{number}/filter-config")
-def put_connection_filter(number: str, body: DefaultFilterBody, token: str = Depends(_require_empresa_or_admin)):
-    """Guarda el filtro default de una conexión."""
-    _check_number_access(number, token)
-    filter_dict = body.model_dump()
-    ok = set_connection_default_filter(number, filter_dict)
-    if not ok:
-        raise HTTPException(status_code=404, detail="Número no encontrado")
-    return {"ok": True, "filter": filter_dict}
 
 
 @router.delete("/connections/{number}/filter-config", dependencies=[Depends(require_admin)])

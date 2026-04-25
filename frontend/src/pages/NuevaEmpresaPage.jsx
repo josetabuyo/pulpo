@@ -159,12 +159,14 @@ function StepDatos({ onCreated }) {
 
 function StepConexiones({ session, onDone }) {
   const { botId } = session
-  const [conns, setConns]       = useState([])
-  const [waInput, setWaInput]   = useState('')
-  const [tgInput, setTgInput]   = useState('')
-  const [waError, setWaError]   = useState('')
-  const [tgError, setTgError]   = useState('')
-  const [loading, setLoading]   = useState(false)
+  const [conns, setConns]         = useState([])
+  const [waInput, setWaInput]     = useState('')
+  const [tgInput, setTgInput]     = useState('')
+  const [waError, setWaError]     = useState('')
+  const [tgError, setTgError]     = useState('')
+  const [loading, setLoading]     = useState(false)
+  // conexiones compartidas pendientes de configurar filtro
+  const [sharedPending, setSharedPending] = useState([]) // [{ number, sharedWith[] }]
 
   async function addWa(e) {
     e.preventDefault(); setWaError('')
@@ -176,6 +178,9 @@ function StepConexiones({ session, onDone }) {
     if (!res?.ok) { setWaError(res?.detail || 'Error al agregar'); return }
     setConns(c => [...c, { id: number, type: 'whatsapp', status: 'stopped' }])
     setWaInput('')
+    if (res.shared) {
+      setSharedPending(p => [...p, { number, sharedWith: res.shared_with }])
+    }
   }
 
   async function addTg(e) {
@@ -213,6 +218,10 @@ function StepConexiones({ session, onDone }) {
       {/* WhatsApp */}
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-title">📱 WhatsApp</div>
+        <p style={{ fontSize: 13, color: '#666', marginBottom: 8 }}>
+          Ingresá el número del teléfono que va a usar el bot (con código de país, sin el <code>+</code>).<br />
+          Luego vas a vincular el QR desde WhatsApp → <strong>Dispositivos vinculados</strong>.
+        </p>
         <form onSubmit={addWa} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
           <input style={{ flex: 1 }} type="tel" value={waInput} onChange={e => setWaInput(e.target.value)}
             placeholder="Número sin + (ej: 5491155612767)" />
@@ -228,11 +237,36 @@ function StepConexiones({ session, onDone }) {
             <div className="empty" style={{ padding: 8 }}>Sin números aún</div>
           )}
         </div>
+
+        {/* Aviso: número compartido con otras empresas */}
+        {sharedPending.map(s => (
+          <div key={s.number} style={{
+            marginTop: 10, padding: '10px 12px', borderRadius: 6,
+            background: '#fffbeb', border: '1px solid #fcd34d', fontSize: 13,
+          }}>
+            <strong>⚠ Número compartido:</strong> +{s.number} ya está en uso por{' '}
+            <strong>{s.sharedWith.join(', ')}</strong>.<br />
+            Está bien si atienden contactos distintos, pero <strong>configurá el filtro de contactos</strong>{' '}
+            en cada flow para evitar respuestas duplicadas al mismo contacto.
+          </div>
+        ))}
       </div>
 
       {/* Telegram */}
       <div className="card" style={{ marginBottom: 24 }}>
         <div className="card-title">✈️ Telegram</div>
+        <details open style={{ marginBottom: 12, fontSize: 13, color: '#555' }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 600, color: '#3b5bdb' }}>
+            ¿Cómo crear un bot con @BotFather?
+          </summary>
+          <ol style={{ margin: '8px 0 0 16px', lineHeight: 1.8 }}>
+            <li>Abrí Telegram y buscá <strong>@BotFather</strong></li>
+            <li>Escribí <code>/newbot</code> y seguí las instrucciones</li>
+            <li>Elegí un nombre (ej: <em>Mi Empresa Bot</em>) y un usuario (debe terminar en <em>bot</em>)</li>
+            <li>BotFather te manda un token como: <code>123456:ABCdef...</code></li>
+            <li>Copiá ese token y pegalo acá abajo</li>
+          </ol>
+        </details>
         <form onSubmit={addTg} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
           <input style={{ flex: 1 }} value={tgInput} onChange={e => setTgInput(e.target.value)}
             placeholder="Token de @BotFather (123456:ABC...)" />

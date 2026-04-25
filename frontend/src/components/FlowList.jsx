@@ -15,7 +15,7 @@ function formatDate(iso) {
   return new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' })
 }
 
-export default function FlowList({ empresaId, apiCall, connections }) {
+export default function FlowList({ empresaId, apiCall, connections, onGoToUIs }) {
   const [flows,    setFlows]    = useState([])
   const [loading,  setLoading]  = useState(true)
   const [typeMap,  setTypeMap]  = useState({})
@@ -97,6 +97,7 @@ export default function FlowList({ empresaId, apiCall, connections }) {
         typeMap={typeMap}
         onBack={() => { setEditing(null); loadFlows() }}
         onSaved={() => loadFlows()}
+        onGoToUIs={onGoToUIs}
       />
     )
   }

@@ -3,7 +3,7 @@ Grafo LangGraph para el bot Luganense.
 
 El agente tiene 3 fuentes de información y el scope_router decide cuál usar:
 
-  noticias    → expandir_consulta → buscar_posts_fb → responder_noticias → obtener_imagen?
+  noticias    → expandir_consulta → buscar_posts_fb → responder_noticias
   oficio      → buscar_oficio → notificar_oficio
   auspiciante → buscar_auspiciante → responder_auspiciante
 
@@ -11,11 +11,8 @@ Fuentes:
   - Facebook (noticias): scraping de la página luganense en FB
   - Oficios: lista interna de trabajadores por oficio (config/oficios/)
   - Auspiciantes: lista interna de negocios patrocinadores (config/auspiciantes/)
-
-image_enabled: toggle por empresa → phones.json → flow_config.image_enabled (default True)
 """
 import asyncio
-import json
 import logging
 import os
 from typing import TypedDict, Literal
@@ -67,18 +64,7 @@ SIEMPRE:
 - Extensión: 3 a 5 oraciones.
 - Si no tenés info suficiente, decilo honestamente.
 
-IMPORTANTE — Respondé ÚNICAMENTE con un JSON (sin texto fuera del JSON):
-{
-  "reply": "<tu respuesta al vecino>",
-  "needs_image": <true o false>,
-  "source_post_index": <índice 0-based del post que más usaste, o -1>
-}
-
-needs_image = true SOLO si:
-  - El post trata de una mascota perdida/encontrada y la foto ayudaría a identificarla
-  - El post tiene una foto de un negocio/evento y la imagen suma valor real
-  - El vecino pregunta específicamente por ver algo visual
-En cualquier otro caso: false."""
+IMPORTANTE: respondé directamente con el texto para el vecino, sin JSON ni formato extra.
 
 _AUSPICIANTE_SYSTEM = """Sos el vocero de Luganense, el portal comunitario de Villa Lugano.
 Un vecino preguntó por algo y tenés información de un negocio del barrio que puede ayudarlo.
@@ -103,18 +89,14 @@ class LuganenseState(TypedDict):
     empresa_id: str
     cliente_phone: str
     canal: str
-    image_enabled: bool          # toggle: phones.json → flow_config.image_enabled
 
     # Routing
     scope: str                   # "noticias" | "oficio" | "auspiciante"
 
     # Rama noticias
     queries: list[str]           # búsquedas generadas para FB
-    fb_posts: list[dict]         # [{"text": str, "image_url": str}]
+    fb_posts: list[dict]         # [{"text": str, "url": str}]
     fb_context: str              # texto combinado para el LLM
-    needs_image: bool            # el LLM decide
-    source_post_index: int       # índice en fb_posts del post usado (-1 = ninguno)
-    image_url: str               # URL final de imagen a enviar
 
     # Rama oficio
     oficio: str                  # oficio identificado por el LLM
@@ -208,10 +190,7 @@ async def buscar_posts_fb(state: LuganenseState) -> dict:
 
 
 async def responder_noticias(state: LuganenseState) -> dict:
-    """
-    Genera la respuesta sobre el barrio usando el contexto de Facebook.
-    Usa JSON structured output: {reply, needs_image, source_post_index}.
-    """
+    """Genera la respuesta sobre el barrio usando el contexto de Facebook."""
     api_key = os.getenv("GROQ_API_KEY")
     fb_context = state.get("fb_context", "")
 
@@ -223,7 +202,7 @@ async def responder_noticias(state: LuganenseState) -> dict:
             if fb_context else state["prompt"]
         )
         reply = await assistant_mod.ask(context, state["message"], state["bot_name"]) or ""
-        return {"reply": reply, "needs_image": False, "source_post_index": -1}
+        return {"reply": reply}
 
     fb_posts = state.get("fb_posts", [])
     system = _NOTICIAS_SYSTEM
@@ -237,25 +216,14 @@ async def responder_noticias(state: LuganenseState) -> dict:
 
     try:
         from langchain_groq import ChatGroq
-        llm = ChatGroq(
-            model=_MODEL,
-            api_key=api_key,
-            temperature=0.3,
-            model_kwargs={"response_format": {"type": "json_object"}},
-        )
+        llm = ChatGroq(model=_MODEL, api_key=api_key, temperature=0.3)
         result = await llm.ainvoke([
             {"role": "system", "content": system},
             {"role": "user", "content": state["message"]},
         ])
-        data = json.loads(result.content)
-        reply = data.get("reply", "")
-        needs_image = bool(data.get("needs_image", False))
-        source_post_index = int(data.get("source_post_index", -1))
-        logger.info(
-            "[luganense] responder_noticias: %d chars, needs_image=%s, post=%d",
-            len(reply), needs_image, source_post_index,
-        )
-        return {"reply": reply, "needs_image": needs_image, "source_post_index": source_post_index}
+        reply = result.content or ""
+        logger.info("[luganense] responder_noticias: %d chars", len(reply))
+        return {"reply": reply}
 
     except Exception as e:
         logger.error("[luganense] Error en responder_noticias: %s — fallback", e)
@@ -265,33 +233,7 @@ async def responder_noticias(state: LuganenseState) -> dict:
             if fb_context else state["prompt"]
         )
         reply = await assistant_mod.ask(context, state["message"], state["bot_name"]) or ""
-        return {"reply": reply, "needs_image": False, "source_post_index": -1}
-
-
-async def obtener_imagen(state: LuganenseState) -> dict:
-    """
-    Resuelve la URL de imagen del post indicado por source_post_index.
-    Solo ejecuta si needs_image=True e image_enabled=True (routing condicional).
-    """
-    fb_posts = state.get("fb_posts", [])
-    idx = state.get("source_post_index", -1)
-
-    image_url = ""
-    if 0 <= idx < len(fb_posts):
-        image_url = fb_posts[idx].get("image_url", "")
-
-    if not image_url:
-        for post in fb_posts:
-            if post.get("image_url"):
-                image_url = post["image_url"]
-                break
-
-    if image_url:
-        logger.info("[luganense] obtener_imagen: imagen disponible (%s...)", image_url[:60])
-    else:
-        logger.info("[luganense] obtener_imagen: sin imagen en los posts")
-
-    return {"image_url": image_url}
+        return {"reply": reply}
 
 
 # ─── Rama oficio ──────────────────────────────────────────────────────────────
@@ -406,17 +348,6 @@ def _route_scope(state: LuganenseState) -> Literal["expandir_consulta", "buscar_
     return "expandir_consulta"
 
 
-def _route_imagen(state: LuganenseState) -> Literal["obtener_imagen", "__end__"]:
-    """Ir a obtener_imagen solo si el LLM lo pidió, está habilitado, y hay imagen disponible."""
-    if not state.get("needs_image"):
-        return "__end__"
-    if not state.get("image_enabled", True):
-        return "__end__"
-    if any(p.get("image_url") for p in state.get("fb_posts", [])):
-        return "obtener_imagen"
-    return "__end__"
-
-
 # ─── Compilar el grafo ────────────────────────────────────────────────────────
 
 _builder = StateGraph(LuganenseState)
@@ -426,7 +357,6 @@ _builder.add_node("scope_router",         scope_router)
 _builder.add_node("expandir_consulta",    expandir_consulta)
 _builder.add_node("buscar_posts_fb",      buscar_posts_fb)
 _builder.add_node("responder_noticias",   responder_noticias)
-_builder.add_node("obtener_imagen",         obtener_imagen)
 _builder.add_node("buscar_oficio",        buscar_oficio)
 _builder.add_node("notificar_oficio",     notificar_oficio)
 _builder.add_node("buscar_auspiciante",   buscar_auspiciante)
@@ -439,8 +369,7 @@ _builder.add_conditional_edges("scope_router", _route_scope)
 # Rama noticias
 _builder.add_edge("expandir_consulta",  "buscar_posts_fb")
 _builder.add_edge("buscar_posts_fb",    "responder_noticias")
-_builder.add_conditional_edges("responder_noticias", _route_imagen)
-_builder.add_edge("obtener_imagen",       END)
+_builder.add_edge("responder_noticias", END)
 
 # Rama oficio
 _builder.add_edge("buscar_oficio",      "notificar_oficio")
@@ -462,11 +391,10 @@ async def invoke(
     empresa_id: str = "",
     cliente_phone: str = "",
     canal: str = "telegram",
-    image_enabled: bool = True,
 ) -> dict:
     """
     Invoca el grafo Luganense.
-    Retorna {"reply": str, "image_url": str}.
+    Retorna {"reply": str}.
     """
     result = await app.ainvoke({
         "message": message,
@@ -475,21 +403,14 @@ async def invoke(
         "empresa_id": empresa_id,
         "cliente_phone": cliente_phone,
         "canal": canal,
-        "image_enabled": image_enabled,
         "scope": "",
         "queries": [],
         "fb_posts": [],
         "fb_context": "",
-        "needs_image": False,
-        "source_post_index": -1,
-        "image_url": "",
         "oficio": "",
         "worker": None,
         "auspiciante_nombre": "",
         "auspiciante_msg": "",
         "reply": "",
     })
-    return {
-        "reply": result.get("reply", ""),
-        "image_url": result.get("image_url", ""),
-    }
+    return {"reply": result.get("reply", "")}

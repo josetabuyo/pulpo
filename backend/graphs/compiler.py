@@ -163,7 +163,7 @@ async def execute_flow(flow: dict, state: FlowState) -> FlowState:
             contact_filter = cconfig.get("contact_filter")
             if contact_filter is None:
                 from config import get_connection_default_filter
-                default_cf = get_connection_default_filter(cconfig.get("connection_id", ""))
+                default_cf = get_connection_default_filter(cconfig.get("connection_id", ""), state.empresa_id)
                 if default_cf:
                     contact_filter = default_cf
             if contact_filter:
