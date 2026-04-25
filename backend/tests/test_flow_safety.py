@@ -23,6 +23,17 @@ from unittest.mock import AsyncMock, patch
 
 from graphs.compiler import run_flows
 from graphs.nodes.state import FlowState
+import graphs.compiler as _compiler_mod
+
+
+# ─── Fixture: limpiar estado global entre tests ─────────────────────────────
+
+@pytest.fixture(autouse=True)
+def reset_flow_cooldown():
+    """_flow_cooldown es estado global del módulo; limpiarlo evita contaminación entre tests."""
+    _compiler_mod._flow_cooldown.clear()
+    yield
+    _compiler_mod._flow_cooldown.clear()
 
 
 # ─── Fixture: flow con ReplyNode ────────────────────────────────────────────
@@ -735,10 +746,11 @@ async def test_guard_activatedat_permite_mensaje_nuevo():
     """Un mensaje posterior a la creación del flow sí debe recibir respuesta."""
     bot_id = "5491171876959"
     flow = _flow(connection_id=bot_id, message="Bienvenido")
-    flow["created_at"] = "2026-04-04 12:00:00"   # flow creado a las 12
+    now = datetime.utcnow()
+    flow["created_at"] = (now - timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
 
     state = _state(bot_id)
-    state.timestamp = datetime(2026, 4, 4, 13, 0, 0)   # mensaje posterior
+    state.timestamp = now  # mensaje reciente, posterior a la creación
 
     with patch.dict(os.environ, {"DISABLE_AUTO_REPLY": "false", "DISABLE_AUTO_REPLY_PHONES": ""}), \
          patch("config.get_empresas_for_connection", return_value=["gm_herreria"]), \

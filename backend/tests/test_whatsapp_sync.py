@@ -190,7 +190,7 @@ def test_delta_sync_stops_at_existing_message():
                 with patch("db.log_message_historic", mock_log_historic):
                     with patch("api.whatsapp._contact_has_summarizer", mock_has_summarizer):
                         with patch("api.whatsapp.wa_session") as mock_wa:
-                            mock_wa.scrape_full_history = AsyncMock(return_value=messages)
+                            mock_wa.scrape_full_history_v2 = AsyncMock(return_value=messages)
                             try:
                                 asyncio.run(wa._run_delta_sync())
                             except Exception:
