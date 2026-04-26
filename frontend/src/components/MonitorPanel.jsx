@@ -2,13 +2,27 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 
 // ── Highlight lines ────────────────────────────────────────────────────────────
 const HIGHLIGHT = [
-  { pattern: 'ERROR',      color: '#ef5350', bg: 'rgba(239,83,80,0.13)' },
-  { pattern: 'WARNING',    color: '#ff9800', bg: 'rgba(255,152,0,0.11)' },
-  { pattern: 'Traceback',  color: '#ef5350', bg: 'rgba(239,83,80,0.13)' },
-  { pattern: '200 OK',     color: '#66bb6a', bg: 'rgba(102,187,106,0.10)' },
-  { pattern: 'restored',   color: '#66bb6a', bg: 'rgba(102,187,106,0.10)' },
-  { pattern: 'getUpdates', color: '#42a5f5', bg: 'rgba(66,165,245,0.10)'  },
+  { pattern: 'ERROR',     color: '#ef5350', bg: 'rgba(239,83,80,0.13)' },
+  { pattern: 'WARNING',   color: '#ff9800', bg: 'rgba(255,152,0,0.11)' },
+  { pattern: 'Traceback', color: '#ef5350', bg: 'rgba(239,83,80,0.13)' },
+  { pattern: '200 OK',    color: '#66bb6a', bg: 'rgba(102,187,106,0.10)' },
+  { pattern: 'restored',  color: '#66bb6a', bg: 'rgba(102,187,106,0.10)' },
+  { pattern: ' DEBUG ',   color: '#546e7a', bg: 'rgba(84,110,122,0.08)' },
 ]
+
+const LEVEL_OPTIONS = [
+  { value: 'DEBUG',   label: 'Debug',    color: '#546e7a' },
+  { value: 'INFO',    label: 'Info',     color: '#aaa' },
+  { value: 'WARNING', label: 'Warnings', color: '#ff9800' },
+  { value: 'ERROR',   label: 'Errores',  color: '#ef5350' },
+]
+
+function getLineLevel(line) {
+  if (line.includes('ERROR') || line.includes('Traceback') || line.includes('[browser:error]')) return 'ERROR'
+  if (line.includes('WARNING') || line.includes('⚠')) return 'WARNING'
+  if (line.includes(' DEBUG ')) return 'DEBUG'
+  return 'INFO'
+}
 const ALERT_PATTERNS = ['Traceback', 'HTTP/1.1 5', 'session lost']
 
 function getLineStyle(line) {
@@ -227,11 +241,11 @@ function useLogPoller(source, pwd, paused, windowMinutes, active) {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 export default function MonitorPanel({ pwd, onAlertsChange, active = true }) {
-  const [source,      setSource]      = useState('backend')
-  const [paused,      setPaused]      = useState(false)
-  const [filter,      setFilter]      = useState('')
-  const [levelFilter, setLevelFilter] = useState('all')
-  const [windowIdx,   setWindowIdx]   = useState(0)
+  const [source,       setSource]      = useState('backend')
+  const [paused,       setPaused]      = useState(false)
+  const [filter,       setFilter]      = useState('')
+  const [activeLevels, setActiveLevels] = useState(['INFO', 'WARNING', 'ERROR'])
+  const [windowIdx,    setWindowIdx]   = useState(0)
 
   const bottomRef      = useRef(null)
   const logRef         = useRef(null)
@@ -254,12 +268,10 @@ export default function MonitorPanel({ pwd, onAlertsChange, active = true }) {
 
   const filtered = useMemo(() => {
     let r = lines
-    if (filter)                r = r.filter(l => l.toLowerCase().includes(filter.toLowerCase()))
-    if (levelFilter === 'error')   r = r.filter(l => l.includes('ERROR') || l.includes('Traceback'))
-    if (levelFilter === 'warning') r = r.filter(l => l.includes('WARNING'))
-    if (levelFilter === 'info')    r = r.filter(l => !l.includes('ERROR') && !l.includes('WARNING') && !l.includes('Traceback'))
+    if (filter) r = r.filter(l => l.toLowerCase().includes(filter.toLowerCase()))
+    r = r.filter(l => activeLevels.includes(getLineLevel(l)))
     return r
-  }, [lines, filter, levelFilter])
+  }, [lines, filter, activeLevels])
 
   useEffect(() => {
     if (!paused && !userScrolled.current && logRef.current)
@@ -351,14 +363,26 @@ export default function MonitorPanel({ pwd, onAlertsChange, active = true }) {
           value={filter}
           onChange={e => setFilter(e.target.value)}
         />
-        <div className="mon-tab-group">
-          {[['all','Todos'],['error','Errores'],['warning','Warnings'],['info','Info']].map(([v, l]) => (
-            <button
-              key={v}
-              className={`mon-tab${levelFilter === v ? ' mon-tab--active' : ''}`}
-              onClick={() => setLevelFilter(v)}
-            >{l}</button>
-          ))}
+        <div className="mon-level-checks">
+          {LEVEL_OPTIONS.map(({ value, label, color }) => {
+            const on = activeLevels.includes(value)
+            return (
+              <label
+                key={value}
+                className="mon-level-check"
+                style={{ color: on ? color : '#444' }}
+              >
+                <input
+                  type="checkbox"
+                  checked={on}
+                  onChange={() => setActiveLevels(prev =>
+                    prev.includes(value) ? prev.filter(l => l !== value) : [...prev, value]
+                  )}
+                />
+                {label}
+              </label>
+            )
+          })}
         </div>
         <span className="mon-count">{filtered.length} líneas</span>
         {paused && <span className="mon-paused-badge">PAUSADO</span>}

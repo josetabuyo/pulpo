@@ -37,23 +37,67 @@ import sim as sim_engine
 # ── Logging con rotación automática ──────────────────────────────────────────
 _PROJECT_DIR = Path(__file__).parent.parent
 _LOG_PATH = _PROJECT_DIR / "monitor" / "backend.log"
+
+
+class _FileLogFilter(logging.Filter):
+    """Excluye polling de Telegram y ruido de sistema del archivo de log."""
+    _EXCLUDE = (
+        'getUpdates',
+        'No new updates found',
+        'Calling Bot API endpoint',
+        'Call to Bot API endpoint',
+    )
+
+    def filter(self, record):
+        msg = record.getMessage()
+        if any(p in msg for p in self._EXCLUDE):
+            return False
+        return True
+
+
+class _UvicornPollingFilter(logging.Filter):
+    """Excluye del log de acceso de uvicorn los endpoints que la UI consulta periódicamente."""
+    _POLLING = (
+        '"GET /api/bots HTTP',
+        '"GET /api/sync-status HTTP',
+        '"GET /api/logs/latest',
+        '/paused HTTP',          # /api/empresa/{id}/paused
+    )
+
+    def filter(self, record):
+        try:
+            msg = record.getMessage()
+        except Exception:
+            return True
+        return not any(p in msg for p in self._POLLING)
+
+
 _log_handler = RotatingFileHandler(
     _LOG_PATH,
     maxBytes=5 * 1024 * 1024,   # 5 MB por archivo
     backupCount=3,               # backend.log + .1 + .2 + .3 → máx ~20 MB
     encoding="utf-8",
 )
+_log_handler.setLevel(logging.INFO)   # solo INFO+ va al archivo; DEBUG nunca
 _log_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+_log_handler.addFilter(_FileLogFilter())
 
-_stdout_handler = logging.StreamHandler(sys.stdout)
-_stdout_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
-
+# Sin _stdout_handler: start.sh redirige stdout al log; tener ambos duplicaría entradas
+# y permitiría que DEBUG de librerías (telegram, httpx) se cuele al archivo vía stdout capturado.
 logging.basicConfig(
-    level=logging.INFO,
-    handlers=[_log_handler, _stdout_handler],
+    level=logging.DEBUG,
+    handlers=[_log_handler],
+    force=True,  # garantiza que nuestro handler sea el único en root, ignora handlers previos
 )
-# El módulo de automatización en INFO — los mensajes ignorados y WebGL noise quedan en DEBUG
+# Silenciar librerías ruidosas
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("hpack").setLevel(logging.WARNING)
+logging.getLogger("asyncio").setLevel(logging.WARNING)
+# El módulo de automatización en INFO — WebGL noise y mensajes ignorados quedan en DEBUG
 logging.getLogger("automation").setLevel(logging.INFO)
+# Excluir del log de acceso de uvicorn los endpoints de polling de la UI
+logging.getLogger("uvicorn.access").addFilter(_UvicornPollingFilter())
 logger = logging.getLogger(__name__)
 
 _tg_apps: list[Application] = []

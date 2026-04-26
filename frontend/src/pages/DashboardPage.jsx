@@ -649,7 +649,7 @@ export default function DashboardPage() {
               bot={normalizeBot(bot)}
               onExpand={b => setExpandedBot({ bot, normalized: b })}
               simMode={simMode}
-              apiCall={(method, path, body) => call(method, path, body)}
+              apiCall={call}
               adminPwd={pwd}
               onRefresh={loadBots}
               onEditBot={b => setBotModal({ open: true, editBot: b })}
@@ -733,7 +733,7 @@ export default function DashboardPage() {
               mode="admin"
               bot={expandedBot.normalized}
               simMode={simMode}
-              apiCall={(method, path, body) => call(method, path, body)}
+              apiCall={call}
               adminPwd={pwd}
               onRefresh={loadBots}
               onEditBot={b => { setExpandedBot(null); setBotModal({ open: true, editBot: b }) }}
