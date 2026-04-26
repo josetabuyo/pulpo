@@ -155,27 +155,49 @@ async def delete_channel(channel_id: int, token_empresa_id: str = Depends(_requi
 @router.get("/bots/{bot_id}/contacts/suggested")
 async def suggested_contacts(bot_id: str, token_empresa_id: str = Depends(_require_empresa_or_admin)):
     _check_auth(bot_id, token_empresa_id)
-    """Contactos importados desde WA (contact_suggestions).
-    Se ordenan en dos grupos:
-      1. Tienen historial de mensajes en esta conexión (has_messages=true) — orden alfabético
-      2. Sin historial (has_messages=false) — orden alfabético
+    """Contactos disponibles para filtrar, combinando dos fuentes:
+      1. contact_suggestions (importados desde WA)
+      2. Contactos con mensajes en la DB que no están en contact_suggestions
+         (grupos, negocios o contactos que el scraper no capturó)
+    Se ordenan: primero los que tienen mensajes, luego los sin historial.
     """
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(text("""
-            SELECT
-                cs.name,
-                cs.phone,
-                CASE WHEN EXISTS (
-                    SELECT 1 FROM messages m
-                    WHERE m.connection_id = :bot_id
-                      AND (
-                        (cs.phone IS NOT NULL AND REPLACE(REPLACE(REPLACE(m.phone, '+', ''), ' ', ''), '-', '') = cs.phone)
-                        OR m.phone = cs.name
-                        OR m.name = cs.name
-                      )
-                ) THEN 1 ELSE 0 END AS has_messages
-            FROM contact_suggestions cs
-            WHERE cs.empresa_id = :bot_id
-            ORDER BY has_messages DESC, LOWER(COALESCE(cs.name, cs.phone)) ASC
+            SELECT name, phone, has_messages FROM (
+                -- Fuente 1: contact_suggestions
+                SELECT
+                    cs.name,
+                    cs.phone,
+                    CASE WHEN EXISTS (
+                        SELECT 1 FROM messages m
+                        WHERE m.connection_id = :bot_id
+                          AND (
+                            (cs.phone IS NOT NULL AND REPLACE(REPLACE(REPLACE(m.phone, '+', ''), ' ', ''), '-', '') = cs.phone)
+                            OR m.phone = cs.name
+                            OR m.name = cs.name
+                          )
+                    ) THEN 1 ELSE 0 END AS has_messages
+                FROM contact_suggestions cs
+                WHERE cs.empresa_id = :bot_id
+
+                UNION
+
+                -- Fuente 2: contactos con mensajes que no están en contact_suggestions
+                SELECT
+                    m.name AS name,
+                    NULL   AS phone,
+                    1      AS has_messages
+                FROM messages m
+                WHERE m.connection_id = :bot_id
+                  AND m.name IS NOT NULL
+                  AND m.name != ''
+                  AND NOT EXISTS (
+                      SELECT 1 FROM contact_suggestions cs2
+                      WHERE cs2.empresa_id = :bot_id
+                        AND (cs2.name = m.name OR cs2.phone = m.phone)
+                  )
+                GROUP BY m.name
+            )
+            ORDER BY has_messages DESC, LOWER(COALESCE(name, phone)) ASC
         """), {"bot_id": bot_id})).fetchall()
     return [{"name": r[0], "phone": r[1], "has_messages": bool(r[2])} for r in rows]
