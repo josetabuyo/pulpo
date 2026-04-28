@@ -24,6 +24,8 @@ from .save_attachment import SaveAttachmentNode
 from .whatsapp_trigger import WhatsappTriggerNode
 from .telegram_trigger import TelegramTriggerNode
 from .message_join import MessageJoinNode
+from .fetch_sheet import FetchSheetNode
+from .gsheet import GSheetNode
 
 NODE_REGISTRY: dict[str, type] = {
     "message_trigger":   MessageTriggerNode,
@@ -41,6 +43,8 @@ NODE_REGISTRY: dict[str, type] = {
     "check_contact":    CheckContactNode,
     "transcribe_audio": TranscribeAudioNode,
     "save_attachment":  SaveAttachmentNode,
+    "fetch_sheet":      FetchSheetNode,
+    "gsheet":           GSheetNode,
 }
 
 __all__ = [
@@ -51,4 +55,5 @@ __all__ = [
     "TranscribeAudioNode", "SaveAttachmentNode",
     "WhatsappTriggerNode", "TelegramTriggerNode", "MessageJoinNode",
     "CheckContactNode",
+    "FetchSheetNode", "GSheetNode",
 ]

@@ -118,6 +118,18 @@ NODE_TYPES: dict[str, NodeType] = {
         color="#0e7490",
         description="Consulta la DB y setea la ruta: 'conocido' o 'desconocido'. Sin LLM — decisión pura.",
     ),
+    "fetch_sheet": NodeType(
+        id="fetch_sheet",
+        label="Leer planilla",
+        color="#16a34a",
+        description="Lee una Google Sheet pública y vuelca el contenido completo en state.context.",
+    ),
+    "gsheet": NodeType(
+        id="gsheet",
+        label="Google Sheet",
+        color="#16a34a",
+        description="Busca una fila exacta en una Google Sheet, o agrega una fila nueva.",
+    ),
 }
 
 
@@ -147,6 +159,8 @@ _CLASSIFY_SUBSTRINGS: list[tuple[str, str]] = [
     ("whatsapp_trigger", "whatsapp_trigger"),
     ("telegram_trigger", "telegram_trigger"),
     ("message_join", "message_join"),
+    ("fetch_sheet",  "fetch_sheet"),
+    ("gsheet",       "gsheet"),
 ]
 
 
