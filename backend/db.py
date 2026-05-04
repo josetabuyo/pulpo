@@ -162,6 +162,21 @@ async def init_db():
             "CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)"
         ))
 
+        # ─── Google Connections ───────────────────────────────────────
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS google_connections (
+                id               TEXT PRIMARY KEY,
+                empresa_id       TEXT,
+                credentials_json TEXT NOT NULL,
+                email            TEXT NOT NULL,
+                label            TEXT NOT NULL,
+                created_at       DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_google_connections_empresa ON google_connections(empresa_id)"
+        ))
+
 async def create_job(
     empresa_id: str,
     cliente_phone: str,
@@ -663,3 +678,87 @@ async def get_active_flows_for_bot(connection_id: str, contact_phone: str, empre
             {"empresa_id": empresa_id, "connection_id": connection_id, "contact_phone": contact_phone},
         )).fetchall()
     return [_flow_row_to_dict(r, include_definition=True) for r in rows]
+
+
+# ─── Google Connections ───────────────────────────────────────────────────────
+
+def _google_conn_row(row) -> dict:
+    return {
+        "id":         row[0],
+        "empresa_id": row[1],
+        "email":      row[3],
+        "label":      row[4],
+        "created_at": str(row[5]),
+    }
+
+
+async def get_google_connections(empresa_id: str | None = None) -> list[dict]:
+    """
+    Retorna conexiones Google disponibles para una empresa:
+    las propias + la pulpo-default (empresa_id IS NULL).
+    Si empresa_id es None devuelve todas (uso admin).
+    """
+    async with AsyncSessionLocal() as session:
+        if empresa_id is None:
+            rows = (await session.execute(
+                text("SELECT id, empresa_id, credentials_json, email, label, created_at FROM google_connections ORDER BY created_at")
+            )).fetchall()
+        else:
+            rows = (await session.execute(
+                text("""
+                    SELECT id, empresa_id, credentials_json, email, label, created_at
+                    FROM google_connections
+                    WHERE empresa_id = :e OR empresa_id IS NULL
+                    ORDER BY empresa_id IS NOT NULL DESC, created_at
+                """),
+                {"e": empresa_id},
+            )).fetchall()
+    return [_google_conn_row(r) for r in rows]
+
+
+async def get_google_connection_credentials(conn_id: str) -> str | None:
+    """Retorna el credentials_json de una conexión Google por su id."""
+    async with AsyncSessionLocal() as session:
+        row = (await session.execute(
+            text("SELECT credentials_json FROM google_connections WHERE id = :id"),
+            {"id": conn_id},
+        )).fetchone()
+    return row[0] if row else None
+
+
+async def create_google_connection(
+    id: str,
+    empresa_id: str | None,
+    credentials_json: str,
+    email: str,
+    label: str,
+) -> None:
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            text("""
+                INSERT INTO google_connections (id, empresa_id, credentials_json, email, label)
+                VALUES (:id, :empresa_id, :credentials_json, :email, :label)
+            """),
+            {"id": id, "empresa_id": empresa_id, "credentials_json": credentials_json,
+             "email": email, "label": label},
+        )
+        await session.commit()
+
+
+async def google_connection_exists(conn_id: str) -> bool:
+    async with AsyncSessionLocal() as session:
+        row = (await session.execute(
+            text("SELECT 1 FROM google_connections WHERE id = :id"),
+            {"id": conn_id},
+        )).fetchone()
+    return row is not None
+
+
+async def delete_google_connection(conn_id: str) -> bool:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            text("DELETE FROM google_connections WHERE id = :id"),
+            {"id": conn_id},
+        )
+        await session.commit()
+    return result.rowcount > 0

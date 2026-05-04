@@ -357,6 +357,22 @@ function Field({ field, config, onChange }) {
     )
   }
 
+  if (type === 'google_account_select') {
+    const accounts = field._googleAccounts || []
+    return (
+      <div style={S.fieldWrap}>
+        {labelEl}
+        <select style={S.select} value={value} onChange={e => set(e.target.value)}>
+          <option value="">— Seleccionar cuenta Google —</option>
+          {accounts.map(a => (
+            <option key={a.id} value={a.id}>{a.label} ({a.email})</option>
+          ))}
+        </select>
+        {hint && <span style={S.hint}>{hint}</span>}
+      </div>
+    )
+  }
+
   if (type === 'contact_filter') {
     return (
       <div style={S.fieldWrap}>
@@ -435,9 +451,10 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
   const deleteNode        = useFlowStore(s => s.deleteNode)
   const setSelectedNodeId = useFlowStore(s => s.setSelectedNodeId)
   const { nodeType, config, label, color } = node.data
-  const [contacts, setContacts]   = useState([])
-  const [suggested, setSuggested] = useState([])
-  const [cloning, setCloning]       = useState(false)
+  const [contacts, setContacts]         = useState([])
+  const [suggested, setSuggested]       = useState([])
+  const [googleAccounts, setGoogleAccounts] = useState([])
+  const [cloning, setCloning]           = useState(false)
   const [cloneMsg, setCloneMsg]     = useState('')
   const [replaying, setReplaying]   = useState(false)
   const [replayMsg, setReplayMsg]   = useState('')
@@ -456,9 +473,11 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
     Promise.all([
       apiCall('GET', `/bots/${empresaId}/contacts`, null).catch(() => []),
       apiCall('GET', `/bots/${empresaId}/contacts/suggested`, null).catch(() => []),
-    ]).then(([c, s]) => {
+      apiCall('GET', `/empresas/${empresaId}/google-accounts`, null).catch(() => []),
+    ]).then(([c, s, g]) => {
       if (Array.isArray(c)) setContacts(c)
       if (Array.isArray(s)) setSuggested(s)
+      if (Array.isArray(g)) setGoogleAccounts(g)
     })
   }, [empresaId])
 
@@ -544,8 +563,9 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
 
   // Inyectar datos extra en los campos custom
   const visibleFields = (schema || []).filter(f => isVisible(f, config)).map(f => {
-    if (f.type === 'connection_select') return { ...f, _connections: connections || [] }
-    if (f.type === 'contact_filter')   return { ...f, _contacts: contacts, _suggested: suggested }
+    if (f.type === 'connection_select')      return { ...f, _connections: connections || [] }
+    if (f.type === 'contact_filter')         return { ...f, _contacts: contacts, _suggested: suggested }
+    if (f.type === 'google_account_select')  return { ...f, _googleAccounts: googleAccounts }
     return f
   })
 

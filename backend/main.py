@@ -11,7 +11,7 @@ from telegram.ext import Application
 from pathlib import Path
 
 from config import load_config, get_telegram_connections
-from db import init_db
+from db import init_db, google_connection_exists, create_google_connection
 from bots.telegram_bot import build_telegram_app
 from state import clients, wa_session
 from api.whatsapp import _connect_and_get_qr, _get_wa_config
@@ -103,11 +103,38 @@ logger = logging.getLogger(__name__)
 _tg_apps: list[Application] = []
 
 
+async def _seed_pulpo_google_connection():
+    """Si GOOGLE_SERVICE_ACCOUNT_JSON está en .env y no existe 'pulpo-default', lo crea."""
+    import json as _json
+    sa_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+    if not sa_json:
+        return
+    if await google_connection_exists("pulpo-default"):
+        return
+    try:
+        info = _json.loads(sa_json)
+        email = info.get("client_email", "")
+        if not email:
+            logger.warning("[google] GOOGLE_SERVICE_ACCOUNT_JSON no tiene client_email, no se crea pulpo-default")
+            return
+        await create_google_connection(
+            id="pulpo-default",
+            empresa_id=None,
+            credentials_json=sa_json,
+            email=email,
+            label="Cuenta Pulpo",
+        )
+        logger.info(f"[google] Conexión pulpo-default creada: {email}")
+    except Exception as e:
+        logger.error(f"[google] Error creando pulpo-default: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Arranque
     await init_db()
     await seed_default_flows()
+    await _seed_pulpo_google_connection()
     logger.info("DB lista.")
 
     if sim_engine.SIM_MODE:

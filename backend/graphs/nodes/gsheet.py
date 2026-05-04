@@ -26,6 +26,24 @@ logger = logging.getLogger(__name__)
 _rows_cache: dict[str, tuple[list[dict], float]] = {}
 
 
+async def _resolve_credentials(config: dict) -> str:
+    """
+    Resuelve las credenciales del Service Account a usar.
+    Primero intenta la conexión seleccionada en la config del nodo,
+    luego cae al env var GOOGLE_SERVICE_ACCOUNT_JSON como fallback.
+    """
+    conn_id = config.get("google_account", "").strip()
+    if conn_id:
+        try:
+            import db
+            creds = await db.get_google_connection_credentials(conn_id)
+            if creds:
+                return creds
+        except Exception as e:
+            logger.warning("[GSheetNode] Error obteniendo credenciales de DB: %s", e)
+    return os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+
+
 def _sheet_csv_url(sheet_id: str, range_param: str) -> str:
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
     if range_param:
@@ -180,9 +198,9 @@ class GSheetNode(BaseNode):
             logger.warning("[GSheetNode] append: sheet_id no configurado")
             return state
 
-        sa_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+        sa_json = await _resolve_credentials(self.config)
         if not sa_json:
-            logger.error("[GSheetNode] append: falta GOOGLE_SERVICE_ACCOUNT_JSON en .env")
+            logger.error("[GSheetNode] append: no hay credenciales Google configuradas")
             return state
 
         values = [_get_search_value(state, col.get("source", "")) for col in columns]
@@ -224,6 +242,13 @@ class GSheetNode(BaseNode):
                 ],
             },
             # ── Común ──────────────────────────────────────────────────────────
+            "google_account": {
+                "type":    "google_account_select",
+                "label":   "Cuenta Google (solo para Agregar)",
+                "default": "",
+                "hint":    "Necesaria para escribir en la hoja. Para leer, la hoja puede ser pública.",
+                "show_if": {"mode": "append"},
+            },
             "sheet_id": {
                 "type":     "string",
                 "label":    "ID de Google Sheet",

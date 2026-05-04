@@ -294,6 +294,18 @@ async def delete_flow(
     return Response(status_code=204)
 
 
+@router.get("/empresas/{empresa_id}/google-accounts")
+async def list_google_accounts(
+    empresa_id: str,
+    request: Request,
+    x_password: Optional[str] = Header(None),
+):
+    """Lista las cuentas Google disponibles para la empresa (propias + pulpo-default)."""
+    _require_empresa(empresa_id, request, x_password)
+    conns = await db.get_google_connections(empresa_id)
+    return [{"id": c["id"], "email": c["email"], "label": c["label"]} for c in conns]
+
+
 # ─── Seed de flows por defecto ────────────────────────────────────────────────
 
 _DEFAULT_FLOW_DEFINITION = {
