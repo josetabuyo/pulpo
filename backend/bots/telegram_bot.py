@@ -1,6 +1,7 @@
 import logging
 import time
 from telegram import Update
+from telegram.error import NetworkError, TimedOut
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 from db import log_message, mark_answered
 
@@ -106,6 +107,14 @@ def build_telegram_app(bot_config: dict):
         except Exception as e:
             logger.error(f"{label}   → Error al responder: {e}")
 
+    async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        err = context.error
+        if isinstance(err, (NetworkError, TimedOut)):
+            logger.warning(f"{label} ⚠️ Red caída (Telegram polling): {err}")
+        else:
+            logger.error(f"{label} Error inesperado en bot Telegram", exc_info=err)
+
     app = ApplicationBuilder().token(token).build()
     app.add_handler(MessageHandler(filters.ALL, handle_message))
+    app.add_error_handler(error_handler)
     return app

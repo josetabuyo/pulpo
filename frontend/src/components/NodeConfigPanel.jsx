@@ -371,6 +371,106 @@ function Field({ field, config, onChange }) {
     )
   }
 
+  if (type === 'google_account_select') {
+    const accounts = field._google_accounts || []
+    const selected = accounts.find(a => a.id === value) || accounts[0]
+    const [copied, setCopied] = useState(false)
+    function copy() {
+      if (!selected) return
+      navigator.clipboard.writeText(selected.email)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    }
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={S.fieldWrap}>
+          {labelEl}
+          {accounts.length === 0 ? (
+            <span style={{ fontSize: 11, color: '#ef4444' }}>
+              No hay cuentas Google configuradas (falta GOOGLE_SERVICE_ACCOUNT_JSON en .env)
+            </span>
+          ) : (
+            <select
+              style={S.select}
+              value={value}
+              onChange={e => set(e.target.value)}
+            >
+              {accounts.map(a => (
+                <option key={a.id} value={a.id}>{a.label} — {a.email}</option>
+              ))}
+            </select>
+          )}
+        </div>
+        {selected && (
+          <div style={{
+            background: '#0f172a', border: '1px solid #1e3a5f', borderRadius: 6,
+            padding: '7px 10px', display: 'flex', flexDirection: 'column', gap: 4,
+          }}>
+            <span style={{ fontSize: 10, color: '#60a5fa', fontWeight: 700, letterSpacing: '0.06em' }}>
+              COMPARTIR PLANILLA CON PULPO
+            </span>
+            <span style={{ fontSize: 10, color: '#64748b', lineHeight: 1.5 }}>
+              Para que este nodo pueda acceder a tu Google Sheet, compartila con este email:
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 11, color: '#94a3b8', fontFamily: 'monospace', flex: 1, wordBreak: 'break-all' }}>
+                {selected.email}
+              </span>
+              <button
+                onClick={copy}
+                style={{
+                  fontSize: 10, padding: '2px 7px', borderRadius: 4, cursor: 'pointer',
+                  background: copied ? '#166534' : 'transparent',
+                  border: `1px solid ${copied ? '#16a34a' : '#334155'}`,
+                  color: copied ? '#4ade80' : '#64748b',
+                  flexShrink: 0, transition: 'all 0.2s',
+                }}
+              >
+                {copied ? 'Copiado' : 'Copiar'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  if (type === 'info') {
+    const [copied, setCopied] = useState(false)
+    function copy() {
+      navigator.clipboard.writeText(hint || label)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    }
+    return (
+      <div style={{
+        background: '#0f172a', border: '1px solid #1e3a5f', borderRadius: 6,
+        padding: '7px 10px', display: 'flex', flexDirection: 'column', gap: 4,
+      }}>
+        <span style={{ fontSize: 10, color: '#60a5fa', fontWeight: 700, letterSpacing: '0.06em' }}>
+          {label.toUpperCase()}
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 11, color: '#94a3b8', fontFamily: 'monospace', flex: 1, wordBreak: 'break-all' }}>
+            {hint || label}
+          </span>
+          <button
+            onClick={copy}
+            style={{
+              fontSize: 10, padding: '2px 7px', borderRadius: 4, cursor: 'pointer',
+              background: copied ? '#166534' : 'transparent',
+              border: `1px solid ${copied ? '#16a34a' : '#334155'}`,
+              color: copied ? '#4ade80' : '#64748b',
+              flexShrink: 0, transition: 'all 0.2s',
+            }}
+          >
+            {copied ? 'Copiado' : 'Copiar'}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   // string (default)
   return (
     <div style={S.fieldWrap}>
@@ -388,6 +488,36 @@ function Field({ field, config, onChange }) {
 }
 
 // ─── Info especial: Sumarizador ────────────────────────────────────────────────
+
+function SheetCacheButton({ apiCall }) {
+  const [status, setStatus] = useState('')
+  async function handleClear() {
+    setStatus('Limpiando...')
+    try {
+      const res = await apiCall('POST', '/flow/clear-sheet-cache', null)
+      setStatus(`✓ Caché limpiado (${res.cleared} entradas)`)
+    } catch {
+      setStatus('Error al limpiar')
+    }
+    setTimeout(() => setStatus(''), 3000)
+  }
+  return (
+    <div style={{ paddingTop: 8, borderTop: '1px solid #1e293b' }}>
+      <button
+        onClick={handleClear}
+        style={{
+          width: '100%', padding: '7px 12px',
+          background: 'transparent', border: '1px solid #0e7490',
+          borderRadius: 6, color: '#22d3ee', fontSize: 12,
+          cursor: 'pointer', fontWeight: 600,
+        }}
+      >
+        🗑 Limpiar caché de hoja
+      </button>
+      {status && <div style={{ fontSize: 11, color: '#22d3ee', textAlign: 'center', marginTop: 4 }}>{status}</div>}
+    </div>
+  )
+}
 
 function SummarizeInfo({ empresaId, apiCall, onGoToUIs }) {
   const [absPath, setAbsPath] = useState(null)
@@ -435,8 +565,9 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
   const deleteNode        = useFlowStore(s => s.deleteNode)
   const setSelectedNodeId = useFlowStore(s => s.setSelectedNodeId)
   const { nodeType, config, label, color } = node.data
-  const [contacts, setContacts]   = useState([])
-  const [suggested, setSuggested] = useState([])
+  const [contacts, setContacts]         = useState([])
+  const [suggested, setSuggested]       = useState([])
+  const [googleAccounts, setGoogleAccounts] = useState([])
   const [cloning, setCloning]       = useState(false)
   const [cloneMsg, setCloneMsg]     = useState('')
   const [replaying, setReplaying]   = useState(false)
@@ -456,9 +587,11 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
     Promise.all([
       apiCall('GET', `/bots/${empresaId}/contacts`, null).catch(() => []),
       apiCall('GET', `/bots/${empresaId}/contacts/suggested`, null).catch(() => []),
-    ]).then(([c, s]) => {
-      if (Array.isArray(c)) setContacts(c)
-      if (Array.isArray(s)) setSuggested(s)
+      apiCall('GET', `/flow/google-accounts`, null).catch(() => []),
+    ]).then(([c, s, ga]) => {
+      if (Array.isArray(c))  setContacts(c)
+      if (Array.isArray(s))  setSuggested(s)
+      if (Array.isArray(ga)) setGoogleAccounts(ga)
     })
   }, [empresaId])
 
@@ -544,8 +677,9 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
 
   // Inyectar datos extra en los campos custom
   const visibleFields = (schema || []).filter(f => isVisible(f, config)).map(f => {
-    if (f.type === 'connection_select') return { ...f, _connections: connections || [] }
-    if (f.type === 'contact_filter')   return { ...f, _contacts: contacts, _suggested: suggested }
+    if (f.type === 'connection_select')    return { ...f, _connections: connections || [] }
+    if (f.type === 'contact_filter')       return { ...f, _contacts: contacts, _suggested: suggested }
+    if (f.type === 'google_account_select') return { ...f, _google_accounts: googleAccounts }
     return f
   })
 
@@ -601,6 +735,10 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
           </div>
         )}
       </div>
+
+      {['fetch_sheet', 'search_sheet', 'gsheet'].includes(nodeType) && (
+        <SheetCacheButton apiCall={apiCall} />
+      )}
 
       {isTrigger && config.connection_id && (
         <div style={{ paddingTop: 8, borderTop: '1px solid #1e293b', display: 'flex', flexDirection: 'column', gap: 6 }}>

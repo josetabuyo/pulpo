@@ -67,6 +67,28 @@ start_front() {
   cd "$ROOT/frontend" && npm run dev >> "$FRONT_LOG" 2>&1
 }
 
+start_ngrok() {
+  # Solo en producción y si hay dominio configurado
+  [ "$WORKTREE" = "_" ] && [ -n "$VITE_PUBLIC_URL" ] || return
+
+  NGROK_DOMAIN="${VITE_PUBLIC_URL#https://}"
+  NGROK_DOMAIN="${NGROK_DOMAIN#http://}"
+  NGROK_LOG="$LOG_DIR/ngrok.log"
+
+  if curl -sf http://localhost:4040/api/tunnels 2>/dev/null | grep -q "$NGROK_DOMAIN"; then
+    echo "⚠️  ngrok ya está corriendo en $NGROK_DOMAIN — no lo reinicio"
+    return
+  fi
+
+  if ! command -v ngrok &>/dev/null; then
+    echo "⚠️  ngrok no encontrado — acceso externo no disponible"
+    return
+  fi
+
+  echo "▶ ngrok → $NGROK_LOG"
+  ngrok http "$FRONTEND_PORT" --url="$NGROK_DOMAIN" >> "$NGROK_LOG" 2>&1 &
+}
+
 case "$MODE" in
   back)  start_back ;;
   front) start_front ;;
@@ -76,9 +98,10 @@ case "$MODE" in
     echo "    tail -f $BACK_LOG"
     echo "    tail -f $FRONT_LOG"
     echo ""
-    trap 'kill %1 %2 2>/dev/null' EXIT
+    trap 'kill %1 %2 %3 2>/dev/null' EXIT
     start_back &
     start_front &
+    start_ngrok &
     wait
     ;;
   *)

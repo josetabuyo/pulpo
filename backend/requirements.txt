@@ -10,3 +10,6 @@ playwright>=1.49.0
 groq>=0.11.0
 langgraph>=1.1.0
 langchain-groq>=1.1.0
+langchain-openai>=0.2.0
+google-auth>=2.0.0
+google-api-python-client>=2.0.0

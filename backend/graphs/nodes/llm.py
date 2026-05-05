@@ -35,10 +35,7 @@ class LLMNode(BaseNode):
         reply_key   = self.config.get("json_reply_key", "reply")
         route_key   = self.config.get("json_route_key", "")
 
-        api_key = os.getenv("GROQ_API_KEY")
-        if not api_key:
-            logger.error("[LLMNode] Sin GROQ_API_KEY")
-            return state
+        is_local = model.startswith("local:")
 
         # Interpolar placeholders en el prompt y construir system.
         # Compat: si el prompt no menciona {{context}} pero hay contexto, se agrega al final.
@@ -47,12 +44,27 @@ class LLMNode(BaseNode):
             system += f"\n\nContexto:\n{state.context}"
 
         try:
-            from langchain_groq import ChatGroq
-            kwargs: dict = {}
-            if json_out:
-                kwargs["model_kwargs"] = {"response_format": {"type": "json_object"}}
+            if is_local:
+                from langchain_openai import ChatOpenAI
+                ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+                ollama_model = model.removeprefix("local:")
+                llm = ChatOpenAI(
+                    model=ollama_model,
+                    base_url=ollama_url,
+                    api_key="ollama",
+                    temperature=temperature,
+                )
+            else:
+                api_key = os.getenv("GROQ_API_KEY")
+                if not api_key:
+                    logger.error("[LLMNode] Sin GROQ_API_KEY")
+                    return state
+                from langchain_groq import ChatGroq
+                kwargs: dict = {}
+                if json_out:
+                    kwargs["model_kwargs"] = {"response_format": {"type": "json_object"}}
+                llm = ChatGroq(model=model, api_key=api_key, temperature=temperature, **kwargs)
 
-            llm = ChatGroq(model=model, api_key=api_key, temperature=temperature, **kwargs)
             result = await llm.ainvoke([
                 {"role": "system", "content": system},
                 {"role": "user",   "content": state.message},
@@ -87,6 +99,9 @@ class LLMNode(BaseNode):
             "prompt":         {"type": "textarea", "label": "System prompt",        "default": "", "rows": 8},
             "model":          {"type": "select",   "label": "Modelo",               "default": "llama-3.3-70b-versatile",
                                "options": [
+                                   # ── Local (Ollama) ──────────────────────────────
+                                   {"value": "local:gemma4:e4b",         "label": "Gemma 4 4B — local (Ollama)"},
+                                   # ── Groq (cloud) ────────────────────────────────
                                    {"value": "llama-3.3-70b-versatile",  "label": "llama-3.3-70b-versatile (recomendado)"},
                                    {"value": "llama-3.1-70b-versatile",  "label": "llama-3.1-70b-versatile"},
                                    {"value": "llama-3.1-8b-instant",     "label": "llama-3.1-8b-instant (rápido)"},

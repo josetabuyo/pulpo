@@ -49,10 +49,13 @@ def get_bots():
         for tg in bot.get("telegram", []):
             token_id = tg["token"].split(":")[0]
             session_id = f"{bot['id']}-tg-{token_id}"
+            tg_client = clients.get(session_id, {})
             telegram.append({
                 "tokenId": token_id,
                 "sessionId": session_id,
-                "status": clients.get(session_id, {}).get("status", "stopped"),
+                "status": tg_client.get("status", "stopped"),
+                "username": tg_client.get("bot_username", ""),
+                "botName": tg_client.get("bot_name", ""),
             })
         result.append({
             "id": bot["id"],

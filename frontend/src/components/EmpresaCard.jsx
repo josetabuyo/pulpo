@@ -36,6 +36,7 @@ export function normalizeBot(bot) {
       })),
       ...(bot.telegram ?? []).map(t => ({
         id: `${bot.id}-tg-${t.tokenId}`, type: 'telegram', number: t.tokenId, status: t.status,
+        username: t.username || '', botName: t.botName || '',
       })),
     ],
   }
@@ -340,7 +341,9 @@ function ConnectionRow({
   useEffect(() => () => stopRef.current?.(), [])
 
   const isTg = conn.type === 'telegram'
-  const displayId = isTg ? conn.number : `+${conn.number}`
+  const displayId = isTg
+    ? (conn.username ? `@${conn.username}` : conn.botName || conn.number)
+    : `+${conn.number}`
   const connected = localStatus === 'ready'
   const inactive = isInactive(localStatus)
   const connecting = isConnecting(localStatus)

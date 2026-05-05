@@ -18,6 +18,9 @@ export const PALETTE_TYPES = [
   'set_state',
   'save_contact',
   'check_contact',
+  'fetch_sheet',
+  'search_sheet',
+  'gsheet',
 ]
 // Nota: luganense_flow eliminado — era un mega-nodo legacy, reemplazado por nodos individuales
 

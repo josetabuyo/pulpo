@@ -88,6 +88,46 @@ class FlowUpdate(BaseModel):
     active: bool | None = None
 
 
+# ─── Cuentas Google configuradas ─────────────────────────────────────────────
+
+@router.get("/flow/google-accounts")
+def list_google_accounts():
+    """
+    Devuelve las cuentas de servicio Google configuradas.
+    Por ahora soporta una sola cuenta via GOOGLE_SERVICE_ACCOUNT_JSON.
+    Retorna [{id, email, label}] para poblar el selector en el frontend.
+    """
+    import json as _json
+    accounts = []
+    sa_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+    if sa_json:
+        try:
+            d = _json.loads(sa_json)
+            accounts.append({
+                "id":    "default",
+                "email": d.get("client_email", ""),
+                "label": "Cuenta principal",
+            })
+        except Exception:
+            pass
+    return accounts
+
+
+# ─── Caché de nodos sheet ────────────────────────────────────────────────────
+
+@router.post("/flow/clear-sheet-cache")
+def clear_sheet_cache():
+    """Limpia el caché en memoria de fetch_sheet, search_sheet y gsheet."""
+    from graphs.nodes.fetch_sheet import _sheet_cache
+    from graphs.nodes.search_sheet import _rows_cache as _search_cache
+    from graphs.nodes.gsheet import _rows_cache as _gsheet_cache
+    n = len(_sheet_cache) + len(_search_cache) + len(_gsheet_cache)
+    _sheet_cache.clear()
+    _search_cache.clear()
+    _gsheet_cache.clear()
+    return {"ok": True, "cleared": n}
+
+
 # ─── Endpoints de flows CRUD ──────────────────────────────────────────────────
 
 @router.get("/empresas/{empresa_id}/flows")

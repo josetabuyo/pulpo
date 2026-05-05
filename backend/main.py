@@ -94,6 +94,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("hpack").setLevel(logging.WARNING)
 logging.getLogger("asyncio").setLevel(logging.WARNING)
+logging.getLogger("telegram").setLevel(logging.WARNING)
 # El módulo de automatización en INFO — WebGL noise y mensajes ignorados quedan en DEBUG
 logging.getLogger("automation").setLevel(logging.INFO)
 # Excluir del log de acceso de uvicorn los endpoints de polling de la UI
@@ -141,8 +142,15 @@ async def lifespan(app: FastAPI):
             await tg_app.start()
             await tg_app.updater.start_polling(drop_pending_updates=True)
             _tg_apps.append(tg_app)
-            clients[session_id] = {"status": "ready", "qr": None, "connection_id": cfg["connection_id"], "type": "telegram", "client": tg_app}
-            logger.info(f"[{cfg['connection_id']}/tg-{token_id}] Bot de Telegram listo.")
+            bot_info = await tg_app.bot.get_me()
+            clients[session_id] = {
+                "status": "ready", "qr": None,
+                "connection_id": cfg["connection_id"], "type": "telegram",
+                "client": tg_app,
+                "bot_username": bot_info.username or "",
+                "bot_name": bot_info.first_name or "",
+            }
+            logger.info(f"[{cfg['connection_id']}/tg-{token_id}] Bot de Telegram listo — @{bot_info.username}.")
 
         if not tg_configs:
             logger.warning("No hay bots de Telegram configurados en connections.json.")

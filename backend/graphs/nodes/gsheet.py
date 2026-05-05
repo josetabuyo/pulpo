@@ -48,7 +48,7 @@ async def _fetch_rows(sheet_id: str, range_param: str, cache_minutes: float) -> 
             return rows
     url = _sheet_csv_url(sheet_id, range_param)
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
             resp = await client.get(url)
             resp.raise_for_status()
             rows = list(csv.DictReader(io.StringIO(resp.text)))
@@ -291,6 +291,12 @@ class GSheetNode(BaseNode):
                 "show_if": {"mode": "read_all"},
             },
             # ── Append ─────────────────────────────────────────────────────────
+            "google_account": {
+                "type":    "google_account_select",
+                "label":   "Cuenta Google",
+                "default": "default",
+                "show_if": {"mode": "append"},
+            },
             "sheet_name": {
                 "type":    "string",
                 "label":   "Nombre de la hoja",

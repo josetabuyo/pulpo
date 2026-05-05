@@ -95,7 +95,7 @@ class FetchSheetNode(BaseNode):
     async def _download(self, sheet_id: str, range_param: str, fmt: str, cache_key: str | None, now: float) -> str | None:
         url = _build_url(sheet_id, range_param)
         try:
-            async with httpx.AsyncClient(timeout=15) as client:
+            async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
                 resp = await client.get(url)
                 resp.raise_for_status()
                 content = _csv_to_format(resp.text, fmt)

@@ -154,22 +154,27 @@ export default function FlowList({ empresaId, apiCall, connections, onGoToUIs })
 }
 
 function FlowRow({ flow, connections, onEdit, onToggle, onDelete, isDeleting }) {
-  // Encontrar label de la conexión si tiene una asignada
   const conn = connections?.find(c => c.id === flow.connection_id)
   const connLabel = conn
     ? `${CONNECTION_LABELS[conn.type] || conn.type} ${conn.number}`
     : flow.connection_id ? flow.connection_id : null
 
   return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: 8,
-      padding: '9px 12px',
-      background: '#0f172a',
-      borderRadius: 8,
-      border: '1px solid #1e293b',
-    }}>
+    <div
+      onClick={onEdit}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '9px 12px',
+        background: '#0f172a',
+        borderRadius: 8,
+        border: '1px solid #1e293b',
+        cursor: 'pointer',
+      }}
+      onMouseEnter={e => e.currentTarget.style.borderColor = '#334155'}
+      onMouseLeave={e => e.currentTarget.style.borderColor = '#1e293b'}
+    >
       {/* Indicador activo */}
       <div style={{
         width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
@@ -188,24 +193,8 @@ function FlowRow({ flow, connections, onEdit, onToggle, onDelete, isDeleting }) 
         </div>
       </div>
 
-      {/* Acciones */}
       <button
-        onClick={onEdit}
-        style={{
-          background: '#1e293b',
-          border: '1px solid #334155',
-          borderRadius: 5,
-          color: '#94a3b8',
-          fontSize: 12,
-          padding: '4px 10px',
-          cursor: 'pointer',
-        }}
-      >
-        Editar
-      </button>
-
-      <button
-        onClick={onToggle}
+        onClick={e => { e.stopPropagation(); onToggle() }}
         title={flow.active ? 'Desactivar' : 'Activar'}
         style={{
           background: 'none',
@@ -220,7 +209,7 @@ function FlowRow({ flow, connections, onEdit, onToggle, onDelete, isDeleting }) 
       </button>
 
       <button
-        onClick={onDelete}
+        onClick={e => { e.stopPropagation(); onDelete() }}
         disabled={isDeleting}
         title="Eliminar flow"
         style={{

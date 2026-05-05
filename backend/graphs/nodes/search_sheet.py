@@ -53,7 +53,7 @@ async def _fetch_rows(sheet_id: str, range_param: str, cache_minutes: float) -> 
 
     url = _build_url(sheet_id, range_param)
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
             resp = await client.get(url)
             resp.raise_for_status()
             reader = csv.DictReader(io.StringIO(resp.text))
@@ -119,6 +119,11 @@ class SearchSheetNode(BaseNode):
     @classmethod
     def config_schema(cls) -> dict:
         return {
+            "google_account": {
+                "type":    "google_account_select",
+                "label":   "Cuenta Google",
+                "default": "default",
+            },
             "sheet_id": {
                 "type":    "string",
                 "label":   "ID de Google Sheet",

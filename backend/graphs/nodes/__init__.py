@@ -26,6 +26,7 @@ from .telegram_trigger import TelegramTriggerNode
 from .message_join import MessageJoinNode
 from .fetch_sheet import FetchSheetNode
 from .gsheet import GSheetNode
+from .search_sheet import SearchSheetNode
 
 NODE_REGISTRY: dict[str, type] = {
     "message_trigger":   MessageTriggerNode,
@@ -45,6 +46,7 @@ NODE_REGISTRY: dict[str, type] = {
     "save_attachment":  SaveAttachmentNode,
     "fetch_sheet":      FetchSheetNode,
     "gsheet":           GSheetNode,
+    "search_sheet":     SearchSheetNode,
 }
 
 __all__ = [

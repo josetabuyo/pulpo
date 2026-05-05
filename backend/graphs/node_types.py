@@ -130,6 +130,12 @@ NODE_TYPES: dict[str, NodeType] = {
         color="#16a34a",
         description="Busca una fila exacta en una Google Sheet, o agrega una fila nueva.",
     ),
+    "search_sheet": NodeType(
+        id="search_sheet",
+        label="Buscar en planilla",
+        color="#0e7490",
+        description="Busca en una Google Sheet el ítem que coincide con el mensaje. Usa LLM para identificar el valor.",
+    ),
 }
 
 
@@ -159,8 +165,9 @@ _CLASSIFY_SUBSTRINGS: list[tuple[str, str]] = [
     ("whatsapp_trigger", "whatsapp_trigger"),
     ("telegram_trigger", "telegram_trigger"),
     ("message_join", "message_join"),
-    ("fetch_sheet",  "fetch_sheet"),
-    ("gsheet",       "gsheet"),
+    ("fetch_sheet",   "fetch_sheet"),
+    ("search_sheet",  "search_sheet"),
+    ("gsheet",        "gsheet"),
 ]
 
 

@@ -20,6 +20,7 @@ import base64
 import logging
 from pathlib import Path
 
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from automation.browser import BrowserAutomation
 from state import clients
 
@@ -66,7 +67,6 @@ class WhatsAppSession(BrowserAutomation):
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
-                "--remote-debugging-port=9222",  # permite inspección vía chrome://inspect
             ],
             user_agent=(
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -140,7 +140,7 @@ class WhatsAppSession(BrowserAutomation):
                     f"{SELECTORS_AUTHED}, {SELECTORS_QR}",
                     timeout=90_000,
                 )
-            except Exception:
+            except PlaywrightTimeoutError:
                 logger.error(f"[{session_id}] WA Web no cargó en 90s")
                 _update(session_id, status="failed")
                 await self.close_session(session_id)
@@ -180,6 +180,10 @@ class WhatsAppSession(BrowserAutomation):
             _update(session_id, status="qr_ready", qr=qr_b64)
             logger.info(f"[{session_id}] QR capturado.")
             return qr_b64
+        except PlaywrightTimeoutError:
+            logger.error(f"[{session_id}] QR no apareció en {QR_APPEAR_TIMEOUT_MS // 1000}s")
+            _update(session_id, status="failed")
+            return None
         except Exception as e:
             logger.error(f"[{session_id}] Error capturando QR: {e}")
             _update(session_id, status="failed")
@@ -201,15 +205,19 @@ class WhatsAppSession(BrowserAutomation):
                 state="hidden",
                 timeout=QR_SCAN_TIMEOUT_MS,
             )
-            # Confirmar que la UI principal cargó
+            # Confirmar que la UI principal cargó (sesión nueva puede tardar hasta 45s en sincronizar)
             await page.wait_for_selector(
                 "[data-testid='chat-list'], #side, [data-testid='search-input']",
-                timeout=15_000,
+                timeout=45_000,
             )
             # El perfil Chrome ya se guardó solo — no hace falta save_session()
             _update(session_id, status="ready", qr=None)
             logger.info(f"[{session_id}] Autenticado. Perfil guardado en disco automáticamente.")
             return True
+        except PlaywrightTimeoutError:
+            logger.warning(f"[{session_id}] QR no escaneado en {QR_SCAN_TIMEOUT_MS // 1000}s — sesión sigue en espera.")
+            _update(session_id, status="qr_needed")
+            return False
         except Exception as e:
             logger.warning(f"[{session_id}] Error esperando autenticación: {e}")
             _update(session_id, status="qr_needed")
@@ -411,9 +419,15 @@ class WhatsAppSession(BrowserAutomation):
             if not reply or body.strip() == reply.strip():
                 return
 
-            # Enviamos en página temporal para no interrumpir el observer
-            target = phone if phone else name
-            ok = await self.send_message(session_id, target, reply)
+            # Enviamos en página temporal para no interrumpir el observer.
+            # Si tenemos phone (dígitos del data-id), lo usamos como primary y name como fallback
+            # para manejar cuentas WA Business no agendadas (el sidebar muestra el nombre, no el número).
+            ok = await self.send_message(
+                session_id,
+                phone or name,
+                reply,
+                fallback=name if phone and name != phone else "",
+            )
             if ok:
                 logger.info(f"[{session_id}] → Respuesta enviada a '{name}': {reply[:200]}")
                 for mid in msg_ids.values():
@@ -2938,25 +2952,35 @@ class WhatsAppSession(BrowserAutomation):
             logger.error(f"[{session_id}] purge_drafts error: {e}")
             return 0
 
-    async def send_message(self, session_id: str, phone: str, text: str) -> bool:
+    async def send_message(self, session_id: str, phone: str, text: str, fallback: str = "") -> bool:
         """
         Envía un mensaje clickeando el chat en el sidebar de la página principal.
         NO abre nueva pestaña — evita el popup "Usar aquí" de WA Web.
         phone: número (preferido, extraído de data-id) o nombre como fallback.
+        fallback: nombre a intentar si phone no aparece en el sidebar (ej: cuenta WA Business).
         """
         page = self.get_page(session_id)
         if not page:
             logger.warning(f"[{session_id}] send_message: no hay página activa")
             return False
 
+        async def _click_span(title: str, timeout_ms: int) -> bool:
+            try:
+                span = page.locator(f"[role='grid'] span[title='{title}']").first
+                await span.wait_for(state="visible", timeout=timeout_ms)
+                await span.click()
+                return True
+            except Exception:
+                return False
+
         try:
-            # Usar Playwright click real (no JS .click()) para activar los handlers React
-            # Buscar el span con el nombre/número del contacto en el sidebar
-            contact_span = page.locator(
-                f"[role='grid'] span[title='{phone}']"
-            ).first
-            await contact_span.wait_for(state="visible", timeout=5000)
-            await contact_span.click()
+            # Intentar primero por phone; si falla y hay fallback (nombre WA Business), intentarlo.
+            short_timeout = 3000 if fallback else 5000
+            clicked = await _click_span(phone, short_timeout)
+            if not clicked and fallback and fallback != phone:
+                clicked = await _click_span(fallback, 5000)
+            if not clicked:
+                raise RuntimeError(f"Chat no encontrado: {phone!r} / {fallback!r}")
 
             # Esperar que el compose box aparezca
             compose = page.locator(
@@ -2981,6 +3005,18 @@ class WhatsAppSession(BrowserAutomation):
 # ------------------------------------------------------------------
 # Helpers internos
 # ------------------------------------------------------------------
+
+def _digits(s: str) -> str:
+    import re as _re
+    return _re.sub(r'\D', '', s)
+
+def _in_list(value: str, lst: list) -> bool:
+    """Compara value contra lst; también por dígitos para tolerar distintos formatos de número."""
+    if value in lst:
+        return True
+    v_d = _digits(value)
+    return bool(v_d) and any(_digits(e) == v_d for e in lst)
+
 
 async def _passes_any_flow_filter(connection_id: str, name: str, phone: str) -> bool:
     """
@@ -3014,10 +3050,10 @@ async def _passes_any_flow_filter(connection_id: str, name: str, phone: str) -> 
         inc_all  = cf.get("include_all_known", False)
         inc_unk  = cf.get("include_unknown", False)
 
-        if name in excluded or phone in excluded:
+        if _in_list(name, excluded) or _in_list(phone, excluded):
             continue  # este flow lo excluye, probar siguiente
 
-        if name in included or phone in included:
+        if _in_list(name, included) or _in_list(phone, included):
             return True
         if inc_all or inc_unk:
             return True  # filtro abierto (todos los conocidos / desconocidos)
