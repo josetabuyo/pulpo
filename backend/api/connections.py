@@ -1,3 +1,6 @@
+import json
+import uuid
+
 from fastapi import APIRouter, HTTPException, Depends, Request, Header
 from pydantic import BaseModel
 
@@ -5,6 +8,7 @@ from api.deps import require_admin, ADMIN_PASSWORD
 from config import load_config, save_config, get_connection_default_filter, set_connection_default_filter
 from middleware_auth import get_empresa_id_from_token
 from state import clients
+import db
 
 _ADMIN_SENTINEL = "__admin__"
 
@@ -171,4 +175,80 @@ def delete_connection_filter(number: str):
     ok = set_connection_default_filter(number, None)
     if not ok:
         raise HTTPException(status_code=404, detail="Número no encontrado")
+    return {"ok": True}
+
+
+# ─── Google Connections ───────────────────────────────────────────────────────
+
+class GoogleConnectionCreate(BaseModel):
+    credentials_json: str
+    label: str | None = None
+
+
+def _check_empresa_auth(empresa_id: str, request: Request, x_password: str | None) -> str:
+    """Permite admin o la propia empresa. Retorna empresa_id o _ADMIN_SENTINEL."""
+    if x_password == ADMIN_PASSWORD:
+        return _ADMIN_SENTINEL
+    token_empresa_id = get_empresa_id_from_token(request)
+    if not token_empresa_id:
+        raise HTTPException(status_code=401, detail="Token requerido o inválido")
+    if token_empresa_id != empresa_id:
+        raise HTTPException(status_code=403, detail="No autorizado para esta empresa")
+    return token_empresa_id
+
+
+@router.get("/empresas/{empresa_id}/google-connections")
+async def list_google_connections(
+    empresa_id: str,
+    request: Request,
+    x_password: str = Header(default=None),
+):
+    _check_empresa_auth(empresa_id, request, x_password)
+    conns = await db.get_google_connections(empresa_id)
+    return conns
+
+
+@router.post("/empresas/{empresa_id}/google-connections", status_code=201)
+async def create_google_connection(
+    empresa_id: str,
+    body: GoogleConnectionCreate,
+    request: Request,
+    x_password: str = Header(default=None),
+):
+    _check_empresa_auth(empresa_id, request, x_password)
+    try:
+        info = json.loads(body.credentials_json)
+    except Exception:
+        raise HTTPException(status_code=400, detail="credentials_json no es JSON válido")
+    email = info.get("client_email", "")
+    if not email or "private_key" not in info:
+        raise HTTPException(status_code=400, detail="El JSON debe tener client_email y private_key")
+    conn_id = str(uuid.uuid4())
+    label = body.label or email.split("@")[0]
+    await db.create_google_connection(
+        id=conn_id,
+        empresa_id=empresa_id,
+        credentials_json=body.credentials_json,
+        email=email,
+        label=label,
+    )
+    return {"ok": True, "id": conn_id, "email": email, "label": label}
+
+
+@router.delete("/empresas/{empresa_id}/google-connections/{conn_id}")
+async def delete_google_connection(
+    empresa_id: str,
+    conn_id: str,
+    request: Request,
+    x_password: str = Header(default=None),
+):
+    _check_empresa_auth(empresa_id, request, x_password)
+    if conn_id == "pulpo-default":
+        raise HTTPException(status_code=403, detail="La conexión Pulpo no se puede eliminar")
+    conns = await db.get_google_connections(empresa_id)
+    if not any(c["id"] == conn_id for c in conns):
+        raise HTTPException(status_code=404, detail="Conexión no encontrada para esta empresa")
+    ok = await db.delete_google_connection(conn_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Conexión no encontrada")
     return {"ok": True}

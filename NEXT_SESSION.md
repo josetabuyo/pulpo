@@ -1,247 +1,133 @@
-# NEXT_SESSION — refactor-ui-flows
+# NEXT_SESSION — feat-gsheet-connections
 
-**Worktree:** `/Users/josetabuyo/Development/pulpo/refactor-ui-flows`
-**Branch:** `refactor-ui-flows`
-**Backend:** http://localhost:8002
-**Frontend:** http://localhost:5175
-**Modo:** simulado (ENABLE_BOTS=false) — usar simulador para probar flows
+**Worktree:** `/Users/josetabuyo/Development/pulpo/feat-gsheet-connections`
+**Branch:** `feat-gsheet-connections`
+**Backend:** http://localhost:8001
+**Frontend:** http://localhost:5174
+**Modo:** simulado (ENABLE_BOTS=false)
 
 ---
 
 ## Objetivo
 
-Implementar el plan `management/PLAN_REFACTOR_UI_CONTACTOS_FLOWS.md` en 4 fases.
+Convertir las cuentas Google de servicio en conexiones de primera clase en Pulpo,
+igual que WhatsApp y Telegram. Plan completo en `management/PLAN_GSHEET_CONNECTIONS.md`.
 
 ---
 
 ## Arrancar
 
 ```bash
-cd /Users/josetabuyo/Development/pulpo/refactor-ui-flows
+cd /Users/josetabuyo/Development/pulpo/feat-gsheet-connections
 ./start.sh
-```
-
-Correr tests primero:
-```bash
 cd backend && pytest tests/ -v
 ```
 
 ---
 
-## Fase 1 — Nodo `save_contact` + nodo `set_state` (BACKEND)
+## Contexto (lo que ya existe en master)
 
-### 1a. Migración DB: columna `notes` en `contacts`
-
-En `backend/db.py`:
-- Agregar `notes TEXT` a la tabla `contacts` en `init_db()`
-- Migración lazy en `init_db()`: `ALTER TABLE contacts ADD COLUMN notes TEXT` con try/except
-- Actualizar `create_contact(bot_id, name, notes=None)` y `update_contact(contact_id, name, notes=None)`
-- Actualizar `get_contact()` y `get_contacts()` para incluir `notes` en el dict retornado
-
-### 1b. Nodo `set_state`
-
-Archivo: `backend/graphs/nodes/set_state.py`
-
-Escribe un valor fijo en un campo del FlowState. Útil para marcar datos antes de `save_contact`.
-
-```python
-class SetStateNode(BaseNode):
-    async def run(self, state: FlowState) -> FlowState:
-        field = self.config.get("field", "").strip()
-        value = self.config.get("value", "")
-        if field:
-            if hasattr(state, field):
-                setattr(state, field, value)
-            else:
-                if state.extra is None:
-                    state.extra = {}
-                state.extra[field] = value
-        return state
-
-    @classmethod
-    def config_schema(cls) -> dict:
-        return {
-            "field": {"type": "string", "label": "Campo del estado", "hint": "Ej: contact_notes", "required": True},
-            "value": {"type": "string", "label": "Valor a escribir", "required": True},
-        }
-```
-
-Agregar `extra: dict | None = None` a `FlowState` en `backend/graphs/nodes/state.py`.
-
-### 1c. Nodo `save_contact`
-
-Archivo: `backend/graphs/nodes/save_contact.py`
-
-Tonto por diseño: solo persiste lo que ya está en el FlowState. No decide cuándo guardar.
-
-```python
-class SaveContactNode(BaseNode):
-    async def run(self, state: FlowState) -> FlowState:
-        empresa_id = state.empresa_id or ""
-        name_field  = self.config.get("name_field",  "contact_name")
-        phone_field = self.config.get("phone_field", "contact_phone")
-        notes_field = self.config.get("notes_field", "contact_notes")
-        update      = self.config.get("update_if_exists", True)
-
-        # Leer del state o del dict extra
-        def _get(field):
-            v = getattr(state, field, None)
-            if v: return v
-            return (state.extra or {}).get(field)
-
-        name  = _get(name_field)  or state.contact_phone
-        phone = _get(phone_field) or state.contact_phone
-        notes = _get(notes_field)
-
-        if not name or not empresa_id:
-            return state
-
-        import db
-        existing = await db.find_contact_by_channel("whatsapp", phone) if phone else None
-        if existing and update:
-            await db.update_contact(existing["id"], name, notes=notes)
-        elif not existing:
-            contact_id = await db.create_contact(empresa_id, name, notes=notes)
-            if phone:
-                try:
-                    await db.add_channel(contact_id, "whatsapp", phone)
-                except Exception:
-                    pass
-        return state
-
-    @classmethod
-    def config_schema(cls) -> dict:
-        return {
-            "name_field":        {"type": "string", "label": "Campo → nombre",    "default": "contact_name"},
-            "phone_field":       {"type": "string", "label": "Campo → teléfono",  "default": "contact_phone"},
-            "notes_field":       {"type": "string", "label": "Campo → notas",     "default": "contact_notes", "hint": "Ej: trade, category"},
-            "update_if_exists":  {"type": "bool",   "label": "Actualizar si ya existe", "default": True},
-        }
-```
-
-### 1d. Registrar en NODE_REGISTRY
-
-En `backend/graphs/nodes/__init__.py`:
-```python
-from .set_state    import SetStateNode
-from .save_contact import SaveContactNode
-
-NODE_REGISTRY = {
-    ...existentes...,
-    "set_state":    SetStateNode,
-    "save_contact": SaveContactNode,
-}
-```
-
-### 1e. Catálogo frontend
-
-En `frontend/src/components/FlowEditor.jsx` (o donde esté la lista de nodos del panel izquierdo), agregar:
-```js
-{ type: 'set_state',    label: 'Establecer estado', color: '#0891b2' },
-{ type: 'save_contact', label: 'Guardar contacto',  color: '#059669' },
-```
+- Nodos `gsheet`, `search_sheet`, `fetch_sheet` funcionan en producción.
+- Campo `google_account_select` en NodeConfigPanel lee de `GET /api/flow/google-accounts`.
+- Ese endpoint lee solo de `GOOGLE_SERVICE_ACCOUNT_JSON` en `.env` — es lo que hay que reemplazar.
+- La cuenta configurada es `pulpo-sheets@booming-monitor-459317-d3.iam.gserviceaccount.com`.
+- El `.env` ya tiene `GOOGLE_SERVICE_ACCOUNT_JSON` con el JSON completo.
 
 ---
 
-## Fase 2 — Configuración default de Conexión (herencia en trigger)
+## Fase 1 — Backend: conexiones tipo `gsheet`
 
-### 2a. `default_filter` en phones.json
+### 1a. Modelo en DB
 
-Estructura por conexión en phones.json:
-```json
-{
-  "empresas": [{
-    "phones": [{
-      "number": "549...",
-      "default_filter": {
-        "include_all_known": false,
-        "include_unknown": false,
-        "included": [],
-        "excluded": ["Colo", "Enzo grandi"]
-      }
-    }]
-  }]
-}
-```
+En `backend/db.py`, la tabla `connections` (o donde vivan las conexiones) necesita soporte para `type="gsheet"`.
+Revisar primero cómo están modeladas las conexiones WA/TG para seguir el mismo patrón.
 
-Nuevos endpoints en `backend/api/connections.py` (o crear `backend/api/connection_config.py`):
-- `GET  /empresas/{id}/connections/{conn_id}/filter-config`
-- `PUT  /empresas/{id}/connections/{conn_id}/filter-config`
+Una conexión `gsheet` guarda:
+- `type = "gsheet"`
+- `empresa_id` — null si es la cuenta compartida de Pulpo
+- `credentials_json` — el JSON del Service Account (texto plano por ahora, cifrar en el futuro)
+- `email` — extraído de `client_email` del JSON (para mostrar en UI sin exponer las credenciales)
+- `label` — nombre amigable (ej: "Cuenta principal Pulpo")
 
-### 2b. Herencia en el engine
+### 1b. Seed automático al arrancar
 
-En `backend/graphs/compiler.py`, en `execute_flow()`, donde se resuelve `contact_filter`:
+En `backend/main.py` (lifespan), si `GOOGLE_SERVICE_ACCOUNT_JSON` está en `.env`:
+- Si no existe una conexión con `id="pulpo-default"`, crearla.
+- Esto hace que la cuenta de Pulpo esté disponible para todas las empresas sin configurar nada.
 
-```python
-# Herencia: si el trigger no tiene contact_filter, tomar el default de la conexión
-if entry_type == "message_trigger" and entry_config.get("contact_filter") is None:
-    from config import get_connection_default_filter
-    default_cf = get_connection_default_filter(entry_config.get("connection_id", ""))
-    if default_cf:
-        entry_config = {**entry_config, "contact_filter": default_cf}
-```
+### 1c. Listar conexiones Google de una empresa
 
-Agregar `get_connection_default_filter(conn_id: str) -> dict | None` en `backend/config.py`.
+Modificar el endpoint que lista conexiones para incluir las de tipo `gsheet`:
+- Las conexiones propias de la empresa (con su `empresa_id`).
+- La conexión `pulpo-default` (compartida, sin empresa_id).
 
-### 2c. Panel de filtro por conexión en EmpresaCard
+### 1d. Reemplazar `/api/flow/google-accounts`
 
-En `EmpresaCard.jsx`, en el componente de cada fila de conexión WA:
-- Botón "⚙ Filtro" (o ícono) que expande un panel inline
-- Panel: `ContactFilterPicker` (reusar el existente, SIN campo cooldown_hours)
-- Debajo del picker: lista de sugeridos de ESA conexión (filtrados por connection_id) con botón "Excluir"
-- "Excluir" agrega al `default_filter.excluded` y guarda via PUT inmediatamente
-- Botón "Guardar" para el resto del filtro
+Reemplazar (o hacer que internamente use) las conexiones de tipo `gsheet` de la empresa.
+El campo `google_account_select` en los nodos pasa a listar estas conexiones.
 
 ---
 
-## Fase 3 — Refactor EmpresaCard: solapa UIs
+## Fase 2 — Frontend: UI en EmpresaCard
 
-### 3a. Extraer a ContactsUI.jsx
+### 2a. Botón "+ Google Sheets" en la pestaña Conexiones
 
-Crear `frontend/src/components/ContactsUI.jsx` moviendo todo el contenido actual de la solapa "Contactos":
-- Tabla de contactos con editar/eliminar
-- Sugeridos (con separador has_messages, botón Agregar, Excluir, Agregar todos, Limpiar)
-- Modal ContactModal
+En `frontend/src/components/EmpresaCard.jsx`, agregar botón junto a "+ WhatsApp" y "+ Telegram".
 
-Props: `{ botId, apiCall, waConns, contacts, suggested, ... }` — o manejar el estado internamente.
+### 2b. Modal de setup
 
-### 3b. Crear UIsList.jsx
+Dos opciones dentro del modal:
 
-`frontend/src/components/UIsList.jsx`:
-- Hardcodeado por ahora: muestra siempre la card "Contactos" con ícono y descripción
-- Al clickear: renderiza `ContactsUI` inline
-- Preparado para agregar más UIs en el futuro (estructura de lista + componente por tipo)
+**Opción A — Usar cuenta Pulpo (recomendado):**
+- Muestra el email `pulpo-sheets@booming-monitor-459317-d3.iam.gserviceaccount.com` con botón Copiar.
+- Instrucción: "Compartí tu Google Sheet con este email como Editor."
+- Botón "Confirmar" — no requiere pegar nada.
 
-### 3c. Reemplazar solapa en EmpresaCard
+**Opción B — Cuenta propia:**
+- Textarea para pegar el JSON del Service Account.
+- Validación: intentar `JSON.parse()` y verificar que tiene `client_email` y `private_key`.
+- Instrucciones paso a paso:
+  1. Ir a console.cloud.google.com → Biblioteca → "Google Sheets API" → Habilitar
+  2. Credenciales → + Crear credenciales → Cuenta de servicio → nombre cualquiera → Crear
+  3. Clic en la cuenta → pestaña Claves → Agregar clave → JSON → se descarga el archivo
+  4. Pegar el contenido del archivo acá
+- Al guardar: `POST /api/empresas/{id}/connections` con `{type: "gsheet", credentials_json: "..."}`.
 
-```jsx
-// Cambiar en el array de tabs:
-{ id: 'uis', label: 'UIs', count: null }
-// (eliminar el de 'contacts')
+### 2c. Tarjeta de conexión Google
 
-// Cambiar en el render:
-{activeTab === 'uis' && <UIsList botId={botId} apiCall={apiCall} waConns={waConns} />}
-```
-
-Limpiar todo el estado y código de la solapa contacts del componente EmpresaCard (contacts, suggested, contactModal, showSuggested, importing, etc.) — ahora viven en ContactsUI.
-
----
-
-## Fase 4 — Flow piloto (desde el editor, no requiere código)
-
-Una vez que los nodos están disponibles, crear manualmente desde el editor:
-
-**Flow: "Contactos — GM Herrería"**
-- Trigger: connection_id = `5491124778975`
-- Router LLM con prompt: "¿El mensaje indica una consulta de trabajo? Si sí, qué oficio: herrería, electricidad, otro_oficio. Si no es laboral, ruta: personal."
-- Ramas: "herrería" → set_state(field=contact_notes, value=herrería) → save_contact
-- Ramas: "electricidad" → set_state(field=contact_notes, value=electricidad) → save_contact
-- Ramas: "otro_oficio" → set_state(field=contact_notes, value=otro) → save_contact
-- Rama: "personal" → termina (sin guardar)
+En la lista de conexiones, la conexión Google aparece como:
+- Ícono de Google Sheets (verde).
+- Email de la cuenta.
+- Label (ej: "Cuenta Pulpo" o el nombre que puso el usuario).
+- Sin botón QR ni estado de conexión (es pasiva).
+- Botón eliminar (solo para cuentas propias; la de Pulpo no se puede borrar).
 
 ---
 
-## Merge
+## Fase 3 — Conectar nodos a conexiones
 
-El merge a master lo hace SIEMPRE la sesión de `_` (producción).
-Cuando termines todas las fases, avisá: "listo para merge desde refactor-ui-flows".
+Los campos `google_account` en `gsheet.py`, `search_sheet.py`, `fetch_sheet.py` ya son de tipo
+`google_account_select`. Solo hay que hacer que el selector use las conexiones del backend
+en lugar del endpoint separado `/api/flow/google-accounts`.
+
+En `NodeConfigPanel.jsx`, el `useEffect` que carga `googleAccounts` pasa a llamar
+a las conexiones de tipo `gsheet` de la empresa.
+
+---
+
+## Archivos clave
+
+- `management/PLAN_GSHEET_CONNECTIONS.md` — plan completo incluyendo Fases futuras (HTTP trigger, polling)
+- `backend/db.py` — esquema de conexiones
+- `backend/api/connections.py` — CRUD de conexiones (si existe; buscar dónde están)
+- `backend/api/flows.py` — endpoint `GET /api/flow/google-accounts` (a reemplazar)
+- `frontend/src/components/EmpresaCard.jsx` — UI de conexiones
+- `frontend/src/components/NodeConfigPanel.jsx` — campo `google_account_select` ya implementado
+
+---
+
+## No hacer en este worktree
+
+- No tocar la lógica de ejecución de los nodos (ya funciona en prod).
+- No implementar HTTP trigger ni gsheet_trigger (están en el plan pero son fases futuras).
+- El merge a master lo hace siempre la sesión de `_`.
