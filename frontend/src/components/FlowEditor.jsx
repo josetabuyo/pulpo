@@ -10,10 +10,10 @@
  * El estado vive en useFlowStore (Zustand).
  * El padre (FlowList) pasa `flow` con la definición y `onBack` para volver.
  */
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useMemo } from 'react'
 import { ReactFlowProvider, useReactFlow } from '@xyflow/react'
 
-import { useFlowStore } from '../store/flowStore.js'
+import { useFlowStore, createFlowStore, FlowStoreContext } from '../store/flowStore.js'
 import FlowCanvas     from './FlowCanvas.jsx'
 import NodePalette    from './NodePalette.jsx'
 import NodeConfigPanel from './NodeConfigPanel.jsx'
@@ -87,17 +87,20 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
 // ─── FlowEditor — wrappea con ReactFlowProvider ───────────────────────────────
 
 export default function FlowEditor({ flow, connections, apiCall, typeMap, onBack, onSaved, onGoToUIs }) {
+  const store = useMemo(() => createFlowStore(), [])
   return (
-    <ReactFlowProvider>
-      <FlowEditorInner
-        flow={flow}
-        connections={connections}
-        apiCall={apiCall}
-        typeMap={typeMap}
-        onBack={onBack}
-        onSaved={onSaved}
-        onGoToUIs={onGoToUIs}
-      />
-    </ReactFlowProvider>
+    <FlowStoreContext.Provider value={store}>
+      <ReactFlowProvider>
+        <FlowEditorInner
+          flow={flow}
+          connections={connections}
+          apiCall={apiCall}
+          typeMap={typeMap}
+          onBack={onBack}
+          onSaved={onSaved}
+          onGoToUIs={onGoToUIs}
+        />
+      </ReactFlowProvider>
+    </FlowStoreContext.Provider>
   )
 }

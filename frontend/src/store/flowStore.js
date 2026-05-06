@@ -1,5 +1,14 @@
-import { create } from 'zustand'
+import { createStore, useStore } from 'zustand'
 import { applyNodeChanges, applyEdgeChanges, addEdge } from '@xyflow/react'
+import { createContext, useContext } from 'react'
+
+export const FlowStoreContext = createContext(null)
+
+export function useFlowStore(selector) {
+  const store = useContext(FlowStoreContext)
+  if (!store) throw new Error('useFlowStore fuera de FlowStoreContext.Provider')
+  return useStore(store, selector)
+}
 
 // Tipos de nodo disponibles en la paleta (los que el usuario puede arrastrar).
 // El orden importa: así aparecen en la paleta.
@@ -112,7 +121,8 @@ function nodesToDefinition(rfNodes, rfEdges) {
   }
 }
 
-export const useFlowStore = create((set, get) => ({
+export function createFlowStore() {
+  return createStore((set, get) => ({
   nodes: [],
   edges: [],
   selectedNodeId: null,
@@ -199,4 +209,5 @@ export const useFlowStore = create((set, get) => ({
   reset: () => set({ nodes: [], edges: [], selectedNodeId: null, isDirty: false }),
 
   getDefinition: () => nodesToDefinition(get().nodes, get().edges),
-}))
+  }))
+}
