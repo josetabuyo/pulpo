@@ -725,6 +725,39 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
 
         {nodeType === 'summarize' && <SummarizeInfo empresaId={empresaId} apiCall={apiCall} onGoToUIs={onGoToUIs} />}
 
+        {nodeType === 'summarize' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={S.label}>SYNC HISTÓRICO</span>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <span style={{ fontSize: 11, color: '#64748b', flexShrink: 0 }}>Desde</span>
+              <input
+                type="date"
+                style={{ ...S.input, flex: 1, colorScheme: 'dark' }}
+                value={syncDate}
+                onChange={e => setSyncDate(e.target.value)}
+              />
+            </div>
+            <button
+              onClick={handleSyncAll}
+              disabled={syncing || !syncDate}
+              style={{
+                width: '100%', padding: '7px 12px',
+                background: syncing ? '#0f172a' : 'transparent',
+                border: '1px solid #155e75',
+                borderRadius: 6, color: '#22d3ee', fontSize: 12, cursor: 'pointer',
+                fontWeight: 600,
+              }}
+            >
+              {syncing ? '⏳ Sincronizando...' : '⟳ Sync todos los contactos desde esta fecha'}
+            </button>
+            {syncMsg && (
+              <div style={{ fontSize: 11, color: syncMsg.startsWith('✓') ? '#4ade80' : '#f87171', textAlign: 'center' }}>
+                {syncMsg}
+              </div>
+            )}
+          </div>
+        )}
+
         {visibleFields.map(field => (
           <Field key={field.key} field={field} config={config} onChange={handleChange} />
         ))}
@@ -742,7 +775,7 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
 
       {isTrigger && !config.connection_id && (
         <div style={{ marginTop: 8, padding: '8px 10px', borderRadius: 6, background: 'rgba(251,191,36,.07)', border: '1px solid rgba(251,191,36,.2)', fontSize: 11, color: '#fbbf24' }}>
-          Seleccioná una conexión para habilitar sync histórico y re-trigger.
+          Seleccioná una conexión para habilitar re-trigger histórico.
         </div>
       )}
 
@@ -763,41 +796,6 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
           </button>
           {replayMsg && (
             <div style={{ fontSize: 11, color: '#a78bfa', textAlign: 'center' }}>{replayMsg}</div>
-          )}
-
-          {nodeType === 'whatsapp_trigger' && (
-            <>
-              <div style={{ borderTop: '1px solid #1e293b', marginTop: 4, paddingTop: 8 }}>
-                <span style={S.label}>SYNC HISTÓRICO SUMARIZADOR</span>
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
-                  <span style={{ fontSize: 11, color: '#64748b', flexShrink: 0 }}>Desde</span>
-                  <input
-                    type="date"
-                    style={{ ...S.input, flex: 1, colorScheme: 'dark' }}
-                    value={syncDate}
-                    onChange={e => setSyncDate(e.target.value)}
-                  />
-                </div>
-                <button
-                  onClick={handleSyncAll}
-                  disabled={syncing || !syncDate}
-                  style={{
-                    width: '100%', padding: '7px 12px',
-                    background: syncing ? '#0f172a' : 'transparent',
-                    border: '1px solid #155e75',
-                    borderRadius: 6, color: '#22d3ee', fontSize: 12, cursor: 'pointer',
-                    fontWeight: 600,
-                  }}
-                >
-                  {syncing ? '⏳ Sincronizando...' : '⟳ Sync todos los contactos desde esta fecha'}
-                </button>
-                {syncMsg && (
-                  <div style={{ fontSize: 11, color: syncMsg.startsWith('✓') ? '#4ade80' : '#f87171', textAlign: 'center', marginTop: 4 }}>
-                    {syncMsg}
-                  </div>
-                )}
-              </div>
-            </>
           )}
 
           {config.contact_filter && (
