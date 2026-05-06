@@ -30,6 +30,9 @@ _rows_cache: dict[str, tuple[list[dict], float]] = {}
 
 
 def _build_url(sheet_id: str, range_param: str) -> str:
+    # Nombre de pestaña solo (sin '!' ni ':'): usar gviz/tq con &sheet=
+    if range_param and '!' not in range_param and ':' not in range_param:
+        return f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={range_param}"
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
     if range_param:
         url += f"&range={range_param}"
@@ -67,6 +70,13 @@ async def _fetch_rows(sheet_id: str, range_param: str, cache_minutes: float) -> 
         return None
 
 
+def _tags_match(message: str, tags_str: str) -> bool:
+    """True si alguna palabra del mensaje aparece en las tags (normalizada)."""
+    msg_words = [_normalize(w) for w in message.lower().split() if len(w) >= 3]
+    tags_words = [_normalize(t.strip()) for t in tags_str.replace(",", " ").split() if t.strip()]
+    return any(mw in tags_words or any(mw in tw for tw in tags_words) for mw in msg_words)
+
+
 class SearchSheetNode(BaseNode):
     async def run(self, state: FlowState) -> FlowState:
         sheet_id      = self.config.get("sheet_id", "").strip()
@@ -82,27 +92,32 @@ class SearchSheetNode(BaseNode):
         if rows is None:
             return state
 
+        active_rows = [row for row in rows if _is_active(row)]
+
         # Valores posibles del campo de búsqueda para orientar al LLM
         possible_values = list({
             row.get(search_field, "").lower()
-            for row in rows
+            for row in active_rows
             if row.get(search_field)
         })
 
         search_value = await _identify_field_value(state.message, search_field, possible_values)
 
-        # Filas activas que coinciden
-        matches = [
-            row for row in rows
-            if _is_active(row) and _match(search_value, str(row.get(search_field, "")))
-        ]
+        # Búsqueda primaria: por search_field
+        matches = [r for r in active_rows if _match(search_value, str(r.get(search_field, "")))]
+
+        # Búsqueda secundaria: por columna "tags" si existe y no hay match primario
+        if not matches and any("tags" in row for row in active_rows):
+            tag_matches = [r for r in active_rows if _tags_match(state.message, str(r.get("tags", "")))]
+            if tag_matches:
+                logger.info("[SearchSheetNode] Tags match para '%s' → %s", state.message[:40], tag_matches[0].get(search_field))
+                matches = tag_matches
 
         if not matches:
             logger.info("[SearchSheetNode] Sin match para %s='%s'", search_field, search_value)
             state.vars[search_field] = search_value
-            disponibles = [row for row in rows if _is_active(row)]
-            if disponibles:
-                state.context = json.dumps(disponibles, ensure_ascii=False)
+            if active_rows:
+                state.context = json.dumps(active_rows, ensure_ascii=False)
             return state
 
         item = matches[0]

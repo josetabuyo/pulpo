@@ -55,6 +55,14 @@ export default function ContactFilterEditor({
 }) {
   const [search, setSearch] = useState('')
   const [showInactive, setShowInactive] = useState(false)
+  const [manualInput, setManualInput] = useState('')
+
+  function addManual() {
+    const v = manualInput.trim()
+    if (!v) return
+    include(v)
+    setManualInput('')
+  }
   const cf = { ...DEFAULT_FILTER, ...value }
 
   function getState(name) {
@@ -146,6 +154,33 @@ export default function ContactFilterEditor({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column' }}>
+
+      {/* Agregar número manual */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
+        <input
+          placeholder="Agregar número o nombre..."
+          value={manualInput}
+          onChange={e => setManualInput(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && addManual()}
+          style={{
+            flex: 1, fontSize: 11, padding: '5px 8px',
+            background: '#0f172a', border: '1px solid #1e293b',
+            borderRadius: 4, color: '#cbd5e1', boxSizing: 'border-box',
+          }}
+        />
+        <button
+          onClick={addManual}
+          disabled={!manualInput.trim()}
+          style={{
+            fontSize: 11, padding: '4px 10px', borderRadius: 4, cursor: 'pointer',
+            background: manualInput.trim() ? 'rgba(34,197,94,.15)' : 'transparent',
+            border: '1px solid rgba(34,197,94,.3)', color: '#4ade80',
+            opacity: manualInput.trim() ? 1 : 0.4,
+          }}
+        >
+          + Incluir
+        </button>
+      </div>
 
       {/* Toggles globales */}
       <div style={{ display: 'flex', gap: 16, marginBottom: 8, flexWrap: 'wrap' }}>

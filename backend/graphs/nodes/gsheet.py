@@ -45,6 +45,8 @@ async def _resolve_credentials(config: dict) -> str:
 
 
 def _sheet_csv_url(sheet_id: str, range_param: str) -> str:
+    if range_param and '!' not in range_param and ':' not in range_param:
+        return f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={range_param}"
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
     if range_param:
         url += f"&range={range_param}"
