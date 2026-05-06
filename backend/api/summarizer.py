@@ -445,10 +445,24 @@ async def sync_all_contacts(
         except ValueError:
             raise HTTPException(status_code=400, detail="from_date inválido, usar YYYY-MM-DD")
 
-    phones = summarizer.list_contacts(empresa_id)
     results = []
 
     async with AsyncSessionLocal() as session:
+        # Fuente de verdad: todos los phones con mensajes en DB para esta empresa.
+        # Incluye contactos nuevos que nunca tuvieron .md (bootstrap desde cero).
+        if cutoff_dt:
+            phone_rows = (await session.execute(
+                text("SELECT DISTINCT phone FROM messages WHERE connection_id = :eid AND outbound = 0 AND timestamp >= :cutoff"),
+                {"eid": empresa_id, "cutoff": from_date},
+            )).fetchall()
+        else:
+            phone_rows = (await session.execute(
+                text("SELECT DISTINCT phone FROM messages WHERE connection_id = :eid AND outbound = 0"),
+                {"eid": empresa_id},
+            )).fetchall()
+
+        phones = [r[0] for r in phone_rows if r[0]]
+
         for phone in phones:
             if cutoff_dt:
                 trim_contact_from_date(empresa_id, phone, cutoff_dt)
