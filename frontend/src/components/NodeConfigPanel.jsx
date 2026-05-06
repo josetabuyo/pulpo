@@ -740,6 +740,12 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
         <SheetCacheButton apiCall={apiCall} />
       )}
 
+      {isTrigger && !config.connection_id && (
+        <div style={{ marginTop: 8, padding: '8px 10px', borderRadius: 6, background: 'rgba(251,191,36,.07)', border: '1px solid rgba(251,191,36,.2)', fontSize: 11, color: '#fbbf24' }}>
+          Seleccioná una conexión para habilitar sync histórico y re-trigger.
+        </div>
+      )}
+
       {isTrigger && config.connection_id && (
         <div style={{ paddingTop: 8, borderTop: '1px solid #1e293b', display: 'flex', flexDirection: 'column', gap: 6 }}>
           <button
