@@ -1024,6 +1024,15 @@ main { max-width: 900px; margin: 28px auto; padding: 0 16px; }
 }
 .ec-conn-actions { display: flex; gap: 6px; align-items: center; margin-left: auto; flex-wrap: wrap; }
 .ec-conn-hint { font-size: 12px; color: #94a3b8; }
+.conn-menu-item {
+  display: block; width: 100%; text-align: left;
+  padding: 7px 14px; font-size: 12px; color: #cbd5e1;
+  background: none; border: none; cursor: pointer; white-space: nowrap;
+}
+.conn-menu-item:hover { background: #273344; color: #f1f5f9; }
+.conn-menu-item:disabled { opacity: .5; cursor: default; }
+.conn-menu-item--danger { color: #f87171; }
+.conn-menu-item--danger:hover { background: rgba(239,68,68,.1); color: #f87171; }
 .ec-qr-inline {
   padding: 16px 20px; text-align: center;
   background: #faf5ff; border-top: 1px solid #ede9fe;

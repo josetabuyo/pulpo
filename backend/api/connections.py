@@ -104,6 +104,22 @@ def delete_connection(number: str):
     raise HTTPException(status_code=404, detail="Número no encontrado")
 
 
+class ConnectionSettingsPatch(BaseModel):
+    allow_mass: bool
+
+
+@router.patch("/connections/{number}/settings", dependencies=[Depends(require_admin)])
+def patch_connection_settings(number: str, body: ConnectionSettingsPatch):
+    config = load_config()
+    for empresa in config.get("empresas", []):
+        for phone in empresa.get("phones", []):
+            if phone.get("number") == number:
+                phone["allow_mass"] = body.allow_mass
+                save_config(config)
+                return {"ok": True, "allow_mass": body.allow_mass}
+    raise HTTPException(status_code=404, detail="Número no encontrado")
+
+
 class MovePhone(BaseModel):
     targetEmpresaId: str
 

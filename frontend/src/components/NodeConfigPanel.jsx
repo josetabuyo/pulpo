@@ -378,6 +378,7 @@ function Field({ field, config, onChange }) {
           onChange={cf => set(cf)}
           contacts={field._contacts || []}
           suggested={field._suggested || []}
+          allowMass={field._allow_mass ?? false}
           onBootstrap={connectionId ? handleBootstrap : undefined}
         />
       </div>
@@ -691,7 +692,11 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
   // Inyectar datos extra en los campos custom
   const visibleFields = (schema || []).filter(f => isVisible(f, config)).map(f => {
     if (f.type === 'connection_select')      return { ...f, _connections: connections || [] }
-    if (f.type === 'contact_filter')         return { ...f, _contacts: contacts, _suggested: suggested }
+    if (f.type === 'contact_filter') {
+      const connId = config.connection_id || ''
+      const connObj = (connections || []).find(c => c.id === connId)
+      return { ...f, _contacts: contacts, _suggested: suggested, _allow_mass: connObj?.allowMass ?? false }
+    }
     if (f.type === 'google_account_select')  return { ...f, _google_accounts: googleAccounts }
     return f
   })

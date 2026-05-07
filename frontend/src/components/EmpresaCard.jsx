@@ -33,6 +33,7 @@ export function normalizeBot(bot) {
     connections: [
       ...(bot.phones ?? []).map(p => ({
         id: p.number, type: 'whatsapp', number: p.number, status: p.status,
+        allowMass: p.allowMass ?? false,
       })),
       ...(bot.telegram ?? []).map(t => ({
         id: `${bot.id}-tg-${t.tokenId}`, type: 'telegram', number: t.tokenId, status: t.status,
@@ -324,7 +325,27 @@ function ConnectionRow({
   const [localStatus, setLocalStatus] = useState(conn.status)
   const [showFilter, setShowFilter] = useState(false)
   const [purgeLabel, setPurgeLabel] = useState('Purgar')
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [localAllowMass, setLocalAllowMass] = useState(conn.allowMass ?? false)
   const stopRef = useRef(null)
+  const menuRef = useRef(null)
+
+  useEffect(() => {
+    if (!menuOpen) return
+    function onOutside(e) { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false) }
+    document.addEventListener('mousedown', onOutside)
+    return () => document.removeEventListener('mousedown', onOutside)
+  }, [menuOpen])
+
+  async function handleToggleMass() {
+    const next = !localAllowMass
+    setLocalAllowMass(next)
+    try {
+      await apiCall('PATCH', `/connections/${conn.number}/settings`, { allow_mass: next })
+    } catch {
+      setLocalAllowMass(!next)
+    }
+  }
 
   async function handlePurge() {
     setPurgeLabel('...')
@@ -399,51 +420,7 @@ function ConnectionRow({
         <StatusPill status={localStatus} isTg={isTg} />
         <div className="ec-conn-actions">
 
-          {/* ── Admin actions ── */}
-          {mode === 'admin' && !isTg && inactive && !simMode && (
-            <button className="btn-primary btn-sm" onClick={() => onQR?.(conn)}>Vincular QR</button>
-          )}
-          {mode === 'admin' && !isTg && inactive && simMode && (
-            <button className="btn-primary btn-sm" onClick={() => onQR?.(conn)}>Conectar sim</button>
-          )}
-          {mode === 'admin' && connected && !isTg && !simMode && (
-            <button className="btn-ghost btn-sm" onClick={() => onScreenshot?.(conn)} title="Ver browser headless">👁 Ver</button>
-          )}
-          {mode === 'admin' && connected && !isTg && !simMode && (
-            <button
-              className="btn-ghost btn-sm"
-              onClick={handlePurge}
-              disabled={purgeLabel === '...'}
-              title="Eliminar borradores que quedaron en los chats de esta sesión WA"
-              style={{ fontSize: 11 }}
-            >
-              {purgeLabel === 'Purgar' ? '🧹 Purgar' : purgeLabel}
-            </button>
-          )}
-          {mode === 'admin' && connected && (
-            <button className="btn-danger btn-sm" onClick={() => onDisconnect?.(conn)}>Desconectar</button>
-          )}
-          {mode === 'admin' && isTg && ['stopped', 'failed', 'disconnected'].includes(localStatus) && !simMode && (
-            <button className="btn-blue btn-sm" onClick={() => onReconnect?.(conn)}>Reconectar</button>
-          )}
-          {mode === 'admin' && !isTg && (
-            <button className="btn-ghost btn-sm" onClick={() => onMove?.(conn)}>Mover</button>
-          )}
-          {!isTg && (
-            <button
-              className="btn-ghost btn-sm"
-              onClick={() => setShowFilter(f => !f)}
-              title="Filtro default de esta conexión"
-              style={{ fontSize: 11 }}
-            >
-              ⚙ Filtro
-            </button>
-          )}
-          {mode === 'admin' && (
-            <button className="btn-danger btn-sm" onClick={() => onDelete?.(conn)}>Eliminar</button>
-          )}
-
-          {/* ── Empresa actions ── */}
+          {/* ── Empresa actions (inline, sin menú) ── */}
           {mode === 'empresa' && !isTg && !showQr && inactive && !simMode && (
             <button className="btn-primary btn-sm" onClick={empresaConnect}>Conectar</button>
           )}
@@ -458,6 +435,102 @@ function ConnectionRow({
           {mode === 'empresa' && !isTg && !showQr && connecting && (
             <span className="ec-conn-hint">Conectando...</span>
           )}
+
+          {/* ── Menú ⋯ ── */}
+          <div ref={menuRef} style={{ position: 'relative' }}>
+            <button
+              className="btn-ghost btn-sm"
+              onClick={() => setMenuOpen(v => !v)}
+              title="Opciones"
+              style={{ padding: '4px 8px', fontWeight: 600 }}
+            >⋯</button>
+
+            {menuOpen && (
+              <div style={{
+                position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 200,
+                background: '#1e293b', border: '1px solid #334155', borderRadius: 6,
+                boxShadow: '0 8px 24px rgba(0,0,0,.5)', minWidth: 180, padding: '4px 0',
+              }}>
+                {/* Filtro — siempre visible si no es TG */}
+                {!isTg && (
+                  <button className="conn-menu-item" onClick={() => { setShowFilter(f => !f); setMenuOpen(false) }}>
+                    ⚙ Filtro default
+                  </button>
+                )}
+
+                {/* Admin: acciones de estado WA */}
+                {mode === 'admin' && !isTg && inactive && !simMode && (
+                  <button className="conn-menu-item" onClick={() => { onQR?.(conn); setMenuOpen(false) }}>
+                    📱 Vincular QR
+                  </button>
+                )}
+                {mode === 'admin' && !isTg && inactive && simMode && (
+                  <button className="conn-menu-item" onClick={() => { onQR?.(conn); setMenuOpen(false) }}>
+                    Conectar sim
+                  </button>
+                )}
+                {mode === 'admin' && connected && !isTg && !simMode && (
+                  <button className="conn-menu-item" onClick={() => { onScreenshot?.(conn); setMenuOpen(false) }}>
+                    👁 Ver browser
+                  </button>
+                )}
+                {mode === 'admin' && connected && !isTg && !simMode && (
+                  <button
+                    className="conn-menu-item"
+                    onClick={() => { handlePurge(); setMenuOpen(false) }}
+                    disabled={purgeLabel === '...'}
+                  >
+                    🧹 {purgeLabel === 'Purgar' ? 'Purgar borradores' : purgeLabel}
+                  </button>
+                )}
+                {mode === 'admin' && connected && (
+                  <button className="conn-menu-item conn-menu-item--danger" onClick={() => { onDisconnect?.(conn); setMenuOpen(false) }}>
+                    Desconectar
+                  </button>
+                )}
+                {mode === 'admin' && isTg && ['stopped', 'failed', 'disconnected'].includes(localStatus) && !simMode && (
+                  <button className="conn-menu-item" onClick={() => { onReconnect?.(conn); setMenuOpen(false) }}>
+                    Reconectar
+                  </button>
+                )}
+                {mode === 'admin' && !isTg && (
+                  <button className="conn-menu-item" onClick={() => { onMove?.(conn); setMenuOpen(false) }}>
+                    Mover a otra empresa
+                  </button>
+                )}
+
+                {/* Separador + configuración de seguridad */}
+                {mode === 'admin' && !isTg && (
+                  <>
+                    <div style={{ margin: '4px 0', borderTop: '1px solid #334155' }} />
+                    <label
+                      className="conn-menu-item"
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}
+                      onClick={e => e.stopPropagation()}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={localAllowMass}
+                        onChange={handleToggleMass}
+                        style={{ width: 13, height: 13, cursor: 'pointer', flexShrink: 0 }}
+                      />
+                      <span>Habilitar masivo</span>
+                    </label>
+                  </>
+                )}
+
+                {/* Eliminar */}
+                {mode === 'admin' && (
+                  <>
+                    <div style={{ margin: '4px 0', borderTop: '1px solid #334155' }} />
+                    <button className="conn-menu-item conn-menu-item--danger" onClick={() => { onDelete?.(conn); setMenuOpen(false) }}>
+                      🗑 Eliminar conexión
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

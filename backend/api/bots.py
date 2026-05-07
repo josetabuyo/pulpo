@@ -44,6 +44,7 @@ def get_bots():
                 "number": phone["number"],
                 "sessionId": session_id,
                 "status": clients.get(session_id, {}).get("status", "stopped"),
+                "allowMass": phone.get("allow_mass", False),
             })
         telegram = []
         for tg in bot.get("telegram", []):

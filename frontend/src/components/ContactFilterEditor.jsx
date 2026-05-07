@@ -52,6 +52,7 @@ export default function ContactFilterEditor({
   onChange,
   contacts = [],
   suggested = [],
+  allowMass = false,  // si false, oculta los toggles "todos los conocidos" y "desconocidos"
   onBootstrap,   // (contactName) => Promise — importar historial WA
 }) {
   const [search, setSearch] = useState('')
@@ -202,19 +203,25 @@ export default function ContactFilterEditor({
         </button>
       </div>
 
-      {/* Toggles globales */}
-      <div style={{ display: 'flex', gap: 16, marginBottom: 8, flexWrap: 'wrap' }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
-          <input type="checkbox" style={T.check} checked={!!cf.include_all_known}
-            onChange={e => onChange({ ...cf, include_all_known: e.target.checked })} />
-          <span style={T.lbl}>Todos los conocidos</span>
-        </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
-          <input type="checkbox" style={T.check} checked={!!cf.include_unknown}
-            onChange={e => onChange({ ...cf, include_unknown: e.target.checked })} />
-          <span style={T.lbl}>Desconocidos</span>
-        </label>
-      </div>
+      {/* Toggles globales — solo si la conexión tiene "Habilitar masivo" */}
+      {allowMass ? (
+        <div style={{ display: 'flex', gap: 16, marginBottom: 8, flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+            <input type="checkbox" style={T.check} checked={!!cf.include_all_known}
+              onChange={e => onChange({ ...cf, include_all_known: e.target.checked })} />
+            <span style={T.lbl}>Todos los conocidos</span>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+            <input type="checkbox" style={T.check} checked={!!cf.include_unknown}
+              onChange={e => onChange({ ...cf, include_unknown: e.target.checked })} />
+            <span style={T.lbl}>Desconocidos</span>
+          </label>
+        </div>
+      ) : (
+        <div style={{ fontSize: 10, color: '#64748b', marginBottom: 8, fontStyle: 'italic' }}>
+          Masivo deshabilitado — solo contactos específicos
+        </div>
+      )}
 
       {/* Buscador */}
       {deduped.length > 6 && (
