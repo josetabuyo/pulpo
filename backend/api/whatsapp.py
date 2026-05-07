@@ -667,6 +667,63 @@ async def _run_delta_sync(contact_phone: "str | None" = None) -> None:
         _sync_running = False
 
 
+@router.post("/whatsapp/bootstrap-contact", dependencies=[Depends(require_client)])
+async def bootstrap_contact(body: dict, background_tasks: BackgroundTasks):
+    """
+    Raspa el historial de WA de un contacto por nombre y lo guarda en DB.
+    Permite importar conversaciones previas sin que el contacto haga nada.
+
+    Body: { "contact_name": str, "empresa_id": str, "connection_id": str }
+    """
+    import logging
+    import asyncio
+    from config import get_empresas_for_connection
+    from db import log_message_historic
+
+    contact_name = (body.get("contact_name") or "").strip()
+    empresa_id   = (body.get("empresa_id")   or "").strip()
+    connection_id = (body.get("connection_id") or "").strip()
+
+    if not contact_name or not empresa_id:
+        raise HTTPException(status_code=400, detail="contact_name y empresa_id son requeridos")
+
+    # Buscar la sesión WA activa para esta conexión
+    session_id = next(
+        (sid for sid, st in clients.items()
+         if st.get("type") == "whatsapp" and st.get("status") == "ready"
+         and (not connection_id or sid == connection_id or st.get("connection_id") == connection_id)),
+        None,
+    )
+    if not session_id:
+        raise HTTPException(status_code=503, detail="No hay sesión WhatsApp activa disponible")
+
+    _log = logging.getLogger(__name__)
+
+    async def _do_bootstrap():
+        try:
+            _log.info("[bootstrap] Iniciando para '%s' (empresa=%s)", contact_name, empresa_id)
+            messages = await wa_session.scrape_full_history_v2(session_id, contact_name)
+            empresa_ids = get_empresas_for_connection(session_id) or [empresa_id]
+            new_count = 0
+            for msg in messages:
+                if not msg.get("body") or not msg.get("timestamp"):
+                    continue
+                outbound = 1 if msg.get("is_outbound") else 0
+                for eid in empresa_ids:
+                    saved = await log_message_historic(
+                        eid, session_id, contact_name, contact_name,
+                        msg["body"], msg["timestamp"], outbound,
+                    )
+                    if saved:
+                        new_count += 1
+            _log.info("[bootstrap] '%s': %d mensajes importados", contact_name, new_count)
+        except Exception as e:
+            _log.error("[bootstrap] Error para '%s': %s", contact_name, e)
+
+    background_tasks.add_task(_do_bootstrap)
+    return {"status": "ok", "message": f"Importando historial de '{contact_name}' en background"}
+
+
 @router.post("/whatsapp/purge-drafts-session/{number}", dependencies=[Depends(require_admin)])
 async def purge_drafts_session(number: str):
     """

@@ -12,7 +12,7 @@
  *   contacts  — [{ id, name, channels, ... }]  (contactos registrados en DB)
  *   suggested — [{ name, phone, has_messages }] (vistos en conversaciones)
  */
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 
 export const DEFAULT_FILTER = {
   include_all_known: false,
@@ -52,10 +52,12 @@ export default function ContactFilterEditor({
   onChange,
   contacts = [],
   suggested = [],
+  onBootstrap,   // (contactName) => Promise — importar historial WA
 }) {
   const [search, setSearch] = useState('')
   const [showInactive, setShowInactive] = useState(false)
   const [manualInput, setManualInput] = useState('')
+  const [bootstrapping, setBootstrapping] = useState({})
 
   function addManual() {
     const v = manualInput.trim()
@@ -130,14 +132,32 @@ export default function ContactFilterEditor({
   const isEmpty = !cf.include_all_known && !cf.include_unknown
     && !(cf.included || []).length && !(cf.excluded || []).length
 
-  function Row({ name, sub }) {
+  async function handleBootstrap(name) {
+    if (!onBootstrap || bootstrapping[name]) return
+    setBootstrapping(b => ({ ...b, [name]: true }))
+    try { await onBootstrap(name) } finally {
+      setBootstrapping(b => ({ ...b, [name]: false }))
+    }
+  }
+
+  function Row({ name, sub, isRegistered = true }) {
     const state = getState(name)
+    const isOrphan = !isRegistered && state === 'included'
     return (
       <div style={T.row}>
         <span style={T.name} title={name}>
           {name}
           {sub && <span style={{ fontSize: 10, color: '#64748b', marginLeft: 4 }}>{sub}</span>}
         </span>
+        {isOrphan && onBootstrap && (
+          <span
+            style={{ ...badge('neutral'), fontSize: 10, color: '#38bdf8', border: '1px solid rgba(56,189,248,.3)', cursor: bootstrapping[name] ? 'default' : 'pointer', opacity: bootstrapping[name] ? 0.5 : 1 }}
+            onClick={() => handleBootstrap(name)}
+            title="Importar historial de WhatsApp"
+          >
+            {bootstrapping[name] ? '...' : '↓ historial'}
+          </span>
+        )}
         {state !== 'neutral' ? (
           <span style={badge(state)} onClick={() => clearState(name)} title="Click para quitar">
             {state === 'excluded' ? 'Excluido ✕' : 'Incluido ✕'}
@@ -215,7 +235,7 @@ export default function ContactFilterEditor({
         <>
           <span style={T.section}>CON ESTADO ({withState.length + orphans.length})</span>
           {withState.map(i => <Row key={i.key} name={i.name} sub={i.sub} />)}
-          {orphans.map(p => <Row key={p} name={p} />)}
+          {orphans.map(p => <Row key={p} name={p} isRegistered={false} />)}
         </>
       )}
 

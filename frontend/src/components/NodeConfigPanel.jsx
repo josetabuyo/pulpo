@@ -358,6 +358,18 @@ function Field({ field, config, onChange }) {
   }
 
   if (type === 'contact_filter') {
+    const connectionId = config.connection_id || ''
+    async function handleBootstrap(contactName) {
+      try {
+        await apiCall('POST', '/whatsapp/bootstrap-contact', {
+          contact_name: contactName,
+          empresa_id: empresaId,
+          connection_id: connectionId,
+        })
+      } catch (e) {
+        console.error('bootstrap error', e)
+      }
+    }
     return (
       <div style={S.fieldWrap}>
         {labelEl}
@@ -366,6 +378,7 @@ function Field({ field, config, onChange }) {
           onChange={cf => set(cf)}
           contacts={field._contacts || []}
           suggested={field._suggested || []}
+          onBootstrap={connectionId ? handleBootstrap : undefined}
         />
       </div>
     )
