@@ -317,7 +317,7 @@ function ConnectionFilterPanel({ number, botId, apiCall, onClose }) {
 
 function ConnectionRow({
   conn, mode, simMode, botId, apiCall, adminPwd,
-  onQR, onDisconnect, onScreenshot, onMove, onDelete, onReconnect,
+  onQR, onDisconnect, onScreenshot, onMove, onDelete, onReconnect, onRefresh,
 }) {
   const [showQr, setShowQr] = useState(false)
   const [qrSrc, setQrSrc] = useState(null)
@@ -342,6 +342,7 @@ function ConnectionRow({
     setLocalAllowMass(next)
     try {
       await apiCall('PATCH', `/connections/${conn.number}/settings`, { allow_mass: next })
+      onRefresh?.()
     } catch {
       setLocalAllowMass(!next)
     }
@@ -934,6 +935,7 @@ export default function EmpresaCard({
                     onMove={conn => onMovePhone?.(conn)}
                     onDelete={mode === 'admin' ? conn => onDeletePhone?.(conn) : conn => handleRemoveConn(conn)}
                     onReconnect={() => {}}
+                    onRefresh={onRefresh}
                   />
                 ))}
               </div>
