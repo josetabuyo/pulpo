@@ -326,9 +326,11 @@ function ConnectionRow({
   const [showFilter, setShowFilter] = useState(false)
   const [purgeLabel, setPurgeLabel] = useState('Purgar')
   const [menuOpen, setMenuOpen] = useState(false)
+  const [menuPos, setMenuPos] = useState({ top: 0, left: 0, openUp: false })
   const [localAllowMass, setLocalAllowMass] = useState(conn.allowMass ?? false)
   const stopRef = useRef(null)
   const menuRef = useRef(null)
+  const menuBtnRef = useRef(null)
 
   useEffect(() => {
     if (!menuOpen) return
@@ -336,6 +338,20 @@ function ConnectionRow({
     document.addEventListener('mousedown', onOutside)
     return () => document.removeEventListener('mousedown', onOutside)
   }, [menuOpen])
+
+  function openMenu() {
+    const rect = menuBtnRef.current?.getBoundingClientRect()
+    if (!rect) { setMenuOpen(true); return }
+    const menuHeight = 280
+    const spaceBelow = window.innerHeight - rect.bottom
+    const openUp = spaceBelow < menuHeight
+    setMenuPos({
+      top: openUp ? rect.top - 4 : rect.bottom + 4,
+      left: rect.right,
+      openUp,
+    })
+    setMenuOpen(true)
+  }
 
   async function handleToggleMass() {
     const next = !localAllowMass
@@ -438,19 +454,24 @@ function ConnectionRow({
           )}
 
           {/* ── Menú ⋯ ── */}
-          <div ref={menuRef} style={{ position: 'relative' }}>
+          <div style={{ position: 'relative' }}>
             <button
+              ref={menuBtnRef}
               className="btn-ghost btn-sm"
-              onClick={() => setMenuOpen(v => !v)}
+              onClick={() => menuOpen ? setMenuOpen(false) : openMenu()}
               title="Opciones"
               style={{ padding: '4px 8px', fontWeight: 600 }}
             >⋯</button>
 
             {menuOpen && (
-              <div style={{
-                position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 200,
+              <div ref={menuRef} style={{
+                position: 'fixed',
+                top: menuPos.openUp ? undefined : menuPos.top,
+                bottom: menuPos.openUp ? window.innerHeight - menuPos.top : undefined,
+                left: menuPos.left - 180,
+                zIndex: 9999,
                 background: '#1e293b', border: '1px solid #334155', borderRadius: 6,
-                boxShadow: '0 8px 24px rgba(0,0,0,.5)', minWidth: 180, padding: '4px 0',
+                boxShadow: '0 8px 24px rgba(0,0,0,.6)', minWidth: 190, padding: '4px 0',
               }}>
                 {/* Filtro — siempre visible si no es TG */}
                 {!isTg && (
