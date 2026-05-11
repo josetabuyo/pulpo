@@ -357,7 +357,7 @@ async def full_resync_contact(empresa_id: str, contact_phone: str, _: str = Depe
     Full re-sync: borra el .md, adjuntos y .bak del contacto, luego dispara un
     scrape WA Web completo (scrape_full_history_v2, sin stop_before_ts).
     """
-    from backend_state import wa_session, clients
+    from state import wa_session, clients
     from api.whatsapp import log_message_historic
     from graphs.nodes.summarize import accumulate as _accumulate, get_attachments_dir as _get_att_dir
     from graphs.nodes.state import FlowState as _FlowState
@@ -525,4 +525,51 @@ async def download_attachment(
         path=str(file_path),
         filename=filename,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/summarizer/{empresa_id}/backup-and-clean")
+async def backup_and_clean(empresa_id: str, _: str = Depends(_check_auth)):
+    """
+    Hace backup de todos los chat.md de la empresa (→ chat.bak.md) y los borra.
+    El summarize sigue acumulando desde cero a partir del próximo mensaje.
+    """
+    import shutil as _shutil
+    from graphs.nodes.summarize import _BASE, slugify
+    empresa_dir = _BASE / empresa_id
+    backed_up = 0
+    if empresa_dir.exists():
+        for md_file in empresa_dir.rglob("chat.md"):
+            bak = md_file.with_name("chat.bak.md")
+            _shutil.copy2(md_file, bak)
+            md_file.unlink()
+            backed_up += 1
+    # Invalidar dedup en memoria
+    from graphs.nodes.summarize import _dedup, _dedup_loaded
+    keys = [k for k in list(_dedup_loaded) if k[0] == empresa_id]
+    for k in keys:
+        _dedup_loaded.discard(k)
+        _dedup.pop(k, None)
+    return {"backed_up": backed_up, "path": str(empresa_dir)}
+
+
+@router.get("/summarizer/{empresa_id}/download")
+async def download_summaries(empresa_id: str, _: str = Depends(_check_auth)):
+    """Descarga todos los resúmenes de la empresa como un archivo ZIP."""
+    import io
+    import zipfile
+    from fastapi.responses import StreamingResponse
+    from graphs.nodes.summarize import _BASE
+    empresa_dir = _BASE / empresa_id
+    if not empresa_dir.exists():
+        raise HTTPException(status_code=404, detail="No hay resúmenes para esta empresa")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for md_file in empresa_dir.rglob("*.md"):
+            zf.write(md_file, md_file.relative_to(empresa_dir))
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="summaries_{empresa_id}.zip"'},
     )

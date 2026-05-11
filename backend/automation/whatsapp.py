@@ -2730,6 +2730,24 @@ class WhatsAppSession(BrowserAutomation):
             await page.evaluate(_SCROLL_BOTTOM_JS)
             await page.wait_for_timeout(1500)
 
+            # Detectar centro del panel de mensajes para mouse wheel nativo
+            _panel_center = await page.evaluate("""
+                () => {
+                    const sp = document.querySelector('[data-testid="conversation-panel-messages"]');
+                    if (sp) {
+                        const r = sp.getBoundingClientRect();
+                        if (r.width > 100 && r.height > 100) return {x: r.left + r.width/2, y: r.top + r.height/2};
+                    }
+                    for (const el of document.querySelectorAll('#main div')) {
+                        if (el.scrollHeight > 300) {
+                            const r = el.getBoundingClientRect();
+                            if (r.width > 100 && r.height > 100) return {x: r.left + r.width/2, y: r.top + r.height/2};
+                        }
+                    }
+                    return null;
+                }
+            """)
+
             results: list[dict] = []
             seen_keys: set[str] = set()
             stale_rounds = 0
@@ -2831,16 +2849,21 @@ class WhatsAppSession(BrowserAutomation):
                 # ── Stale detection + scroll up ────────────────────────────
                 if new_in_batch == 0:
                     stale_rounds += 1
-                    if stale_rounds >= 4:
-                        logger.info(f"[{session_id}] v2: sin mensajes nuevos, fin del historial")
+                    if stale_rounds >= 8:
+                        logger.info(f"[{session_id}] v2: sin mensajes nuevos tras {stale_rounds} rondas, fin del historial")
                         break
+                    # Espera más larga cuando no hay mensajes nuevos — da tiempo a WA Web para cargar
+                    await page.wait_for_timeout(1200)
                 else:
                     stale_rounds = 0
 
-                scrolled = await page.evaluate(_SCROLL_UP_JS, 600)
-                await page.wait_for_timeout(700)
-                if not scrolled:
-                    stale_rounds += 1
+                # Mouse wheel nativo — WA Web responde a eventos de scroll reales
+                if _panel_center:
+                    await page.mouse.move(_panel_center["x"], _panel_center["y"])
+                    await page.mouse.wheel(0, -3000)
+                else:
+                    await page.evaluate(_SCROLL_UP_JS, 600)
+                await page.wait_for_timeout(800)
 
             logger.info(f"[{session_id}] v2 scrape_full_history '{contact_name}': {len(results)} mensajes")
             return results

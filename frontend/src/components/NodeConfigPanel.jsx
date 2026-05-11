@@ -584,13 +584,21 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
   const [googleAccounts, setGoogleAccounts] = useState([])
   const [cloning, setCloning]           = useState(false)
   const [cloneMsg, setCloneMsg]     = useState('')
-  const [replaying, setReplaying]   = useState(false)
-  const [replayMsg, setReplayMsg]   = useState('')
   const [fbRefreshing, setFbRefreshing] = useState(false)
   const [fbRefreshMsg, setFbRefreshMsg] = useState('')
-  const [syncDate, setSyncDate]     = useState(() => new Date().toISOString().slice(0, 10))
-  const [syncing, setSyncing]       = useState(false)
-  const [syncMsg, setSyncMsg]       = useState('')
+  const [backupMsg, setBackupMsg]   = useState('')
+  const [backingUp, setBackingUp]   = useState(false)
+  const [showBackupConfirm, setShowBackupConfirm] = useState(false)
+  const [importing, setImporting]   = useState(false)
+  const [importMsg, setImportMsg]   = useState('')
+  const [importFromDate, setImportFromDate] = useState(
+    () => localStorage.getItem('wa_import_from_date') || ''
+  )
+
+  function handleImportFromDateChange(e) {
+    setImportFromDate(e.target.value)
+    localStorage.setItem('wa_import_from_date', e.target.value)
+  }
 
   const isFixed = nodeType === 'start' || nodeType === 'end'
   const isTrigger = TRIGGER_TYPES.has(nodeType)
@@ -645,32 +653,48 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
     }
   }
 
-  async function handleSyncAll() {
-    setSyncing(true)
-    setSyncMsg('')
+  async function handleImportWA() {
+    if (!flowId) return
+    setImporting(true)
+    setImportMsg('')
     try {
-      const result = await apiCall('POST', `/summarizer/${empresaId}/sync-all?from_date=${syncDate}`, {})
-      setSyncMsg(`✓ ${result.contacts} contactos sincronizados`)
+      const qs = importFromDate ? `?from_date=${importFromDate}` : ''
+      const result = await apiCall('POST', `/empresas/${empresaId}/flows/${flowId}/import-wa-history${qs}`, {})
+      const names = (result.contacts || []).join(', ')
+      setImportMsg(`⏳ Importando: ${names}. Puede tardar varios minutos.`)
     } catch {
-      setSyncMsg('Error al sincronizar')
+      setImportMsg('Error al iniciar la importación')
+      setImporting(false)
+    }
+    setTimeout(() => { setImportMsg(''); setImporting(false) }, 30_000)
+  }
+
+  async function handleBackupAndClean() {
+    setBackingUp(true)
+    setBackupMsg('')
+    setShowBackupConfirm(false)
+    try {
+      const result = await apiCall('POST', `/summarizer/${empresaId}/backup-and-clean`, {})
+      setBackupMsg(`✓ Backup de ${result.backed_up} archivos. Los nuevos mensajes acumulan desde cero.`)
+    } catch {
+      setBackupMsg('Error al hacer backup')
     } finally {
-      setSyncing(false)
-      setTimeout(() => setSyncMsg(''), 5000)
+      setBackingUp(false)
+      setTimeout(() => setBackupMsg(''), 8000)
     }
   }
 
-  async function handleReplay() {
-    if (!flowId) return
-    setReplaying(true)
-    setReplayMsg('')
+  async function handleDownloadSummaries() {
     try {
-      const result = await apiCall('POST', `/empresas/${empresaId}/flows/${flowId}/replay`, {})
-      setReplayMsg(`✓ ${result.processed ?? 0} mensajes procesados`)
+      const blob = await apiCall('GET_BLOB', `/summarizer/${empresaId}/download`, null)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `summaries_${empresaId}.zip`
+      a.click()
+      URL.revokeObjectURL(url)
     } catch {
-      setReplayMsg('Error al re-sincronizar')
-    } finally {
-      setReplaying(false)
-      setTimeout(() => setReplayMsg(''), 5000)
+      // silently fail — unlikely to happen with active session
     }
   }
 
@@ -745,32 +769,63 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
 
         {nodeType === 'summarize' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={S.label}>SYNC HISTÓRICO</span>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <span style={{ fontSize: 11, color: '#64748b', flexShrink: 0 }}>Desde</span>
-              <input
-                type="date"
-                style={{ ...S.input, flex: 1, colorScheme: 'dark' }}
-                value={syncDate}
-                onChange={e => setSyncDate(e.target.value)}
-              />
-            </div>
+            <span style={S.label}>RESÚMENES</span>
             <button
-              onClick={handleSyncAll}
-              disabled={syncing || !syncDate}
+              onClick={handleDownloadSummaries}
               style={{
                 width: '100%', padding: '7px 12px',
-                background: syncing ? '#0f172a' : 'transparent',
-                border: '1px solid #155e75',
+                background: 'transparent', border: '1px solid #155e75',
                 borderRadius: 6, color: '#22d3ee', fontSize: 12, cursor: 'pointer',
                 fontWeight: 600,
               }}
             >
-              {syncing ? '⏳ Sincronizando...' : '⟳ Sync todos los contactos desde esta fecha'}
+              ↓ Descargar resúmenes (.zip)
             </button>
-            {syncMsg && (
-              <div style={{ fontSize: 11, color: syncMsg.startsWith('✓') ? '#4ade80' : '#f87171', textAlign: 'center' }}>
-                {syncMsg}
+            {!showBackupConfirm ? (
+              <button
+                onClick={() => setShowBackupConfirm(true)}
+                disabled={backingUp}
+                style={{
+                  width: '100%', padding: '7px 12px',
+                  background: 'transparent', border: '1px solid #7f1d1d',
+                  borderRadius: 6, color: '#f87171', fontSize: 12, cursor: 'pointer',
+                  fontWeight: 600,
+                }}
+              >
+                {backingUp ? '⏳ Haciendo backup...' : '⚠ Backup y limpiar resúmenes'}
+              </button>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ fontSize: 11, color: '#fbbf24', textAlign: 'center' }}>
+                  Esto borra todos los .md actuales (quedan en .bak). ¿Confirmar?
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    onClick={handleBackupAndClean}
+                    style={{
+                      flex: 1, padding: '6px 8px',
+                      background: '#7f1d1d', border: '1px solid #dc2626',
+                      borderRadius: 6, color: '#fca5a5', fontSize: 12, cursor: 'pointer', fontWeight: 600,
+                    }}
+                  >
+                    Sí, limpiar
+                  </button>
+                  <button
+                    onClick={() => setShowBackupConfirm(false)}
+                    style={{
+                      flex: 1, padding: '6px 8px',
+                      background: 'transparent', border: '1px solid #334155',
+                      borderRadius: 6, color: '#94a3b8', fontSize: 12, cursor: 'pointer',
+                    }}
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
+            {backupMsg && (
+              <div style={{ fontSize: 11, color: backupMsg.startsWith('✓') ? '#4ade80' : '#f87171', textAlign: 'center' }}>
+                {backupMsg}
               </div>
             )}
           </div>
@@ -791,29 +846,40 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
         <SheetCacheButton apiCall={apiCall} />
       )}
 
-      {isTrigger && !config.connection_id && (
-        <div style={{ marginTop: 8, padding: '8px 10px', borderRadius: 6, background: 'rgba(251,191,36,.07)', border: '1px solid rgba(251,191,36,.2)', fontSize: 11, color: '#fbbf24' }}>
-          Seleccioná una conexión para habilitar re-trigger histórico.
-        </div>
-      )}
-
       {isTrigger && config.connection_id && (
         <div style={{ paddingTop: 8, borderTop: '1px solid #1e293b', display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <button
-            onClick={handleReplay}
-            disabled={replaying}
-            style={{
-              width: '100%', padding: '7px 12px',
-              background: replaying ? '#0f172a' : 'transparent',
-              border: '1px solid #4c1d95',
-              borderRadius: 6, color: '#a78bfa', fontSize: 12, cursor: 'pointer',
-              fontWeight: 600,
-            }}
-          >
-            {replaying ? '⏳ Re-triggering...' : '↺ Re-trigger histórico'}
-          </button>
-          {replayMsg && (
-            <div style={{ fontSize: 11, color: '#a78bfa', textAlign: 'center' }}>{replayMsg}</div>
+
+          {nodeType === 'whatsapp_trigger' && config.contact_filter?.included?.length > 0 && (
+            <>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: '#64748b', flexShrink: 0 }}>Desde</span>
+                <input
+                  type="date"
+                  style={{ ...S.input, flex: 1, colorScheme: 'dark' }}
+                  value={importFromDate}
+                  onChange={handleImportFromDateChange}
+                  placeholder="(todo el historial)"
+                />
+              </div>
+              <button
+                onClick={handleImportWA}
+                disabled={importing}
+                style={{
+                  width: '100%', padding: '7px 12px',
+                  background: importing ? '#0f172a' : 'transparent',
+                  border: '1px solid #065f46',
+                  borderRadius: 6, color: '#34d399', fontSize: 12, cursor: 'pointer',
+                  fontWeight: 600,
+                }}
+              >
+                {importing ? '⏳ Importando de WA...' : '↓ Sincronizar historial de WA'}
+              </button>
+              {importMsg && (
+                <div style={{ fontSize: 11, color: importMsg.startsWith('⏳') ? '#fbbf24' : '#f87171', textAlign: 'center' }}>
+                  {importMsg}
+                </div>
+              )}
+            </>
           )}
 
           {config.contact_filter && (

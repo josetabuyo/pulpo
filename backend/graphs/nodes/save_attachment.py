@@ -17,6 +17,7 @@ from pathlib import Path
 
 from .base import BaseNode
 from .state import FlowState
+from .summarize import slugify as _slugify
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ class SaveAttachmentNode(BaseNode):
 
         empresa_id    = state.empresa_id or "unknown"
         contact_phone = state.contact_phone or state.contact_name or "unknown"
-        dest_dir = _BASE / empresa_id / contact_phone
+        dest_dir = _BASE / empresa_id / _slugify(contact_phone)
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest = dest_dir / src.name
 

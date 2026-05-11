@@ -588,6 +588,36 @@ async def _run_delta_sync(contact_phone: "str | None" = None) -> None:
                     seen_contact_names.add(contact["name"])
                     contacts_to_sync.append({"contact": contact, "empresa_ids": empresa_ids, "summarizer_eid": eid})
 
+                # También incluir contactos del included[] de flows activos con summarize
+                # (cubren casos como Andrés Buxareo: en el filtro pero nunca mandó mensaje a DB)
+                from db import get_flows as _get_flows
+                for flow in await _get_flows(eid):
+                    if not flow.get("active", False):
+                        continue
+                    nodes = flow.get("definition", {}).get("nodes", [])
+                    has_summarize = any(n.get("type") == "summarize" for n in nodes)
+                    if not has_summarize:
+                        continue
+                    trigger = next((n for n in nodes if n.get("type") == "whatsapp_trigger"), None)
+                    if not trigger:
+                        continue
+                    trigger_conn = trigger.get("config", {}).get("connection_id", "")
+                    if trigger_conn and trigger_conn != bot_phone:
+                        continue
+                    included = trigger.get("config", {}).get("contact_filter", {}).get("included", [])
+                    for cname in included:
+                        if cname in seen_contact_names:
+                            continue
+                        if contact_phone and cname != contact_phone:
+                            continue
+                        seen_contact_names.add(cname)
+                        # Sintetizamos un contact-like con el nombre como phone (sin canal real)
+                        contacts_to_sync.append({
+                            "contact": {"name": cname, "channels": [{"type": "whatsapp", "value": cname}]},
+                            "empresa_ids": empresa_ids,
+                            "summarizer_eid": eid,
+                        })
+
             for item in contacts_to_sync:
                 contact = item["contact"]
                 eids = item["empresa_ids"]

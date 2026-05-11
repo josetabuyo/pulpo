@@ -1,7 +1,7 @@
 # BUG: Sumarizador no funciona para Garantido (ni para contactos bootstrapeados)
 
 **Fecha:** 2026-05-07  
-**Estado:** ❌ Sin resolver  
+**Estado:** ✅ Resuelto  
 **Síntoma:** "✓ 0 contactos sincronizados" al hacer sync-all desde el nodo summarize
 
 ---

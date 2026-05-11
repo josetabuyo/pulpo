@@ -9,10 +9,13 @@ PUT    /api/empresas/{id}/flows/{flow_id}        → actualizar (auth)
 DELETE /api/empresas/{id}/flows/{flow_id}        → eliminar (auth)
 """
 import os
-from fastapi import APIRouter, HTTPException, Request, Response
+import logging
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response
 from fastapi import Header
 from pydantic import BaseModel
 from typing import Optional
+
+_log = logging.getLogger(__name__)
 
 import db
 from config import load_config
@@ -228,14 +231,13 @@ async def replay_flow(
     flow_id: str,
     request: Request,
     x_password: Optional[str] = Header(None),
+    from_date: Optional[str] = None,
 ):
     """
-    Delta-sync: recorre los mensajes de la DB del connection_id del trigger
-    (de más nuevo a más viejo) y ejecuta el flow completo para cada uno,
-    con from_delta_sync=True (los nodos de reply/llm no envían nada).
-    Se detiene al llegar al timestamp del mensaje más antiguo ya procesado
-    por el flow (dedup por hash en summarize, sin-respuesta en reply).
+    Ejecuta el flow completo para cada mensaje de la DB (from_delta_sync=True,
+    los nodos reply/llm no envían nada real).
 
+    from_date (YYYY-MM-DD): si se pasa, solo procesa mensajes desde esa fecha.
     Solo aplica a flows con trigger whatsapp_trigger o telegram_trigger.
     """
     _require_empresa(empresa_id, request, x_password)
@@ -259,26 +261,32 @@ async def replay_flow(
 
     canal = "telegram" if trigger_type == "telegram_trigger" else "whatsapp"
 
+    date_filter = ""
+    date_params: dict = {}
+    if from_date:
+        date_filter = " AND timestamp >= :from_date"
+        date_params["from_date"] = from_date
+
     # Los mensajes pueden estar guardados bajo el número WA (connection_id)
     # o bajo el empresa_id. Probamos ambos y usamos el que tenga datos.
     from db import AsyncSessionLocal, text as _text
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(
             _text(
-                "SELECT phone, name, body, timestamp FROM messages "
-                "WHERE connection_id = :cid AND outbound = 0 "
-                "ORDER BY timestamp DESC"
+                f"SELECT phone, name, body, timestamp FROM messages "
+                f"WHERE connection_id = :cid AND outbound = 0{date_filter} "
+                f"ORDER BY timestamp ASC"
             ),
-            {"cid": connection_id},
+            {"cid": connection_id, **date_params},
         )).fetchall()
         if not rows:
             rows = (await session.execute(
                 _text(
-                    "SELECT phone, name, body, timestamp FROM messages "
-                    "WHERE connection_id = :eid AND outbound = 0 "
-                    "ORDER BY timestamp DESC"
+                    f"SELECT phone, name, body, timestamp FROM messages "
+                    f"WHERE connection_id = :eid AND outbound = 0{date_filter} "
+                    f"ORDER BY timestamp ASC"
                 ),
-                {"eid": empresa_id},
+                {"eid": empresa_id, **date_params},
             )).fetchall()
 
     if not rows:
@@ -317,6 +325,111 @@ async def replay_flow(
         processed += 1
 
     return {"processed": processed, "skipped": skipped}
+
+
+@router.post("/empresas/{empresa_id}/flows/{flow_id}/import-wa-history")
+async def import_wa_history(
+    empresa_id: str,
+    flow_id: str,
+    background_tasks: BackgroundTasks,
+    request: Request,
+    x_password: Optional[str] = Header(None),
+):
+    """
+    Raspa el historial completo de WA para cada contacto en el filtro del trigger
+    y acumula directamente en el .md del summarizer.
+    Limpia el .md existente antes de acumular (full resync).
+    Corre en background — responde inmediatamente.
+    """
+    _require_empresa(empresa_id, request, x_password)
+    flow = await db.get_flow(flow_id)
+    if not flow or flow["empresa_id"] != empresa_id:
+        raise HTTPException(status_code=404, detail="Flow no encontrado")
+
+    nodes = flow.get("definition", {}).get("nodes", [])
+    trigger = next(
+        (n for n in nodes if n.get("type") in ("whatsapp_trigger", "telegram_trigger", "message_trigger")),
+        None,
+    )
+    if not trigger or trigger.get("type") != "whatsapp_trigger":
+        raise HTTPException(status_code=400, detail="El flow no tiene un whatsapp_trigger")
+
+    trigger_config = trigger.get("config", {})
+    connection_id = trigger_config.get("connection_id", "")
+    contact_filter = trigger_config.get("contact_filter", {})
+    included = contact_filter.get("included", [])
+    if not included:
+        raise HTTPException(status_code=400, detail="El trigger no tiene contactos en la lista de inclusión")
+
+    from_date: Optional[str] = request.query_params.get("from_date")
+
+    async def _do_import():
+        from state import wa_session, clients
+        from graphs.nodes.summarize import (
+            accumulate as _accumulate,
+            get_attachments_dir as _get_att_dir,
+        )
+        from datetime import datetime as _dt
+
+        # Buscar sesión WA activa por connection_id del trigger (funciona con sesiones compartidas)
+        session_id = connection_id if connection_id in clients and clients[connection_id].get("status") == "ready" else None
+        if not session_id:
+            # Fallback: cualquier sesión lista
+            for bot_phone, client in clients.items():
+                if client.get("status") == "ready" and client.get("type") == "whatsapp":
+                    session_id = bot_phone
+                    break
+        if not session_id or not wa_session:
+            _log.error("[import-wa] Sin sesión WA lista (connection_id=%s empresa=%s)", connection_id, empresa_id)
+            return
+
+        stop_before_ts = None
+        if from_date:
+            try:
+                stop_before_ts = _dt.fromisoformat(from_date)
+            except ValueError:
+                pass
+
+        for contact_name in included:
+            _log.info("[import-wa] Importando historial de '%s' (empresa=%s, desde=%s)", contact_name, empresa_id, from_date or "inicio")
+            try:
+                contact_phone = contact_name
+                doc_dir = _get_att_dir(empresa_id, contact_phone)
+                messages = await wa_session.scrape_full_history_v2(
+                    session_id, contact_name,
+                    doc_save_dir=doc_dir,
+                    stop_before_ts=stop_before_ts,
+                    max_scroll_rounds=500,
+                )
+                messages.sort(key=lambda m: m.get("timestamp") or "")
+                saved = 0
+                for msg in messages:
+                    body = msg.get("body", "")
+                    sender = msg.get("sender")
+                    if sender:
+                        body = f"{sender}: {body}"
+                    if not body.strip():
+                        continue
+                    ts = None
+                    try:
+                        ts = _dt.strptime(msg["timestamp"], "%Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        pass
+                    _accumulate(
+                        empresa_id=empresa_id,
+                        contact_phone=contact_phone,
+                        contact_name=contact_name,
+                        msg_type=msg.get("msg_type", "text"),
+                        content=body.strip(),
+                        timestamp=ts,
+                    )
+                    saved += 1
+                _log.info("[import-wa] '%s': %d mensajes importados", contact_name, saved)
+            except Exception as e:
+                _log.error("[import-wa] Error para '%s': %s", contact_name, e)
+
+    background_tasks.add_task(_do_import)
+    return {"status": "started", "contacts": included}
 
 
 @router.delete("/empresas/{empresa_id}/flows/{flow_id}", status_code=204)

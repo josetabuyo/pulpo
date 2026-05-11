@@ -380,10 +380,6 @@ class SummarizeNode(BaseNode):
     """
 
     async def run(self, state: FlowState) -> FlowState:
-        # Solo acumula cuando viene del delta sync — no del flow en tiempo real
-        if not state.from_delta_sync:
-            return state
-
         # Construir contenido: si hay adjunto guardado, registrarlo
         if state.attachment_path:
             from pathlib import Path as _Path
