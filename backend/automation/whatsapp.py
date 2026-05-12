@@ -34,6 +34,10 @@ QR_APPEAR_TIMEOUT_MS = 60_000   # tiempo máximo para que aparezca el QR
 QR_SCAN_TIMEOUT_MS   = 120_000  # tiempo máximo para que el usuario escanee
 SEND_TIMEOUT_MS      = 15_000
 
+# Lock por sesión: serializa el acceso al browser entre import y delta-sync.
+# Sin esto, ambos pueden navegar a chats distintos simultáneamente en la misma página.
+_SESSION_BROWSER_LOCKS: dict[str, asyncio.Lock] = {}
+
 
 class WhatsAppSession(BrowserAutomation):
     """
@@ -2697,31 +2701,143 @@ class WhatsAppSession(BrowserAutomation):
                 return None
 
         # ──────────────────────────────────────────────────────────────────────
+        # Serializar acceso al browser para esta sesión.
+        # Delta-sync y el import comparten la misma page — sin lock navegan concurrentemente.
+        _browser_lock = _SESSION_BROWSER_LOCKS.setdefault(session_id, asyncio.Lock())
+        await _browser_lock.acquire()
         try:
-            # 1. Abrir chat
+            # 1. Abrir chat usando el input de búsqueda del sidebar de WA Web.
+            # Evita el problema de virtualización del sidebar donde contactos
+            # con actividad vieja no aparecen en el DOM sin hacer scroll.
             def _normalize(s: str) -> str:
                 import unicodedata
                 return unicodedata.normalize("NFKC", s).strip()
 
-            row_handle = await page.evaluate_handle(
-                """(target) => {
-                    const norm = s => s.replace(/[\\u00a0\\u202a\\u202c\\u200e\\u200f]/g, ' ').trim();
-                    const grid = document.querySelector('[role="grid"]');
-                    if (!grid) return null;
-                    for (const s of grid.querySelectorAll('span[title]')) {
-                        if (norm(s.getAttribute('title')) === norm(target))
-                            return s.closest('[role="row"]') || s.closest('[data-id]') || s;
-                    }
-                    return null;
-                }""",
-                _normalize(contact_name),
-            )
-            if not row_handle or await row_handle.evaluate("el => el === null"):
-                logger.warning(f"[{session_id}] v2: no encontré '{contact_name}' en el sidebar")
-                return []
-            await row_handle.scroll_into_view_if_needed()
-            await row_handle.click()
-            await page.wait_for_timeout(2000)
+            async def _open_chat_via_search(name: str, _retry: int = 0) -> bool:
+                """Abre el chat usando el input de búsqueda del sidebar de WA Web."""
+                # Reset: salir de cualquier modal o estado activo residual
+                await page.keyboard.press("Escape")
+                await page.wait_for_timeout(400)
+
+                search_input = await page.query_selector(
+                    '[data-testid="search-input"] div[contenteditable="true"], '
+                    '#side div[contenteditable="true"], '
+                    '#side input[type="text"]'
+                )
+                if not search_input:
+                    logger.warning(f"[{session_id}] v2: no encontré input de búsqueda del sidebar")
+                    return False
+                tag = await search_input.evaluate("el => el.tagName + (el.getAttribute('data-testid') || '')")
+                logger.info(f"[{session_id}] v2: search_input encontrado: {tag}")
+                await search_input.click()
+                await page.wait_for_timeout(400)
+                # Limpiar el input de cualquier búsqueda anterior
+                await page.keyboard.press("Control+a")
+                await page.keyboard.press("Delete")
+                await page.wait_for_timeout(200)
+                await search_input.type(name, delay=40)
+                await page.wait_for_timeout(3000)
+                # Diagnóstico: qué títulos hay en el DOM tras la búsqueda
+                all_titles = await page.evaluate("""() => {
+                    const spans = document.querySelectorAll('[role="grid"] span[title], [role="listbox"] span[title]');
+                    return Array.from(spans).slice(0, 8).map(s => s.getAttribute('title'));
+                }""")
+                logger.info(f"[{session_id}] v2: títulos en DOM tras búsqueda: {all_titles}")
+                # Retry si no hay resultados (WA Web tarda en mostrar tras un scrape largo)
+                if not all_titles and _retry < 2:
+                    logger.warning(f"[{session_id}] v2: sin resultados, reintentando ({_retry+1}/2)...")
+                    await page.keyboard.press("Escape")
+                    await page.wait_for_timeout(1500)
+                    return await _open_chat_via_search(name, _retry + 1)
+                result = await page.evaluate_handle(
+                    """(target) => {
+                        const norm = s => s.replace(/[\u00a0\u202a\u202c\u200e\u200f]/g, ' ').trim();
+                        for (const s of document.querySelectorAll('[role="grid"] span[title], [role="listbox"] span[title]')) {
+                            if (norm(s.getAttribute('title')) === norm(target))
+                                return s.closest('[role="row"]') || s.closest('[role="option"]') || s;
+                        }
+                        return null;
+                    }""",
+                    name,
+                )
+                found = result and not await result.evaluate("el => el === null")
+                logger.info(f"[{session_id}] v2: resultado búsqueda '{name}': found={found}")
+                if found:
+                    await result.click()
+                    await page.wait_for_timeout(2000)
+                    # NO presionar Escape — cerraría el chat recién abierto
+                    return True
+                # No encontrado: cerrar búsqueda y reportar fallo
+                await page.keyboard.press("Escape")
+                await page.wait_for_timeout(400)
+                return False
+                tag = await search_input.evaluate("el => el.tagName + (el.getAttribute('data-testid') || '')")
+                logger.info(f"[{session_id}] v2: search_input encontrado: {tag}")
+                await search_input.click()
+                await page.wait_for_timeout(400)
+                await page.keyboard.press("Control+a")
+                await search_input.type(name, delay=40)
+                await page.wait_for_timeout(1800)
+                # Diagnóstico: qué títulos hay en el DOM tras la búsqueda
+                all_titles = await page.evaluate("""() => {
+                    const spans = document.querySelectorAll('[role="grid"] span[title], [role="listbox"] span[title]');
+                    return Array.from(spans).slice(0, 8).map(s => s.getAttribute('title'));
+                }""")
+                logger.info(f"[{session_id}] v2: títulos en DOM tras búsqueda: {all_titles}")
+                result = await page.evaluate_handle(
+                    """(target) => {
+                        const norm = s => s.replace(/[ ‪‬‎‏]/g, \' \').trim();
+                        for (const s of document.querySelectorAll('[role="grid"] span[title], [role="listbox"] span[title]')) {
+                            if (norm(s.getAttribute('title')) === norm(target))
+                                return s.closest('[role="row"]') || s.closest('[role="option"]') || s;
+                        }
+                        return null;
+                    }""",
+                    name,
+                )
+                found = result and not await result.evaluate("el => el === null")
+                logger.info(f"[{session_id}] v2: resultado búsqueda '{name}': found={found}")
+                if found:
+                    await result.click()
+                    await page.wait_for_timeout(2000)
+                    # NO presionar Escape — cerraría el chat recién abierto
+                    return True
+                # No encontrado: cerrar búsqueda y reportar fallo
+                await page.keyboard.press("Escape")
+                await page.wait_for_timeout(400)
+                return False
+
+            opened = await _open_chat_via_search(_normalize(contact_name))
+            if not opened:
+                # Fallback: buscar directo en sidebar (por si el contacto está visible)
+                row_handle = await page.evaluate_handle(
+                    """(target) => {
+                        const norm = s => s.replace(/[\\u00a0\\u202a\\u202c\\u200e\\u200f]/g, ' ').trim();
+                        const grid = document.querySelector('[role="grid"]');
+                        if (!grid) return null;
+                        for (const s of grid.querySelectorAll('span[title]')) {
+                            if (norm(s.getAttribute('title')) === norm(target))
+                                return s.closest('[role="row"]') || s.closest('[data-id]') || s;
+                        }
+                        return null;
+                    }""",
+                    _normalize(contact_name),
+                )
+                if not row_handle or await row_handle.evaluate("el => el === null"):
+                    logger.warning(f"[{session_id}] v2: no encontré '{contact_name}' ni por búsqueda ni en sidebar")
+                    return []
+                await row_handle.scroll_into_view_if_needed()
+                await row_handle.click()
+                await page.wait_for_timeout(2000)
+
+            # Verificar qué chat quedó abierto tras el click
+            _header_title = await page.evaluate("""
+                () => {
+                    const h = document.querySelector('#main header span[title], #main header span[dir="auto"]');
+                    return h ? h.innerText.trim() : null;
+                }
+            """)
+            logger.info(f"[{session_id}] v2: chat abierto = '{_header_title}' (esperado: '{contact_name}')")
 
             # 2. Instalar interceptor de blobs
             await self._install_blob_interceptor(page)
@@ -2747,6 +2863,11 @@ class WhatsAppSession(BrowserAutomation):
                     return null;
                 }
             """)
+
+            if _panel_center:
+                logger.info(f"[{session_id}] v2: panel_center encontrado en {_panel_center}")
+            else:
+                logger.warning(f"[{session_id}] v2: panel_center no encontrado, usando fallback scrollTop")
 
             results: list[dict] = []
             seen_keys: set[str] = set()
@@ -2849,21 +2970,35 @@ class WhatsAppSession(BrowserAutomation):
                 # ── Stale detection + scroll up ────────────────────────────
                 if new_in_batch == 0:
                     stale_rounds += 1
-                    if stale_rounds >= 8:
+                    if stale_rounds >= 15:
                         logger.info(f"[{session_id}] v2: sin mensajes nuevos tras {stale_rounds} rondas, fin del historial")
                         break
                     # Espera más larga cuando no hay mensajes nuevos — da tiempo a WA Web para cargar
-                    await page.wait_for_timeout(1200)
+                    await page.wait_for_timeout(2000)
                 else:
                     stale_rounds = 0
 
                 # Mouse wheel nativo — WA Web responde a eventos de scroll reales
                 if _panel_center:
                     await page.mouse.move(_panel_center["x"], _panel_center["y"])
-                    await page.mouse.wheel(0, -3000)
+                    # Diagnóstico: scrollTop antes del wheel
+                    _scroll_before = await page.evaluate("""() => {
+                        const el = document.querySelector('[data-testid="conversation-panel-messages"]')
+                            || document.querySelector('#main div');
+                        return el ? el.scrollTop : -1;
+                    }""")
+                    await page.mouse.wheel(0, -10000)
+                    await page.wait_for_timeout(2500)
+                    _scroll_after = await page.evaluate("""() => {
+                        const el = document.querySelector('[data-testid="conversation-panel-messages"]')
+                            || document.querySelector('#main div');
+                        return el ? el.scrollTop : -1;
+                    }""")
+                    if _round % 5 == 0 or new_in_batch == 0:
+                        logger.info(f"[{session_id}] v2: ronda {_round} scrollTop {_scroll_before}→{_scroll_after} new={new_in_batch} stale={stale_rounds}")
                 else:
                     await page.evaluate(_SCROLL_UP_JS, 600)
-                await page.wait_for_timeout(800)
+                    await page.wait_for_timeout(2500)
 
             logger.info(f"[{session_id}] v2 scrape_full_history '{contact_name}': {len(results)} mensajes")
             return results
@@ -2871,6 +3006,8 @@ class WhatsAppSession(BrowserAutomation):
         except Exception as e:
             logger.warning(f"[{session_id}] scrape_full_history_v2 error: {e}", exc_info=True)
             return []
+        finally:
+            _browser_lock.release()
 
     # ------------------------------------------------------------------
     # Estado
