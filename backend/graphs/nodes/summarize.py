@@ -78,6 +78,13 @@ _MEDIA_PLACEHOLDER_RE = re.compile(
     r'|^\[image:'
 )
 
+# Detecta cuerpos que son placeholders reintentables (sin transcripción real todavía).
+# Se aplica sobre la línea completa del bloque: "sender: [audio — sin blob]"
+_RETRYABLE_PLACEHOLDER_RE = re.compile(
+    r'\[audio(?:\s*[—–-]\s*(?:sin\s*blob|error[^\]]*|no\s*disponible))?\]',
+    re.IGNORECASE,
+)
+
 
 _NORMALIZE_IMAGEN_RE = re.compile(r'^\[imagen\s+guardada:', re.IGNORECASE)
 
@@ -118,16 +125,59 @@ def _ensure_loaded(empresa_id: str, contact_phone: str) -> set[str]:
                     idx = line.find("** ")
                     if idx != -1:
                         current_body = line[idx + 3:]
-                elif line.startswith("> ↩") and current_body is not None:
-                    # Incluir la línea de reply en el body (igual que accumulate recibe)
-                    current_body += "\n" + line
                 elif line.strip() == "---" and current_body is not None:
                     _dedup[key].add(_dedup_hash(current_ts, current_body))
                     current_body = None
+                elif current_body is not None:
+                    # línea de continuación: body multi-línea o cita > ↩
+                    current_body += "\n" + line
             # Último bloque sin "---"
             if current_body is not None:
                 _dedup[key].add(_dedup_hash(current_ts, current_body))
     return _dedup[key]
+
+
+def _try_enrich_entry(
+    empresa_id: str, contact_phone: str, ts: str,
+    msg_type: str, content: str, seen: "set[str]",
+) -> bool:
+    """
+    Busca en el .md una entrada con timestamp ts cuyo cuerpo sea un placeholder
+    fallido (e.g. '[audio — sin blob]'). Si la encuentra, la reemplaza con el
+    nuevo content y actualiza el caché de dedup.
+    Retorna True si reemplazó, False si no encontró placeholder reemplazable.
+    """
+    p = _path(empresa_id, contact_phone)
+    if not p.exists():
+        return False
+    text = p.read_text(encoding="utf-8")
+    raw = text.split("---\n")
+    for i, block in enumerate(raw):
+        stripped = block.strip()
+        if not stripped.startswith(f"## {ts}"):
+            continue
+        lines = stripped.split("\n")
+        if len(lines) < 2:
+            continue
+        body_line = lines[1]
+        idx = body_line.find("** ")
+        if idx == -1:
+            continue
+        old_body = body_line[idx + 3:]
+        if not _RETRYABLE_PLACEHOLDER_RE.search(old_body):
+            continue
+        # Encontró placeholder reemplazable: sustituir la línea del body
+        old_h = _dedup_hash(ts, old_body)
+        new_lines = [lines[0], f"**[{msg_type}]** {content}"] + lines[2:]
+        raw[i] = "\n".join(new_lines) + "\n"
+        p.write_text("---\n".join(raw), encoding="utf-8")
+        seen.discard(old_h)
+        logger.info(
+            "[SummarizeNode] enriquecido %s/%s @ %s — placeholder → %d chars",
+            empresa_id, contact_phone, ts, len(content),
+        )
+        return True
+    return False
 
 
 def accumulate(
@@ -138,15 +188,25 @@ def accumulate(
     content: str,
     timestamp: datetime | None = None,
 ) -> None:
-    """Agrega una entrada al .md del contacto. Skippea si ya existe."""
+    """Agrega una entrada al .md del contacto. Skippea si ya existe (mismo hash).
+    Para audios con placeholder fallido, enriquece la entrada existente en lugar
+    de agregar una nueva.
+    """
     ts = (timestamp or datetime.now()).strftime("%Y-%m-%d %H:%M")
     seen = _ensure_loaded(empresa_id, contact_phone)
     h = _dedup_hash(ts, content)
     if h in seen:
         return
+    # Para audio: si hay un placeholder fallido en esa ts, reemplazarlo (enriquecimiento)
+    if msg_type == "audio" and _try_enrich_entry(empresa_id, contact_phone, ts, msg_type, content, seen):
+        seen.add(h)
+        return
     seen.add(h)
     entry = f"## {ts}\n**[{msg_type}]** {content}\n---\n"
     p = _path(empresa_id, contact_phone)
+    name_file = p.parent / "name.txt"
+    if not name_file.exists() and slugify(contact_phone) != contact_phone:
+        name_file.write_text(contact_phone, encoding="utf-8")
     with open(p, "a", encoding="utf-8") as f:
         f.write(entry)
     logger.debug("[SummarizeNode] %s/%s — %d chars acumulados", empresa_id, contact_phone, len(content))

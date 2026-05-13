@@ -54,8 +54,8 @@ function TextBubble({ msg }) {
 }
 
 function AudioBubble({ msg }) {
-  const [expanded, setExpanded] = useState(false)
   const hasRealTranscription = msg.transcription && !msg.transcription.startsWith('[audio')
+  const [expanded, setExpanded] = useState(hasRealTranscription)
   return (
     <div className="sv-bubble sv-bubble--in">
       <div className="sv-bubble-body">

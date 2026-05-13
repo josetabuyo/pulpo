@@ -219,12 +219,17 @@ class WhatsAppSession(BrowserAutomation):
             logger.info(f"[{session_id}] Autenticado. Perfil guardado en disco automáticamente.")
             return True
         except PlaywrightTimeoutError:
-            logger.warning(f"[{session_id}] QR no escaneado en {QR_SCAN_TIMEOUT_MS // 1000}s — sesión sigue en espera.")
-            _update(session_id, status="qr_needed")
+            logger.warning(
+                f"[{session_id}] QR no escaneado en {QR_SCAN_TIMEOUT_MS // 1000}s — "
+                "cerrando browser y dejando sesión como disconnected."
+            )
+            await self.close_session(session_id)
+            _update(session_id, status="disconnected", qr=None)
             return False
         except Exception as e:
             logger.warning(f"[{session_id}] Error esperando autenticación: {e}")
-            _update(session_id, status="qr_needed")
+            await self.close_session(session_id)
+            _update(session_id, status="disconnected", qr=None)
             return False
 
     # ------------------------------------------------------------------
@@ -1259,9 +1264,9 @@ class WhatsAppSession(BrowserAutomation):
 
     async def _install_blob_interceptor(self, page) -> None:
         """
-        Inyecta un interceptor de URL.createObjectURL en la página para capturar
-        blobs de audio (PTT) en el momento exacto que WA Web los crea.
-        Los blobs capturados se acumulan en window.__capturedAudioBlobsB64 como base64.
+        Inyecta interceptores para capturar audio de WA Web:
+        - Método 1: URL.createObjectURL (cuando WA Web crea Blob de audio)
+        - Método 2: SourceBuffer.appendBuffer (cuando WA Web usa MediaSource API)
         Solo se instala una vez por página.
         """
         await page.evaluate("""
@@ -1269,10 +1274,13 @@ class WhatsAppSession(BrowserAutomation):
             if (window.__blobInterceptorInstalled) return;
             window.__blobInterceptorInstalled = true;
             window.__capturedAudioBlobsB64 = [];
+            window.__sourceBufferBytes = [];
+            window.__capturedDecodeAudio = null;
+
+            // Método 1: interceptar URL.createObjectURL para Blob-based audio
             const _orig = URL.createObjectURL.bind(URL);
             URL.createObjectURL = function(obj) {
                 const url = _orig(obj);
-                // Capturar solo Blobs de audio (PTT) — típicamente ogg/opus, >1KB
                 if (obj instanceof Blob && obj.size > 500 &&
                     (obj.type.includes('audio') || obj.type.includes('ogg') || obj.type === '')) {
                     const reader = new FileReader();
@@ -1284,6 +1292,62 @@ class WhatsAppSession(BrowserAutomation):
                 }
                 return url;
             };
+
+            // Método 2: interceptar SourceBuffer.appendBuffer para MediaSource-based audio
+            try {
+                const _origAdd = MediaSource.prototype.addSourceBuffer;
+                MediaSource.prototype.addSourceBuffer = function(mimeType) {
+                    const sb = _origAdd.call(this, mimeType);
+                    const isAudio = !mimeType || mimeType.includes('audio') ||
+                        mimeType.includes('ogg') || mimeType.includes('opus') ||
+                        mimeType.includes('mp4a') || mimeType.includes('mp3');
+                    if (isAudio) {
+                        const _origAppend = sb.appendBuffer.bind(sb);
+                        sb.appendBuffer = function(data) {
+                            try {
+                                const arr = data instanceof ArrayBuffer
+                                    ? new Uint8Array(data)
+                                    : (ArrayBuffer.isView(data) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+                                       : null);
+                                if (arr && arr.length > 0) window.__sourceBufferBytes.push(arr.slice());
+                            } catch(e) {}
+                            return _origAppend(data);
+                        };
+                    }
+                    return sb;
+                };
+            } catch(e) {}
+
+            // Método 3: interceptar AudioContext.decodeAudioData (Web Audio API path)
+            try {
+                const _origCtx = AudioContext.prototype.decodeAudioData;
+                AudioContext.prototype.decodeAudioData = function(ab, ok, err) {
+                    try {
+                        const bytes = new Uint8Array(ab instanceof SharedArrayBuffer ? ab : ab.slice());
+                        if (bytes.length > 500) {
+                            let bin = '';
+                            for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+                            window.__capturedDecodeAudio = btoa(bin);
+                        }
+                    } catch(e) {}
+                    return _origCtx.call(this, ab, ok, err);
+                };
+            } catch(e) {}
+
+            // Método 4: interceptar HTMLMediaElement.src setter para capturar blob URLs
+            // incluso cuando fueron creadas en Workers (también alcanzables con fetch)
+            try {
+                const _srcDesc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src');
+                Object.defineProperty(HTMLMediaElement.prototype, 'src', {
+                    get: _srcDesc.get,
+                    set: function(value) {
+                        if (value && value.startsWith('blob:')) {
+                            window.__lastAudioBlobSrc = value;
+                        }
+                        return _srcDesc.set.call(this, value);
+                    }
+                });
+            } catch(e) {}
         }
         """)
 
@@ -2373,6 +2437,8 @@ class WhatsAppSession(BrowserAutomation):
         doc_save_dir: "Path | None" = None,
         stop_before_ts: "datetime | None" = None,
         max_scroll_rounds: int = 120,
+        skip_audio_ts: "set[str] | None" = None,
+        on_progress: "Callable[[int, int, int], None] | None" = None,
     ) -> list[dict]:
         """
         Reemplaza scrape_full_history con arquitectura correcta:
@@ -2422,7 +2488,7 @@ class WhatsAppSession(BrowserAutomation):
             for (const el of document.querySelectorAll('span')) {
                 if (lastPPEl && !(lastPPEl.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
                 if (!(container.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING)) break;
-                const ownTxt = [...el.childNodes].filter(n=>n.nodeType===3).map(n=>n.textContent.trim()).join('').trim();
+                const ownTxt = (([...el.childNodes].filter(n=>n.nodeType===3).map(n=>n.textContent.trim()).join('').trim()) || el.innerText?.trim() || '');
                 if (!ownTxt || ownTxt.length > 60) continue;
                 const low = ownTxt.toLowerCase()
                     .replace(/\u00e9/g,'e').replace(/\u00e1/g,'a')
@@ -2444,6 +2510,20 @@ class WhatsAppSession(BrowserAutomation):
                     sepDate = d3.getDate()+'/'+( d3.getMonth()+1)+'/'+d3.getFullYear();
                 }
                 if (sepDate) { msgDate = sepDate; break; }
+                // Formato "DD/MM/YYYY" directo como texto del separador
+                if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(ownTxt)) { msgDate = ownTxt; break; }
+                // Inglés: "Mon, 4 May" / "4 May" / "May 4" / "Monday, May 4"
+                const enMonths = {january:1,february:2,march:3,april:4,may:5,june:6,
+                    july:7,august:8,september:9,october:10,november:11,december:12};
+                const enM1 = ownTxt.match(/(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december)/i);
+                const enM2 = ownTxt.match(/(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})/i);
+                const enMatch = enM1 || enM2;
+                if (enMatch) {
+                    const day = enM1 ? parseInt(enM1[1]) : parseInt(enM2[2]);
+                    const mo = enMonths[(enM1 ? enM1[2] : enM2[1]).toLowerCase()];
+                    const yr = _today.getFullYear();
+                    if (mo) { msgDate = day+'/'+mo+'/'+yr; break; }
+                }
             }
             return msgDate;
         }
@@ -2484,7 +2564,7 @@ class WhatsAppSession(BrowserAutomation):
             );
             for (const c of allContainers) {{
                 const rect = c.getBoundingClientRect();
-                if (rect.bottom < -300 || rect.top > window.innerHeight + 300) continue;
+                if (rect.top > window.innerHeight + 300) continue;
 
                 const isOut = c.classList.contains('message-out');
 
@@ -2500,8 +2580,9 @@ class WhatsAppSession(BrowserAutomation):
                 // ── Timestamp ─────────────────────────────────────────────
                 let time='', date='', sender='';
                 if (ppEl) {{
-                    const pp = ppEl.getAttribute('data-pre-plain-text')||'';
-                    const m = pp.match(/\\[(\\d{{1,2}}:\\d{{2}}(?:\\s*[ap]\\.?m\\.?)?),?\\s*(\\d{{1,2}}\\/\\d{{1,2}}\\/\\d{{4}})\\]\\s*(.*?):\\s*$/i);
+                    //   = espacio no-separable que WA Web usa en "p. m." — normalizar antes de parsear
+                    const pp = (ppEl.getAttribute('data-pre-plain-text')||'').replace(/\\u00a0/g,' ').replace(/ /g,' ');
+                    const m = pp.match(/\\[(\\d{{1,2}}:\\d{{2}}(?:\\s*[ap][\\s\\.]*m\\.?)?),?\\s*(\\d{{1,2}}\\/\\d{{1,2}}\\/\\d{{4}})\\]\\s*(.*?):\\s*$/i);
                     if (m) {{ time=m[1].trim(); date=m[2]; sender=m[3].trim(); }}
                     else {{
                         const m2 = pp.match(/\\[(\\d{{1,2}}:\\d{{2}}(?:\\s*[ap]\\.?m\\.?)?),?\\s*(\\d{{1,2}}\\/\\d{{1,2}}\\/\\d{{4}})\\]/i);
@@ -2586,13 +2667,15 @@ class WhatsAppSession(BrowserAutomation):
         """
 
         # ── JS: click audio por data-pulpo-audio-id ──────────────────────────
-        _CLICK_AUDIO_JS = """
+        _PREP_AUDIO_JS = """
         (audioId) => {
             const btn = document.querySelector('[data-pulpo-audio-id="' + audioId + '"]');
             if (!btn) return false;
             if (window.__capturedAudioBlobsB64) window.__capturedAudioBlobsB64 = [];
+            if (window.__sourceBufferBytes) window.__sourceBufferBytes = [];
+            window.__capturedDecodeAudio = null;
+            window.__lastAudioBlobSrc = null;
             btn.scrollIntoView({ block: 'center', behavior: 'instant' });
-            btn.click();
             return true;
         }
         """
@@ -2629,11 +2712,11 @@ class WhatsAppSession(BrowserAutomation):
             if not time or not date:
                 return None
             try:
-                # Normalizar hora 12h → 24h
-                t = time.strip()
-                is_pm = bool(_re.search(r'p\.?m\.?', t, _re.I))
-                is_am = bool(_re.search(r'a\.?m\.?', t, _re.I))
-                t = _re.sub(r'\s*(a|p)\.?m\.?.*', '', t, flags=_re.I).strip()
+                # Normalizar hora 12h → 24h (\xa0 = espacio no-separable de WA Web)
+                t = time.strip().replace('\xa0', ' ')
+                is_pm = bool(_re.search(r'p[\s.]*m', t, _re.I))
+                is_am = bool(_re.search(r'a[\s.]*m', t, _re.I))
+                t = _re.sub(r'\s*(a|p)[\s.]*m.*', '', t, flags=_re.I).strip()
                 h, m = map(int, t.split(':'))
                 if is_pm and h != 12:
                     h += 12
@@ -2645,23 +2728,85 @@ class WhatsAppSession(BrowserAutomation):
                 return None
 
         async def _wait_blob(timeout_ms: int = 15000) -> str | None:
-            """Espera hasta timeout_ms que el interceptor capture un blob."""
+            """Espera hasta timeout_ms que alguno de los métodos capture el audio."""
             for _ in range(timeout_ms // 200):
                 await page.wait_for_timeout(200)
+                # Método 1: URL.createObjectURL interceptor (main context Blob)
                 b64 = await page.evaluate(
                     "() => window.__capturedAudioBlobsB64?.shift() || null"
                 )
                 if b64:
                     return b64
-                # Fallback: fetch directo del elemento <audio> en DOM
+                # Método 2: fetch del elemento <audio> si tiene src blob
                 b64 = await page.evaluate("""
                 async () => {
-                    const a = document.querySelector('audio[src^="blob:"]');
-                    if (!a) return null;
+                    // Buscar <audio> en DOM (incluyendo shadow DOM)
+                    const candidates = [];
+                    const walk = (root) => {
+                        for (const el of root.querySelectorAll('audio')) candidates.push(el);
+                        for (const el of root.querySelectorAll('*')) {
+                            if (el.shadowRoot) walk(el.shadowRoot);
+                        }
+                    };
+                    walk(document);
+                    for (const a of candidates) {
+                        const src = a.src || a.getAttribute('src') || '';
+                        if (!src.startsWith('blob:')) continue;
+                        try {
+                            const r = await fetch(src);
+                            if (!r.ok) continue;
+                            const buf = await r.arrayBuffer();
+                            if (buf.byteLength < 500) continue;
+                            const bytes = new Uint8Array(buf);
+                            let bin=''; for (const b of bytes) bin+=String.fromCharCode(b);
+                            return btoa(bin);
+                        } catch(e) {}
+                    }
+                    return null;
+                }
+                """)
+                if b64:
+                    return b64
+                # Método 3: SourceBuffer chunks (MediaSource API)
+                b64 = await page.evaluate("""
+                () => {
+                    const chunks = window.__sourceBufferBytes;
+                    if (!chunks || chunks.length === 0) return null;
+                    const total = chunks.reduce((s, c) => s + c.length, 0);
+                    if (total < 500) return null;
+                    const combined = new Uint8Array(total);
+                    let off = 0;
+                    for (const c of chunks) { combined.set(c, off); off += c.length; }
+                    window.__sourceBufferBytes = [];
+                    let bin = '';
+                    for (let i = 0; i < combined.length; i++) bin += String.fromCharCode(combined[i]);
+                    return btoa(bin);
+                }
+                """)
+                if b64:
+                    return b64
+                # Método 4: Web Audio API decodeAudioData
+                b64 = await page.evaluate("""
+                () => {
+                    const data = window.__capturedDecodeAudio;
+                    if (!data) return null;
+                    window.__capturedDecodeAudio = null;
+                    return data;
+                }
+                """)
+                if b64:
+                    return b64
+                # Método 5: blob URL capturado desde setter de HTMLMediaElement.src
+                b64 = await page.evaluate("""
+                async () => {
+                    const url = window.__lastAudioBlobSrc;
+                    if (!url) return null;
+                    window.__lastAudioBlobSrc = null;
                     try {
-                        const r = await fetch(a.src);
+                        const r = await fetch(url);
                         if (!r.ok) return null;
                         const buf = await r.arrayBuffer();
+                        if (buf.byteLength < 500) return null;
                         const bytes = new Uint8Array(buf);
                         let bin=''; for (const b of bytes) bin+=String.fromCharCode(b);
                         return btoa(bin);
@@ -2842,6 +2987,27 @@ class WhatsAppSession(BrowserAutomation):
             # 2. Instalar interceptor de blobs
             await self._install_blob_interceptor(page)
 
+            # 2b. Clickear el banner "obtener mensajes anteriores de tu teléfono" si aparece.
+            #     WA Web lo muestra cuando el historial no está sincronizado en el browser.
+            #     Sin este click, scrollear al tope no carga nada desde el teléfono.
+            _sync_banner = await page.evaluate("""() => {
+                for (const el of document.querySelectorAll('div, span, button')) {
+                    const t = el.innerText || '';
+                    if (t.includes('mensajes anteriores') || t.includes('older messages') ||
+                        t.includes('messages from your phone') || t.includes('tu teléfono')) {
+                        const r = el.getBoundingClientRect();
+                        if (r.width > 50 && r.height > 10) return {x: r.left + r.width/2, y: r.top + r.height/2, text: t.trim().slice(0,80)};
+                    }
+                }
+                return null;
+            }""")
+            if _sync_banner:
+                logger.info(f"[{session_id}] v2: banner de sync detectado: '{_sync_banner['text']}' — clickeando")
+                await page.mouse.click(_sync_banner["x"], _sync_banner["y"])
+                await page.wait_for_timeout(5000)  # esperar que cargue el historial desde el teléfono
+            else:
+                logger.info(f"[{session_id}] v2: no hay banner de sync")
+
             # 3. Ir al fondo (mensajes más recientes)
             await page.evaluate(_SCROLL_BOTTOM_JS)
             await page.wait_for_timeout(1500)
@@ -2869,9 +3035,39 @@ class WhatsAppSession(BrowserAutomation):
             else:
                 logger.warning(f"[{session_id}] v2: panel_center no encontrado, usando fallback scrollTop")
 
+            # Diagnóstico: qué mensajes y qué time/date extrae el parser en cada uno
+            _dom_diag = await page.evaluate(f"""() => {{
+                {_DATE_HELPERS_JS}
+                const all = document.querySelectorAll('.message-in, .message-out');
+                const items = [];
+                for (const c of all) {{
+                    const ppEl = c.querySelector('[data-pre-plain-text]');
+                    let time='', date='', sender='', rawPP='';
+                    if (ppEl) {{
+                        rawPP = ppEl.getAttribute('data-pre-plain-text') || '';
+                        const m = rawPP.match(/\\[(\\d{{1,2}}:\\d{{2}}(?:\\s*[ap]\\.?m\\.?)?),?\\s*(\\d{{1,2}}\\/\\d{{1,2}}\\/\\d{{4}})\\]\\s*(.*?):\\s*$/i);
+                        if (m) {{ time=m[1].trim(); date=m[2]; sender=m[3].trim(); }}
+                    }} else {{
+                        time = _getTime(c);
+                        date = _nearestDateBefore(c);
+                    }}
+                    const isAudio = !!c.querySelector('[data-icon="ptt-status"],[data-icon="ptt-play"],[data-icon="audio-play"]');
+                    const isImg = !!c.querySelector('img[src^="blob:"]');
+                    const type = isAudio ? 'audio' : isImg ? 'image' : 'text';
+                    const rect = c.getBoundingClientRect();
+                    items.push({{ type, time, date, sender: sender||'?', top: Math.round(rect.top), rawPP: rawPP.slice(0,60) }});
+                }}
+                return {{ total: all.length, items }};
+            }}""")
+            logger.info(f"[{session_id}] v2: DOM al abrir chat — total={_dom_diag['total']}")
+            for _i, _m in enumerate(_dom_diag['items']):
+                logger.info(f"[{session_id}] v2:   msg[{_i}] {_m['type']} time={_m['time']!r} date={_m['date']!r} sender={_m['sender']!r} top={_m['top']} pp={_m['rawPP']!r}")
+
             results: list[dict] = []
             seen_keys: set[str] = set()
             stale_rounds = 0
+            _scroll_before = 9999
+            _scroll_after = 9999
 
             # 4. Loop principal: escanear → procesar → subir
             for _round in range(max_scroll_rounds):
@@ -2880,7 +3076,10 @@ class WhatsAppSession(BrowserAutomation):
                 new_in_batch = 0
                 for msg in batch:
                     ts_str = _parse_ts(msg.get("time", ""), msg.get("date", ""))
-                    key = f"{ts_str}|{msg.get('sender','')}|{msg.get('type','')}"
+                    # Sin sender en la key: mismo mensaje re-renderizado sin ppEl
+                    # tendría sender='' pero mismo ts+tipo+body → se deduplica.
+                    _body_preview = (msg.get("body") or "")[:30]
+                    key = f"{ts_str}|{msg.get('type','')}|{_body_preview}"
                     if key in seen_keys:
                         continue
                     seen_keys.add(key)
@@ -2906,13 +3105,30 @@ class WhatsAppSession(BrowserAutomation):
 
                     # ── Procesar por tipo ──────────────────────────────────
                     if msg["type"] == "audio":
+                        # Saltar audios ya transcritos en runs anteriores
+                        _ts_min = (ts_str or "")[:16]  # "YYYY-MM-DD HH:MM"
+                        if skip_audio_ts and _ts_min in skip_audio_ts:
+                            logger.debug(f"[{session_id}] v2 audio skip (ya capturado): {ts_str}")
+                            continue
+
                         audio_id = msg.get("audioId")
                         if audio_id:
-                            clicked = await page.evaluate(_CLICK_AUDIO_JS, audio_id)
+                            # Limpiar colas + scroll into view vía JS
+                            prep_ok = await page.evaluate(_PREP_AUDIO_JS, audio_id)
+                            if prep_ok:
+                                await page.wait_for_timeout(200)
+                                # Click nativo de Playwright (evento isTrusted=true)
+                                try:
+                                    await page.locator(f'[data-pulpo-audio-id="{audio_id}"]').click(timeout=3000)
+                                    clicked = True
+                                except Exception as _ce:
+                                    logger.debug(f"[{session_id}] v2 audio click nativo falló: {_ce}")
+                                    clicked = False
+                            else:
+                                clicked = False
                             if clicked:
                                 b64 = await _wait_blob(timeout_ms=15000)
                                 if b64:
-                                    # Pausar audio
                                     await page.evaluate("() => { try { document.querySelector('audio')?.pause(); } catch(e){} }")
                                     text = await _transcribe_b64(b64)
                                     if text:
@@ -2922,7 +3138,7 @@ class WhatsAppSession(BrowserAutomation):
                                         entry["body"] = "[audio — error al transcribir]"
                                 else:
                                     entry["body"] = "[audio — sin blob]"
-                                    logger.info(f"[{session_id}] v2 audio sin blob (CDN expirado o cargando): {ts_str}")
+                                    logger.info(f"[{session_id}] v2 audio sin blob: {ts_str}")
                             else:
                                 entry["body"] = "[audio — sin blob]"
                         else:
@@ -2970,25 +3186,36 @@ class WhatsAppSession(BrowserAutomation):
                 # ── Stale detection + scroll up ────────────────────────────
                 if new_in_batch == 0:
                     stale_rounds += 1
-                    if stale_rounds >= 15:
-                        logger.info(f"[{session_id}] v2: sin mensajes nuevos tras {stale_rounds} rondas, fin del historial")
+                    # En tope absoluto (scrollTop=0 antes y después del scroll) paramos antes
+                    _at_top = (_scroll_before == 0 and _scroll_after == 0)
+                    _max_stale = 2 if _at_top else 10
+                    if stale_rounds >= _max_stale:
+                        logger.info(f"[{session_id}] v2: sin mensajes nuevos tras {stale_rounds} rondas ({'en tope' if _at_top else 'general'}), fin del historial")
                         break
                     # Espera más larga cuando no hay mensajes nuevos — da tiempo a WA Web para cargar
                     await page.wait_for_timeout(2000)
                 else:
                     stale_rounds = 0
 
-                # Mouse wheel nativo — WA Web responde a eventos de scroll reales
+                # Scroll gradual — WA Web usa IntersectionObserver para lazy-load.
+                # Un salto de -10000 puede no disparar el observer. Muchos eventos
+                # pequeños con pausa imitan scroll humano y disparan la carga correctamente.
                 if _panel_center:
                     await page.mouse.move(_panel_center["x"], _panel_center["y"])
-                    # Diagnóstico: scrollTop antes del wheel
                     _scroll_before = await page.evaluate("""() => {
                         const el = document.querySelector('[data-testid="conversation-panel-messages"]')
                             || document.querySelector('#main div');
                         return el ? el.scrollTop : -1;
                     }""")
-                    await page.mouse.wheel(0, -10000)
-                    await page.wait_for_timeout(2500)
+                    # 20 eventos de -500 con 150ms de pausa = scroll gradual de 10000px total
+                    for _ in range(20):
+                        await page.mouse.wheel(0, -500)
+                        await page.wait_for_timeout(150)
+                    # Espera extra cuando llegamos al tope — da tiempo al server request de WA
+                    if _scroll_before <= 200:
+                        await page.wait_for_timeout(2000)
+                    else:
+                        await page.wait_for_timeout(1500)
                     _scroll_after = await page.evaluate("""() => {
                         const el = document.querySelector('[data-testid="conversation-panel-messages"]')
                             || document.querySelector('#main div');
@@ -2996,10 +3223,29 @@ class WhatsAppSession(BrowserAutomation):
                     }""")
                     if _round % 5 == 0 or new_in_batch == 0:
                         logger.info(f"[{session_id}] v2: ronda {_round} scrollTop {_scroll_before}→{_scroll_after} new={new_in_batch} stale={stale_rounds}")
+                    if on_progress:
+                        try:
+                            on_progress(_round, new_in_batch, len(results))
+                        except Exception:
+                            pass
                 else:
                     await page.evaluate(_SCROLL_UP_JS, 600)
                     await page.wait_for_timeout(2500)
 
+            # Post-process: eliminar re-renders sin ppEl cuando el mismo body+tipo
+            # fue capturado CON sender (ppEl) en algún otro momento del historial.
+            # Solo se descarta la entrada SIN sender; nunca la que tiene sender,
+            # evitando falsos positivos con textos idénticos en timestamps distintos.
+            _body_with_sender: set[tuple] = {
+                (_r.get("msg_type"), (_r.get("body") or ""))
+                for _r in results if _r.get("sender")
+            }
+            _clean: list[dict] = []
+            for _r in results:
+                if not _r.get("sender") and (_r.get("msg_type"), (_r.get("body") or "")) in _body_with_sender:
+                    continue  # duplicado de re-render sin ppEl
+                _clean.append(_r)
+            results = sorted(_clean, key=lambda m: m.get("timestamp") or "")
             logger.info(f"[{session_id}] v2 scrape_full_history '{contact_name}': {len(results)} mensajes")
             return results
 

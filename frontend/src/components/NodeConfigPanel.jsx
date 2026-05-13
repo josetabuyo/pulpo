@@ -78,6 +78,28 @@ const S = {
     flexDirection: 'column',
     gap: 2,
   },
+  miniBtn: {
+    background: 'transparent',
+    border: '1px solid #1e293b',
+    borderRadius: 4,
+    color: '#64748b',
+    fontSize: 12,
+    padding: '2px 6px',
+    cursor: 'pointer',
+    lineHeight: 1.4,
+  },
+}
+
+// ─── SpinDots — animación de puntos para estado en curso ─────────────────────
+
+function SpinDots() {
+  const FRAMES = ['·', '··', '···', '··']
+  const [frame, setFrame] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => setFrame(f => (f + 1) % FRAMES.length), 300)
+    return () => clearInterval(t)
+  }, [])
+  return <span style={{ color: '#475569' }}>{FRAMES[frame]}</span>
 }
 
 // ─── Visibilidad condicional ───────────────────────────────────────────────────
@@ -589,11 +611,17 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
   const [backupMsg, setBackupMsg]   = useState('')
   const [backingUp, setBackingUp]   = useState(false)
   const [showBackupConfirm, setShowBackupConfirm] = useState(false)
-  const [importing, setImporting]   = useState(false)
-  const [importMsg, setImportMsg]   = useState('')
+  const [importing, setImporting]       = useState(false)
+  const [importMsg, setImportMsg]       = useState('')
   const [importFromDate, setImportFromDate] = useState(
     () => localStorage.getItem('wa_import_from_date') || ''
   )
+  const [importMaxRetries, setImportMaxRetries] = useState(
+    () => parseInt(localStorage.getItem('wa_import_max_retries') || '1', 10)
+  )
+  const [scraperStatus, setScraperStatus]   = useState(null)
+  const [screenshotOpen, setScreenshotOpen] = useState(false)
+  const [screenshotUrl, setScreenshotUrl]   = useState(null)
 
   function handleImportFromDateChange(e) {
     setImportFromDate(e.target.value)
@@ -616,6 +644,13 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
       if (Array.isArray(ga)) setGoogleAccounts(ga)
     })
   }, [empresaId])
+
+  useEffect(() => {
+    if (nodeType !== 'whatsapp_trigger' || !empresaId || !flowId || !apiCall) return
+    apiCall('GET', `/empresas/${empresaId}/flows/${flowId}/import-status`, null)
+      .then(st => { if (st && (st.attempts?.length > 0 || st.running)) setScraperStatus(st) })
+      .catch(() => {})
+  }, [nodeType, empresaId, flowId])
 
   function handleChange(newConfig) { updateNodeConfig(node.id, newConfig) }
   function handleDelete() { if (!isFixed) deleteNode(node.id) }
@@ -657,17 +692,46 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
     if (!flowId) return
     setImporting(true)
     setImportMsg('')
+    setScraperStatus(null)
     try {
-      const qs = importFromDate ? `?from_date=${importFromDate}` : ''
-      const result = await apiCall('POST', `/empresas/${empresaId}/flows/${flowId}/import-wa-history${qs}`, {})
-      const names = (result.contacts || []).join(', ')
-      setImportMsg(`⏳ Importando: ${names}. Puede tardar varios minutos.`)
+      const qs = new URLSearchParams()
+      if (importFromDate) qs.set('from_date', importFromDate)
+      qs.set('max_retries', String(importMaxRetries))
+      await apiCall('POST', `/empresas/${empresaId}/flows/${flowId}/import-wa-history?${qs}`, {})
     } catch {
       setImportMsg('Error al iniciar la importación')
       setImporting(false)
+      return
     }
-    setTimeout(() => { setImportMsg(''); setImporting(false) }, 30_000)
+    const poll = setInterval(async () => {
+      try {
+        const st = await apiCall('GET', `/empresas/${empresaId}/flows/${flowId}/import-status`, null)
+        setScraperStatus(st)
+        if (st && !st.running) {
+          clearInterval(poll)
+          setImporting(false)
+        }
+      } catch { clearInterval(poll); setImporting(false) }
+    }, 2000)
+    setTimeout(() => { clearInterval(poll); setImporting(false) }, 10 * 60 * 1000)
   }
+
+  async function fetchScreenshot() {
+    const sessionId = config.connection_id
+    if (!sessionId) return
+    try {
+      const res = await apiCall('GET', `/screenshot/${sessionId}`, null)
+      if (res?.screenshot) setScreenshotUrl(res.screenshot)
+    } catch {}
+  }
+
+  useEffect(() => {
+    if (!screenshotOpen) return
+    fetchScreenshot()
+    if (!importing) return
+    const t = setInterval(fetchScreenshot, 3000)
+    return () => clearInterval(t)
+  }, [screenshotOpen, importing])
 
   async function handleBackupAndClean() {
     setBackingUp(true)
@@ -840,6 +904,44 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
             Este nodo no tiene configuración adicional.
           </div>
         )}
+
+        {/* ── Monitor scraper WA ─────────────────────────────────────────── */}
+        {nodeType === 'whatsapp_trigger' && (
+          <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+
+            {/* Reintentos + Screenshot */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ ...S.label, margin: 0, flex: 1 }}>REINTENTOS</span>
+              <button
+                onClick={() => { const v = Math.max(1, importMaxRetries - 1); setImportMaxRetries(v); localStorage.setItem('wa_import_max_retries', v) }}
+                style={S.miniBtn}
+              >−</button>
+              <span style={{ fontSize: 13, color: '#e2e8f0', minWidth: 18, textAlign: 'center' }}>{importMaxRetries}</span>
+              <button
+                onClick={() => { const v = Math.min(10, importMaxRetries + 1); setImportMaxRetries(v); localStorage.setItem('wa_import_max_retries', v) }}
+                style={S.miniBtn}
+              >+</button>
+              <button
+                onClick={() => { setScreenshotOpen(o => !o); }}
+                style={{ ...S.miniBtn, padding: '2px 8px', marginLeft: 4, color: screenshotOpen ? '#38bdf8' : '#475569', borderColor: screenshotOpen ? '#0ea5e9' : '#1e293b' }}
+                title="Ver screenshot del browser de WhatsApp"
+              >📷</button>
+            </div>
+
+            {/* Screenshot inline */}
+            {screenshotOpen && (
+              <div style={{ borderRadius: 6, overflow: 'hidden', border: '1px solid #1e293b', background: '#0f172a' }}>
+                {screenshotUrl
+                  ? <img src={screenshotUrl} alt="WA browser" style={{ width: '100%', display: 'block' }} />
+                  : <div style={{ padding: 16, color: '#475569', fontSize: 11, textAlign: 'center' }}>
+                      {importing ? <><SpinDots /> cargando screenshot…</> : 'Sin sesión activa'}
+                    </div>
+                }
+              </div>
+            )}
+
+          </div>
+        )}
       </div>
 
       {['fetch_sheet', 'search_sheet', 'gsheet'].includes(nodeType) && (
@@ -877,6 +979,44 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
               {importMsg && (
                 <div style={{ fontSize: 11, color: importMsg.startsWith('⏳') ? '#fbbf24' : '#f87171', textAlign: 'center' }}>
                   {importMsg}
+                </div>
+              )}
+              {/* Log de intentos — aparece junto al botón para que sea visible sin scrollear */}
+              {scraperStatus && (
+                <div style={{ background: '#0f172a', borderRadius: 6, padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  <div style={{ fontSize: 10, color: '#334155', fontWeight: 700, letterSpacing: '0.06em', marginBottom: 2 }}>
+                    SCRAPER — {scraperStatus.contact || '…'}
+                  </div>
+                  {scraperStatus.running && (!scraperStatus.attempts || scraperStatus.attempts.length === 0) && (
+                    <div style={{ fontSize: 11, color: '#475569', fontFamily: 'monospace' }}>
+                      Iniciando… <SpinDots />
+                    </div>
+                  )}
+                  {(scraperStatus.attempts || []).map((a, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 11, fontFamily: 'monospace' }}>
+                      <span style={{ color: '#334155', minWidth: 28 }}>{a.n}/{scraperStatus.max_retries}</span>
+                      {a.done
+                        ? <>
+                            <span style={{ color: '#475569' }}>{a.scraped} msgs</span>
+                            <span style={{ color: a.new > 0 ? '#4ade80' : '#334155', marginLeft: 2 }}>+{a.new}</span>
+                            <span style={{ color: '#4ade80', marginLeft: 2 }}>✓</span>
+                            {a.error && <span style={{ color: '#f87171', marginLeft: 2 }}>⚠</span>}
+                          </>
+                        : <>
+                            <span style={{ color: '#475569' }}>{a.scraped} msgs</span>
+                            <span style={{ color: '#334155', marginLeft: 2 }}>ronda {a.round}</span>
+                            <span style={{ marginLeft: 2 }}><SpinDots /></span>
+                          </>
+                      }
+                    </div>
+                  ))}
+                  {!scraperStatus.running && scraperStatus.finished_at && (
+                    <div style={{ fontSize: 10, color: '#334155', marginTop: 2 }}>
+                      {scraperStatus.attempts?.every(a => a.new === 0 && a.done)
+                        ? '↑ Sin cambios nuevos'
+                        : '↑ Completado'}
+                    </div>
+                  )}
                 </div>
               )}
             </>

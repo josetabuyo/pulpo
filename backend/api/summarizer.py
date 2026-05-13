@@ -111,19 +111,30 @@ def _parse_messages(md_content: str, empresa_id: str, contact_phone: str) -> lis
 
         timestamp_str = None
         msg_line = None
+        extra_lines: list[str] = []
         reply_to = None
 
         for line in block.split("\n"):
             if line.startswith("## "):
                 timestamp_str = line[3:].strip()
+                msg_line = None
+                extra_lines = []
             elif line.startswith("**["):
                 msg_line = line
+                extra_lines = []
             elif line.startswith("> ↩"):
                 # Línea de cita/respuesta: "> ↩ texto citado"
                 reply_to = line[3:].strip()  # Quita "> ↩" y espacios
+            elif msg_line is not None and line.strip():
+                # Línea de continuación de un mensaje multi-línea
+                extra_lines.append(line)
 
         if not msg_line:
             continue
+
+        # Combinar línea principal con las de continuación
+        if extra_lines:
+            msg_line = msg_line + "\n" + "\n".join(extra_lines)
 
         m = re.match(r'\*\*\[([^\]]+)\]\*\*\s*(.*)', msg_line, re.DOTALL)
         if not m:
@@ -291,7 +302,10 @@ async def get_messages(empresa_id: str, contact_phone: str, _: str = Depends(_ch
 import re as _re_sum
 
 _SKIP_EXACT = {"Foto", "GIF", "Video", "Imagen", "Sticker", "Se eliminó este mensaje."}
-_SKIP_CONTAINS = ["[audio", "audio — sin blob", "audio — no disponible", "audio — error"]
+_SKIP_CONTAINS = ["[audio", "audio — sin blob", "audio — no disponible", "audio — error",
+                  "también está en este grupo", "también está en este grupo.",
+                  "se unió al grupo", "fue añadido al grupo", "fue eliminado del grupo",
+                  "abandonó el grupo", "joined using this group", "was added", "left"]
 # "Fabian está grabando un audio…" y similares
 _SKIP_ENDSWITH = ["está grabando un audio…", "está grabando un audio...", "is recording an audio"]
 
@@ -362,26 +376,27 @@ async def full_resync_contact(empresa_id: str, contact_phone: str, _: str = Depe
     from graphs.nodes.summarize import accumulate as _accumulate, get_attachments_dir as _get_att_dir
     from graphs.nodes.state import FlowState as _FlowState
 
-    # 1. Limpiar todo
-    clear_contact_full(empresa_id, contact_phone)
-
-    # 2. Buscar sesión WA activa para esta empresa
-    session_id = None
-    for bot_phone, client in clients.items():
-        if client.get("empresa_id") == empresa_id:
-            session_id = bot_phone
-            break
-    if not session_id or not wa_session:
-        raise HTTPException(status_code=503, detail="Sin sesión WA activa para esta empresa")
-
-    # 3. Buscar nombre del contacto en la configuración
+    # 1. Resolver nombre ANTES de borrar (clear_contact_full borra name.txt)
+    from graphs.nodes.summarize import get_contact_display_name as _get_display_name
     from api.whatsapp import get_contacts
-    contact_name = contact_phone
+    contact_name = _get_display_name(empresa_id, contact_phone) or contact_phone
     for contact in await get_contacts(empresa_id):
         wa_chs = [ch for ch in contact.get("channels", []) if ch["type"] == "whatsapp"]
         if any(ch["value"] == contact_phone for ch in wa_chs):
             contact_name = contact["name"]
             break
+
+    # 2. Limpiar todo
+    clear_contact_full(empresa_id, contact_phone)
+
+    # 3. Buscar sesión WA activa (cualquier sesión lista sirve)
+    session_id = None
+    for bot_phone, client in clients.items():
+        if client.get("status") == "ready" and client.get("type") == "whatsapp":
+            session_id = bot_phone
+            break
+    if not session_id or not wa_session:
+        raise HTTPException(status_code=503, detail="Sin sesión WA activa")
 
     # 4. Scrape completo v2
     doc_dir = _get_att_dir(empresa_id, contact_phone)
@@ -396,8 +411,9 @@ async def full_resync_contact(empresa_id: str, contact_phone: str, _: str = Depe
     for msg in messages:
         body = msg.get("body", "")
         sender = msg.get("sender")
-        if sender:
-            body = f"{sender}: {body}"
+        if not sender:
+            sender = "Tú" if msg.get("is_outbound") else contact_name
+        body = f"{sender}: {body}"
         if not body.strip():
             continue
         ts = None
@@ -464,6 +480,21 @@ async def sync_all_contacts(
         phones = [r[0] for r in phone_rows if r[0]]
 
         for phone in phones:
+            # Saltar contactos que pertenecen principalmente a otra empresa
+            # (evita que grupos/contactos de empresas que comparten número contaminen
+            # el sumarizador de esta empresa).
+            own_count = (await session.execute(
+                text("SELECT COUNT(*) FROM messages WHERE connection_id = :eid AND phone = :phone AND outbound = 0"),
+                {"eid": empresa_id, "phone": phone},
+            )).scalar() or 0
+            other_count = (await session.execute(
+                text("SELECT COUNT(*) FROM messages WHERE connection_id != :eid AND phone = :phone AND outbound = 0"),
+                {"eid": empresa_id, "phone": phone},
+            )).scalar() or 0
+            if other_count > own_count * 3:
+                results.append({"phone": phone, "synced": 0, "skipped": True, "reason": "primarily_other_empresa"})
+                continue
+
             if cutoff_dt:
                 trim_contact_from_date(empresa_id, phone, cutoff_dt)
                 rows = (await session.execute(
