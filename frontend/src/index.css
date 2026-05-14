@@ -1037,6 +1037,58 @@ main { max-width: 900px; margin: 28px auto; padding: 0 16px; }
   padding: 16px 20px; text-align: center;
   background: #faf5ff; border-top: 1px solid #ede9fe;
 }
+
+/* ── BrowserPanel ─────────────────────────────────────────────────────────── */
+.ec-browser-panel {
+  border-top: 1px solid #e2e8f0;
+  background: #0f172a;
+  position: relative;
+  overflow: hidden;
+}
+.ec-browser-panel__header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 14px;
+  background: #1e293b;
+  border-bottom: 1px solid #334155;
+  font-size: 11px; color: #94a3b8;
+}
+.ec-browser-panel__header-title { font-weight: 600; letter-spacing: .4px; }
+.ec-browser-panel__header-ts { margin-left: auto; color: #64748b; }
+.ec-browser-panel__img {
+  display: block; width: 100%;
+  cursor: pointer;
+  transition: opacity .2s;
+}
+.ec-browser-panel__img:hover { opacity: .9; }
+
+/* TV noise when browser is closed */
+@keyframes tv-noise {
+  0%   { background-position: 0 0; }
+  10%  { background-position: -5% -10%; }
+  20%  { background-position: -15% 5%; }
+  30%  { background-position: 7% -25%; }
+  40%  { background-position: -5% 25%; }
+  50%  { background-position: -15% 10%; }
+  60%  { background-position: 15% 0%; }
+  70%  { background-position: 0% 15%; }
+  80%  { background-position: 3% 35%; }
+  90%  { background-position: -10% 10%; }
+  100% { background-position: 0 0; }
+}
+.ec-browser-panel__noise {
+  height: 140px;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.4'/%3E%3C/rect%3E%3C/svg%3E");
+  background-size: 150px 150px;
+  animation: tv-noise .12s steps(1) infinite;
+  display: flex; align-items: center; justify-content: center;
+}
+.ec-browser-panel__closed-label {
+  font-size: 13px; font-weight: 700; letter-spacing: 2px;
+  color: rgba(255,255,255,.35);
+  text-shadow: 0 0 8px rgba(255,255,255,.1);
+  pointer-events: none;
+  font-family: var(--font-mono);
+}
 .ec-add-row {
   display: flex; gap: 8px; align-items: center;
   padding: 10px 20px; border-top: 1px dashed #e8e8f0;

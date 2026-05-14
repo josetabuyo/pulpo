@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import SimChat from '../SimChat.jsx'
 import FlowList from './FlowList.jsx'
 import UIsList from './UIsList.jsx'
@@ -313,6 +313,65 @@ function ConnectionFilterPanel({ number, botId, apiCall, onClose }) {
   )
 }
 
+// ─── BrowserPanel ───────────────────────────────────────────────────────────────
+
+function BrowserPanel({ number, connected, apiCall }) {
+  const [src, setSrc] = useState(null)
+  const [ts, setTs] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const intervalRef = useRef(null)
+
+  const fetchShot = useCallback(async () => {
+    if (!connected || !number) return
+    setLoading(true)
+    try {
+      const data = await apiCall('GET', `/screenshot/${number}`, null)
+      if (data?.screenshot) { setSrc(data.screenshot); setTs(new Date().toLocaleTimeString()) }
+    } catch {}
+    setLoading(false)
+  }, [connected, number, apiCall])
+
+  useEffect(() => {
+    if (!connected) { clearInterval(intervalRef.current); setSrc(null); return }
+    fetchShot()
+    intervalRef.current = setInterval(fetchShot, 8000)
+    return () => clearInterval(intervalRef.current)
+  }, [connected, fetchShot])
+
+  return (
+    <div className="ec-browser-panel">
+      <div className="ec-browser-panel__header">
+        <span className="ec-browser-panel__header-title">BROWSER</span>
+        {connected && (
+          <button
+            className="btn-ghost btn-sm"
+            style={{ fontSize: 11, padding: '2px 6px' }}
+            onClick={fetchShot}
+            disabled={loading}
+          >
+            {loading ? '...' : '↺'}
+          </button>
+        )}
+        {ts && <span className="ec-browser-panel__header-ts">{ts} · auto 8s</span>}
+      </div>
+      {connected && src
+        ? <img
+            className="ec-browser-panel__img"
+            src={src}
+            alt="WA Web"
+            onClick={() => window.open(src, '_blank')}
+            title="Click para ver en tamaño completo"
+          />
+        : <div className="ec-browser-panel__noise">
+            <span className="ec-browser-panel__closed-label">
+              {connected ? 'CARGANDO...' : 'BROWSER CERRADO'}
+            </span>
+          </div>
+      }
+    </div>
+  )
+}
+
 // ─── ConnectionRow ──────────────────────────────────────────────────────────────
 
 function ConnectionRow({
@@ -492,11 +551,6 @@ function ConnectionRow({
                   </button>
                 )}
                 {mode === 'admin' && connected && !isTg && !simMode && (
-                  <button className="conn-menu-item" onClick={() => { onScreenshot?.(conn); setMenuOpen(false) }}>
-                    👁 Ver browser
-                  </button>
-                )}
-                {mode === 'admin' && connected && !isTg && !simMode && (
                   <button
                     className="conn-menu-item"
                     onClick={() => { handlePurge(); setMenuOpen(false) }}
@@ -579,6 +633,11 @@ function ConnectionRow({
       {/* SimChat (admin mode + sim + connected WA) */}
       {mode === 'admin' && simMode && connected && !isTg && (
         <SimChat number={conn.number} pwd={adminPwd} />
+      )}
+
+      {/* BrowserPanel (admin mode + real WA — always visible) */}
+      {mode === 'admin' && !isTg && !simMode && (
+        <BrowserPanel number={conn.number} connected={connected} apiCall={apiCall} />
       )}
     </div>
   )
