@@ -3231,10 +3231,23 @@ class WhatsAppSession(BrowserAutomation):
 
                 # ── Stale detection + scroll up ────────────────────────────
                 if new_in_batch == 0:
+                    # No contar como stale si WA Web está cargando historia del servidor
+                    _loading = await page.evaluate("""() => {
+                        return !!(
+                            document.querySelector('[data-testid="chat-list-loading-row"]') ||
+                            document.querySelector('[data-testid="ptt-msg-spinner"]') ||
+                            document.querySelector('progress') ||
+                            document.querySelector('div[class*="loading"]')
+                        );
+                    }""")
+                    if _loading:
+                        logger.info(f"[{session_id}] v2: WA Web cargando historial, esperando...")
+                        await page.wait_for_timeout(3000)
+                        continue
                     stale_rounds += 1
                     # En tope absoluto (scrollTop=0 antes y después del scroll) paramos antes
                     _at_top = (_scroll_before == 0 and _scroll_after == 0)
-                    _max_stale = 6 if _at_top else 10
+                    _max_stale = 12 if _at_top else 10
                     if stale_rounds >= _max_stale:
                         logger.info(f"[{session_id}] v2: sin mensajes nuevos tras {stale_rounds} rondas ({'en tope' if _at_top else 'general'}), fin del historial")
                         break

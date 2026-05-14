@@ -56,8 +56,9 @@ function TextBubble({ msg }) {
 function AudioBubble({ msg }) {
   const hasRealTranscription = msg.transcription && !msg.transcription.startsWith('[audio')
   const [expanded, setExpanded] = useState(hasRealTranscription)
+  const isOut = msg.direction === 'out'
   return (
-    <div className="sv-bubble sv-bubble--in">
+    <div className={`sv-bubble ${isOut ? 'sv-bubble--out' : 'sv-bubble--in'}`}>
       <div className="sv-bubble-body">
         {msg.sender && <span className="sv-bubble-sender">{msg.sender}</span>}
         <ReplyQuote text={msg.reply_to} />
@@ -83,6 +84,7 @@ function AudioBubble({ msg }) {
 }
 
 function ImageBubble({ msg, apiCall, empresaId, contactPhone }) {
+  const isOut = msg.direction === 'out'
   function handleView() {
     if (!msg.filename) return
     const url = `/api/summarizer/${empresaId}/${contactPhone}/docs/${encodeURIComponent(msg.filename)}`
@@ -98,7 +100,7 @@ function ImageBubble({ msg, apiCall, empresaId, contactPhone }) {
   }
 
   return (
-    <div className="sv-bubble sv-bubble--in">
+    <div className={`sv-bubble ${isOut ? 'sv-bubble--out' : 'sv-bubble--in'}`}>
       <div className="sv-bubble-body">
         {msg.sender && <span className="sv-bubble-sender">{msg.sender}</span>}
         <ReplyQuote text={msg.reply_to} />

@@ -89,7 +89,7 @@ async def get_summary(empresa_id: str, contact_phone: str, _: str = Depends(_che
 
 # ─── Helpers de parseo ──────────────────────────────────────────────────────
 
-def _parse_messages(md_content: str, empresa_id: str, contact_phone: str) -> list[dict]:
+def _parse_messages(md_content: str, empresa_id: str, contact_phone: str, owner_names: set[str] | None = None) -> list[dict]:
     """Convierte el .md acumulado en lista de mensajes estructurados."""
     messages = []
     blocks = re.split(r'\n---\n', md_content)
@@ -103,6 +103,10 @@ def _parse_messages(md_content: str, empresa_id: str, contact_phone: str) -> lis
     # Evita duplicados UTC/local: mismo texto dentro de ±4h se trata como el mismo mensaje
     _seen_ts: dict[str, str] = {}
     _4H = 4 * 3600  # segundos
+    _owners = owner_names or set()
+
+    def _dir(sender: str | None) -> str:
+        return "out" if sender and sender in _owners else "in"
 
     for block in blocks:
         block = block.strip()
@@ -171,7 +175,7 @@ def _parse_messages(md_content: str, empresa_id: str, contact_phone: str) -> lis
                 img_name = remainder
             messages.append({
                 "type": "image",
-                "direction": "in",
+                "direction": _dir(img_sender),
                 "timestamp": ts_iso,
                 "sender": img_sender,
                 "filename": img_name,
@@ -190,7 +194,7 @@ def _parse_messages(md_content: str, empresa_id: str, contact_phone: str) -> lis
                 transcription = g.group(2).strip()
             audio_msg = {
                 "type": "audio",
-                "direction": "in",
+                "direction": _dir(audio_sender),
                 "timestamp": ts_iso,
                 "duration": duration,
                 "sender": audio_sender,
@@ -216,6 +220,7 @@ def _parse_messages(md_content: str, empresa_id: str, contact_phone: str) -> lis
             else:
                 filename = content
                 size = ""
+            # Documentos no tienen sender explícito — asumimos "in" por defecto
             messages.append({
                 "type": "document",
                 "direction": "in",
@@ -253,7 +258,7 @@ def _parse_messages(md_content: str, empresa_id: str, contact_phone: str) -> lis
                 _seen_ts[norm] = ts_iso
             messages.append({
                 "type": "text",
-                "direction": "in",
+                "direction": _dir(sender),
                 "timestamp": ts_iso,
                 "sender": sender,
                 "content": text_content,
@@ -272,7 +277,16 @@ async def get_messages(empresa_id: str, contact_phone: str, _: str = Depends(_ch
     if content is None:
         raise HTTPException(status_code=404, detail="Sin resumen para este contacto")
 
-    inbound = _parse_messages(content, empresa_id, contact_phone)
+    from config import load_config as _load_config
+    _cfg = _load_config()
+    _empresa_cfg = next((e for e in _cfg.get("empresas", []) if e["id"] == empresa_id), None)
+    owner_names: set[str] = set()
+    if _empresa_cfg:
+        for ph in _empresa_cfg.get("phones", []):
+            if ph.get("owner_name"):
+                owner_names.add(ph["owner_name"])
+
+    inbound = _parse_messages(content, empresa_id, contact_phone, owner_names)
 
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(
