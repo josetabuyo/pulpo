@@ -43,7 +43,7 @@ async def delta_sync(
     doc_save_dir=None,
     skip_audio_ts: set | None = None,
     max_scroll_rounds: int = 500,
-    scroll_step: int = 600,
+    scroll_step: int = 300,
 ) -> dict:
     """
     Recolecta mensajes del chat de un contacto en WA Web y los acumula en .md.

@@ -2487,7 +2487,7 @@ class WhatsAppSession(BrowserAutomation):
         max_scroll_rounds: int = 120,
         skip_audio_ts: "set[str] | None" = None,
         on_progress: "Callable[[int, int, int], None] | None" = None,
-        scroll_step: int = 600,
+        scroll_step: int = 300,
         count_only: bool = False,
     ) -> list[dict]:
         """
@@ -3184,6 +3184,8 @@ class WhatsAppSession(BrowserAutomation):
             stale_rounds = 0
             _scroll_before = 9999
             _scroll_after = 9999
+            _bounce_count = 0      # veces que el scroll no movió nada (scrollBefore == scrollAfter)
+            _same_pos_streak = 0   # rondas consecutivas en la misma posición
 
             # 4. Loop principal: escanear → procesar → subir
             _active_scan_js = _COUNT_SCAN_JS if count_only else _SCAN_JS
@@ -3197,10 +3199,11 @@ class WhatsAppSession(BrowserAutomation):
                     if count_only:
                         if not ts_str:
                             continue
-                        key = f"cnt|{ts_str}"
-                        if key in seen_keys:
-                            continue
-                        seen_keys.add(key)
+                        # Sin dedup Python: el JS ya marcó data-pulpo-counted y no va a
+                        # re-enviar el mismo elemento en rondas siguientes. Deduplicar por
+                        # timestamp a nivel minuto acá causaría que mensajes del mismo
+                        # minuto se cuenten solo una vez (falso negativo) y que el stale
+                        # counter suba prematuramente.
                         new_in_batch += 1
                         if stop_before_ts:
                             try:
@@ -3398,12 +3401,33 @@ class WhatsAppSession(BrowserAutomation):
                     _dom_count = await page.evaluate(
                         "() => document.querySelectorAll('.message-in, .message-out').length"
                     )
+                    # Clasificar evento de scroll:
+                    #   CARGA   → scrollTop subió (WA insertó contenido histórico arriba)
+                    #   PEGADO  → scrollTop igual (tope real, WA ya cargó todo)
+                    #   NORMAL  → scrollTop bajó (scroll funcionó, progreso normal)
+                    if _scroll_before >= 0 and _scroll_after > _scroll_before:
+                        _bounce_count += 1
+                        _same_pos_streak += 1
+                        logger.info(
+                            f"[{session_id}] v2: CARGA_WA ronda {_round} "
+                            f"scrollTop {_scroll_before}→{_scroll_after} "
+                            f"(WA cargó historial, ciclos={_bounce_count} racha={_same_pos_streak})"
+                        )
+                    elif _scroll_before >= 0 and _scroll_after == _scroll_before:
+                        _same_pos_streak += 1
+                        logger.info(
+                            f"[{session_id}] v2: PEGADO ronda {_round} "
+                            f"scrollTop={_scroll_before} (racha={_same_pos_streak})"
+                        )
+                    else:
+                        _same_pos_streak = 0
                     if _round % 5 == 0 or new_in_batch == 0:
                         logger.info(
                             f"[{session_id}] v2: ronda {_round} "
                             f"scrollTop {_scroll_before}→{_scroll_after} "
                             f"new={new_in_batch} stale={stale_rounds} "
-                            f"DOM={_dom_count} capturados={len(results)}"
+                            f"DOM={_dom_count} capturados={len(results)} "
+                            f"cargas_WA={_bounce_count}"
                         )
                     if on_progress:
                         try:
@@ -3413,6 +3437,11 @@ class WhatsAppSession(BrowserAutomation):
                 else:
                     await page.evaluate(_SCROLL_UP_JS, scroll_step)
                     await page.wait_for_timeout(2500)
+
+            logger.info(
+                f"[{session_id}] v2: fin loop — {len(results)} mensajes, "
+                f"rebotes_total={_bounce_count} en {_round+1} rondas"
+            )
 
             # Post-process: eliminar re-renders sin ppEl cuando el mismo body+tipo
             # fue capturado CON sender (ppEl) en algún otro momento del historial.

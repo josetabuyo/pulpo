@@ -657,11 +657,11 @@ async def count_dom_messages(
     Retorna: total, from_date, to_date, contact_name
     """
     from state import wa_session, clients
-    from api.whatsapp import get_contacts
+    from db import get_contacts as _get_contacts
     from graphs.nodes.summarize import get_contact_display_name as _get_display_name
 
     contact_name = _get_display_name(empresa_id, contact_phone) or contact_phone
-    for contact in await get_contacts(empresa_id):
+    for contact in await _get_contacts(empresa_id):
         wa_chs = [ch for ch in contact.get("channels", []) if ch["type"] == "whatsapp"]
         if any(ch["value"] == contact_phone for ch in wa_chs):
             contact_name = contact["name"]
