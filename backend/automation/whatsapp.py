@@ -1755,6 +1755,10 @@ class WhatsAppSession(BrowserAutomation):
                             if (fd) {
                                 const d=parseInt(fd[1]), mo=_monthES[fd[2].toLowerCase()]||0, y=parseInt(fd[3]);
                                 if (mo) sepDate = d+'/'+mo+'/'+y;
+                            // "17 de marzo" sin año → año actual
+                            } else if (/^\d{1,2}\s+de\s+\w+$/i.test(ownTxt)) {
+                                const fdny = ownTxt.match(/^(\d{1,2})\s+de\s+(\w+)$/i);
+                                if (fdny) { const d=parseInt(fdny[1]),mo=_monthES[fdny[2].toLowerCase()]||0; if(mo) sepDate=d+'/'+mo+'/'+_today.getFullYear(); }
                             } else if (low === 'hoy') {
                                 sepDate = _today.getDate()+'/'+(_today.getMonth()+1)+'/'+_today.getFullYear();
                             } else if (low === 'ayer') {
@@ -1769,6 +1773,26 @@ class WhatsAppSession(BrowserAutomation):
                                 sepDate = d3.getDate()+'/'+( d3.getMonth()+1)+'/'+d3.getFullYear();
                             }
                             if (sepDate) { msgDate = sepDate; break; }
+                        }
+                        // Paso 3: sin fecha → buscar primer PP con fecha DESPUÉS del audio
+                        // (cubre audios al inicio absoluto de conversación sin PP previos)
+                        if (!msgDate) {
+                            for (const el of document.querySelectorAll('[data-pre-plain-text]')) {
+                                if (msgContainer.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) {
+                                    const m = el.getAttribute('data-pre-plain-text').match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
+                                    if (m) { msgDate = m[1]; break; }
+                                }
+                            }
+                        }
+                        // Paso 4: separador DESPUÉS del audio (para audios antes del primer texto)
+                        if (!msgDate) {
+                            for (const el of document.querySelectorAll('span')) {
+                                if (!(msgContainer.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
+                                const ot2 = [...el.childNodes].filter(n=>n.nodeType===3).map(n=>n.textContent.trim()).join('').trim();
+                                if (!ot2 || ot2.length > 60) continue;
+                                const fd2 = ot2.match(/(\d{1,2})\s+de\s+(\w+)\s+de\s+(\d{4})/i);
+                                if (fd2) { const d=parseInt(fd2[1]),mo=_monthES[fd2[2].toLowerCase()]||0,y=parseInt(fd2[3]); if(mo){msgDate=d+'/'+mo+'/'+y;break;} }
+                            }
                         }
 
                         let timeText = '';
@@ -2270,7 +2294,7 @@ class WhatsAppSession(BrowserAutomation):
                     except ValueError:
                         pass
                 else:
-                    # Solo hora → asignar fecha de hoy
+                    # Solo hora sin fecha: guardar sentinel para interpolar después
                     time_m = re.search(
                         r"(\d{1,2}):(\d{2})(?:\s*([ap])\.?\s*m\.?)?",
                         pre_norm, re.IGNORECASE,
@@ -2283,12 +2307,7 @@ class WhatsAppSession(BrowserAutomation):
                                 h += 12
                             elif ampm.lower() == "a" and h == 12:
                                 h = 0
-                        try:
-                            ts = datetime(today.year, today.month, today.day, h, mi).strftime(
-                                "%Y-%m-%d %H:%M:%S"
-                            )
-                        except ValueError:
-                            pass
+                        ts = f"__DATE_UNKNOWN__{h:02d}:{mi:02d}:00"
 
                 if not ts:
                     continue
@@ -2309,6 +2328,28 @@ class WhatsAppSession(BrowserAutomation):
                     "_pre_plain": m.get("prePlain", ""),
                     "msg_type": m.get("msg_type", "text"),
                 })
+
+            # Interpolar fechas faltantes usando el mensaje vecino más cercano.
+            # Los mensajes vienen en orden DOM (cronológico). Si solo tenemos la hora,
+            # usamos la fecha del mensaje anterior (pasada hacia adelante) o del
+            # siguiente (pasada hacia atrás para los que están al principio).
+            _SENTINEL = "__DATE_UNKNOWN__"
+            last_date = None
+            for msg in parsed:
+                if not msg["timestamp"].startswith(_SENTINEL):
+                    last_date = msg["timestamp"][:10]
+                elif last_date:
+                    time_part = msg["timestamp"].replace(_SENTINEL, "")
+                    msg["timestamp"] = f"{last_date} {time_part}"
+            next_date = None
+            for msg in reversed(parsed):
+                if not msg["timestamp"].startswith(_SENTINEL):
+                    next_date = msg["timestamp"][:10]
+                elif next_date:
+                    time_part = msg["timestamp"].replace(_SENTINEL, "")
+                    msg["timestamp"] = f"{next_date} {time_part}"
+            # Si quedan sentinels (lista vacía o sin ningún mensaje con fecha → muy raro)
+            parsed = [m for m in parsed if not m["timestamp"].startswith(_SENTINEL)]
 
             logger.info(f"[{session_id}] scrape_full_history '{contact_name}': {len(parsed)} mensajes extraídos")
 
