@@ -6,6 +6,9 @@ Convención de patches: sync.py importará las funciones directamente:
     from graphs.nodes.summarize import accumulate, clear_contact, _newest_message_ts
 → patch path: "automation.sync.<nombre>"
 """
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
 import asyncio
 import inspect
 import pytest

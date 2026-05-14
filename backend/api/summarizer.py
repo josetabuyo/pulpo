@@ -389,16 +389,16 @@ async def sync_contact(empresa_id: str, contact_phone: str, _: str = Depends(_ch
 async def full_resync_contact(empresa_id: str, contact_phone: str, _: str = Depends(_check_auth)):
     """
     Full re-sync: borra el .md, adjuntos y .bak del contacto, luego dispara un
-    scrape WA Web completo (scrape_full_history_v2, sin stop_before_ts).
+    scrape WA Web completo via delta_sync(FULL_OVERWRITE).
     """
     from state import wa_session, clients
-    from api.whatsapp import log_message_historic
-    from graphs.nodes.summarize import accumulate as _accumulate, get_attachments_dir as _get_att_dir
-    from graphs.nodes.state import FlowState as _FlowState
-
-    # 1. Resolver nombre ANTES de borrar (clear_contact_full borra name.txt)
+    from graphs.nodes.summarize import get_attachments_dir as _get_att_dir
     from graphs.nodes.summarize import get_contact_display_name as _get_display_name
     from api.whatsapp import get_contacts
+    from automation.sync import delta_sync, StopCondition
+    from config import load_config as _load_config
+
+    # 1. Resolver nombre ANTES de borrar (clear_contact_full borra name.txt)
     contact_name = _get_display_name(empresa_id, contact_phone) or contact_phone
     for contact in await get_contacts(empresa_id):
         wa_chs = [ch for ch in contact.get("channels", []) if ch["type"] == "whatsapp"]
@@ -406,10 +406,10 @@ async def full_resync_contact(empresa_id: str, contact_phone: str, _: str = Depe
             contact_name = contact["name"]
             break
 
-    # 2. Limpiar todo
+    # 2. Limpiar adjuntos también (delta_sync solo limpia el .md)
     clear_contact_full(empresa_id, contact_phone)
 
-    # 3. Buscar sesión WA activa (cualquier sesión lista sirve)
+    # 3. Buscar sesión WA activa
     session_id = None
     for bot_phone, client in clients.items():
         if client.get("status") == "ready" and client.get("type") == "whatsapp":
@@ -418,41 +418,30 @@ async def full_resync_contact(empresa_id: str, contact_phone: str, _: str = Depe
     if not session_id or not wa_session:
         raise HTTPException(status_code=503, detail="Sin sesión WA activa")
 
-    # 4. Scrape completo v2
+    # 4. Resolver owner_name
+    _cfg = _load_config()
+    _empresa_cfg = next((e for e in _cfg.get("empresas", []) if e["id"] == empresa_id), None)
+    owner_name = None
+    if _empresa_cfg:
+        for ph in _empresa_cfg.get("phones", []):
+            if ph.get("number") == session_id and ph.get("owner_name"):
+                owner_name = ph["owner_name"]
+                break
+
+    # 5. Scrape + acumulación via delta_sync
     doc_dir = _get_att_dir(empresa_id, contact_phone)
-    messages = await wa_session.scrape_full_history_v2(
-        session_id, contact_name, doc_save_dir=doc_dir
+    result = await delta_sync(
+        wa_session=wa_session,
+        session_id=session_id,
+        contact_name=contact_name,
+        empresa_id=empresa_id,
+        contact_phone=contact_phone,
+        stop_condition=StopCondition.FULL_ENRICH,  # .md ya fue borrado por clear_contact_full
+        owner_name=owner_name,
+        doc_save_dir=doc_dir,
     )
-    messages.sort(key=lambda m: m.get("timestamp") or "")
 
-    # 5. Acumular en el .md
-    saved = 0
-    from datetime import datetime as _dt
-    for msg in messages:
-        body = msg.get("body", "")
-        sender = msg.get("sender")
-        if not sender:
-            sender = "Tú" if msg.get("is_outbound") else contact_name
-        body = f"{sender}: {body}"
-        if not body.strip():
-            continue
-        ts = None
-        try:
-            ts = _dt.strptime(msg["timestamp"], "%Y-%m-%d %H:%M:%S")
-        except Exception:
-            pass
-        msg_type = msg.get("msg_type", "text")
-        _accumulate(
-            empresa_id=empresa_id,
-            contact_phone=contact_phone,
-            contact_name=contact_name,
-            msg_type=msg_type,
-            content=body.strip(),
-            timestamp=ts,
-        )
-        saved += 1
-
-    return {"scraped": len(messages), "saved": saved, "contact_name": contact_name}
+    return {"scraped": result["scraped"], "saved": result["new"], "contact_name": contact_name}
 
 
 @router.post("/summarizer/{empresa_id}/migrate-to-slugs")

@@ -425,10 +425,9 @@ async def import_wa_history(
         import asyncio
         from datetime import datetime as _dt
         from state import wa_session, clients
-        from graphs.nodes.summarize import (
-            accumulate as _accumulate,
-            get_attachments_dir as _get_att_dir,
-        )
+        from graphs.nodes.summarize import get_attachments_dir as _get_att_dir
+        from automation.sync import delta_sync, StopCondition
+        from config import load_config as _load_config
 
         _status_key = f"{empresa_id}:{flow_id}"
 
@@ -458,12 +457,22 @@ async def import_wa_history(
             _import_status[_status_key] = {"running": False, "error": "Sin sesión WA activa"}
             return
 
-        stop_before_ts = None
+        since_date = None
         if from_date:
             try:
-                stop_before_ts = _dt.fromisoformat(from_date)
+                since_date = _dt.fromisoformat(from_date)
             except ValueError:
                 pass
+
+        # Resolver owner_name desde connections.json para el sender de mensajes salientes
+        _cfg = _load_config()
+        _empresa_cfg = next((e for e in _cfg.get("empresas", []) if e["id"] == empresa_id), None)
+        owner_name = None
+        if _empresa_cfg:
+            for ph in _empresa_cfg.get("phones", []):
+                if ph.get("number") == session_id and ph.get("owner_name"):
+                    owner_name = ph["owner_name"]
+                    break
 
         for contact_name in included:
             contact_phone = contact_name
@@ -502,49 +511,21 @@ async def import_wa_history(
                             _attempts[-1]["round"] = round_n
                             _attempts[-1]["scraped"] = total
 
-                    messages = await wa_session.scrape_full_history_v2(
-                        session_id, contact_name,
-                        doc_save_dir=doc_dir,
-                        stop_before_ts=stop_before_ts,
-                        max_scroll_rounds=500,
-                        skip_audio_ts=skip_audio_ts,
+                    result = await delta_sync(
+                        wa_session=wa_session,
+                        session_id=session_id,
+                        contact_name=contact_name,
+                        empresa_id=empresa_id,
+                        contact_phone=contact_phone,
+                        stop_condition=StopCondition.FULL_ENRICH,
+                        since_date=since_date,
+                        owner_name=owner_name,
                         on_progress=_on_progress,
+                        doc_save_dir=doc_dir,
+                        skip_audio_ts=skip_audio_ts,
+                        max_scroll_rounds=500,
                     )
-                    messages.sort(key=lambda m: m.get("timestamp") or "")
-
-                    saved = 0
-                    for msg in messages:
-                        body = msg.get("body", "")
-                        sender = msg.get("sender")
-                        if not sender:
-                            sender = "Tú" if msg.get("is_outbound") else contact_name
-                        body = f"{sender}: {body}"
-                        quoted = msg.get("quoted", "")
-                        quoted_sender = msg.get("quotedSender", "")
-                        if quoted:
-                            reply_prefix = f"[{quoted_sender}] " if quoted_sender else ""
-                            body = f"{body}\n> ↩ {reply_prefix}{quoted}"
-                        if not body.strip():
-                            continue
-                        # Filtrar mensajes de reacción (emoji solo) o cuerpos demasiado cortos
-                        import unicodedata as _uc
-                        _bare = msg.get("body", "").strip()
-                        if len(_bare) <= 2 and all(_uc.category(c) in ('So', 'Sm', 'Sk', 'Sc', 'Po', 'Ps', 'Pe') for c in _bare if c.strip()):
-                            continue
-                        ts = None
-                        try:
-                            ts = _dt.strptime(msg["timestamp"], "%Y-%m-%d %H:%M:%S")
-                        except Exception:
-                            pass
-                        _accumulate(
-                            empresa_id=empresa_id,
-                            contact_phone=contact_phone,
-                            contact_name=contact_name,
-                            msg_type=msg.get("msg_type", "text"),
-                            content=body.strip(),
-                            timestamp=ts,
-                        )
-                        saved += 1
+                    saved = result["scraped"]
 
                     if _md_path.exists():
                         _text = _md_path.read_text(encoding="utf-8")
