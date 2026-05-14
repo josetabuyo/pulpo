@@ -635,10 +635,6 @@ function ConnectionRow({
         <SimChat number={conn.number} pwd={adminPwd} />
       )}
 
-      {/* BrowserPanel (admin mode + real WA — always visible) */}
-      {mode === 'admin' && !isTg && !simMode && (
-        <BrowserPanel number={conn.number} connected={connected} apiCall={apiCall} />
-      )}
     </div>
   )
 }

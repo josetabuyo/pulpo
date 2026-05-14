@@ -620,7 +620,7 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
     () => parseInt(localStorage.getItem('wa_import_max_retries') || '1', 10)
   )
   const [scraperStatus, setScraperStatus]   = useState(null)
-  const [screenshotOpen, setScreenshotOpen] = useState(false)
+  const [screenshotOpen, setScreenshotOpen] = useState(true)
   const [screenshotUrl, setScreenshotUrl]   = useState(null)
 
   function handleImportFromDateChange(e) {
@@ -909,7 +909,7 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
         {nodeType === 'whatsapp_trigger' && (
           <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
 
-            {/* Reintentos + Screenshot */}
+            {/* Reintentos */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ ...S.label, margin: 0, flex: 1 }}>REINTENTOS</span>
               <button
@@ -921,11 +921,6 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
                 onClick={() => { const v = Math.min(10, importMaxRetries + 1); setImportMaxRetries(v); localStorage.setItem('wa_import_max_retries', v) }}
                 style={S.miniBtn}
               >+</button>
-              <button
-                onClick={() => { setScreenshotOpen(o => !o); }}
-                style={{ ...S.miniBtn, padding: '2px 8px', marginLeft: 4, color: screenshotOpen ? '#38bdf8' : '#475569', borderColor: screenshotOpen ? '#0ea5e9' : '#1e293b' }}
-                title="Ver screenshot del browser de WhatsApp"
-              >📷</button>
             </div>
 
             {/* Screenshot inline */}
