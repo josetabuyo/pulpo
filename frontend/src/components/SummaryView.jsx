@@ -87,7 +87,7 @@ function ImageBubble({ msg, apiCall, empresaId, contactPhone }) {
   const isOut = msg.direction === 'out'
   function handleView() {
     if (!msg.filename) return
-    const url = `/api/summarizer/${empresaId}/${contactPhone}/docs/${encodeURIComponent(msg.filename)}`
+    const url = `/summarizer/${empresaId}/${contactPhone}/docs/${encodeURIComponent(msg.filename)}`
     apiCall('GET_BLOB', url, null).then(blob => {
       if (!blob) return
       const a = document.createElement('a')
@@ -123,9 +123,7 @@ function ImageBubble({ msg, apiCall, empresaId, contactPhone }) {
 function DocumentBubble({ msg, apiCall, empresaId, contactPhone }) {
   function handleDownload(e) {
     e.preventDefault()
-    // Construye URL con credenciales vía apiCall para archivos protegidos
-    const url = `/api/summarizer/${empresaId}/${contactPhone}/docs/${encodeURIComponent(msg.filename)}`
-    // Crear link temporal para descarga
+    const url = `/summarizer/${empresaId}/${contactPhone}/docs/${encodeURIComponent(msg.filename)}`
     apiCall('GET_BLOB', url, null).then(blob => {
       if (!blob) return
       const a = document.createElement('a')
@@ -134,8 +132,7 @@ function DocumentBubble({ msg, apiCall, empresaId, contactPhone }) {
       a.click()
       URL.revokeObjectURL(a.href)
     }).catch(() => {
-      // Fallback: abrir en nueva pestaña
-      window.open(url, '_blank')
+      window.open('/api' + url, '_blank')
     })
   }
 

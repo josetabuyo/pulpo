@@ -149,9 +149,13 @@ def _parse_messages(md_content: str, empresa_id: str, contact_phone: str, owner_
 
         ts_iso = None
         if timestamp_str:
-            try:
-                ts_iso = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M").isoformat()
-            except ValueError:
+            for _fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+                try:
+                    ts_iso = datetime.strptime(timestamp_str, _fmt).isoformat()
+                    break
+                except ValueError:
+                    continue
+            else:
                 ts_iso = timestamp_str
 
         if type_info in ("image", "imagen"):

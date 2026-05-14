@@ -111,7 +111,10 @@ def _dedup_hash(ts: str, body: str) -> str:
     if reply_suffix_m:
         normalized = reply_suffix_m.group(1).strip()
     is_media = bool(_MEDIA_PLACEHOLDER_RE.match(normalized))
-    key = normalized if is_media else f"{ts}|{normalized}"
+    # Normalizar ts a minutos para que entradas con formato viejo (HH:MM) y nuevo
+    # (HH:MM:SS) produzcan el mismo hash y no generen duplicados en la transición.
+    ts_minute = ts[:16]
+    key = normalized if is_media else f"{ts_minute}|{normalized}"
     return _hash(key)
 
 
@@ -162,9 +165,10 @@ def _try_enrich_entry(
         return False
     text = p.read_text(encoding="utf-8")
     raw = text.split("---\n")
+    ts_prefix = ts[:16]  # "YYYY-MM-DD HH:MM" — compat con entradas antiguas sin segundos
     for i, block in enumerate(raw):
         stripped = block.strip()
-        if not stripped.startswith(f"## {ts}"):
+        if not stripped.startswith(f"## {ts_prefix}"):
             continue
         lines = stripped.split("\n")
         if len(lines) < 2:
@@ -202,7 +206,7 @@ def accumulate(
     Para audios con placeholder fallido, enriquece la entrada existente en lugar
     de agregar una nueva.
     """
-    ts = (timestamp or datetime.now()).strftime("%Y-%m-%d %H:%M")
+    ts = (timestamp or datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
     seen = _ensure_loaded(empresa_id, contact_phone)
     h = _dedup_hash(ts, content)
     if h in seen:
@@ -295,7 +299,7 @@ def trim_contact_from_date(empresa_id: str, contact_phone: str, cutoff_dt: datet
     bak = p.with_suffix(".bak.md")
     bak.write_text(content, encoding="utf-8")
 
-    _TS_RE = re.compile(r'^## (\d{4}-\d{2}-\d{2} \d{2}:\d{2})')
+    _TS_RE = re.compile(r'^## (\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)')
     blocks = content.split("\n---\n")
     kept = []
     for block in blocks:
@@ -305,7 +309,9 @@ def trim_contact_from_date(empresa_id: str, contact_phone: str, cutoff_dt: datet
         m = _TS_RE.search(block_stripped)
         if m:
             try:
-                ts = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M")
+                ts_str = m.group(1)
+                fmt = "%Y-%m-%d %H:%M:%S" if len(ts_str) > 16 else "%Y-%m-%d %H:%M"
+                ts = datetime.strptime(ts_str, fmt)
                 if ts < cutoff_dt:
                     kept.append(block_stripped)
             except ValueError:
@@ -343,12 +349,14 @@ def _newest_message_ts(empresa_id: str, contact_phone: str) -> "datetime | None"
     if not p.exists():
         return None
     newest = None
-    _TS_RE = _re.compile(r'^## (\d{4}-\d{2}-\d{2} \d{2}:\d{2})')
+    _TS_RE = _re.compile(r'^## (\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)')
     for line in p.read_text(encoding="utf-8").splitlines():
         m = _TS_RE.match(line)
         if m:
+            ts_str = m.group(1)
             try:
-                ts = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M")
+                fmt = "%Y-%m-%d %H:%M:%S" if len(ts_str) > 16 else "%Y-%m-%d %H:%M"
+                ts = datetime.strptime(ts_str, fmt)
                 if newest is None or ts > newest:
                     newest = ts
             except ValueError:
