@@ -519,7 +519,17 @@ async def import_wa_history(
                         if not sender:
                             sender = "Tú" if msg.get("is_outbound") else contact_name
                         body = f"{sender}: {body}"
+                        quoted = msg.get("quoted", "")
+                        quoted_sender = msg.get("quotedSender", "")
+                        if quoted:
+                            reply_prefix = f"[{quoted_sender}] " if quoted_sender else ""
+                            body = f"{body}\n> ↩ {reply_prefix}{quoted}"
                         if not body.strip():
+                            continue
+                        # Filtrar mensajes de reacción (emoji solo) o cuerpos demasiado cortos
+                        import unicodedata as _uc
+                        _bare = msg.get("body", "").strip()
+                        if len(_bare) <= 2 and all(_uc.category(c) in ('So', 'Sm', 'Sk', 'Sc', 'Po', 'Ps', 'Pe') for c in _bare if c.strip()):
                             continue
                         ts = None
                         try:

@@ -82,16 +82,36 @@ function AudioBubble({ msg }) {
   )
 }
 
-function ImageBubble({ msg }) {
+function ImageBubble({ msg, apiCall, empresaId, contactPhone }) {
+  function handleView() {
+    if (!msg.filename) return
+    const url = `/api/summarizer/${empresaId}/${contactPhone}/docs/${encodeURIComponent(msg.filename)}`
+    apiCall('GET_BLOB', url, null).then(blob => {
+      if (!blob) return
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.target = '_blank'
+      a.rel = 'noopener'
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000)
+    }).catch(() => {})
+  }
+
   return (
     <div className="sv-bubble sv-bubble--in">
       <div className="sv-bubble-body">
         {msg.sender && <span className="sv-bubble-sender">{msg.sender}</span>}
         <ReplyQuote text={msg.reply_to} />
-        <div className="sv-img-row">
+        <div
+          className="sv-img-row"
+          onClick={msg.filename ? handleView : undefined}
+          style={{ cursor: msg.filename ? 'pointer' : 'default' }}
+          title={msg.filename ? 'Click para ver imagen' : undefined}
+        >
           <span className="sv-img-icon">🖼</span>
           <span className="sv-img-name">{msg.filename || 'imagen'}</span>
         </div>
+        {msg.caption && <p className="sv-bubble-text sv-img-caption">{msg.caption}</p>}
         <span className="sv-bubble-time">{formatTime(msg.timestamp)}</span>
       </div>
     </div>
@@ -262,7 +282,7 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
             return <AudioBubble key={i} msg={msg} />
           }
           if (msg.type === 'image') {
-            return <ImageBubble key={i} msg={msg} />
+            return <ImageBubble key={i} msg={msg} apiCall={apiCall} empresaId={empresaId} contactPhone={contactPhone} />
           }
           if (msg.type === 'document') {
             return (

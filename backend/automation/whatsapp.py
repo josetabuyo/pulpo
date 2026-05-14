@@ -2640,14 +2640,37 @@ class WhatsAppSession(BrowserAutomation):
                         results.push({{ type:'document', time, date, sender, isOut, filename: fname, size: fsize }});
                         continue;
                     }}
+                    // Imagen con ppEl (imagen enviada, con o sin caption)
+                    const imgWithPP = c.querySelector('img[src^="blob:"]');
+                    const imgPlaceholder = !imgWithPP ? c.querySelector(
+                        'img[src]:not([src^="blob:"]):not([src=""])[alt],' +
+                        '[data-testid="media-thumb"],[data-testid="image-thumb"],' +
+                        'div[data-testid="media-thumb"]'
+                    ) : null;
+                    if (imgWithPP) {{
+                        // Capturar caption si existe (texto debajo de la imagen)
+                        const captionEl = c.querySelector('span.copyable-text,[data-testid="selectable-text"]');
+                        const imgCaption = captionEl ? captionEl.innerText.trim() : '';
+                        c.setAttribute('data-pulpo-done','1');
+                        results.push({{ type:'image', time, date, sender, isOut, imgSrc: imgWithPP.src, caption: imgCaption }});
+                        continue;
+                    }}
+                    if (imgPlaceholder) {{
+                        // Imagen presente pero blob no cargado aún — dejar sin marcar done
+                        // para que la próxima ronda intente con el blob ya disponible
+                        results.push({{ type:'image_pending', time, date, sender, isOut, imgSrc: '' }});
+                        continue;
+                    }}
                     // Texto plano
                     const children = [...ppEl.children];
-                    let body='', quoted='';
+                    let body='', quoted='', quotedSender='';
                     if (children.length >= 2) {{
                         const realEl = children[children.length-1].querySelector('span.copyable-text,[data-testid="selectable-text"]');
                         body = realEl ? realEl.innerText.trim() : '';
                         const qEl = children[0].querySelector('span.copyable-text,[data-testid="selectable-text"]');
                         quoted = qEl ? qEl.innerText.trim() : '';
+                        const qSenderEl = children[0].querySelector('[data-testid="author"],span[style*="color:#"],span[style*="color: #"],span._ak4h');
+                        quotedSender = qSenderEl ? qSenderEl.innerText.trim() : '';
                     }} else {{
                         const textEl = ppEl.querySelector('span.copyable-text,[data-testid="msg-text"]');
                         body = textEl ? textEl.innerText.trim() : ppEl.innerText.trim();
@@ -2659,7 +2682,7 @@ class WhatsAppSession(BrowserAutomation):
                         continue;
                     }}
                     c.setAttribute('data-pulpo-done','1');
-                    results.push({{ type:'text', time, date, sender, isOut, body, quoted }});
+                    results.push({{ type:'text', time, date, sender, isOut, body, quoted, quotedSender }});
                 }}
             }}
             return results;
@@ -3103,6 +3126,12 @@ class WhatsAppSession(BrowserAutomation):
                         "body": "",
                     }
 
+                    if msg["type"] == "image_pending":
+                        # Imagen detectada pero blob no cargado: NO marcar como vista en seen_keys
+                        # La próxima ronda intentará capturarla cuando el blob esté disponible.
+                        logger.debug(f"[{session_id}] v2 imagen pendiente de carga: {ts_str}")
+                        continue
+
                     # ── Procesar por tipo ──────────────────────────────────
                     if msg["type"] == "audio":
                         # Saltar audios ya transcritos en runs anteriores
@@ -3166,6 +3195,9 @@ class WhatsAppSession(BrowserAutomation):
                                 entry["body"] = "[imagen]"
                         else:
                             entry["body"] = "[imagen]"
+                        caption = msg.get("caption", "").strip()
+                        if caption:
+                            entry["body"] = f"{entry['body']} — {caption}"
 
                     elif msg["type"] == "document":
                         fname = msg.get("filename", "")
@@ -3188,7 +3220,7 @@ class WhatsAppSession(BrowserAutomation):
                     stale_rounds += 1
                     # En tope absoluto (scrollTop=0 antes y después del scroll) paramos antes
                     _at_top = (_scroll_before == 0 and _scroll_after == 0)
-                    _max_stale = 2 if _at_top else 10
+                    _max_stale = 6 if _at_top else 10
                     if stale_rounds >= _max_stale:
                         logger.info(f"[{session_id}] v2: sin mensajes nuevos tras {stale_rounds} rondas ({'en tope' if _at_top else 'general'}), fin del historial")
                         break
@@ -3207,12 +3239,19 @@ class WhatsAppSession(BrowserAutomation):
                             || document.querySelector('#main div');
                         return el ? el.scrollTop : -1;
                     }""")
-                    # 20 eventos de -500 con 150ms de pausa = scroll gradual de 10000px total
-                    for _ in range(20):
-                        await page.mouse.wheel(0, -500)
-                        await page.wait_for_timeout(150)
+                    # Cerca del tope: scroll más cauto para no acumular eventos mientras WA carga.
+                    # Lejos del tope: scroll agresivo para cubrir historial rápido.
+                    if _scroll_before < 3000:
+                        _wheel_steps, _wheel_px, _wheel_delay = 4, 300, 400
+                    else:
+                        _wheel_steps, _wheel_px, _wheel_delay = 20, 500, 150
+                    for _ in range(_wheel_steps):
+                        await page.mouse.wheel(0, -_wheel_px)
+                        await page.wait_for_timeout(_wheel_delay)
                     # Espera extra cuando llegamos al tope — da tiempo al server request de WA
                     if _scroll_before <= 200:
+                        await page.wait_for_timeout(3000)
+                    elif _scroll_before < 3000:
                         await page.wait_for_timeout(2000)
                     else:
                         await page.wait_for_timeout(1500)

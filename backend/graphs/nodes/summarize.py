@@ -100,6 +100,16 @@ def _normalize_body(body: str) -> str:
 def _dedup_hash(ts: str, body: str) -> str:
     """Calcula el hash de dedup igual que accumulate(): content-only para media placeholder."""
     normalized = _normalize_body(body)
+    # Normalizar: stripear "Sender: " si existe, para que el mismo mensaje con/sin
+    # prefijo de sender produzca el mismo hash (dedup entre caminos sync vs scraper).
+    sender_m = re.match(r'^[^:]{2,40}:\s+(.*)', normalized, re.DOTALL)
+    if sender_m:
+        normalized = sender_m.group(1).strip()
+    # Normalizar: stripear "\n> ↩ ..." (reply context) para que scraper y sync-DB
+    # produzcan el mismo hash del mensaje sin duplicar.
+    reply_suffix_m = re.match(r'^(.*?)\n>\s*↩.*$', normalized, re.DOTALL)
+    if reply_suffix_m:
+        normalized = reply_suffix_m.group(1).strip()
     is_media = bool(_MEDIA_PLACEHOLDER_RE.match(normalized))
     key = normalized if is_media else f"{ts}|{normalized}"
     return _hash(key)

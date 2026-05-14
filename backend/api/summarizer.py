@@ -151,25 +151,31 @@ def _parse_messages(md_content: str, empresa_id: str, contact_phone: str) -> lis
                 ts_iso = timestamp_str
 
         if type_info in ("image", "imagen"):
-            # Mensajes de imagen — mostrar como burbuja especial
-            # content puede ser "[imagen: nombre.jpg]" o solo el nombre
-            img_match = re.match(r'\[imagen(?:\s*guardada)?:\s*([^\]]+)\]', content)
-            img_name = img_match.group(1).strip() if img_match else content
-            # Extraer sender si hay "Nombre: " prefix
             img_sender = None
+            img_name = None
+            img_caption = None
+            # Extraer sender si hay "Nombre: " prefix
             gs = re.match(r'^([^\[:]{2,40}):\s+(.*)', content, re.DOTALL)
             if gs:
                 img_sender = gs.group(1).strip()
-                img_name = gs.group(2).strip()
-                img_m2 = re.match(r'\[imagen(?:\s*guardada)?:\s*([^\]]+)\]', img_name)
-                if img_m2:
-                    img_name = img_m2.group(1).strip()
+                remainder = gs.group(2).strip()
+            else:
+                remainder = content
+            # Extraer filename y caption opcional: "[imagen guardada: file.jpg] — caption"
+            img_m = re.match(r'\[imagen(?:\s*guardada)?:\s*([^\]]+)\](?:\s*[—–-]\s*(.+))?', remainder, re.DOTALL)
+            if img_m:
+                img_name = img_m.group(1).strip()
+                if img_m.group(2):
+                    img_caption = img_m.group(2).strip()
+            else:
+                img_name = remainder
             messages.append({
                 "type": "image",
                 "direction": "in",
                 "timestamp": ts_iso,
                 "sender": img_sender,
                 "filename": img_name,
+                "caption": img_caption,
                 "reply_to": reply_to,
             })
         elif type_info.startswith("audio"):
@@ -357,7 +363,7 @@ async def sync_contact(empresa_id: str, contact_phone: str, _: str = Depends(_ch
             contact_phone=contact_phone,
             contact_name=phone_for_db,
             msg_type="text",
-            content=body.strip(),
+            content=f"{phone_for_db}: {body.strip()}",
             timestamp=ts,
         )
         synced += 1
@@ -516,6 +522,7 @@ async def sync_all_contacts(
                     {"eid": empresa_id, "phone": phone},
                 )).fetchall()
 
+            contact_display = _db_phone(empresa_id, phone)
             synced = 0
             for body, ts_raw in rows:
                 if not _is_useful(body):
@@ -530,9 +537,9 @@ async def sync_all_contacts(
                 summarizer.accumulate(
                     empresa_id=empresa_id,
                     contact_phone=phone,
-                    contact_name=phone,
+                    contact_name=contact_display,
                     msg_type="text",
-                    content=body.strip(),
+                    content=f"{contact_display}: {body.strip()}",
                     timestamp=ts,
                 )
                 synced += 1

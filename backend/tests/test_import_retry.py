@@ -239,6 +239,48 @@ def test_parse_messages_multiline_text():
     )
 
 
+def test_accumulate_no_duplica_con_y_sin_sender(tmp_path):
+    """Si el mismo mensaje llega sin sender y luego con sender, debe haber solo 1 entrada."""
+    from graphs.nodes import summarize as m
+    orig = m._BASE
+    m._BASE = tmp_path
+    try:
+        eid, cp = "e", "c"
+        _dedup_loaded.discard((eid, cp))
+        _dedup.pop((eid, cp), None)
+        from datetime import datetime
+        ts = datetime(2026, 5, 13, 14, 20)
+        accumulate(eid, cp, "Contacto", "text", "Hola José, confirmada mi visita", timestamp=ts)
+        accumulate(eid, cp, "Contacto", "text", "Contacto: Hola José, confirmada mi visita", timestamp=ts)
+        assert m._path(eid, cp).read_text().count("---\n") == 1, "Mismo mensaje con/sin sender debe deduplicarse"
+    finally:
+        m._BASE = orig
+        _dedup_loaded.discard((eid, cp))
+        _dedup.pop((eid, cp), None)
+
+
+def test_accumulate_no_duplica_con_y_sin_reply_context(tmp_path):
+    """El mismo mensaje con y sin contexto de respuesta debe deduplicarse."""
+    from graphs.nodes import summarize as m
+    orig = m._BASE
+    m._BASE = tmp_path
+    try:
+        eid, cp = "e2", "c2"
+        _dedup_loaded.discard((eid, cp))
+        _dedup.pop((eid, cp), None)
+        from datetime import datetime
+        ts = datetime(2026, 5, 13, 14, 48)
+        # Scraper: con reply context
+        accumulate(eid, cp, "Andrés", "text", "Andrés: Brillante\n> ↩ [Jozbuyo] buenísimo! yo estoy avanzando", timestamp=ts)
+        # Sync-DB: sin reply context
+        accumulate(eid, cp, "Andrés", "text", "Andrés: Brillante", timestamp=ts)
+        assert m._path(eid, cp).read_text().count("---\n") == 1, "Brillante con/sin reply context no debe duplicarse"
+    finally:
+        m._BASE = orig
+        _dedup_loaded.discard((eid, cp))
+        _dedup.pop((eid, cp), None)
+
+
 def test_parse_messages_single_line_unchanged():
     """Mensajes de una sola línea no deben verse afectados por el fix."""
     md = textwrap.dedent("""\
@@ -254,3 +296,63 @@ def test_parse_messages_single_line_unchanged():
     contents = [m.get("content", "") for m in msgs]
     assert any("Hola, cómo estás?" in c for c in contents)
     assert any("Bien, gracias" in c for c in contents)
+
+
+def test_parse_messages_image_with_sender():
+    """Imagen con sender debe parsearse como tipo image."""
+    md = textwrap.dedent("""\
+        ## 2026-05-11 17:09
+        **[image]** Andrés Buxareo: [imagen guardada: img_abc123.jpg]
+        ---
+        ## 2026-05-11 17:10
+        **[image]** Andrés Buxareo: [imagen]
+        ---
+    """)
+    msgs = _parse_messages(md, "emp_test", "5491100000000")
+    assert len(msgs) == 2
+    assert all(m["type"] == "image" for m in msgs)
+    assert msgs[0].get("filename") == "img_abc123.jpg"
+
+
+def test_parse_messages_image_pending_not_in_output():
+    """image_pending nunca debe aparecer en los mensajes finales del parser."""
+    md = textwrap.dedent("""\
+        ## 2026-05-11 16:58
+        **[image]** Andrés Buxareo: [imagen guardada: img_aabbcc.jpg]
+        ---
+    """)
+    msgs = _parse_messages(md, "emp_test", "5491100000000")
+    assert len(msgs) == 1
+    assert msgs[0]["type"] == "image"
+
+
+def test_parse_messages_image_with_caption():
+    """Imagen con caption debe retornar filename y caption separados."""
+    md = textwrap.dedent("""\
+        ## 2026-05-07 16:58
+        **[image]** Andrés Buxareo: [imagen guardada: img_abc123.jpg] — Antecedentes = sobre lo que trabajé en 2005 a 2009
+        ---
+        ## 2026-05-07 16:59
+        **[image]** Andrés Buxareo: [imagen guardada: img_def456.jpg]
+        ---
+    """)
+    msgs = _parse_messages(md, "emp_test", "5491100000000")
+    assert len(msgs) == 2
+    assert msgs[0]["filename"] == "img_abc123.jpg"
+    assert msgs[0]["caption"] == "Antecedentes = sobre lo que trabajé en 2005 a 2009"
+    assert msgs[0]["sender"] == "Andrés Buxareo"
+    assert msgs[1]["filename"] == "img_def456.jpg"
+    assert msgs[1].get("caption") is None
+
+
+def test_parse_messages_image_without_caption():
+    """Imagen sin caption no debe tener campo caption."""
+    md = textwrap.dedent("""\
+        ## 2026-05-07 17:00
+        **[image]** Tú: [imagen guardada: img_xyz.jpg]
+        ---
+    """)
+    msgs = _parse_messages(md, "emp_test", "5491100000000")
+    assert len(msgs) == 1
+    assert msgs[0]["filename"] == "img_xyz.jpg"
+    assert msgs[0].get("caption") is None
