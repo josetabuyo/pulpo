@@ -346,7 +346,11 @@ def _is_useful(body: str) -> bool:
 
 @router.post("/summarizer/{empresa_id}/{contact_phone}/sync")
 async def sync_contact(empresa_id: str, contact_phone: str, _: str = Depends(_check_auth)):
-    """Re-sincroniza el resumen de UN contacto desde la DB, filtrando ruido (audios sin transcripción, etc.)."""
+    """
+    FUENTE: DB (no WA Web).
+    Reconstruye el .md de un contacto a partir de los mensajes ya guardados en base de datos.
+    Solo incluye mensajes entrantes (outbound=0). Para scrape desde WA Web usar /full-resync.
+    """
     summarizer.clear_contact(empresa_id, contact_phone)
 
     phone_for_db = _db_phone(empresa_id, contact_phone)
@@ -458,10 +462,12 @@ async def sync_all_contacts(
     _: str = Depends(_check_auth),
 ):
     """
-    Reconstruye el .md de TODOS los contactos de una empresa desde la DB.
-    Si from_date (YYYY-MM-DD) está presente, solo re-procesa mensajes desde esa fecha
-    (trim del .md a partir de esa fecha + acumular desde DB).
-    Sin from_date: rebuild completo desde DB.
+    FUENTE: DB (no WA Web).
+    Reconstruye el .md de TODOS los contactos de una empresa a partir de la base de datos.
+    Solo incluye mensajes entrantes (outbound=0). Para scrape desde WA Web usar /full-resync.
+
+    Si from_date (YYYY-MM-DD): trim del .md desde esa fecha + re-procesa solo esos mensajes.
+    Sin from_date: rebuild completo desde cero.
     """
     cutoff_dt = None
     if from_date:

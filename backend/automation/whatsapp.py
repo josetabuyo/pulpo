@@ -719,11 +719,18 @@ class WhatsAppSession(BrowserAutomation):
         self, session_id: str, page, bot_id: str, bot_phone: str
     ) -> None:
         """
-        Corre cada 10s: lee el preview del sidebar para cada contacto monitoreado
-        y lo compara con el último mensaje guardado en DB.
-        Si difiere → dispara _run_delta_sync para ese contacto.
-        Captura tanto mensajes entrantes (sin badge si ya leídos) como salientes
-        (enviados desde otro dispositivo/WA Desktop).
+        Scanner de sidebar — detector de cambios en tiempo real.
+
+        Implementa la semántica StopCondition.UNTIL_KNOWN vía _run_delta_sync:
+        cuando el preview del sidebar difiere del último mensaje conocido en DB,
+        raspa el chat hasta encontrar el primer mensaje ya guardado (para ahí).
+
+        Corre cada 10s. Captura entrantes (sin badge si ya leídos) y salientes
+        (enviados desde otro dispositivo / WA Desktop).
+
+        Flujo: preview cambió → _run_delta_sync → scrape WA Web (UNTIL_KNOWN)
+               → DB (log_message_historic) + pipeline de flows (run_flows)
+               → SummarizeNode → accumulate() → .md actualizado
         """
         from db import get_last_message_body, get_contacts
         from config import get_empresas_for_connection

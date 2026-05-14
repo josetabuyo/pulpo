@@ -540,10 +540,15 @@ async def _run_sync(from_date: "date | None" = None, contact_phone: "str | None"
 
 async def _run_delta_sync(contact_phone: "str | None" = None) -> None:
     """
-    Sync incremental: para cada contacto con summarizer activo, escanea mensajes
-    de más nuevo a más viejo y para en cuanto encuentra uno ya guardado en DB.
-    No resetea el .md ni los sumarios — solo agrega lo nuevo.
-    Reporta por contacto: cuántos nuevos, dónde paró.
+    Implementación UNTIL_KNOWN para el pipeline de bots en tiempo real.
+
+    Diferencia con automation.sync.delta_sync(UNTIL_KNOWN):
+      - delta_sync → solo escribe en .md (summarizer, sin flows)
+      - _run_delta_sync → escribe en DB (log_message_historic) + dispara flows
+        (run_flows) → SummarizeNode actualiza el .md como efecto secundario
+
+    Llamado por _poll_sidebar_for_delta cuando detecta un cambio en el sidebar.
+    Para al primer mensaje ya presente en DB (semántica UNTIL_KNOWN).
     """
     global _sync_running
     import logging
