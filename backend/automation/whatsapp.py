@@ -3032,8 +3032,22 @@ class WhatsAppSession(BrowserAutomation):
                 logger.info(f"[{session_id}] v2: no hay banner de sync")
 
             # 3. Ir al fondo (mensajes más recientes)
-            await page.evaluate(_SCROLL_BOTTOM_JS)
-            await page.wait_for_timeout(1500)
+            # Primero intentar el botón "↓" de WA Web (más rápido que scroll programático)
+            _goto_bottom_btn = await page.evaluate("""() => {
+                const btn = document.querySelector('[data-testid="scroll-to-bottom"]')
+                    || document.querySelector('button[aria-label*="abajo"]')
+                    || document.querySelector('button[aria-label*="bottom"]')
+                    || document.querySelector('button[aria-label*="down"]');
+                if (btn) { const r = btn.getBoundingClientRect(); return {x: r.left + r.width/2, y: r.top + r.height/2}; }
+                return null;
+            }""")
+            if _goto_bottom_btn:
+                logger.info(f"[{session_id}] v2: click botón ir-al-fondo")
+                await page.mouse.click(_goto_bottom_btn["x"], _goto_bottom_btn["y"])
+                await page.wait_for_timeout(800)
+            else:
+                await page.evaluate(_SCROLL_BOTTOM_JS)
+                await page.wait_for_timeout(1500)
 
             # Detectar centro del panel de mensajes para mouse wheel nativo
             _panel_center = await page.evaluate("""
