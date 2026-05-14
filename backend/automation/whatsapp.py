@@ -3346,14 +3346,23 @@ class WhatsAppSession(BrowserAutomation):
                         await page.wait_for_timeout(3000)
                         continue
                     stale_rounds += 1
-                    # En tope absoluto (scrollTop=0 antes y después del scroll) paramos antes
-                    _at_top = (_scroll_before == 0 and _scroll_after == 0)
-                    _max_stale = 12 if _at_top else 10
+                    # En tope absoluto (scrollTop=0 antes y después) → WA ya cargó todo
+                    # Cerca del tope (< 500) → WA puede estar cargando el último batch; dar más tiempo
+                    _at_top   = (_scroll_before == 0 and _scroll_after == 0)
+                    _near_top = (_scroll_after is not None and _scroll_after < 500)
+                    if _at_top:
+                        _max_stale = 12
+                    elif _near_top:
+                        _max_stale = 25
+                    else:
+                        _max_stale = 10
                     if stale_rounds >= _max_stale:
-                        logger.info(f"[{session_id}] v2: sin mensajes nuevos tras {stale_rounds} rondas ({'en tope' if _at_top else 'general'}), fin del historial")
+                        label = "en tope" if _at_top else ("cerca del tope" if _near_top else "general")
+                        logger.info(f"[{session_id}] v2: sin mensajes nuevos tras {stale_rounds} rondas ({label}), fin del historial")
                         break
                     # Espera más larga cuando no hay mensajes nuevos — da tiempo a WA Web para cargar
-                    await page.wait_for_timeout(2000)
+                    _stale_wait = 4000 if _near_top else 2000
+                    await page.wait_for_timeout(_stale_wait)
                 else:
                     stale_rounds = 0
 
