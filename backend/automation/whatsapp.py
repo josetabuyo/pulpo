@@ -2487,6 +2487,8 @@ class WhatsAppSession(BrowserAutomation):
         max_scroll_rounds: int = 120,
         skip_audio_ts: "set[str] | None" = None,
         on_progress: "Callable[[int, int, int], None] | None" = None,
+        scroll_step: int = 600,
+        count_only: bool = False,
     ) -> list[dict]:
         """
         Reemplaza scrape_full_history con arquitectura correcta:
@@ -2732,6 +2734,35 @@ class WhatsAppSession(BrowserAutomation):
                     c.setAttribute('data-pulpo-done','1');
                     results.push({{ type:'text', time, date, sender, isOut, body, quoted, quotedSender }});
                 }}
+            }}
+            return results;
+        }}
+        """
+
+        # ── JS: conteo liviano (count_only=True) — usa data-pulpo-counted ──────
+        _COUNT_SCAN_JS = f"""
+        () => {{
+            {_DATE_HELPERS_JS}
+            const results = [];
+            const containers = document.querySelectorAll(
+                '.message-in:not([data-pulpo-counted]), .message-out:not([data-pulpo-counted])'
+            );
+            for (const c of containers) {{
+                const rect = c.getBoundingClientRect();
+                if (rect.top > window.innerHeight + 300) continue;
+                c.setAttribute('data-pulpo-counted', '1');
+                const ppEl = c.querySelector('[data-pre-plain-text]');
+                let time='', date='';
+                if (ppEl) {{
+                    const pp = (ppEl.getAttribute('data-pre-plain-text')||'')
+                        .replace(/\\u00a0/g,' ').replace(/ /g,' ');
+                    const m = pp.match(/(\\d{{1,2}}:\\d{{2}}[^,\\]]*),?\\s*(\\d{{1,2}}\\/\\d{{1,2}}\\/\\d{{4}})/);
+                    if (m) {{ time=m[1].trim(); date=m[2]; }}
+                }} else {{
+                    time = _getTime(c);
+                    date = _nearestDateBefore(c);
+                }}
+                if (time) results.push({{ time, date }});
             }}
             return results;
         }}
@@ -3155,12 +3186,31 @@ class WhatsAppSession(BrowserAutomation):
             _scroll_after = 9999
 
             # 4. Loop principal: escanear → procesar → subir
+            _active_scan_js = _COUNT_SCAN_JS if count_only else _SCAN_JS
             for _round in range(max_scroll_rounds):
-                batch = await page.evaluate(_SCAN_JS)
+                batch = await page.evaluate(_active_scan_js)
 
                 new_in_batch = 0
                 for msg in batch:
                     ts_str = _parse_ts(msg.get("time", ""), msg.get("date", ""))
+
+                    if count_only:
+                        if not ts_str:
+                            continue
+                        key = f"cnt|{ts_str}"
+                        if key in seen_keys:
+                            continue
+                        seen_keys.add(key)
+                        new_in_batch += 1
+                        if stop_before_ts:
+                            try:
+                                if _dt.strptime(ts_str, "%Y-%m-%d %H:%M:%S") <= stop_before_ts:
+                                    return results
+                            except Exception:
+                                pass
+                        results.append({"timestamp": ts_str})
+                        continue
+
                     # Sin sender en la key: mismo mensaje re-renderizado sin ppEl
                     # tendría sender='' pero mismo ts+tipo+body → se deduplica.
                     _body_preview = (msg.get("body") or "")[:30]
@@ -3314,14 +3364,18 @@ class WhatsAppSession(BrowserAutomation):
                             || document.querySelector('#main div');
                         return el ? el.scrollTop : -1;
                     }""")
-                    # Cerca del tope: scroll más cauto para no acumular eventos mientras WA carga.
-                    # Lejos del tope: scroll agresivo para cubrir historial rápido.
+                    # Cerca del tope: pasos pequeños y lentos (scroll_step // 2 total).
+                    # Lejos del tope: scroll agresivo para cubrir historial rápido (scroll_step * 10 total).
                     if _scroll_before < 3000:
-                        _wheel_steps, _wheel_px, _wheel_delay = 4, 300, 400
+                        _step_px = max(50, scroll_step // 4)
+                        _wheel_steps = 4
+                        _wheel_delay = 400
                     else:
-                        _wheel_steps, _wheel_px, _wheel_delay = 20, 500, 150
+                        _step_px = max(100, scroll_step // 2)
+                        _wheel_steps = 20
+                        _wheel_delay = 150
                     for _ in range(_wheel_steps):
-                        await page.mouse.wheel(0, -_wheel_px)
+                        await page.mouse.wheel(0, -_step_px)
                         await page.wait_for_timeout(_wheel_delay)
                     # Espera extra cuando llegamos al tope — da tiempo al server request de WA
                     if _scroll_before <= 200:
@@ -3330,20 +3384,34 @@ class WhatsAppSession(BrowserAutomation):
                         await page.wait_for_timeout(2000)
                     else:
                         await page.wait_for_timeout(1500)
+                    # Solapamiento: volver un poco hacia abajo para solapar viewports entre rondas.
+                    # Garantiza que ningún bloque intermedio quede fuera de captura.
+                    _overlap_px = max(100, scroll_step // 3)
+                    await page.mouse.wheel(0, _overlap_px)
+                    await page.wait_for_timeout(300)
                     _scroll_after = await page.evaluate("""() => {
                         const el = document.querySelector('[data-testid="conversation-panel-messages"]')
                             || document.querySelector('#main div');
                         return el ? el.scrollTop : -1;
                     }""")
+                    # Conteo DOM universal (.message-in + .message-out) para validar cobertura
+                    _dom_count = await page.evaluate(
+                        "() => document.querySelectorAll('.message-in, .message-out').length"
+                    )
                     if _round % 5 == 0 or new_in_batch == 0:
-                        logger.info(f"[{session_id}] v2: ronda {_round} scrollTop {_scroll_before}→{_scroll_after} new={new_in_batch} stale={stale_rounds}")
+                        logger.info(
+                            f"[{session_id}] v2: ronda {_round} "
+                            f"scrollTop {_scroll_before}→{_scroll_after} "
+                            f"new={new_in_batch} stale={stale_rounds} "
+                            f"DOM={_dom_count} capturados={len(results)}"
+                        )
                     if on_progress:
                         try:
                             on_progress(_round, new_in_batch, len(results))
                         except Exception:
                             pass
                 else:
-                    await page.evaluate(_SCROLL_UP_JS, 600)
+                    await page.evaluate(_SCROLL_UP_JS, scroll_step)
                     await page.wait_for_timeout(2500)
 
             # Post-process: eliminar re-renders sin ppEl cuando el mismo body+tipo

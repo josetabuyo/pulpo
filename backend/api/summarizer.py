@@ -108,19 +108,25 @@ def _parse_messages(md_content: str, empresa_id: str, contact_phone: str, owner_
     def _dir(sender: str | None) -> str:
         return "out" if sender and sender in _owners else "in"
 
+    _id_re = re.compile(r'\[id:([\d.]+)\]')
+
     for block in blocks:
         block = block.strip()
         if not block:
             continue
 
         timestamp_str = None
+        msg_id: str | None = None
         msg_line = None
         extra_lines: list[str] = []
         reply_to = None
 
         for line in block.split("\n"):
             if line.startswith("## "):
-                timestamp_str = line[3:].strip()
+                header = line[3:].strip()
+                id_m = _id_re.search(header)
+                msg_id = id_m.group(1) if id_m else None
+                timestamp_str = _id_re.sub("", header).strip()
                 msg_line = None
                 extra_lines = []
             elif line.startswith("**["):
@@ -179,6 +185,7 @@ def _parse_messages(md_content: str, empresa_id: str, contact_phone: str, owner_
                 img_name = remainder
             messages.append({
                 "type": "image",
+                "_id": msg_id,
                 "direction": _dir(img_sender),
                 "timestamp": ts_iso,
                 "sender": img_sender,
@@ -198,6 +205,7 @@ def _parse_messages(md_content: str, empresa_id: str, contact_phone: str, owner_
                 transcription = g.group(2).strip()
             audio_msg = {
                 "type": "audio",
+                "_id": msg_id,
                 "direction": _dir(audio_sender),
                 "timestamp": ts_iso,
                 "duration": duration,
@@ -227,6 +235,7 @@ def _parse_messages(md_content: str, empresa_id: str, contact_phone: str, owner_
             # Documentos no tienen sender explícito — asumimos "in" por defecto
             messages.append({
                 "type": "document",
+                "_id": msg_id,
                 "direction": "in",
                 "timestamp": ts_iso,
                 "filename": filename,
@@ -262,6 +271,7 @@ def _parse_messages(md_content: str, empresa_id: str, contact_phone: str, owner_
                 _seen_ts[norm] = ts_iso
             messages.append({
                 "type": "text",
+                "_id": msg_id,
                 "direction": _dir(sender),
                 "timestamp": ts_iso,
                 "sender": sender,
@@ -269,6 +279,12 @@ def _parse_messages(md_content: str, empresa_id: str, contact_phone: str, owner_
                 "reply_to": reply_to,
             })
 
+    # Ordenar por ID jerárquico cuando hay IDs presentes (inserción en el medio funciona correctamente)
+    if any(m.get("_id") for m in messages):
+        from graphs.nodes.summarize import _id_sort_key
+        messages.sort(key=lambda m: _id_sort_key(m.get("_id") or "0"))
+    for m in messages:
+        m.pop("_id", None)
     return messages
 
 
@@ -624,3 +640,60 @@ async def download_summaries(empresa_id: str, _: str = Depends(_check_auth)):
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="summaries_{empresa_id}.zip"'},
     )
+
+
+@router.get("/summarizer/{empresa_id}/{contact_phone}/count-dom")
+async def count_dom_messages(
+    empresa_id: str,
+    contact_phone: str,
+    since_date: str | None = Query(default=None, description="YYYY-MM-DD — cuenta solo hasta esta fecha"),
+    _: str = Depends(_check_auth),
+):
+    """
+    Cuenta mensajes en el DOM de WA Web para un contacto scrolleando todo el historial.
+    Usa el mismo mecanismo que full-resync pero sin extraer contenido — solo cuenta.
+    Útil para validar manualmente cuántos mensajes tiene WA vs cuántos capturó el scraper.
+
+    Retorna: total, from_date, to_date, contact_name
+    """
+    from state import wa_session, clients
+    from api.whatsapp import get_contacts
+    from graphs.nodes.summarize import get_contact_display_name as _get_display_name
+
+    contact_name = _get_display_name(empresa_id, contact_phone) or contact_phone
+    for contact in await get_contacts(empresa_id):
+        wa_chs = [ch for ch in contact.get("channels", []) if ch["type"] == "whatsapp"]
+        if any(ch["value"] == contact_phone for ch in wa_chs):
+            contact_name = contact["name"]
+            break
+
+    session_id = None
+    for bot_phone, client in clients.items():
+        if client.get("status") == "ready" and client.get("type") == "whatsapp":
+            session_id = bot_phone
+            break
+    if not session_id or not wa_session:
+        raise HTTPException(status_code=503, detail="Sin sesión WA activa")
+
+    stop_ts = None
+    if since_date:
+        try:
+            from datetime import datetime as _dt
+            stop_ts = _dt.strptime(since_date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="since_date inválido, usar YYYY-MM-DD")
+
+    msgs = await wa_session.scrape_full_history_v2(
+        session_id,
+        contact_name,
+        count_only=True,
+        stop_before_ts=stop_ts,
+    )
+
+    timestamps = sorted(m["timestamp"] for m in msgs if m.get("timestamp"))
+    return {
+        "total": len(timestamps),
+        "from_date": timestamps[0] if timestamps else None,
+        "to_date": timestamps[-1] if timestamps else None,
+        "contact_name": contact_name,
+    }

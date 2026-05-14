@@ -26,6 +26,87 @@ _BASE = Path(__file__).parent.parent.parent.parent / "data" / "summaries"
 _dedup: dict[tuple[str, str], set[str]] = {}
 _dedup_loaded: set[tuple[str, str]] = set()
 
+# ── Helpers para IDs jerárquicos ─────────────────────────────────────────────
+
+_HEADER_RE = re.compile(r'^## (\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)(?:\s+\[id:([\d.]+)\])?')
+
+
+def _id_sort_key(id_str: str) -> tuple:
+    """Convierte 'N' o 'N.M' en tupla comparable: '6.1' → (6, 1), '6' → (6,)."""
+    try:
+        return tuple(int(x) for x in id_str.split('.'))
+    except (ValueError, AttributeError):
+        return (0,)
+
+
+def _read_entries_meta(p: Path) -> list[dict]:
+    """Retorna lista de {id, ts, line_idx} para cada entrada del .md."""
+    if not p.exists():
+        return []
+    entries = []
+    lines = p.read_text(encoding="utf-8").split("\n")
+    for i, line in enumerate(lines):
+        m = _HEADER_RE.match(line)
+        if m:
+            entries.append({"id": m.group(2), "ts": m.group(1), "line_idx": i})
+    # Asignar IDs posicionales a entradas sin ID (backward compat)
+    pos = 1
+    for e in entries:
+        if e["id"] is None:
+            e["id_auto"] = str(pos)
+        else:
+            e["id_auto"] = e["id"]
+        pos += 1
+    return entries
+
+
+def _next_id(ts: str, entries: list[dict]) -> str:
+    """Calcula el próximo ID para una entrada nueva con timestamp ts."""
+    if not entries:
+        return "1"
+
+    def sort_k(e):
+        return _id_sort_key(e["id_auto"])
+
+    sorted_e = sorted(entries, key=sort_k)
+
+    # Append al final
+    if ts >= sorted_e[-1]["ts"]:
+        last_id = sorted_e[-1]["id_auto"]
+        try:
+            last_int = int(float(last_id))
+        except ValueError:
+            last_int = len(sorted_e)
+        return str(last_int + 1)
+
+    # Inserción en el medio: encontrar el par floor/ceiling por ts
+    prev = None
+    for e in sorted_e:
+        if e["ts"] > ts:
+            floor_e = prev
+            break
+        prev = e
+    else:
+        floor_e = sorted_e[-1]
+
+    floor_num = int(float(floor_e["id_auto"])) if floor_e else 0
+
+    # Encontrar el próximo k libre: floor_num.1, floor_num.2 ...
+    used_k: set[int] = set()
+    for e in sorted_e:
+        try:
+            val = float(e["id_auto"])
+            if int(val) == floor_num and val != float(floor_num):
+                # Es una fracción de floor_num: e.g. 6.1 → k=1
+                frac = round((val - floor_num) * 10)
+                used_k.add(frac)
+        except ValueError:
+            pass
+    k = 1
+    while k in used_k:
+        k += 1
+    return f"{floor_num}.{k}"
+
 
 def slugify(name: str) -> str:
     """Convierte nombre de contacto a slug kebab-case para nombre de carpeta.
@@ -216,8 +297,10 @@ def accumulate(
         seen.add(h)
         return
     seen.add(h)
-    entry = f"## {ts}\n**[{msg_type}]** {content}\n---\n"
     p = _path(empresa_id, contact_phone)
+    entries_meta = _read_entries_meta(p)
+    msg_id = _next_id(ts, entries_meta)
+    entry = f"## {ts} [id:{msg_id}]\n**[{msg_type}]** {content}\n---\n"
     name_file = p.parent / "name.txt"
     if not name_file.exists() and slugify(contact_phone) != contact_phone:
         name_file.write_text(contact_phone, encoding="utf-8")

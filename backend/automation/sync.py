@@ -43,6 +43,7 @@ async def delta_sync(
     doc_save_dir=None,
     skip_audio_ts: set | None = None,
     max_scroll_rounds: int = 500,
+    scroll_step: int = 600,
 ) -> dict:
     """
     Recolecta mensajes del chat de un contacto en WA Web y los acumula en .md.
@@ -78,6 +79,7 @@ async def delta_sync(
         stop_before_ts=stop_before_ts,
         on_progress=on_progress,
         max_scroll_rounds=max_scroll_rounds,
+        scroll_step=scroll_step,
     )
     if doc_save_dir is not None:
         scrape_kwargs["doc_save_dir"] = doc_save_dir
