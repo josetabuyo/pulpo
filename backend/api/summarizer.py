@@ -280,7 +280,7 @@ async def get_messages(empresa_id: str, contact_phone: str, _: str = Depends(_ch
     from config import load_config as _load_config
     _cfg = _load_config()
     _empresa_cfg = next((e for e in _cfg.get("empresas", []) if e["id"] == empresa_id), None)
-    owner_names: set[str] = set()
+    owner_names: set[str] = {"Tú"}  # "Tú" siempre es el dueño del teléfono (sync path)
     if _empresa_cfg:
         for ph in _empresa_cfg.get("phones", []):
             if ph.get("owner_name"):
