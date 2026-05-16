@@ -3143,8 +3143,9 @@ class WhatsAppSession(BrowserAutomation):
             else:
                 logger.info(f"[{session_id}] v2: no hay banner de sync")
 
-            # 3. Ir al fondo (mensajes más recientes)
-            # Primero intentar el botón "↓" de WA Web (más rápido que scroll programático)
+            # 3. Ir al fondo (mensajes más recientes) — con verificación y reintento.
+            # El chat puede haber quedado en scrollTop=0 del run anterior; hay que forzar
+            # la posición al fondo para que la primera CARGA_WA tenga sentido.
             _goto_bottom_btn = await page.evaluate("""() => {
                 const btn = document.querySelector('[data-testid="scroll-to-bottom"]')
                     || document.querySelector('button[aria-label*="abajo"]')
@@ -3156,10 +3157,35 @@ class WhatsAppSession(BrowserAutomation):
             if _goto_bottom_btn:
                 logger.info(f"[{session_id}] v2: click botón ir-al-fondo")
                 await page.mouse.click(_goto_bottom_btn["x"], _goto_bottom_btn["y"])
-                await page.wait_for_timeout(800)
-            else:
-                await page.evaluate(_SCROLL_BOTTOM_JS)
                 await page.wait_for_timeout(1500)
+            # Siempre forzar scrollTop=max como respaldo (cubre el caso de restart con chat en top)
+            await page.evaluate("""() => {
+                const el = document.querySelector('[data-testid="conversation-panel-messages"]')
+                    || Array.from(document.querySelectorAll('#main div')).find(
+                        e => e.scrollHeight > 500 && e.scrollHeight > e.clientHeight
+                    );
+                if (el) el.scrollTop = el.scrollHeight;
+            }""")
+            await page.wait_for_timeout(2000)
+            # Verificar que llegamos al fondo; reintentar si fallamos
+            _scroll_pos = await page.evaluate("""() => {
+                const el = document.querySelector('[data-testid="conversation-panel-messages"]')
+                    || Array.from(document.querySelectorAll('#main div')).find(
+                        e => e.scrollHeight > 500 && e.scrollHeight > e.clientHeight
+                    );
+                return el ? {top: el.scrollTop, height: el.scrollHeight} : null;
+            }""")
+            if _scroll_pos and _scroll_pos["top"] < _scroll_pos["height"] * 0.8:
+                logger.info(f"[{session_id}] v2: scrollTop={_scroll_pos['top']} no llegó al fondo, reintentando")
+                await page.evaluate("""() => {
+                    const el = document.querySelector('[data-testid="conversation-panel-messages"]')
+                        || Array.from(document.querySelectorAll('#main div')).find(
+                            e => e.scrollHeight > 500 && e.scrollHeight > e.clientHeight
+                        );
+                    if (el) el.scrollTop = el.scrollHeight;
+                }""")
+                await page.wait_for_timeout(2000)
+            logger.info(f"[{session_id}] v2: posición inicial scroll = {_scroll_pos}")
 
             # Detectar centro del panel de mensajes para mouse wheel nativo
             _panel_center = await page.evaluate("""
@@ -3183,6 +3209,20 @@ class WhatsAppSession(BrowserAutomation):
                 logger.info(f"[{session_id}] v2: panel_center encontrado en {_panel_center}")
             else:
                 logger.warning(f"[{session_id}] v2: panel_center no encontrado, usando fallback scrollTop")
+
+            # Leer el zoom activo de la página para compensar el scroll.
+            # Con zoom=0.5, cada wheel event mueve el doble en scrollTop (el contenido
+            # es 2x más denso en coordenadas CSS), por eso multiplicamos step_px × zoom.
+            _page_zoom = await page.evaluate("""() => {
+                const z = parseFloat(document.documentElement.style.zoom);
+                return (isNaN(z) || z <= 0) ? 1.0 : z;
+            }""")
+            # Factor de escala del viewport respecto a la base (800px).
+            # Con viewport=2400, cubrimos 3x más contenido por posición → steps deben escalar.
+            _base_viewport_h = 800
+            _cur_viewport_h  = page.viewport_size.get("height", _base_viewport_h) if page.viewport_size else _base_viewport_h
+            _viewport_scale  = max(1.0, _cur_viewport_h / _base_viewport_h)
+            logger.info(f"[{session_id}] v2: zoom={_page_zoom} viewport_h={_cur_viewport_h} scale={_viewport_scale:.1f}")
 
             # Diagnóstico: qué mensajes y qué time/date extrae el parser en cada uno
             _dom_diag = await page.evaluate(f"""() => {{
@@ -3380,9 +3420,10 @@ class WhatsAppSession(BrowserAutomation):
                         continue
                     stale_rounds += 1
                     # En tope absoluto (scrollTop=0 antes y después) → WA ya cargó todo
-                    # Cerca del tope (< 500) → WA puede estar cargando el último batch; dar más tiempo
+                    # Cerca del tope → WA puede estar cargando el último batch; dar más tiempo
+                    # El umbral escala con zoom: con zoom=0.5 los scrollTop son la mitad
                     _at_top   = (_scroll_before == 0 and _scroll_after == 0)
-                    _near_top = (_scroll_after is not None and _scroll_after < 500)
+                    _near_top = (_scroll_after is not None and _scroll_after < int(500 * _page_zoom))
                     if _at_top:
                         _max_stale = 12
                     elif _near_top:
@@ -3409,31 +3450,57 @@ class WhatsAppSession(BrowserAutomation):
                             || document.querySelector('#main div');
                         return el ? el.scrollTop : -1;
                     }""")
-                    # Cerca del tope: pasos pequeños y lentos (scroll_step // 2 total).
-                    # Lejos del tope: scroll agresivo para cubrir historial rápido (scroll_step * 10 total).
-                    if _scroll_before < 3000:
-                        _step_px = max(50, scroll_step // 4)
+                    # Cerca del tope: pasos pequeños y lentos.
+                    # Lejos del tope: scroll agresivo para cubrir historial rápido.
+                    # _page_zoom compensa que con zoom<1 cada wheel event mueve más scrollTop.
+                    _near_top_threshold = int(3000 * _page_zoom)
+                    _at_top_threshold   = int(200  * _page_zoom)
+                    if _scroll_before < _near_top_threshold:
+                        # Near-top: pasos deliberadamente PEQUEÑOS sin escala de viewport.
+                        # El objetivo es dar tiempo a WA para reaccionar y cargar más historial.
+                        _step_px = max(20, int(scroll_step // 4 * _page_zoom))
                         _wheel_steps = 4
                         _wheel_delay = 400
                     else:
-                        _step_px = max(100, scroll_step // 2)
+                        # Lejos del tope: agresivo, escalar por viewport para cubrir más terreno.
+                        _step_px = max(40, int(scroll_step // 2 * _page_zoom * _viewport_scale))
                         _wheel_steps = 20
                         _wheel_delay = 150
                     for _ in range(_wheel_steps):
                         await page.mouse.wheel(0, -_step_px)
                         await page.wait_for_timeout(_wheel_delay)
-                    # Espera extra cuando llegamos al tope — da tiempo al server request de WA
-                    if _scroll_before <= 200:
+                    # Cerca del tope absoluto: forzar scrollTop=0 para disparar el sentinel de WA.
+                    # El overlap aquí nos impediría llegar a 0, así que lo omitimos.
+                    if _scroll_before <= _at_top_threshold:
+                        await page.evaluate("""() => {
+                            const el = document.querySelector('[data-testid="conversation-panel-messages"]')
+                                || document.querySelector('#main div');
+                            if (el) el.scrollTop = 0;
+                        }""")
+                        await page.wait_for_timeout(8000)
+                        # Jiggle: bajar un poco y volver para re-disparar el sentinel de WA.
+                        # WA's IntersectionObserver puede necesitar que el sentinel pase por
+                        # el borde del viewport para disparar una nueva carga.
+                        await page.mouse.wheel(0, int(200 * _page_zoom))
+                        await page.wait_for_timeout(500)
+                        await page.evaluate("""() => {
+                            const el = document.querySelector('[data-testid="conversation-panel-messages"]')
+                                || document.querySelector('#main div');
+                            if (el) el.scrollTop = 0;
+                        }""")
                         await page.wait_for_timeout(3000)
-                    elif _scroll_before < 3000:
-                        await page.wait_for_timeout(2000)
+                    elif _scroll_before < _near_top_threshold:
+                        await page.wait_for_timeout(3000)
+                        # Solapamiento reducido cerca del tope para no alejarnos del sentinel
+                        _overlap_px = max(20, int(scroll_step // 6 * _page_zoom))
+                        await page.mouse.wheel(0, _overlap_px)
+                        await page.wait_for_timeout(300)
                     else:
                         await page.wait_for_timeout(1500)
-                    # Solapamiento: volver un poco hacia abajo para solapar viewports entre rondas.
-                    # Garantiza que ningún bloque intermedio quede fuera de captura.
-                    _overlap_px = max(100, scroll_step // 3)
-                    await page.mouse.wheel(0, _overlap_px)
-                    await page.wait_for_timeout(300)
+                        # Solapamiento normal lejos del tope
+                        _overlap_px = max(40, int(scroll_step // 3 * _page_zoom * _viewport_scale))
+                        await page.mouse.wheel(0, _overlap_px)
+                        await page.wait_for_timeout(300)
                     _scroll_after = await page.evaluate("""() => {
                         const el = document.querySelector('[data-testid="conversation-panel-messages"]')
                             || document.querySelector('#main div');
