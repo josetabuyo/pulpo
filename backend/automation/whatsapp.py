@@ -2952,6 +2952,7 @@ class WhatsAppSession(BrowserAutomation):
         # Delta-sync y el import comparten la misma page — sin lock navegan concurrentemente.
         _browser_lock = _SESSION_BROWSER_LOCKS.setdefault(session_id, asyncio.Lock())
         await _browser_lock.acquire()
+        _orig_viewport: dict = page.viewport_size or {"width": 1280, "height": 800}
         try:
             # 1. Abrir chat usando el input de búsqueda del sidebar de WA Web.
             # Evita el problema de virtualización del sidebar donde contactos
@@ -3086,7 +3087,13 @@ class WhatsAppSession(BrowserAutomation):
             """)
             logger.info(f"[{session_id}] v2: chat abierto = '{_header_title}' (esperado: '{contact_name}')")
 
-            # 2. Instalar interceptor de blobs
+            # 2. Ampliar viewport vertical para que WA renderice más mensajes por ronda.
+            #    WA usa IntersectionObserver: pantalla más alta → más mensajes en DOM → más capturas por scroll.
+            #    Se restaura en el finally.
+            await page.set_viewport_size({"width": _orig_viewport["width"], "height": 2400})
+            logger.info(f"[{session_id}] v2: viewport ampliado a {_orig_viewport['width']}x2400 (era {_orig_viewport['height']}px alto)")
+
+            # 2b. Instalar interceptor de blobs
             await self._install_blob_interceptor(page)
 
             # 2b. Clickear el banner "obtener mensajes anteriores de tu teléfono" si aparece.
@@ -3473,6 +3480,11 @@ class WhatsAppSession(BrowserAutomation):
             logger.warning(f"[{session_id}] scrape_full_history_v2 error: {e}", exc_info=True)
             return []
         finally:
+            # Restaurar viewport original antes de soltar el lock
+            try:
+                await page.set_viewport_size(_orig_viewport)
+            except Exception:
+                pass
             _browser_lock.release()
 
     # ------------------------------------------------------------------
