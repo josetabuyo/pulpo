@@ -84,10 +84,35 @@ class WhatsAppSession(BrowserAutomation):
         await context.add_init_script(
             "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
         )
+        # Zoom-out global: más contenido visible en pantalla y mejor cobertura del scraper.
+        # Se aplica via init_script (todas las navegaciones futuras) Y via evaluate
+        # (página ya cargada en sesiones persistentes). Nivel: 50% — el máximo práctico
+        # donde WA Web sigue siendo operable y los eventos de mouse se alinean correctamente.
+        _GLOBAL_ZOOM = "0.5"
+        _zoom_init = f"""
+        (() => {{
+            const _applyZoom = () => {{
+                document.documentElement.style.zoom = '{_GLOBAL_ZOOM}';
+            }};
+            if (document.readyState === 'loading') {{
+                document.addEventListener('DOMContentLoaded', _applyZoom);
+            }} else {{
+                _applyZoom();
+            }}
+        }})();
+        """
+        await context.add_init_script(_zoom_init)
 
         page = context.pages[0] if context.pages else await context.new_page()
         self._contexts[session_id] = context
         self._pages[session_id] = page
+
+        # Aplicar zoom inmediatamente a la página actual (ya cargada en sesión persistente)
+        try:
+            await page.evaluate(f"document.documentElement.style.zoom = '{_GLOBAL_ZOOM}'")
+            logger.info(f"[{session_id}] zoom global aplicado: {_GLOBAL_ZOOM}")
+        except Exception:
+            pass  # La página puede no estar lista aún; el init_script lo aplicará en la próxima carga
 
         # Listeners de diagnóstico — visibles en el log del backend
         def _on_console(msg):
@@ -3087,18 +3112,12 @@ class WhatsAppSession(BrowserAutomation):
             """)
             logger.info(f"[{session_id}] v2: chat abierto = '{_header_title}' (esperado: '{contact_name}')")
 
-            # 2. Zoom-out para scrape: viewport alto + CSS zoom reducido.
-            #    Viewport 2400px → WA renderiza más mensajes (IntersectionObserver ve más pantalla).
-            #    CSS zoom 0.5 → texto/mensajes ocupan la mitad → 2x más visibles por viewport.
-            #    Efecto combinado: ~6x más mensajes por ronda vs configuración original (800px, zoom 1).
-            #    Todo se restaura en el finally.
-            _SCRAPE_ZOOM = 0.5
+            # 2. Ampliar viewport durante el scrape: WA renderiza más mensajes por ronda.
+            #    El zoom global (0.5) ya está aplicado a nivel de contexto.
+            #    El viewport 2400px suma cobertura adicional: ~6x más mensajes/ronda en total.
+            #    Se restaura en el finally.
             await page.set_viewport_size({"width": _orig_viewport["width"], "height": 2400})
-            await page.evaluate(f"document.body.style.zoom = '{_SCRAPE_ZOOM}'")
-            logger.info(
-                f"[{session_id}] v2: zoom-out activado — viewport {_orig_viewport['width']}x2400, "
-                f"CSS zoom={_SCRAPE_ZOOM} (efecto ~{int(2400/_SCRAPE_ZOOM/800)}x más mensajes/ronda)"
-            )
+            logger.info(f"[{session_id}] v2: viewport ampliado a {_orig_viewport['width']}x2400 para el scrape")
 
             # 2b. Instalar interceptor de blobs
             await self._install_blob_interceptor(page)
@@ -3487,9 +3506,8 @@ class WhatsAppSession(BrowserAutomation):
             logger.warning(f"[{session_id}] scrape_full_history_v2 error: {e}", exc_info=True)
             return []
         finally:
-            # Restaurar viewport y zoom originales antes de soltar el lock
+            # Restaurar viewport (el zoom global permanece — no se toca)
             try:
-                await page.evaluate("document.body.style.zoom = ''")
                 await page.set_viewport_size(_orig_viewport)
             except Exception:
                 pass
