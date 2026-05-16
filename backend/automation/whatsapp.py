@@ -3087,11 +3087,18 @@ class WhatsAppSession(BrowserAutomation):
             """)
             logger.info(f"[{session_id}] v2: chat abierto = '{_header_title}' (esperado: '{contact_name}')")
 
-            # 2. Ampliar viewport vertical para que WA renderice más mensajes por ronda.
-            #    WA usa IntersectionObserver: pantalla más alta → más mensajes en DOM → más capturas por scroll.
-            #    Se restaura en el finally.
+            # 2. Zoom-out para scrape: viewport alto + CSS zoom reducido.
+            #    Viewport 2400px → WA renderiza más mensajes (IntersectionObserver ve más pantalla).
+            #    CSS zoom 0.5 → texto/mensajes ocupan la mitad → 2x más visibles por viewport.
+            #    Efecto combinado: ~6x más mensajes por ronda vs configuración original (800px, zoom 1).
+            #    Todo se restaura en el finally.
+            _SCRAPE_ZOOM = 0.5
             await page.set_viewport_size({"width": _orig_viewport["width"], "height": 2400})
-            logger.info(f"[{session_id}] v2: viewport ampliado a {_orig_viewport['width']}x2400 (era {_orig_viewport['height']}px alto)")
+            await page.evaluate(f"document.body.style.zoom = '{_SCRAPE_ZOOM}'")
+            logger.info(
+                f"[{session_id}] v2: zoom-out activado — viewport {_orig_viewport['width']}x2400, "
+                f"CSS zoom={_SCRAPE_ZOOM} (efecto ~{int(2400/_SCRAPE_ZOOM/800)}x más mensajes/ronda)"
+            )
 
             # 2b. Instalar interceptor de blobs
             await self._install_blob_interceptor(page)
@@ -3480,8 +3487,9 @@ class WhatsAppSession(BrowserAutomation):
             logger.warning(f"[{session_id}] scrape_full_history_v2 error: {e}", exc_info=True)
             return []
         finally:
-            # Restaurar viewport original antes de soltar el lock
+            # Restaurar viewport y zoom originales antes de soltar el lock
             try:
+                await page.evaluate("document.body.style.zoom = ''")
                 await page.set_viewport_size(_orig_viewport)
             except Exception:
                 pass
