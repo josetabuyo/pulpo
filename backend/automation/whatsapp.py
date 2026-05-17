@@ -2581,7 +2581,7 @@ class WhatsAppSession(BrowserAutomation):
                 let passedContainer = false;
                 for (const el of document.querySelectorAll('span')) {
                     if (!passedContainer) {
-                        if (container.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING) {
+                        if (container.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) {
                             passedContainer = true;
                         } else {
                             continue;
@@ -2657,12 +2657,16 @@ class WhatsAppSession(BrowserAutomation):
         () => {{
             {_DATE_HELPERS_JS}
             const results = [];
+            const _sp = document.querySelector('[data-testid="conversation-panel-messages"]') || document.querySelector('#main div');
+            const _spRect = _sp ? _sp.getBoundingClientRect() : {{top: 0}};
+            const _spScrollTop = _sp ? _sp.scrollTop : 0;
             const allContainers = document.querySelectorAll(
                 '.message-in:not([data-pulpo-done]), .message-out:not([data-pulpo-done])'
             );
             for (const c of allContainers) {{
                 const rect = c.getBoundingClientRect();
                 if (rect.top > window.innerHeight + 300) continue;
+                const absTop = Math.round(_spScrollTop + rect.top - _spRect.top);
 
                 const isOut = c.classList.contains('message-out');
 
@@ -2703,14 +2707,14 @@ class WhatsAppSession(BrowserAutomation):
                     const aid = 'pa-' + Date.now() + '-' + Math.random().toString(36).slice(2,8);
                     if (btn) btn.setAttribute('data-pulpo-audio-id', aid);
                     c.setAttribute('data-pulpo-done','1');
-                    results.push({{ type:'audio', time, date, sender, isOut, audioId: btn ? aid : null }});
+                    results.push({{ type:'audio', time, date, sender, isOut, audioId: btn ? aid : null, absTop }});
                     continue;
                 }}
 
                 // ── Imagen sin caption ────────────────────────────────────
                 if (imgEl) {{
                     c.setAttribute('data-pulpo-done','1');
-                    results.push({{ type:'image', time, date, sender, isOut, imgSrc: imgEl.src }});
+                    results.push({{ type:'image', time, date, sender, isOut, imgSrc: imgEl.src, absTop }});
                     continue;
                 }}
 
@@ -2725,7 +2729,7 @@ class WhatsAppSession(BrowserAutomation):
                         const aid = 'pa-' + Date.now() + '-' + Math.random().toString(36).slice(2,8);
                         if (btn) btn.setAttribute('data-pulpo-audio-id', aid);
                         c.setAttribute('data-pulpo-done','1');
-                        results.push({{ type:'audio', time, date, sender, isOut, audioId: btn ? aid : null }});
+                        results.push({{ type:'audio', time, date, sender, isOut, audioId: btn ? aid : null, absTop }});
                         continue;
                     }}
                     // Documento
@@ -2735,7 +2739,7 @@ class WhatsAppSession(BrowserAutomation):
                         const sizeEl = c.querySelector('[data-testid="document-size"]');
                         const fsize = sizeEl ? sizeEl.innerText.trim() : '';
                         c.setAttribute('data-pulpo-done','1');
-                        results.push({{ type:'document', time, date, sender, isOut, filename: fname, size: fsize }});
+                        results.push({{ type:'document', time, date, sender, isOut, filename: fname, size: fsize, absTop }});
                         continue;
                     }}
                     // Imagen con ppEl (imagen enviada, con o sin caption)
@@ -2750,13 +2754,13 @@ class WhatsAppSession(BrowserAutomation):
                         const captionEl = c.querySelector('span.copyable-text,[data-testid="selectable-text"]');
                         const imgCaption = captionEl ? captionEl.innerText.trim() : '';
                         c.setAttribute('data-pulpo-done','1');
-                        results.push({{ type:'image', time, date, sender, isOut, imgSrc: imgWithPP.src, caption: imgCaption }});
+                        results.push({{ type:'image', time, date, sender, isOut, imgSrc: imgWithPP.src, caption: imgCaption, absTop }});
                         continue;
                     }}
                     if (imgPlaceholder) {{
                         // Imagen presente pero blob no cargado aún — dejar sin marcar done
                         // para que la próxima ronda intente con el blob ya disponible
-                        results.push({{ type:'image_pending', time, date, sender, isOut, imgSrc: '' }});
+                        results.push({{ type:'image_pending', time, date, sender, isOut, imgSrc: '', absTop }});
                         continue;
                     }}
                     // Texto plano
@@ -2776,11 +2780,11 @@ class WhatsAppSession(BrowserAutomation):
                     // Duración de audio raw ("1:55") → es audio sin botón aún cargado
                     if (!body || /^\\d{{1,2}}:\\d{{2}}$/.test(body.trim())) {{
                         c.setAttribute('data-pulpo-done','1');
-                        results.push({{ type:'audio', time, date, sender, isOut, audioId: null }});
+                        results.push({{ type:'audio', time, date, sender, isOut, audioId: null, absTop }});
                         continue;
                     }}
                     c.setAttribute('data-pulpo-done','1');
-                    results.push({{ type:'text', time, date, sender, isOut, body, quoted, quotedSender }});
+                    results.push({{ type:'text', time, date, sender, isOut, body, quoted, quotedSender, absTop }});
                 }}
             }}
             return results;

@@ -430,12 +430,22 @@ async def full_resync_contact(empresa_id: str, contact_phone: str, _: str = Depe
             contact_name = contact["name"]
             break
 
-    # 2. Limpiar adjuntos también (delta_sync solo limpia el .md)
+    # 2. Backup del chat.md actual antes de borrar (directorio hermano con timestamp)
+    from graphs.nodes.summarize import _BASE
+    from datetime import datetime as _dt
+    import shutil as _shutil
+    _chat_src = _BASE / empresa_id / contact_phone / "chat.md"
+    if _chat_src.exists():
+        _ts = _dt.now().strftime("%Y%m%d_%H%M")
+        _bak_dir = _BASE / empresa_id / f"{contact_phone}.bak.{_ts}"
+        _bak_dir.mkdir(parents=True, exist_ok=True)
+        _shutil.copy2(_chat_src, _bak_dir / "chat.md")
+
+    # 3. Limpiar adjuntos también (delta_sync solo limpia el .md)
     clear_contact_full(empresa_id, contact_phone)
 
-    # 2b. Re-guardar name.txt (clear_contact_full borró el directorio completo;
+    # 4. Re-guardar name.txt (clear_contact_full borró el directorio completo;
     #     accumulate no lo recrea cuando slug==slugify(slug))
-    from graphs.nodes.summarize import _BASE
     _name_path = _BASE / empresa_id / contact_phone / "name.txt"
     _name_path.parent.mkdir(parents=True, exist_ok=True)
     _name_path.write_text(contact_name, encoding="utf-8")
