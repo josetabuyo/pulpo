@@ -308,6 +308,15 @@ async def get_messages(empresa_id: str, contact_phone: str, _: str = Depends(_ch
 
     inbound = _parse_messages(content, empresa_id, contact_phone, owner_names)
 
+    # Cuerpos ya presentes en el .md (texto o transcripción de audio).
+    # Sirve para descartar mensajes de DB que sean duplicados del scrape.
+    _inbound_bodies: set[str] = set()
+    for _m in inbound:
+        if _m.get("content"):
+            _inbound_bodies.add(_m["content"].strip())
+        if _m.get("transcription"):
+            _inbound_bodies.add(_m["transcription"].strip())
+
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(
             text(
@@ -321,6 +330,9 @@ async def get_messages(empresa_id: str, contact_phone: str, _: str = Depends(_ch
     outbound = []
     for body, ts_raw in rows:
         if not _is_useful(body):
+            continue
+        # Descartar si ya aparece en el .md (scrapeado via delta_sync)
+        if body.strip() in _inbound_bodies:
             continue
         ts_iso = None
         if ts_raw:
