@@ -410,19 +410,25 @@ async def sync_contact(empresa_id: str, contact_phone: str, _: str = Depends(_ch
 
 
 @router.post("/summarizer/{empresa_id}/{contact_phone}/full-resync")
-async def full_resync_contact(empresa_id: str, contact_phone: str, _: str = Depends(_check_auth)):
+async def full_resync_contact(
+    empresa_id: str,
+    contact_phone: str,
+    from_date: str = Query(default=None),
+    max_retries: int = Query(default=1, ge=1, le=10),
+    _: str = Depends(_check_auth),
+):
     """
-    Full re-sync: borra el .md, adjuntos y .bak del contacto, luego dispara un
-    scrape WA Web completo via delta_sync(FULL_OVERWRITE).
+    Full re-sync: backup, limpia .md + adjuntos + DB del contacto, luego dispara
+    un scrape WA Web completo. Delega en _run_contact_import(force_clear=True).
     """
     from state import wa_session, clients
-    from graphs.nodes.summarize import get_attachments_dir as _get_att_dir
     from graphs.nodes.summarize import get_contact_display_name as _get_display_name
-    from db import get_contacts, delete_contact_messages
-    from automation.sync import delta_sync, StopCondition
+    from db import get_contacts
+    from api.flows import _run_contact_import
     from config import load_config as _load_config
+    from datetime import datetime as _dt
 
-    # 1. Resolver nombre ANTES de borrar (clear_contact_full borra name.txt)
+    # Resolver nombre del contacto
     contact_name = _get_display_name(empresa_id, contact_phone) or contact_phone
     for contact in await get_contacts(empresa_id):
         wa_chs = [ch for ch in contact.get("channels", []) if ch["type"] == "whatsapp"]
@@ -430,29 +436,7 @@ async def full_resync_contact(empresa_id: str, contact_phone: str, _: str = Depe
             contact_name = contact["name"]
             break
 
-    # 2. Backup del chat.md actual antes de borrar (directorio hermano con timestamp)
-    from graphs.nodes.summarize import _BASE
-    from datetime import datetime as _dt
-    import shutil as _shutil
-    _chat_src = _BASE / empresa_id / contact_phone / "chat.md"
-    if _chat_src.exists():
-        _ts = _dt.now().strftime("%Y%m%d_%H%M")
-        _bak_dir = _BASE / empresa_id / f"{contact_phone}.bak.{_ts}"
-        _bak_dir.mkdir(parents=True, exist_ok=True)
-        _shutil.copy2(_chat_src, _bak_dir / "chat.md")
-
-    # 3. Limpiar archivos: .md, adjuntos, dedup en memoria
-    clear_contact_full(empresa_id, contact_phone)
-
-    # 4. Limpiar DB: borrar todos los mensajes del contacto en esta empresa
-    await delete_contact_messages(empresa_id, contact_name)
-
-    # 5. Re-guardar name.txt (clear_contact_full borró el directorio completo)
-    _name_path = _BASE / empresa_id / contact_phone / "name.txt"
-    _name_path.parent.mkdir(parents=True, exist_ok=True)
-    _name_path.write_text(contact_name, encoding="utf-8")
-
-    # 7. Buscar sesión WA activa
+    # Sesión WA activa
     session_id = None
     for bot_phone, client in clients.items():
         if client.get("status") == "ready" and client.get("type") == "whatsapp":
@@ -461,7 +445,7 @@ async def full_resync_contact(empresa_id: str, contact_phone: str, _: str = Depe
     if not session_id or not wa_session:
         raise HTTPException(status_code=503, detail="Sin sesión WA activa")
 
-    # 8. Resolver owner_name
+    # Owner name
     _cfg = _load_config()
     _empresa_cfg = next((e for e in _cfg.get("empresas", []) if e["id"] == empresa_id), None)
     owner_name = None
@@ -471,17 +455,23 @@ async def full_resync_contact(empresa_id: str, contact_phone: str, _: str = Depe
                 owner_name = ph["owner_name"]
                 break
 
-    # 9. Scrape + acumulación via delta_sync
-    doc_dir = _get_att_dir(empresa_id, contact_phone)
-    result = await delta_sync(
-        wa_session=wa_session,
-        session_id=session_id,
-        contact_name=contact_name,
+    since_date = None
+    if from_date:
+        try:
+            since_date = _dt.fromisoformat(from_date)
+        except ValueError:
+            pass
+
+    result = await _run_contact_import(
         empresa_id=empresa_id,
+        contact_name=contact_name,
         contact_phone=contact_phone,
-        stop_condition=StopCondition.FULL_ENRICH,  # .md ya fue borrado por clear_contact_full
+        session_id=session_id,
+        wa_session=wa_session,
         owner_name=owner_name,
-        doc_save_dir=doc_dir,
+        since_date=since_date,
+        max_retries=max_retries,
+        force_clear=True,
     )
 
     return {"scraped": result["scraped"], "saved": result["new"], "contact_name": contact_name}

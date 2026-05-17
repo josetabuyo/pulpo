@@ -3602,28 +3602,6 @@ class WhatsAppSession(BrowserAutomation):
                     await page.evaluate(_SCROLL_UP_JS, scroll_step)
                     await page.wait_for_timeout(2500)
 
-                # ── Fase B: scroll de vuelta al ancla ─────────────────────
-                # Después de cada scroll, reposicionamos el viewport en el último
-                # mensaje capturado. Garantiza que la próxima ronda arranque desde
-                # un punto conocido y que el IntersectionObserver de WA reciba
-                # señal fresca en el próximo scroll hacia arriba.
-                if _anchor_candidates:
-                    _anchor_found = await page.evaluate(
-                        """(candidates) => {
-                            for (const id of candidates) {
-                                const el = document.querySelector('[data-id="' + id + '"]');
-                                if (el) {
-                                    el.scrollIntoView({block: 'end', behavior: 'instant'});
-                                    return id;
-                                }
-                            }
-                            return null;
-                        }""",
-                        _anchor_candidates,
-                    )
-                    if _anchor_found:
-                        await page.wait_for_timeout(500)
-                        logger.debug(f"[{session_id}] v2: Fase B anchor encontrada")
 
             logger.info(
                 f"[{session_id}] v2: fin loop — {len(results)} mensajes, "

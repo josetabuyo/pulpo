@@ -331,6 +331,111 @@ async def replay_flow(
     return {"processed": processed, "skipped": skipped}
 
 
+async def _run_contact_import(
+    *,
+    empresa_id: str,
+    contact_name: str,
+    contact_phone: str,
+    session_id: str,
+    wa_session,
+    owner_name: "str | None" = None,
+    since_date=None,
+    max_retries: int = 1,
+    force_clear: bool = False,
+    on_attempt_update=None,
+) -> dict:
+    """
+    Pipeline unificado de importación para un contacto.
+    Usado por full-resync (force_clear=True) e import-wa-history (force_clear=False).
+    """
+    import asyncio as _asyncio
+    from datetime import datetime as _dt
+    from graphs.nodes.summarize import (
+        get_attachments_dir as _get_att_dir,
+        _path as _sum_path,
+        _dedup as _sum_dedup,
+        _dedup_loaded as _sum_dedup_loaded,
+    )
+    from automation.sync import delta_sync, StopCondition
+
+    if force_clear:
+        from graphs.nodes.summarize import _BASE, clear_contact_full as _ccf
+        from db import delete_contact_messages
+        import shutil as _shutil
+        _chat_src = _BASE / empresa_id / contact_phone / "chat.md"
+        if _chat_src.exists():
+            _ts = _dt.now().strftime("%Y%m%d_%H%M")
+            _bak_dir = _BASE / empresa_id / f"{contact_phone}.bak.{_ts}"
+            _bak_dir.mkdir(parents=True, exist_ok=True)
+            _shutil.copy2(_chat_src, _bak_dir / "chat.md")
+        _ccf(empresa_id, contact_phone)
+        await delete_contact_messages(empresa_id, contact_name)
+        _name_path = _BASE / empresa_id / contact_phone / "name.txt"
+        _name_path.parent.mkdir(parents=True, exist_ok=True)
+        _name_path.write_text(contact_name, encoding="utf-8")
+
+    doc_dir = _get_att_dir(empresa_id, contact_phone)
+    total_scraped = 0
+    total_new = 0
+
+    for _attempt in range(max_retries):
+        _dedup_key = (empresa_id, contact_phone)
+        _sum_dedup_loaded.discard(_dedup_key)
+        _sum_dedup.pop(_dedup_key, None)
+
+        _md_path = _sum_path(empresa_id, contact_phone)
+        skip_audio_ts = _build_skip_set(_md_path)
+        entries_before = _count_md_entries(_md_path)
+
+        def _on_progress(round_n: int, new_in_round: int, total: int):
+            if on_attempt_update:
+                on_attempt_update(_attempt, round_n, total)
+
+        try:
+            result = await delta_sync(
+                wa_session=wa_session,
+                session_id=session_id,
+                contact_name=contact_name,
+                empresa_id=empresa_id,
+                contact_phone=contact_phone,
+                stop_condition=StopCondition.FULL_ENRICH,
+                since_date=since_date,
+                owner_name=owner_name,
+                on_progress=_on_progress,
+                doc_save_dir=doc_dir,
+                skip_audio_ts=skip_audio_ts,
+                max_scroll_rounds=500,
+            )
+        except Exception as e:
+            _log.error("[import] '%s' intento %d error: %s", contact_name, _attempt + 1, e)
+            raise
+
+        if _md_path.exists():
+            _text = _md_path.read_text(encoding="utf-8")
+            _blocks = [b.strip() for b in _text.split("---\n") if b.strip()]
+            _blocks.sort(key=lambda b: b.split("\n")[0][3:].strip() if b.startswith("## ") else "")
+            _md_path.write_text("\n".join(b + "\n---" for b in _blocks) + "\n", encoding="utf-8")
+
+        entries_after = _count_md_entries(_md_path)
+        new_entries = entries_after - entries_before
+        retryable = _count_retryable_audios(_md_path)
+        total_scraped += result["scraped"]
+        total_new += new_entries
+
+        _log.info("[import] '%s' intento %d/%d: scraped=%d new=%d retryable=%d",
+                  contact_name, _attempt + 1, max_retries, result["scraped"], new_entries, retryable)
+
+        if on_attempt_update:
+            on_attempt_update(_attempt, None, result["scraped"], new_entries, retryable, done=True)
+
+        if new_entries == 0 and retryable == 0:
+            break
+        if _attempt < max_retries - 1:
+            await _asyncio.sleep(3)
+
+    return {"scraped": total_scraped, "new": total_new}
+
+
 def _build_skip_set(md_path: "Path") -> "set[str]":
     """Timestamps (YYYY-MM-DD HH:MM) de audios ya correctamente transcritos en chat.md."""
     if not md_path.exists():
@@ -422,17 +527,13 @@ async def import_wa_history(
         max_retries = 1
 
     async def _do_import():
-        import asyncio
         from datetime import datetime as _dt
         from state import wa_session, clients
-        from graphs.nodes.summarize import get_attachments_dir as _get_att_dir
-        from automation.sync import delta_sync, StopCondition
         from config import load_config as _load_config
 
         _status_key = f"{empresa_id}:{flow_id}"
 
-        # Guard de concurrencia: si ya hay un import en curso para este flow, ignorar.
-        # Se setea running=True antes de cualquier await para evitar race conditions.
+        # Guard de concurrencia
         if _import_status.get(_status_key, {}).get("running"):
             _log.info("[import-wa] Import ya en curso para %s, ignorando doble llamada", _status_key)
             return
@@ -464,7 +565,6 @@ async def import_wa_history(
             except ValueError:
                 pass
 
-        # Resolver owner_name desde connections.json para el sender de mensajes salientes
         _cfg = _load_config()
         _empresa_cfg = next((e for e in _cfg.get("empresas", []) if e["id"] == empresa_id), None)
         owner_name = None
@@ -476,98 +576,44 @@ async def import_wa_history(
 
         for contact_name in included:
             contact_phone = contact_name
-            doc_dir = _get_att_dir(empresa_id, contact_phone)
+            _import_status[_status_key].update({"contact": contact_name, "attempt": 0, "attempts": []})
 
-            _import_status[_status_key].update({
-                "contact": contact_name,
-                "attempt": 0,
-                "attempts": [],
-            })
+            def _on_attempt_update(attempt_idx, round_n, scraped, new_entries=None, retryable=None, *, done=False):
+                _cur = _import_status.get(_status_key, {})
+                _attempts = _cur.get("attempts", [])
+                while len(_attempts) <= attempt_idx:
+                    _attempts.append({"n": attempt_idx + 1, "scraped": 0, "new": 0, "round": 0, "done": False})
+                if not done:
+                    _attempts[attempt_idx]["round"] = round_n
+                    _attempts[attempt_idx]["scraped"] = scraped
+                    _cur["attempt"] = attempt_idx + 1
+                else:
+                    _attempts[attempt_idx]["scraped"] = scraped
+                    _attempts[attempt_idx]["new"] = new_entries or 0
+                    _attempts[attempt_idx]["done"] = True
+                    if retryable is not None:
+                        _attempts[attempt_idx]["retryable"] = retryable
 
-            for _attempt in range(max_retries):
-                _log.info(
-                    "[import-wa] '%s' intento %d/%d (empresa=%s)",
-                    contact_name, _attempt + 1, max_retries, empresa_id,
+            try:
+                await _run_contact_import(
+                    empresa_id=empresa_id,
+                    contact_name=contact_name,
+                    contact_phone=contact_phone,
+                    session_id=session_id,
+                    wa_session=wa_session,
+                    owner_name=owner_name,
+                    since_date=since_date,
+                    max_retries=max_retries,
+                    force_clear=False,
+                    on_attempt_update=_on_attempt_update,
                 )
-                _st = _import_status[_status_key]
-                _st["attempt"] = _attempt + 1
-                _st["attempts"].append({"n": _attempt + 1, "scraped": 0, "new": 0, "round": 0, "done": False})
-
-                try:
-                    from graphs.nodes.summarize import _dedup as _sum_dedup2, _dedup_loaded as _sum_dedup_loaded2
-                    _dedup_key = (empresa_id, contact_phone)
-                    _sum_dedup_loaded2.discard(_dedup_key)
-                    _sum_dedup2.pop(_dedup_key, None)
-
-                    from graphs.nodes.summarize import _path as _sum_path
-                    _md_path = _sum_path(empresa_id, contact_phone)
-                    skip_audio_ts = _build_skip_set(_md_path)
-                    entries_before = _count_md_entries(_md_path)
-
-                    def _on_progress(round_n: int, new_in_round: int, total: int):
-                        _cur = _import_status.get(_status_key, {})
-                        _attempts = _cur.get("attempts", [])
-                        if _attempts:
-                            _attempts[-1]["round"] = round_n
-                            _attempts[-1]["scraped"] = total
-
-                    result = await delta_sync(
-                        wa_session=wa_session,
-                        session_id=session_id,
-                        contact_name=contact_name,
-                        empresa_id=empresa_id,
-                        contact_phone=contact_phone,
-                        stop_condition=StopCondition.FULL_ENRICH,
-                        since_date=since_date,
-                        owner_name=owner_name,
-                        on_progress=_on_progress,
-                        doc_save_dir=doc_dir,
-                        skip_audio_ts=skip_audio_ts,
-                        max_scroll_rounds=500,
-                    )
-                    saved = result["scraped"]
-
-                    if _md_path.exists():
-                        _text = _md_path.read_text(encoding="utf-8")
-                        _raw = _text.split("---\n")
-                        _blocks = [b.strip() for b in _raw if b.strip()]
-                        _blocks.sort(key=lambda b: b.split("\n")[0][3:].strip() if b.startswith("## ") else "")
-                        _md_path.write_text("\n".join(b + "\n---" for b in _blocks) + "\n", encoding="utf-8")
-
-                    entries_after = _count_md_entries(_md_path)
-                    new_entries = entries_after - entries_before
-                    _log.info(
-                        "[import-wa] '%s' intento %d: %d scraped, %d entradas nuevas en chat.md",
-                        contact_name, _attempt + 1, saved, new_entries,
-                    )
-
-                    _cur = _import_status.get(_status_key, {})
-                    _attempts = _cur.get("attempts", [])
-                    if _attempts:
-                        _attempts[-1]["scraped"] = saved
-                        _attempts[-1]["new"] = new_entries
-                        _attempts[-1]["done"] = True
-
-                    retryable = _count_retryable_audios(_md_path)
-                    if _attempts:
-                        _attempts[-1]["retryable"] = retryable
-                    if new_entries == 0 and retryable == 0:
-                        _log.info("[import-wa] '%s': sin novedades ni placeholders, terminando reintentos", contact_name)
-                        break
-                    if new_entries == 0 and retryable > 0:
-                        _log.info("[import-wa] '%s': sin entradas nuevas pero %d audios reintentables", contact_name, retryable)
-
-                    if _attempt < max_retries - 1:
-                        await asyncio.sleep(3)
-
-                except Exception as e:
-                    _log.error("[import-wa] Error para '%s' intento %d: %s", contact_name, _attempt + 1, e)
-                    _cur = _import_status.get(_status_key, {})
-                    _attempts = _cur.get("attempts", [])
-                    if _attempts:
-                        _attempts[-1]["done"] = True
-                        _attempts[-1]["error"] = str(e)
-                    break
+            except Exception as e:
+                _log.error("[import-wa] Error para '%s': %s", contact_name, e)
+                _cur = _import_status.get(_status_key, {})
+                _attempts = _cur.get("attempts", [])
+                if _attempts:
+                    _attempts[-1]["done"] = True
+                    _attempts[-1]["error"] = str(e)
 
         _import_status[_status_key] = {
             **_import_status.get(_status_key, {}),
