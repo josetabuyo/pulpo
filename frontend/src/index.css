@@ -1180,6 +1180,17 @@ main { max-width: 900px; margin: 28px auto; padding: 0 16px; }
 .sv-md-btn--danger { border-color: #7f1d1d; color: #fca5a5; }
 .sv-md-btn--danger:hover { background: #7f1d1d; color: #fff; }
 
+.sv-stats-bar {
+  padding: 6px 16px;
+  background: #1a1a2e;
+  border-bottom: 1px solid #2a2a4a;
+  font-size: 11px;
+  color: #8888aa;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .sv-messages {
   flex: 1;
   overflow-y: auto;

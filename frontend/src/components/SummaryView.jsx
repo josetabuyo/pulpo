@@ -163,6 +163,30 @@ function DaySeparator({ label }) {
   )
 }
 
+// ─── Stats bar ────────────────────────────────────────────────────────────────
+
+function StatsBar({ messages }) {
+  if (!messages || messages.length === 0) return null
+  const total   = messages.length
+  const audios  = messages.filter(m => m.type === 'audio').length
+  const images  = messages.filter(m => m.type === 'image').length
+  const docs    = messages.filter(m => m.type === 'document').length
+  const withTs  = messages.filter(m => m.timestamp)
+  const first   = withTs.length ? withTs[0].timestamp.slice(0, 10) : null
+  const last    = withTs.length ? withTs[withTs.length - 1].timestamp.slice(0, 10) : null
+  const range   = first && last ? (first === last ? first : `${first} → ${last}`) : null
+  const parts   = [`${total} mensajes`]
+  if (audios)  parts.push(`${audios} audios`)
+  if (images)  parts.push(`${images} imágenes`)
+  if (docs)    parts.push(`${docs} docs`)
+  if (range)   parts.push(range)
+  return (
+    <div className="sv-stats-bar">
+      {parts.join('  ·  ')}
+    </div>
+  )
+}
+
 // ─── SummaryView ──────────────────────────────────────────────────────────────
 
 export default function SummaryView({ empresaId, contactPhone, contactName, apiCall, onBack }) {
@@ -260,6 +284,9 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
           ↓ MD
         </button>
       </div>
+
+      {/* Stats */}
+      <StatsBar messages={messages} />
 
       {/* Mensajes */}
       <div className="sv-messages" ref={messagesRef}>
