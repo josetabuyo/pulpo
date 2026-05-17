@@ -84,35 +84,10 @@ class WhatsAppSession(BrowserAutomation):
         await context.add_init_script(
             "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
         )
-        # Zoom-out global: más contenido visible en pantalla y mejor cobertura del scraper.
-        # Se aplica via init_script (todas las navegaciones futuras) Y via evaluate
-        # (página ya cargada en sesiones persistentes). Nivel: 50% — el máximo práctico
-        # donde WA Web sigue siendo operable y los eventos de mouse se alinean correctamente.
-        _GLOBAL_ZOOM = "0.5"
-        _zoom_init = f"""
-        (() => {{
-            const _applyZoom = () => {{
-                document.documentElement.style.zoom = '{_GLOBAL_ZOOM}';
-            }};
-            if (document.readyState === 'loading') {{
-                document.addEventListener('DOMContentLoaded', _applyZoom);
-            }} else {{
-                _applyZoom();
-            }}
-        }})();
-        """
-        await context.add_init_script(_zoom_init)
 
         page = context.pages[0] if context.pages else await context.new_page()
         self._contexts[session_id] = context
         self._pages[session_id] = page
-
-        # Aplicar zoom inmediatamente a la página actual (ya cargada en sesión persistente)
-        try:
-            await page.evaluate(f"document.documentElement.style.zoom = '{_GLOBAL_ZOOM}'")
-            logger.info(f"[{session_id}] zoom global aplicado: {_GLOBAL_ZOOM}")
-        except Exception:
-            pass  # La página puede no estar lista aún; el init_script lo aplicará en la próxima carga
 
         # Listeners de diagnóstico — visibles en el log del backend
         def _on_console(msg):
@@ -2600,6 +2575,54 @@ class WhatsAppSession(BrowserAutomation):
                     if (mo) { msgDate = day+'/'+mo+'/'+yr; break; }
                 }
             }
+            // Si no encontramos fecha hacia atrás (p.ej. primeros mensajes del chat
+            // con el separador de su día virtualizado fuera del DOM), buscar hacia adelante.
+            if (!msgDate) {
+                let passedContainer = false;
+                for (const el of document.querySelectorAll('span')) {
+                    if (!passedContainer) {
+                        if (container.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING) {
+                            passedContainer = true;
+                        } else {
+                            continue;
+                        }
+                    }
+                    const ownTxt = (([...el.childNodes].filter(n=>n.nodeType===3).map(n=>n.textContent.trim()).join('').trim()) || el.innerText?.trim() || '');
+                    if (!ownTxt || ownTxt.length > 60) continue;
+                    const low = ownTxt.toLowerCase()
+                        .replace(/é/g,'e').replace(/á/g,'a')
+                        .replace(/ó/g,'o').replace(/ú/g,'u');
+                    let sepDate = null;
+                    const fd = ownTxt.match(/(\d{1,2})\s+de\s+(\w+)\s+de\s+(\d{4})/i);
+                    if (fd) {
+                        const d=parseInt(fd[1]),mo=_monthES[fd[2].toLowerCase()]||0,y=parseInt(fd[3]);
+                        if (mo) sepDate = d+'/'+mo+'/'+y;
+                    } else if (low==='hoy') {
+                        sepDate = _today.getDate()+'/'+(_today.getMonth()+1)+'/'+_today.getFullYear();
+                    } else if (low==='ayer') {
+                        const d2=new Date(_today); d2.setDate(d2.getDate()-1);
+                        sepDate = d2.getDate()+'/'+( d2.getMonth()+1)+'/'+d2.getFullYear();
+                    } else if (_dayES[low]!==undefined) {
+                        const target=_dayES[low];
+                        let ago=(_today.getDay()-target+7)%7; if(ago===0)ago=7;
+                        const d3=new Date(_today); d3.setDate(d3.getDate()-ago);
+                        sepDate = d3.getDate()+'/'+( d3.getMonth()+1)+'/'+d3.getFullYear();
+                    }
+                    if (sepDate) { msgDate = sepDate; break; }
+                    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(ownTxt)) { msgDate = ownTxt; break; }
+                    const enMonths = {january:1,february:2,march:3,april:4,may:5,june:6,
+                        july:7,august:8,september:9,october:10,november:11,december:12};
+                    const enM1 = ownTxt.match(/(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december)/i);
+                    const enM2 = ownTxt.match(/(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})/i);
+                    const enMatch = enM1 || enM2;
+                    if (enMatch) {
+                        const day = enM1 ? parseInt(enM1[1]) : parseInt(enM2[2]);
+                        const mo = enMonths[(enM1 ? enM1[2] : enM2[1]).toLowerCase()];
+                        const yr = _today.getFullYear();
+                        if (mo) { msgDate = day+'/'+mo+'/'+yr; break; }
+                    }
+                }
+            }
             return msgDate;
         }
         function _getTime(container) {
@@ -3113,8 +3136,6 @@ class WhatsAppSession(BrowserAutomation):
             logger.info(f"[{session_id}] v2: chat abierto = '{_header_title}' (esperado: '{contact_name}')")
 
             # 2. Ampliar viewport durante el scrape: WA renderiza más mensajes por ronda.
-            #    El zoom global (0.5) ya está aplicado a nivel de contexto.
-            #    El viewport 2400px suma cobertura adicional: ~6x más mensajes/ronda en total.
             #    Se restaura en el finally.
             await page.set_viewport_size({"width": _orig_viewport["width"], "height": 2400})
             logger.info(f"[{session_id}] v2: viewport ampliado a {_orig_viewport['width']}x2400 para el scrape")
@@ -3187,6 +3208,13 @@ class WhatsAppSession(BrowserAutomation):
                 await page.wait_for_timeout(2000)
             logger.info(f"[{session_id}] v2: posición inicial scroll = {_scroll_pos}")
 
+            # Activar body.style.zoom=0.5 para el scrape. Con body zoom:
+            # (a) IntersectionObserver de CARGA_WA funciona normalmente → más batches,
+            # (b) scroll container reporta dimensiones CSS sin distorsión de zoom global.
+            # Se restaura en el finally.
+            await page.evaluate("document.body.style.zoom = '0.5';")
+            logger.info(f"[{session_id}] v2: body zoom activado para scrape")
+
             # Detectar centro del panel de mensajes para mouse wheel nativo
             _panel_center = await page.evaluate("""
                 () => {
@@ -3213,9 +3241,13 @@ class WhatsAppSession(BrowserAutomation):
             # Leer el zoom activo de la página para compensar el scroll.
             # Con zoom=0.5, cada wheel event mueve el doble en scrollTop (el contenido
             # es 2x más denso en coordenadas CSS), por eso multiplicamos step_px × zoom.
+            # Combinamos documentElement.zoom (global) y body.zoom (solo durante scrape).
             _page_zoom = await page.evaluate("""() => {
-                const z = parseFloat(document.documentElement.style.zoom);
-                return (isNaN(z) || z <= 0) ? 1.0 : z;
+                const dz = parseFloat(document.documentElement.style.zoom);
+                const bz = parseFloat(document.body.style.zoom);
+                const dFactor = (isNaN(dz) || dz <= 0) ? 1.0 : dz;
+                const bFactor = (isNaN(bz) || bz <= 0) ? 1.0 : bz;
+                return dFactor * bFactor;
             }""")
             # Factor de escala del viewport respecto a la base (800px).
             # Con viewport=2400, cubrimos 3x más contenido por posición → steps deben escalar.
@@ -3462,10 +3494,13 @@ class WhatsAppSession(BrowserAutomation):
                         _wheel_steps = 4
                         _wheel_delay = 400
                     else:
-                        # Lejos del tope: agresivo, escalar por viewport para cubrir más terreno.
-                        _step_px = max(40, int(scroll_step // 2 * _page_zoom * _viewport_scale))
+                        # Lejos del tope: usamos el mismo step_px que near-top (pequeño)
+                        # pero más wheel_steps para cubrir más distancia por ronda.
+                        # Con pasos pequeños el IntersectionObserver de CARGA_WA tiene
+                        # oportunidad de activarse aunque el chat tenga muchos mensajes en DOM.
+                        _step_px = max(20, int(scroll_step // 4 * _page_zoom))
                         _wheel_steps = 20
-                        _wheel_delay = 150
+                        _wheel_delay = 200
                     for _ in range(_wheel_steps):
                         await page.mouse.wheel(0, -_step_px)
                         await page.wait_for_timeout(_wheel_delay)
@@ -3497,8 +3532,8 @@ class WhatsAppSession(BrowserAutomation):
                         await page.wait_for_timeout(300)
                     else:
                         await page.wait_for_timeout(1500)
-                        # Solapamiento normal lejos del tope
-                        _overlap_px = max(40, int(scroll_step // 3 * _page_zoom * _viewport_scale))
+                        # Solapamiento proporcional al step agresivo (mismo factor que near-top)
+                        _overlap_px = max(20, int(scroll_step // 6 * _page_zoom))
                         await page.mouse.wheel(0, _overlap_px)
                         await page.wait_for_timeout(300)
                     _scroll_after = await page.evaluate("""() => {
@@ -3573,9 +3608,13 @@ class WhatsAppSession(BrowserAutomation):
             logger.warning(f"[{session_id}] scrape_full_history_v2 error: {e}", exc_info=True)
             return []
         finally:
-            # Restaurar viewport (el zoom global permanece — no se toca)
+            # Restaurar viewport y quitar body zoom del scrape
             try:
                 await page.set_viewport_size(_orig_viewport)
+            except Exception:
+                pass
+            try:
+                await page.evaluate("document.body.style.zoom = '';")
             except Exception:
                 pass
             _browser_lock.release()

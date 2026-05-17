@@ -418,7 +418,7 @@ async def full_resync_contact(empresa_id: str, contact_phone: str, _: str = Depe
     from state import wa_session, clients
     from graphs.nodes.summarize import get_attachments_dir as _get_att_dir
     from graphs.nodes.summarize import get_contact_display_name as _get_display_name
-    from api.whatsapp import get_contacts
+    from db import get_contacts
     from automation.sync import delta_sync, StopCondition
     from config import load_config as _load_config
 
@@ -432,6 +432,13 @@ async def full_resync_contact(empresa_id: str, contact_phone: str, _: str = Depe
 
     # 2. Limpiar adjuntos también (delta_sync solo limpia el .md)
     clear_contact_full(empresa_id, contact_phone)
+
+    # 2b. Re-guardar name.txt (clear_contact_full borró el directorio completo;
+    #     accumulate no lo recrea cuando slug==slugify(slug))
+    from graphs.nodes.summarize import _BASE
+    _name_path = _BASE / empresa_id / contact_phone / "name.txt"
+    _name_path.parent.mkdir(parents=True, exist_ok=True)
+    _name_path.write_text(contact_name, encoding="utf-8")
 
     # 3. Buscar sesión WA activa
     session_id = None
