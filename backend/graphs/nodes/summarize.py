@@ -530,6 +530,132 @@ def migrate_empresa_to_slugs(empresa_id: str) -> dict:
     return {"empresa_id": empresa_id, "migrated": migrated, "skipped": skipped, "errors": errors}
 
 
+def delete_message_by_id(empresa_id: str, contact_phone: str, msg_id: str) -> bool:
+    """Elimina el bloque con [id:{msg_id}] del chat.md. Retorna True si encontró y eliminó."""
+    p = _path(empresa_id, contact_phone)
+    if not p.exists():
+        return False
+    text = p.read_text(encoding="utf-8")
+    blocks = text.split("\n---\n")
+    id_pattern = re.compile(r'\[id:' + re.escape(msg_id) + r'\]')
+    new_blocks = []
+    found = False
+    for block in blocks:
+        stripped = block.strip()
+        if not stripped:
+            continue
+        lines = stripped.split("\n")
+        header = lines[0] if lines else ""
+        if id_pattern.search(header):
+            found = True
+        else:
+            new_blocks.append(stripped)
+    if not found:
+        return False
+    p.write_text("\n---\n".join(new_blocks) + ("\n---\n" if new_blocks else ""), encoding="utf-8")
+    key = (empresa_id, contact_phone)
+    _dedup_loaded.discard(key)
+    _dedup.pop(key, None)
+    return True
+
+
+def rewrite_chat(empresa_id: str, contact_phone: str, messages: list[dict]) -> None:
+    """Reescribe chat.md con la lista de mensajes dada. Backup previo en chat.bak.md."""
+    p = _path(empresa_id, contact_phone)
+    if p.exists():
+        bak = p.with_name("chat.bak.md")
+        shutil.copy2(p, bak)
+
+    def _serialize_block(msg: dict, n: int) -> str:
+        ts = msg.get("timestamp", "")
+        if ts and len(ts) > 19:
+            ts = ts[:19].replace("T", " ")
+        elif ts and "T" in ts:
+            ts = ts.replace("T", " ")
+
+        sender = msg.get("sender") or ""
+        mtype = msg.get("type", "text")
+
+        if mtype == "text":
+            content = msg.get("content", "")
+            body = f"{sender}: {content}" if sender else content
+            type_info = "text"
+        elif mtype == "audio":
+            duration = msg.get("duration", "")
+            transcription = msg.get("transcription", "")
+            type_info = f"audio {duration}".strip()
+            inner = f"{sender}: {transcription}" if sender else transcription
+            body = f"_transcripción:_ {inner}"
+        elif mtype == "image":
+            filename = msg.get("filename", "")
+            caption = msg.get("caption", "")
+            img_part = f"[imagen guardada: {filename}]"
+            if caption:
+                img_part += f" — {caption}"
+            body = f"{sender}: {img_part}" if sender else img_part
+            type_info = "image"
+        elif mtype in ("document", "documento"):
+            filename = msg.get("filename", "")
+            size = msg.get("size", "")
+            body = f"`{filename}` ({size})" if size else f"`{filename}`"
+            type_info = "documento"
+        else:
+            body = msg.get("content", "")
+            type_info = mtype
+
+        lines = [f"## {ts} [id:{n}]", f"**[{type_info}]** {body}"]
+        reply_to = msg.get("reply_to")
+        if reply_to:
+            lines.append(f"> ↩ {reply_to}")
+        return "\n".join(lines) + "\n"
+
+    blocks = [_serialize_block(m, i + 1) for i, m in enumerate(messages)]
+    p.write_text("---\n".join(blocks) + ("---\n" if blocks else ""), encoding="utf-8")
+
+    key = (empresa_id, contact_phone)
+    _dedup_loaded.discard(key)
+    _dedup.pop(key, None)
+
+
+def consolidate_contact(empresa_id: str, contact_phone: str) -> dict:
+    """Consolida el chat.md actual: copia a consolidated/ y guarda metadata."""
+    import json as _json
+    p = _path(empresa_id, contact_phone)
+    slug_dir = p.parent
+    consolidated_dir = slug_dir / "consolidated"
+    consolidated_dir.mkdir(parents=True, exist_ok=True)
+
+    if p.exists():
+        shutil.copy2(p, consolidated_dir / "chat.md")
+
+    last_ts = _newest_message_ts(empresa_id, contact_phone)
+    message_count = 0
+    if p.exists():
+        content = p.read_text(encoding="utf-8")
+        message_count = sum(1 for block in content.split("\n---\n") if block.strip().startswith("## "))
+
+    meta = {
+        "consolidated_at": datetime.now().isoformat(timespec="seconds"),
+        "last_message_ts": last_ts.isoformat(timespec="seconds") if last_ts else None,
+        "message_count": message_count,
+    }
+    (consolidated_dir / "metadata.json").write_text(_json.dumps(meta, indent=2), encoding="utf-8")
+    return meta
+
+
+def get_consolidation_meta(empresa_id: str, contact_phone: str) -> "dict | None":
+    """Retorna metadata de la última consolidación, o None si no existe."""
+    import json as _json
+    p = _path(empresa_id, contact_phone)
+    meta_file = p.parent / "consolidated" / "metadata.json"
+    if not meta_file.exists():
+        return None
+    try:
+        return _json.loads(meta_file.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
 class SummarizeNode(BaseNode):
     """
     Acumula el mensaje en el archivo .md del contacto.

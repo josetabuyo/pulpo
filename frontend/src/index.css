@@ -1385,3 +1385,218 @@ main { max-width: 900px; margin: 28px auto; padding: 0 16px; }
 .sv-contact-item-phone { font-size: 11px; color: #64748b; }
 .sv-contact-item-arrow { color: #94a3b8; font-size: 16px; }
 .sv-contacts-empty { color: #64748b; font-size: 13px; text-align: center; padding: 24px 0; }
+
+/* ─── Manual Tuning ─────────────────────────────────────────────────────────── */
+
+/* Botones de header en tuning mode */
+.sv-md-btn--tuning { background: #1e40af; color: #bfdbfe; }
+.sv-md-btn--tuning:hover { background: #1d4ed8; }
+.sv-md-btn--active { background: #7c3aed; color: #ede9fe; }
+.sv-md-btn--active:hover { background: #6d28d9; }
+.sv-md-btn--primary { background: #065f46; color: #a7f3d0; }
+.sv-md-btn--primary:hover { background: #047857; }
+
+/* Badge de consolidación */
+.sv-consolidation-badge {
+  font-size: 11px;
+  color: #6ee7b7;
+  background: #065f46;
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+/* Layout dos columnas en tuning */
+.sv-container--tuning { display: flex; flex-direction: column; height: 100%; }
+
+.sv-tuning-layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+.sv-tuning-messages {
+  flex: 55;
+  overflow-y: auto;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-right: 1px solid #1e293b;
+}
+
+.sv-tuning-screenshot {
+  flex: 45;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Filas sortables */
+.sv-tuning-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sv-tuning-bubble-wrap {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  position: relative;
+}
+
+.sv-drag-handle {
+  cursor: grab;
+  color: #475569;
+  font-size: 16px;
+  padding: 6px 2px;
+  flex-shrink: 0;
+  user-select: none;
+  line-height: 1;
+  align-self: center;
+}
+
+.sv-drag-handle:active { cursor: grabbing; }
+
+.sv-tuning-bubble-wrap .sv-bubble {
+  flex: 1;
+}
+
+/* Botón × delete (visible on hover) */
+.sv-delete-btn {
+  background: none;
+  border: none;
+  color: #ef4444;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+  align-self: flex-start;
+  line-height: 1;
+}
+
+.sv-tuning-bubble-wrap:hover .sv-delete-btn { opacity: 1; }
+.sv-delete-btn:hover { background: #1e293b; opacity: 1; }
+
+/* Botón insertar entre mensajes */
+.sv-insert-after-btn {
+  background: none;
+  border: 1px dashed #334155;
+  color: #475569;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 10px;
+  border-radius: 4px;
+  margin: 0 28px;
+  text-align: center;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.sv-tuning-row:hover .sv-insert-after-btn { opacity: 1; }
+.sv-insert-after-btn:hover { background: #1e293b; color: #94a3b8; opacity: 1; }
+
+/* Botón agregar al final */
+.sv-add-end-btn {
+  background: none;
+  border: 1px dashed #334155;
+  color: #64748b;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: 6px;
+  margin: 8px 0;
+  text-align: center;
+  transition: background 0.15s, color 0.15s;
+}
+
+.sv-add-end-btn:hover { background: #1e293b; color: #94a3b8; }
+
+/* Form de inserción inline */
+.sv-insert-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: #0f172a;
+  border: 1px solid #1e40af;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 4px 0;
+}
+
+.sv-insert-sender {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  color: #e2e8f0;
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+.sv-insert-content {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  color: #e2e8f0;
+  font-size: 13px;
+  padding: 6px 8px;
+  resize: vertical;
+}
+
+.sv-insert-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.sv-insert-ok {
+  background: #1e40af;
+  color: #bfdbfe;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 14px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sv-insert-ok:hover { background: #1d4ed8; }
+
+.sv-insert-cancel {
+  background: none;
+  color: #64748b;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sv-insert-cancel:hover { background: #1e293b; }
+
+/* WAScreenshotPanel */
+.wa-screenshot-panel {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0a0f1a;
+  overflow: hidden;
+}
+
+.wa-screenshot-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.wa-screenshot-placeholder {
+  color: #334155;
+  font-size: 13px;
+  text-align: center;
+}
