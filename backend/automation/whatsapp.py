@@ -2667,6 +2667,7 @@ class WhatsAppSession(BrowserAutomation):
                 const rect = c.getBoundingClientRect();
                 if (rect.top > window.innerHeight + 300) continue;
                 const absTop = Math.round(_spScrollTop + rect.top - _spRect.top);
+                const msgId = c.getAttribute('data-id') || c.closest('[data-id]')?.getAttribute('data-id') || '';
 
                 const isOut = c.classList.contains('message-out');
 
@@ -2707,14 +2708,14 @@ class WhatsAppSession(BrowserAutomation):
                     const aid = 'pa-' + Date.now() + '-' + Math.random().toString(36).slice(2,8);
                     if (btn) btn.setAttribute('data-pulpo-audio-id', aid);
                     c.setAttribute('data-pulpo-done','1');
-                    results.push({{ type:'audio', time, date, sender, isOut, audioId: btn ? aid : null, absTop }});
+                    results.push({{ type:'audio', time, date, sender, isOut, audioId: btn ? aid : null, absTop, msgId }});
                     continue;
                 }}
 
                 // ── Imagen sin caption ────────────────────────────────────
                 if (imgEl) {{
                     c.setAttribute('data-pulpo-done','1');
-                    results.push({{ type:'image', time, date, sender, isOut, imgSrc: imgEl.src, absTop }});
+                    results.push({{ type:'image', time, date, sender, isOut, imgSrc: imgEl.src, absTop, msgId }});
                     continue;
                 }}
 
@@ -2729,7 +2730,7 @@ class WhatsAppSession(BrowserAutomation):
                         const aid = 'pa-' + Date.now() + '-' + Math.random().toString(36).slice(2,8);
                         if (btn) btn.setAttribute('data-pulpo-audio-id', aid);
                         c.setAttribute('data-pulpo-done','1');
-                        results.push({{ type:'audio', time, date, sender, isOut, audioId: btn ? aid : null, absTop }});
+                        results.push({{ type:'audio', time, date, sender, isOut, audioId: btn ? aid : null, absTop, msgId }});
                         continue;
                     }}
                     // Documento
@@ -2739,7 +2740,7 @@ class WhatsAppSession(BrowserAutomation):
                         const sizeEl = c.querySelector('[data-testid="document-size"]');
                         const fsize = sizeEl ? sizeEl.innerText.trim() : '';
                         c.setAttribute('data-pulpo-done','1');
-                        results.push({{ type:'document', time, date, sender, isOut, filename: fname, size: fsize, absTop }});
+                        results.push({{ type:'document', time, date, sender, isOut, filename: fname, size: fsize, absTop, msgId }});
                         continue;
                     }}
                     // Imagen con ppEl (imagen enviada, con o sin caption)
@@ -2754,13 +2755,13 @@ class WhatsAppSession(BrowserAutomation):
                         const captionEl = c.querySelector('span.copyable-text,[data-testid="selectable-text"]');
                         const imgCaption = captionEl ? captionEl.innerText.trim() : '';
                         c.setAttribute('data-pulpo-done','1');
-                        results.push({{ type:'image', time, date, sender, isOut, imgSrc: imgWithPP.src, caption: imgCaption, absTop }});
+                        results.push({{ type:'image', time, date, sender, isOut, imgSrc: imgWithPP.src, caption: imgCaption, absTop, msgId }});
                         continue;
                     }}
                     if (imgPlaceholder) {{
                         // Imagen presente pero blob no cargado aún — dejar sin marcar done
                         // para que la próxima ronda intente con el blob ya disponible
-                        results.push({{ type:'image_pending', time, date, sender, isOut, imgSrc: '', absTop }});
+                        results.push({{ type:'image_pending', time, date, sender, isOut, imgSrc: '', absTop, msgId }});
                         continue;
                     }}
                     // Texto plano
@@ -2780,11 +2781,11 @@ class WhatsAppSession(BrowserAutomation):
                     // Duración de audio raw ("1:55") → es audio sin botón aún cargado
                     if (!body || /^\\d{{1,2}}:\\d{{2}}$/.test(body.trim())) {{
                         c.setAttribute('data-pulpo-done','1');
-                        results.push({{ type:'audio', time, date, sender, isOut, audioId: null, absTop }});
+                        results.push({{ type:'audio', time, date, sender, isOut, audioId: null, absTop, msgId }});
                         continue;
                     }}
                     c.setAttribute('data-pulpo-done','1');
-                    results.push({{ type:'text', time, date, sender, isOut, body, quoted, quotedSender, absTop }});
+                    results.push({{ type:'text', time, date, sender, isOut, body, quoted, quotedSender, absTop, msgId }});
                 }}
             }}
             return results;
@@ -3295,12 +3296,15 @@ class WhatsAppSession(BrowserAutomation):
             _scroll_after = 9999
             _bounce_count = 0      # veces que el scroll no movió nada (scrollBefore == scrollAfter)
             _same_pos_streak = 0   # rondas consecutivas en la misma posición
+            _anchor_candidates: list[str] = []  # data-ids de los N últimos mensajes capturados
+            _ANCHOR_N = 5
 
             # 4. Loop principal: escanear → procesar → subir
             _active_scan_js = _COUNT_SCAN_JS if count_only else _SCAN_JS
             for _round in range(max_scroll_rounds):
                 batch = await page.evaluate(_active_scan_js)
 
+                _round_msgs: list[dict] = []
                 new_in_batch = 0
                 for msg in batch:
                     ts_str = _parse_ts(msg.get("time", ""), msg.get("date", ""))
@@ -3437,7 +3441,19 @@ class WhatsAppSession(BrowserAutomation):
                         if quoted:
                             entry["quoted"] = quoted
 
-                    results.append(entry)
+                    _round_msgs.append(entry)
+
+                # Prepend: mensajes de esta ronda son más viejos que los de rondas anteriores
+                results = _round_msgs + results
+
+                # Actualizar candidatos de ancla: los data-ids con mayor absTop (más recientes)
+                _batch_ids = sorted(
+                    [(m.get("msgId", ""), m.get("absTop", 0)) for m in batch if m.get("msgId")],
+                    key=lambda x: x[1], reverse=True,
+                )
+                _anchor_candidates = (
+                    [x[0] for x in _batch_ids[:_ANCHOR_N]] + _anchor_candidates
+                )[:_ANCHOR_N]
 
                 # ── Stale detection + scroll up ────────────────────────────
                 if new_in_batch == 0:
@@ -3586,6 +3602,29 @@ class WhatsAppSession(BrowserAutomation):
                     await page.evaluate(_SCROLL_UP_JS, scroll_step)
                     await page.wait_for_timeout(2500)
 
+                # ── Fase B: scroll de vuelta al ancla ─────────────────────
+                # Después de cada scroll, reposicionamos el viewport en el último
+                # mensaje capturado. Garantiza que la próxima ronda arranque desde
+                # un punto conocido y que el IntersectionObserver de WA reciba
+                # señal fresca en el próximo scroll hacia arriba.
+                if _anchor_candidates:
+                    _anchor_found = await page.evaluate(
+                        """(candidates) => {
+                            for (const id of candidates) {
+                                const el = document.querySelector('[data-id="' + id + '"]');
+                                if (el) {
+                                    el.scrollIntoView({block: 'end', behavior: 'instant'});
+                                    return id;
+                                }
+                            }
+                            return null;
+                        }""",
+                        _anchor_candidates,
+                    )
+                    if _anchor_found:
+                        await page.wait_for_timeout(500)
+                        logger.debug(f"[{session_id}] v2: Fase B anchor encontrada")
+
             logger.info(
                 f"[{session_id}] v2: fin loop — {len(results)} mensajes, "
                 f"rebotes_total={_bounce_count} en {_round+1} rondas"
@@ -3604,7 +3643,7 @@ class WhatsAppSession(BrowserAutomation):
                 if not _r.get("sender") and (_r.get("msg_type"), (_r.get("body") or "")) in _body_with_sender:
                     continue  # duplicado de re-render sin ppEl
                 _clean.append(_r)
-            results = sorted(_clean, key=lambda m: m.get("timestamp") or "")
+            results = _clean
             logger.info(f"[{session_id}] v2 scrape_full_history '{contact_name}': {len(results)} mensajes")
             return results
 

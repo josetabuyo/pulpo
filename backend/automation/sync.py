@@ -92,8 +92,6 @@ async def delta_sync(
         **scrape_kwargs,
     )
 
-    messages.sort(key=lambda m: (m.get("timestamp") or "", m.get("absTop") or 0))
-
     # ── Acumular ─────────────────────────────────────────────────────────────
     saved = 0
     for msg in messages:
