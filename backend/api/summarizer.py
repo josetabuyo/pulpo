@@ -14,6 +14,8 @@ from graphs.nodes.summarize import (
     get_summary, list_contacts, clear_empresa, clear_contact, accumulate,
     clear_contact_full, _newest_message_ts, trim_contact_from_date,
     migrate_empresa_to_slugs, get_contact_display_name,
+    delete_message_by_id, rewrite_chat, consolidate_contact, get_consolidation_meta,
+    _path as _summary_path,
 )
 
 # Módulo de compatibilidad — expone las mismas funciones que el viejo tools/summarizer
@@ -89,7 +91,7 @@ async def get_summary(empresa_id: str, contact_phone: str, _: str = Depends(_che
 
 # ─── Helpers de parseo ──────────────────────────────────────────────────────
 
-def _parse_messages(md_content: str, empresa_id: str, contact_phone: str, owner_names: set[str] | None = None) -> list[dict]:
+def _parse_messages(md_content: str, empresa_id: str, contact_phone: str, owner_names: set[str] | None = None, keep_ids: bool = False) -> list[dict]:
     """Convierte el .md acumulado en lista de mensajes estructurados."""
     messages = []
     blocks = re.split(r'\n---\n', md_content)
@@ -283,15 +285,21 @@ def _parse_messages(md_content: str, empresa_id: str, contact_phone: str, owner_
     if any(m.get("_id") for m in messages):
         from graphs.nodes.summarize import _id_sort_key
         messages.sort(key=lambda m: _id_sort_key(m.get("_id") or "0"))
-    for m in messages:
-        m.pop("_id", None)
+    if not keep_ids:
+        for m in messages:
+            m.pop("_id", None)
     return messages
 
 
 # ─── Endpoints de mensajes y adjuntos ───────────────────────────────────────
 
 @router.get("/summarizer/{empresa_id}/{contact_phone}/messages")
-async def get_messages(empresa_id: str, contact_phone: str, _: str = Depends(_check_auth)):
+async def get_messages(
+    empresa_id: str,
+    contact_phone: str,
+    include_ids: bool = Query(default=False),
+    _: str = Depends(_check_auth),
+):
     """Devuelve los mensajes del resumen (inbound) + respuestas del bot (outbound), ordenados por timestamp."""
     content = summarizer.get_summary(empresa_id, contact_phone)
     if content is None:
@@ -306,7 +314,7 @@ async def get_messages(empresa_id: str, contact_phone: str, _: str = Depends(_ch
             if ph.get("owner_name"):
                 owner_names.add(ph["owner_name"])
 
-    inbound = _parse_messages(content, empresa_id, contact_phone, owner_names)
+    inbound = _parse_messages(content, empresa_id, contact_phone, owner_names, keep_ids=include_ids)
 
     # Cuerpos ya presentes en el .md (texto o transcripción de audio).
     # Sirve para descartar mensajes de DB que sean duplicados del scrape.
@@ -349,6 +357,31 @@ async def get_messages(empresa_id: str, contact_phone: str, _: str = Depends(_ch
 
     all_msgs = sorted(inbound + outbound, key=lambda m: m.get("timestamp") or "")
     return {"messages": all_msgs}
+
+
+# ─── wa-screenshot SIN contact_phone (debe ir ANTES de los paths con contact_phone) ─────
+
+@router.get("/summarizer/{empresa_id}/wa-screenshot")
+async def wa_screenshot(empresa_id: str, _: str = Depends(_check_auth)):
+    """Devuelve screenshot del cliente WA activo de la empresa, o null si no hay ninguno."""
+    from state import clients, wa_session
+    session_id = None
+    for bot_phone, client in clients.items():
+        if client.get("status") == "ready" and client.get("type") == "whatsapp":
+            session_id = bot_phone
+            break
+    if not session_id or not wa_session:
+        return {"screenshot": None}
+    try:
+        import base64 as _b64
+        page = wa_session.get_page(session_id)
+        if not page or page.is_closed():
+            return {"screenshot": None}
+        screenshot_bytes = await page.screenshot(type="png", full_page=False)
+        b64 = _b64.b64encode(screenshot_bytes).decode()
+        return {"screenshot": f"data:image/png;base64,{b64}"}
+    except Exception:
+        return {"screenshot": None}
 
 
 import re as _re_sum
@@ -718,3 +751,110 @@ async def count_dom_messages(
         "to_date": timestamps[-1] if timestamps else None,
         "contact_name": contact_name,
     }
+
+
+# ─── Endpoints de manual tuning ─────────────────────────────────────────────
+
+from pydantic import BaseModel
+
+
+class InsertMessageBody(BaseModel):
+    type: str = "text"
+    sender: str | None = None
+    content: str
+    timestamp: str | None = None
+
+
+class RewriteMessagesBody(BaseModel):
+    messages: list[dict]
+
+
+@router.post("/summarizer/{empresa_id}/{contact_phone}/message")
+async def insert_message(
+    empresa_id: str,
+    contact_phone: str,
+    body: InsertMessageBody,
+    _: str = Depends(_check_auth),
+):
+    """Inserta un mensaje nuevo en el chat.md (append al final o con timestamp dado)."""
+    ts = None
+    if body.timestamp:
+        try:
+            ts = datetime.fromisoformat(body.timestamp)
+        except ValueError:
+            pass
+
+    content_str = body.content
+    if body.sender:
+        content_str = f"{body.sender}: {body.content}"
+
+    contact_name = get_contact_display_name(empresa_id, contact_phone) or contact_phone
+    accumulate(
+        empresa_id=empresa_id,
+        contact_phone=contact_phone,
+        contact_name=contact_name,
+        msg_type=body.type,
+        content=content_str,
+        timestamp=ts,
+    )
+
+    from graphs.nodes.summarize import _path as _p, _read_entries_meta
+    p = _p(empresa_id, contact_phone)
+    count = 0
+    if p.exists():
+        count = sum(1 for b in p.read_text(encoding="utf-8").split("\n---\n") if b.strip().startswith("## "))
+    return {"ok": True, "message_count": count}
+
+
+@router.delete("/summarizer/{empresa_id}/{contact_phone}/message/{msg_id}")
+async def delete_message(
+    empresa_id: str,
+    contact_phone: str,
+    msg_id: str,
+    _: str = Depends(_check_auth),
+):
+    """Elimina un mensaje del chat.md por su ID."""
+    found = delete_message_by_id(empresa_id, contact_phone, msg_id)
+    if not found:
+        raise HTTPException(status_code=404, detail=f"Mensaje {msg_id} no encontrado")
+    return {"ok": True}
+
+
+@router.put("/summarizer/{empresa_id}/{contact_phone}/messages")
+async def rewrite_messages(
+    empresa_id: str,
+    contact_phone: str,
+    body: RewriteMessagesBody,
+    _: str = Depends(_check_auth),
+):
+    """Reescribe el chat.md completo con la lista de mensajes ordenada."""
+    rewrite_chat(empresa_id, contact_phone, body.messages)
+    p = _summary_path(empresa_id, contact_phone)
+    count = 0
+    if p.exists():
+        count = sum(1 for b in p.read_text(encoding="utf-8").split("\n---\n") if b.strip().startswith("## "))
+    return {"ok": True, "message_count": count}
+
+
+@router.post("/summarizer/{empresa_id}/{contact_phone}/consolidate")
+async def consolidate(
+    empresa_id: str,
+    contact_phone: str,
+    _: str = Depends(_check_auth),
+):
+    """Consolida el historial actual: copia chat.md a consolidated/ y guarda metadata."""
+    meta = consolidate_contact(empresa_id, contact_phone)
+    return {"ok": True, **meta}
+
+
+@router.get("/summarizer/{empresa_id}/{contact_phone}/consolidation")
+async def get_consolidation(
+    empresa_id: str,
+    contact_phone: str,
+    _: str = Depends(_check_auth),
+):
+    """Retorna metadata de la última consolidación, o 404 si no hay ninguna."""
+    meta = get_consolidation_meta(empresa_id, contact_phone)
+    if meta is None:
+        raise HTTPException(status_code=404, detail="Sin consolidación para este contacto")
+    return meta
