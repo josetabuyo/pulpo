@@ -418,7 +418,7 @@ async def full_resync_contact(empresa_id: str, contact_phone: str, _: str = Depe
     from state import wa_session, clients
     from graphs.nodes.summarize import get_attachments_dir as _get_att_dir
     from graphs.nodes.summarize import get_contact_display_name as _get_display_name
-    from db import get_contacts
+    from db import get_contacts, delete_contact_messages
     from automation.sync import delta_sync, StopCondition
     from config import load_config as _load_config
 
@@ -441,16 +441,18 @@ async def full_resync_contact(empresa_id: str, contact_phone: str, _: str = Depe
         _bak_dir.mkdir(parents=True, exist_ok=True)
         _shutil.copy2(_chat_src, _bak_dir / "chat.md")
 
-    # 3. Limpiar adjuntos también (delta_sync solo limpia el .md)
+    # 3. Limpiar archivos: .md, adjuntos, dedup en memoria
     clear_contact_full(empresa_id, contact_phone)
 
-    # 4. Re-guardar name.txt (clear_contact_full borró el directorio completo;
-    #     accumulate no lo recrea cuando slug==slugify(slug))
+    # 4. Limpiar DB: borrar todos los mensajes del contacto en esta empresa
+    await delete_contact_messages(empresa_id, contact_name)
+
+    # 5. Re-guardar name.txt (clear_contact_full borró el directorio completo)
     _name_path = _BASE / empresa_id / contact_phone / "name.txt"
     _name_path.parent.mkdir(parents=True, exist_ok=True)
     _name_path.write_text(contact_name, encoding="utf-8")
 
-    # 3. Buscar sesión WA activa
+    # 7. Buscar sesión WA activa
     session_id = None
     for bot_phone, client in clients.items():
         if client.get("status") == "ready" and client.get("type") == "whatsapp":
@@ -459,7 +461,7 @@ async def full_resync_contact(empresa_id: str, contact_phone: str, _: str = Depe
     if not session_id or not wa_session:
         raise HTTPException(status_code=503, detail="Sin sesión WA activa")
 
-    # 4. Resolver owner_name
+    # 8. Resolver owner_name
     _cfg = _load_config()
     _empresa_cfg = next((e for e in _cfg.get("empresas", []) if e["id"] == empresa_id), None)
     owner_name = None
@@ -469,7 +471,7 @@ async def full_resync_contact(empresa_id: str, contact_phone: str, _: str = Depe
                 owner_name = ph["owner_name"]
                 break
 
-    # 5. Scrape + acumulación via delta_sync
+    # 9. Scrape + acumulación via delta_sync
     doc_dir = _get_att_dir(empresa_id, contact_phone)
     result = await delta_sync(
         wa_session=wa_session,

@@ -92,6 +92,8 @@ async def delta_sync(
         **scrape_kwargs,
     )
 
+    from db import log_message_historic
+
     # ── Acumular ─────────────────────────────────────────────────────────────
     saved = 0
     for msg in messages:
@@ -107,6 +109,21 @@ async def delta_sync(
         ):
             continue
 
+        ts_str = msg.get("timestamp", "")
+        ts = None
+        try:
+            ts = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            pass
+
+        # Guardar en DB (dedup por contact+body+minuto — idempotente)
+        if ts_str:
+            outbound = 1 if msg.get("is_outbound") else 0
+            await log_message_historic(
+                empresa_id, session_id, contact_name, contact_name,
+                body, ts_str, outbound,
+            )
+
         sender = _resolve_sender(msg, contact_name, owner_name)
         content = f"{sender}: {body}"
 
@@ -115,12 +132,6 @@ async def delta_sync(
             quoted_sender = msg.get("quotedSender", "")
             reply_prefix = f"[{quoted_sender}] " if quoted_sender else ""
             content = f"{content}\n> ↩ {reply_prefix}{quoted}"
-
-        ts = None
-        try:
-            ts = datetime.strptime(msg["timestamp"], "%Y-%m-%d %H:%M:%S")
-        except Exception:
-            pass
 
         accumulate(
             empresa_id=empresa_id,

@@ -416,6 +416,18 @@ async def update_contact(contact_id: int, name: str, notes: str | None = None) -
         return result.rowcount > 0
 
 
+async def delete_contact_messages(empresa_id: str, contact_name: str) -> int:
+    """Borra todos los mensajes de un contacto en una empresa. Retorna filas eliminadas.
+    contact_name es el valor almacenado en la columna phone de la tabla messages."""
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            text("DELETE FROM messages WHERE connection_id = :empresa_id AND phone = :name"),
+            {"empresa_id": empresa_id, "name": contact_name},
+        )
+        await session.commit()
+        return result.rowcount
+
+
 async def delete_contact(contact_id: int) -> bool:
     async with AsyncSessionLocal() as session:
         await session.execute(
