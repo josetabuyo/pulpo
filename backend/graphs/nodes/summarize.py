@@ -610,7 +610,14 @@ def rewrite_chat(empresa_id: str, contact_phone: str, messages: list[dict]) -> N
         return "\n".join(lines) + "\n"
 
     blocks = [_serialize_block(m, i + 1) for i, m in enumerate(messages)]
-    p.write_text("---\n".join(blocks) + ("---\n" if blocks else ""), encoding="utf-8")
+    content = "---\n".join(blocks) + ("---\n" if blocks else "")
+
+    # Escritura atómica: tmp + os.replace evita chat.md corrupto si hay crash mid-write
+    import os as _os
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(content, encoding="utf-8")
+    _os.replace(tmp, p)
 
     key = (empresa_id, contact_phone)
     _dedup_loaded.discard(key)

@@ -13,7 +13,11 @@ export function api(method, path, body, password) {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
-  }).then(r => r.json())
+  }).then(async r => {
+    const data = await r.json()
+    if (!r.ok) return { ...data, _status: r.status }
+    return data
+  })
 }
 
 export async function connectAndPoll({ number, password, onQR, onReady, onError }) {

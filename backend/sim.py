@@ -110,6 +110,14 @@ async def sim_receive(
         for mid in msg_ids.values():
             await mark_answered(mid)
         await log_outbound_message(cfg["connection_id"], session_id, from_phone, reply)
+        from graphs.nodes.summarize import accumulate as _accumulate
+        _accumulate(
+            empresa_id=cfg["connection_id"],
+            contact_phone=from_phone,
+            contact_name=from_name,
+            msg_type="text",
+            content=f"Tú: {reply}",
+        )
         conv.append({"role": "bot", "text": reply, "from_name": "Bot", "ts": ts})
         logger.info("[sim] REPLY → %s: %s", session_id, reply[:80])
 

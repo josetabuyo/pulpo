@@ -473,10 +473,9 @@ async def get_messages(
     empresa_id: str,
     contact_phone: str,
     include_ids: bool = Query(default=False),
-    inbound_only: bool = Query(default=False),
     _: str = Depends(_check_auth),
 ):
-    """Devuelve los mensajes del resumen. inbound_only=true omite respuestas del bot (tuning mode)."""
+    """Devuelve los mensajes del resumen en el orden del archivo (incluye reordenamientos manuales)."""
     content = summarizer.get_summary(empresa_id, contact_phone)
     if content is None:
         raise HTTPException(status_code=404, detail="Sin resumen para este contacto")
@@ -484,80 +483,16 @@ async def get_messages(
     from config import load_config as _load_config
     _cfg = _load_config()
     _empresa_cfg = next((e for e in _cfg.get("empresas", []) if e["id"] == empresa_id), None)
-    owner_names: set[str] = {"Tú"}  # "Tú" siempre es el dueño del teléfono (sync path)
+    owner_names: set[str] = {"Tú"}
     if _empresa_cfg:
         for ph in _empresa_cfg.get("phones", []):
             if ph.get("owner_name"):
                 owner_names.add(ph["owner_name"])
 
-    inbound = _parse_messages(content, empresa_id, contact_phone, owner_names, keep_ids=include_ids)
-
-    # inbound_only=true: solo mensajes scrapeados (tuning mode). Sin outbound de DB.
-    # No re-ordenar: _parse_messages ya aplica _id_sort_key (= orden del archivo después de rewrite).
-    # Ordenar por timestamp aquí destruiría el orden manual del drag-and-drop.
-    if inbound_only:
-        return {"messages": inbound}
-
-    # Mapa: cuerpo → índices en `inbound`.
-    # Permite corregir direction a "out" cuando la DB confirma que el mensaje fue outbound,
-    # evitando duplicados y preservando el orden del .md.
-    _inbound_body_to_idx: dict[str, list[int]] = {}
-    for i, _m in enumerate(inbound):
-        if _m.get("content"):
-            _inbound_body_to_idx.setdefault(_m["content"].strip(), []).append(i)
-        if _m.get("transcription"):
-            _inbound_body_to_idx.setdefault(_m["transcription"].strip(), []).append(i)
-
-    async with AsyncSessionLocal() as session:
-        rows = (await session.execute(
-            text(
-                "SELECT body, timestamp FROM messages "
-                "WHERE connection_id = :eid AND outbound = 1 AND phone = :phone "
-                "ORDER BY timestamp ASC"
-            ),
-            {"eid": empresa_id, "phone": _db_phone(empresa_id, contact_phone)},
-        )).fetchall()
-
-    # Mensajes borrados intencionalmente del .md (tombstone).
-    # Evita que el merge con DB los resucite en el modo lectura.
-    import json as _excl_json
-    _excl_path = _summary_path(empresa_id, contact_phone).parent / "excluded_outbound.json"
-    _excluded_bodies: set[str] = set()
-    if _excl_path.exists():
-        try:
-            _excluded_bodies = set(_excl_json.loads(_excl_path.read_text(encoding="utf-8")))
-        except Exception:
-            pass
-
-    outbound = []
-    for body, ts_raw in rows:
-        if not _is_useful(body):
-            continue
-        if body.strip() in _excluded_bodies:
-            continue  # borrado intencionalmente del resumen
-        # Si ya aparece en el .md, corregir direction a "out" en lugar de duplicar.
-        if body.strip() in _inbound_body_to_idx:
-            for idx in _inbound_body_to_idx[body.strip()]:
-                if inbound[idx].get("direction") != "out":
-                    inbound[idx] = {**inbound[idx], "direction": "out"}
-            continue
-        ts_iso = None
-        if ts_raw:
-            try:
-                ts_iso = datetime.fromisoformat(str(ts_raw)).isoformat()
-            except (ValueError, TypeError):
-                pass  # timestamp inválido → ts_iso queda None → se ordena al final
-        outbound.append({
-            "type": "text",
-            "direction": "out",
-            "timestamp": ts_iso,
-            "content": body.strip(),
-        })
-
-    # Preservar el orden del archivo (incluye reordenamientos manuales del tuning).
-    # Los mensajes de DB que no están en chat.md se agregan al final.
-    all_msgs = inbound + outbound
-    return {"messages": all_msgs}
+    messages = _parse_messages(content, empresa_id, contact_phone, owner_names, keep_ids=include_ids)
+    p = _summary_path(empresa_id, contact_phone)
+    version = int(p.stat().st_mtime * 1000) if p.exists() else 0
+    return {"messages": messages, "version": version}
 
 
 
@@ -944,6 +879,7 @@ class InsertMessageBody(BaseModel):
 
 class RewriteMessagesBody(BaseModel):
     messages: list[dict]
+    version: int | None = None
 
 
 @router.post("/summarizer/{empresa_id}/{contact_phone}/message")
@@ -997,17 +933,6 @@ async def delete_message(
     return {"ok": True}
 
 
-def _msg_body_keys(messages: list[dict]) -> set[str]:
-    """Extrae los body keys del modo de matching DB-outbound: content y transcription stripeados."""
-    keys: set[str] = set()
-    for m in messages:
-        if m.get("content"):
-            keys.add(m["content"].strip())
-        if m.get("transcription"):
-            keys.add(m["transcription"].strip())
-    return keys
-
-
 @router.put("/summarizer/{empresa_id}/{contact_phone}/messages")
 async def rewrite_messages(
     empresa_id: str,
@@ -1016,49 +941,19 @@ async def rewrite_messages(
     _: str = Depends(_check_auth),
 ):
     """Reescribe el chat.md completo con la lista de mensajes ordenada."""
-    import json as _excl_json2
-
-    # Detectar qué mensajes se están borrando para actualizar el tombstone.
-    old_content = summarizer.get_summary(empresa_id, contact_phone) or ""
-    old_msgs = _parse_messages(old_content, empresa_id, contact_phone) if old_content else []
-    old_keys = _msg_body_keys(old_msgs)
-    new_keys = _msg_body_keys(body.messages)
-    deleted_keys = old_keys - new_keys
-
+    if body.version is not None:
+        p_check = _summary_path(empresa_id, contact_phone)
+        current_v = int(p_check.stat().st_mtime * 1000) if p_check.exists() else 0
+        if current_v != body.version:
+            raise HTTPException(status_code=409, detail="Conflicto: el resumen fue modificado por otro proceso")
     rewrite_chat(empresa_id, contact_phone, body.messages)
-
-    if deleted_keys:
-        phone_in_db = _db_phone(empresa_id, contact_phone)
-
-        # Borrar de DB: solo mensajes outbound (bot) para no romper el flujo de auto-reply.
-        async with AsyncSessionLocal() as session:
-            for body_key in deleted_keys:
-                await session.execute(
-                    text(
-                        "DELETE FROM messages "
-                        "WHERE connection_id=:eid AND phone=:phone AND outbound=1 AND body=:body"
-                    ),
-                    {"eid": empresa_id, "phone": phone_in_db, "body": body_key},
-                )
-            await session.commit()
-
-        # Tombstone como red de seguridad (cubre edge cases del DELETE o mensajes no en DB).
-        excl_path = _summary_path(empresa_id, contact_phone).parent / "excluded_outbound.json"
-        existing: set[str] = set()
-        if excl_path.exists():
-            try:
-                existing = set(_excl_json2.loads(excl_path.read_text(encoding="utf-8")))
-            except Exception:
-                pass
-        existing.update(deleted_keys)
-        existing -= new_keys  # quitar los que re-aparecieron (un-delete)
-        excl_path.write_text(_excl_json2.dumps(sorted(existing), ensure_ascii=False), encoding="utf-8")
-
     p = _summary_path(empresa_id, contact_phone)
     count = 0
+    version = 0
     if p.exists():
         count = sum(1 for b in p.read_text(encoding="utf-8").split("\n---\n") if b.strip().startswith("## "))
-    return {"ok": True, "message_count": count}
+        version = int(p.stat().st_mtime * 1000)
+    return {"ok": True, "message_count": count, "version": version}
 
 
 @router.post("/summarizer/{empresa_id}/{contact_phone}/consolidate")

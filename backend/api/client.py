@@ -111,8 +111,14 @@ async def send_chat_message(number: str, contact: str, body: SendMessageBody):
     if not bot:
         raise HTTPException(status_code=404, detail="Número no encontrado")
 
+    def _accumulate_outbound(empresa_id: str, contact: str, msg_text: str) -> None:
+        from graphs.nodes.summarize import accumulate as _acc
+        _acc(empresa_id=empresa_id, contact_phone=contact, contact_name=contact,
+             msg_type="text", content=f"Tú: {msg_text}")
+
     if sim_engine.SIM_MODE:
         await log_outbound_message(bot["id"], number, contact, body.text)
+        _accumulate_outbound(bot["id"], contact, body.text)
         async with AsyncSessionLocal() as session:
             await session.execute(
                 text("UPDATE messages SET answered = 1 WHERE connection_phone = :number AND phone = :contact AND answered = 0"),
@@ -128,6 +134,7 @@ async def send_chat_message(number: str, contact: str, body: SendMessageBody):
         raise HTTPException(status_code=503, detail="No se pudo enviar. Verificá que el bot esté conectado.")
 
     await log_outbound_message(bot["id"], number, contact, body.text)
+    _accumulate_outbound(bot["id"], contact, body.text)
     async with AsyncSessionLocal() as session:
         await session.execute(
             text("UPDATE messages SET answered = 1 WHERE connection_phone = :number AND phone = :contact AND answered = 0"),

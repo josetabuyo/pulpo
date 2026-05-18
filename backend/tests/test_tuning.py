@@ -147,3 +147,78 @@ def test_get_consolidation_not_found(client):
     # Contacto que nunca fue consolidado en esta sesión de tests
     r = client.get(f"/api/summarizer/{EMPRESA}/never-consolidated/consolidation", headers=ADMIN)
     assert r.status_code == 404
+
+
+# ─── Round-trip: parse(rewrite(msgs)) == msgs ─────────────────────────────────
+
+def test_round_trip_text_messages(client):
+    """Rewrite seguido de GET devuelve exactamente los mismos mensajes."""
+    _seed(client, ["Primero", "Segundo", "Tercero"])
+    before = _msgs(client, include_ids=True)
+    assert len(before) >= 3
+
+    r = client.put(f"{BASE}/messages", json={"messages": before}, headers=ADMIN)
+    assert r.status_code == 200
+
+    after = _msgs(client, include_ids=True)
+    # Mismo contenido y orden
+    assert [m.get("content") for m in after] == [m.get("content") for m in before]
+
+
+def test_round_trip_preserves_order_after_reorder(client):
+    """Reordenar e inmediatamente leer devuelve el orden nuevo."""
+    _seed(client, ["A", "B", "C"])
+    msgs = _msgs(client, include_ids=True)
+    assert len(msgs) == 3
+
+    reversed_msgs = list(reversed(msgs))
+    r = client.put(f"{BASE}/messages", json={"messages": reversed_msgs}, headers=ADMIN)
+    assert r.status_code == 200
+
+    after = _msgs(client, include_ids=True)
+    assert [m.get("content") for m in after] == [m.get("content") for m in reversed_msgs]
+
+
+# ─── Optimistic locking ───────────────────────────────────────────────────────
+
+def _version(client):
+    r = client.get(f"{BASE}/messages?include_ids=true", headers=ADMIN)
+    assert r.status_code == 200
+    return r.json()["version"]
+
+
+def test_get_returns_version(client):
+    _seed(client, ["Para versionar"])
+    r = client.get(f"{BASE}/messages", headers=ADMIN)
+    assert r.status_code == 200
+    v = r.json().get("version")
+    assert v is not None and isinstance(v, int) and v > 0
+
+
+def test_put_with_correct_version_succeeds(client):
+    _seed(client, ["Versión OK"])
+    v = _version(client)
+    msgs = _msgs(client, include_ids=True)
+
+    r = client.put(f"{BASE}/messages", json={"messages": msgs, "version": v}, headers=ADMIN)
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    assert "version" in r.json()
+
+
+def test_put_with_stale_version_returns_409(client):
+    _seed(client, ["Conflicto"])
+    msgs = _msgs(client, include_ids=True)
+
+    # Versión falsa (del pasado)
+    r = client.put(f"{BASE}/messages", json={"messages": msgs, "version": 1}, headers=ADMIN)
+    assert r.status_code == 409
+
+
+def test_put_without_version_always_succeeds(client):
+    _seed(client, ["Sin versión"])
+    msgs = _msgs(client, include_ids=True)
+
+    r = client.put(f"{BASE}/messages", json={"messages": msgs}, headers=ADMIN)
+    assert r.status_code == 200
+    assert r.json()["ok"] is True

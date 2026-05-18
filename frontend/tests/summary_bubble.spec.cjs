@@ -162,3 +162,38 @@ test('sv-img-modal-img tiene max-width viewport-relativo y object-fit:contain', 
   expect(result.maxWidthPx / result.viewportWidth).toBeCloseTo(0.9, 1)
   expect(result.objectFit).toBe('contain')
 })
+
+// ─── Regresión: indicador de guardado ────────────────────────────────────────
+
+test('sv-save-status--ok tiene color verde y sv-save-status--error tiene color rojo', async ({ page }) => {
+  await login(page)
+
+  const result = await page.evaluate(() => {
+    const container = document.createElement('div')
+    container.style.cssText = 'position:fixed;top:-9999px'
+    document.body.appendChild(container)
+
+    const ok = document.createElement('span')
+    ok.className = 'sv-save-status sv-save-status--ok'
+    container.appendChild(ok)
+
+    const err = document.createElement('span')
+    err.className = 'sv-save-status sv-save-status--error'
+    container.appendChild(err)
+
+    const okColor = window.getComputedStyle(ok).color
+    const errColor = window.getComputedStyle(err).color
+    document.body.removeChild(container)
+    return { okColor, errColor }
+  })
+
+  // ok → color verde (rgb con G alto)
+  const [, okR, okG, okB] = result.okColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/).map(Number)
+  expect(okG).toBeGreaterThan(okR)
+  expect(okG).toBeGreaterThan(okB)
+
+  // error → color rojo (R alto)
+  const [, errR, errG, errB] = result.errColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/).map(Number)
+  expect(errR).toBeGreaterThan(errG)
+  expect(errR).toBeGreaterThan(errB)
+})

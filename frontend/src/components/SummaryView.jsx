@@ -333,6 +333,7 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
   const [insertForm, setInsertForm]       = useState(null)  // { afterMsg } | null
   const [saveStatus, setSaveStatus]       = useState(null)  // 'saving' | 'ok' | 'error'
   const saveStatusTimer                   = useRef(null)
+  const currentVersion                    = useRef(null)    // mtime del chat.md al entrar a tuning
 
   function log(msg) {
     console.log('[tuning]', msg)
@@ -363,8 +364,11 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
 
   // carga mensajes con IDs para el tuning
   function loadEditMessages() {
-    return apiCall('GET', `/summarizer/${empresaId}/${contactPhone}/messages?include_ids=true&inbound_only=true`, null)
-      .then(data => data?.messages || [])
+    return apiCall('GET', `/summarizer/${empresaId}/${contactPhone}/messages?include_ids=true`, null)
+      .then(data => {
+        if (data?.version != null) currentVersion.current = data.version
+        return data?.messages || []
+      })
   }
 
   useEffect(() => { loadMessages() }, [empresaId, contactPhone])
@@ -392,12 +396,23 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
   }
 
   async function putMessages(msgs) {
-    log(`PUT /messages → enviando ${msgs.length} msgs`)
+    log(`PUT /messages → enviando ${msgs.length} msgs (version=${currentVersion.current})`)
     notifySave('saving')
     try {
-      const res = await apiCall('PUT', `/summarizer/${empresaId}/${contactPhone}/messages`, { messages: msgs })
+      const payload = { messages: msgs }
+      if (currentVersion.current != null) payload.version = currentVersion.current
+      const res = await apiCall('PUT', `/summarizer/${empresaId}/${contactPhone}/messages`, payload)
+      if (res?._status === 409) {
+        log('PUT /messages ← 409 Conflict — recargando')
+        notifySave('error')
+        const fresh = withLocalIds(await loadEditMessages())
+        pushSnapshot(fresh)
+        alert('Otro proceso modificó el resumen. Se recargaron los datos más recientes.')
+        return null
+      }
       if (res?.ok) {
-        log(`PUT /messages ← ok count=${res?.message_count ?? '?'}`)
+        currentVersion.current = res.version ?? currentVersion.current
+        log(`PUT /messages ← ok count=${res?.message_count ?? '?'} version=${res?.version}`)
         notifySave('ok')
       } else {
         log(`PUT /messages ← respuesta inesperada: ${JSON.stringify(res)}`)
