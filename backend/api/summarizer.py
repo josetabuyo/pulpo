@@ -1026,6 +1026,21 @@ async def rewrite_messages(
     rewrite_chat(empresa_id, contact_phone, body.messages)
 
     if deleted_keys:
+        phone_in_db = _db_phone(empresa_id, contact_phone)
+
+        # Borrar de DB: solo mensajes outbound (bot) para no romper el flujo de auto-reply.
+        async with AsyncSessionLocal() as session:
+            for body_key in deleted_keys:
+                await session.execute(
+                    text(
+                        "DELETE FROM messages "
+                        "WHERE connection_id=:eid AND phone=:phone AND outbound=1 AND body=:body"
+                    ),
+                    {"eid": empresa_id, "phone": phone_in_db, "body": body_key},
+                )
+            await session.commit()
+
+        # Tombstone como red de seguridad (cubre edge cases del DELETE o mensajes no en DB).
         excl_path = _summary_path(empresa_id, contact_phone).parent / "excluded_outbound.json"
         existing: set[str] = set()
         if excl_path.exists():
