@@ -554,7 +554,9 @@ async def get_messages(
             "content": body.strip(),
         })
 
-    all_msgs = sorted(inbound + outbound, key=lambda m: m.get("timestamp") or "")
+    # Preservar el orden del archivo (incluye reordenamientos manuales del tuning).
+    # Los mensajes de DB que no están en chat.md se agregan al final.
+    all_msgs = inbound + outbound
     return {"messages": all_msgs}
 
 
