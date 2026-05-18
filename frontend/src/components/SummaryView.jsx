@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors,
 } from '@dnd-kit/core'
@@ -36,6 +36,22 @@ function addSecond(isoTs) {
   }
 }
 
+// ─── Highlight helper ────────────────────────────────────────────────────────
+
+function HighlightText({ text, query }) {
+  if (!query || !text) return <>{text}</>
+  const parts = text.split(new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'))
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.toLowerCase() === query.toLowerCase()
+          ? <mark key={i} className="sv-highlight">{part}</mark>
+          : part
+      )}
+    </>
+  )
+}
+
 // ─── Burbujas (read-only) ─────────────────────────────────────────────────────
 
 function ReplyQuote({ text }) {
@@ -55,26 +71,32 @@ function ReplyQuote({ text }) {
   )
 }
 
-function TextBubble({ msg }) {
+function TextBubble({ msg, highlight, dimmed }) {
   const isOut = msg.direction === 'out'
   return (
-    <div className={`sv-bubble ${isOut ? 'sv-bubble--out' : 'sv-bubble--in'}`}>
+    <div
+      className={`sv-bubble ${isOut ? 'sv-bubble--out' : 'sv-bubble--in'}`}
+      style={dimmed ? { opacity: 0.25, transition: 'opacity 0.15s' } : undefined}
+    >
       <div className="sv-bubble-body">
         {msg.sender && <span className="sv-bubble-sender">{msg.sender}</span>}
         <ReplyQuote text={msg.reply_to} />
-        <p className="sv-bubble-text">{msg.content}</p>
+        <p className="sv-bubble-text"><HighlightText text={msg.content} query={highlight} /></p>
         <span className="sv-bubble-time">{formatTime(msg.timestamp)}</span>
       </div>
     </div>
   )
 }
 
-function AudioBubble({ msg }) {
+function AudioBubble({ msg, highlight, dimmed }) {
   const hasRealTranscription = msg.transcription && !msg.transcription.startsWith('[audio')
   const [expanded, setExpanded] = useState(hasRealTranscription)
   const isOut = msg.direction === 'out'
   return (
-    <div className={`sv-bubble ${isOut ? 'sv-bubble--out' : 'sv-bubble--in'}`}>
+    <div
+      className={`sv-bubble ${isOut ? 'sv-bubble--out' : 'sv-bubble--in'}`}
+      style={dimmed ? { opacity: 0.25, transition: 'opacity 0.15s' } : undefined}
+    >
       <div className="sv-bubble-body">
         {msg.sender && <span className="sv-bubble-sender">{msg.sender}</span>}
         <ReplyQuote text={msg.reply_to} />
@@ -88,7 +110,7 @@ function AudioBubble({ msg }) {
           )}
         </div>
         {expanded && hasRealTranscription && (
-          <p className="sv-transcription">{msg.transcription}</p>
+          <p className="sv-transcription"><HighlightText text={msg.transcription} query={highlight} /></p>
         )}
         <span className="sv-bubble-time">{formatTime(msg.timestamp)}</span>
       </div>
@@ -96,43 +118,68 @@ function AudioBubble({ msg }) {
   )
 }
 
-function ImageBubble({ msg, apiCall, empresaId, contactPhone }) {
+function ImageBubble({ msg, apiCall, empresaId, contactPhone, dimmed }) {
   const isOut = msg.direction === 'out'
-  function handleView() {
+  const [blobUrl, setBlobUrl] = useState(null)
+  const [modalOpen, setModalOpen] = useState(false)
+
+  useEffect(() => {
     if (!msg.filename) return
-    const url = `/summarizer/${empresaId}/${contactPhone}/docs/${encodeURIComponent(msg.filename)}`
-    apiCall('GET_BLOB', url, null).then(blob => {
-      if (!blob) return
-      const a = document.createElement('a')
-      a.href = URL.createObjectURL(blob)
-      a.target = '_blank'
-      a.rel = 'noopener'
-      a.click()
-      setTimeout(() => URL.revokeObjectURL(a.href), 10000)
-    }).catch(() => {})
-  }
+    let objectUrl = null
+    let cancelled = false
+    const path = `/summarizer/${empresaId}/${contactPhone}/docs/${encodeURIComponent(msg.filename)}`
+    apiCall('GET_BLOB', path, null)
+      .then(blob => {
+        if (cancelled || !blob || blob.size === 0) return
+        objectUrl = URL.createObjectURL(blob)
+        setBlobUrl(objectUrl)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+      setBlobUrl(null)
+    }
+  }, [msg.filename, empresaId, contactPhone]) // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
-    <div className={`sv-bubble ${isOut ? 'sv-bubble--out' : 'sv-bubble--in'}`}>
-      <div className="sv-bubble-body">
-        {msg.sender && <span className="sv-bubble-sender">{msg.sender}</span>}
-        <ReplyQuote text={msg.reply_to} />
-        <div
-          className="sv-img-row"
-          onClick={msg.filename ? handleView : undefined}
-          style={{ cursor: msg.filename ? 'pointer' : 'default' }}
-          title={msg.filename ? 'Click para ver imagen' : undefined}
-        >
-          <span className="sv-img-icon">🖼</span>
-          <span className="sv-img-name">{msg.filename || 'imagen'}</span>
+    <>
+      <div
+        className={`sv-bubble ${isOut ? 'sv-bubble--out' : 'sv-bubble--in'}`}
+        style={dimmed ? { opacity: 0.25, transition: 'opacity 0.15s' } : undefined}
+      >
+        <div className="sv-bubble-body">
+          {msg.sender && <span className="sv-bubble-sender">{msg.sender}</span>}
+          <ReplyQuote text={msg.reply_to} />
+          <div
+            className={`sv-img-row${blobUrl ? ' sv-img-row--loaded' : ''}`}
+            onClick={blobUrl ? () => setModalOpen(true) : undefined}
+            style={{ cursor: blobUrl ? 'pointer' : 'default' }}
+            title={blobUrl ? 'Click para ampliar' : undefined}
+          >
+            {blobUrl ? (
+              <img src={blobUrl} alt={msg.filename || 'imagen'} className="sv-img-thumb" />
+            ) : (
+              <>
+                <span className="sv-img-icon">🖼</span>
+                <span className="sv-img-name">{msg.filename || 'imagen'}</span>
+              </>
+            )}
+          </div>
+          {msg.caption && <p className="sv-bubble-text sv-img-caption">{msg.caption}</p>}
+          <span className="sv-bubble-time">{formatTime(msg.timestamp)}</span>
         </div>
-        {msg.caption && <p className="sv-bubble-text sv-img-caption">{msg.caption}</p>}
-        <span className="sv-bubble-time">{formatTime(msg.timestamp)}</span>
       </div>
-    </div>
+      {modalOpen && blobUrl && (
+        <div className="sv-img-modal" onClick={() => setModalOpen(false)}>
+          <img src={blobUrl} alt={msg.filename || 'imagen'} className="sv-img-modal-img" />
+        </div>
+      )}
+    </>
   )
 }
 
-function DocumentBubble({ msg, apiCall, empresaId, contactPhone }) {
+function DocumentBubble({ msg, apiCall, empresaId, contactPhone, dimmed }) {
   function handleDownload(e) {
     e.preventDefault()
     const url = `/summarizer/${empresaId}/${contactPhone}/docs/${encodeURIComponent(msg.filename)}`
@@ -146,7 +193,10 @@ function DocumentBubble({ msg, apiCall, empresaId, contactPhone }) {
     }).catch(() => { window.open('/api' + url, '_blank') })
   }
   return (
-    <div className="sv-bubble sv-bubble--in">
+    <div
+      className="sv-bubble sv-bubble--in"
+      style={dimmed ? { opacity: 0.25, transition: 'opacity 0.15s' } : undefined}
+    >
       <div className="sv-bubble-body">
         <div className="sv-doc-row">
           <span className="sv-doc-icon">📄</span>
@@ -172,7 +222,7 @@ function DaySeparator({ label }) {
 
 // ─── Stats bar ────────────────────────────────────────────────────────────────
 
-function StatsBar({ messages }) {
+function statsText(messages) {
   if (!messages || messages.length === 0) return null
   const total  = messages.length
   const audios = messages.filter(m => m.type === 'audio').length
@@ -187,12 +237,12 @@ function StatsBar({ messages }) {
   if (images) parts.push(`${images} imágenes`)
   if (docs)   parts.push(`${docs} docs`)
   if (range)  parts.push(range)
-  return <div className="sv-stats-bar">{parts.join('  ·  ')}</div>
+  return parts.join('  ·  ')
 }
 
 // ─── Sortable bubble (tuning mode) ───────────────────────────────────────────
 
-function SortableBubble({ msg, onDelete, onInsertAfter, apiCall, empresaId, contactPhone }) {
+function SortableBubble({ msg, onDelete, apiCall, empresaId, contactPhone, highlight, dimmed }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: msg._id || msg._localId })
 
@@ -203,41 +253,35 @@ function SortableBubble({ msg, onDelete, onInsertAfter, apiCall, empresaId, cont
   }
 
   function renderContent() {
-    if (msg.type === 'audio') return <AudioBubble msg={msg} />
-    if (msg.type === 'image') return <ImageBubble msg={msg} apiCall={apiCall} empresaId={empresaId} contactPhone={contactPhone} />
-    if (msg.type === 'document') return <DocumentBubble msg={msg} apiCall={apiCall} empresaId={empresaId} contactPhone={contactPhone} />
-    return <TextBubble msg={msg} />
+    if (msg.type === 'audio') return <AudioBubble msg={msg} highlight={highlight} dimmed={dimmed} />
+    if (msg.type === 'image') return <ImageBubble msg={msg} apiCall={apiCall} empresaId={empresaId} contactPhone={contactPhone} dimmed={dimmed} />
+    if (msg.type === 'document') return <DocumentBubble msg={msg} apiCall={apiCall} empresaId={empresaId} contactPhone={contactPhone} dimmed={dimmed} />
+    return <TextBubble msg={msg} highlight={highlight} dimmed={dimmed} />
   }
 
   return (
     <div ref={setNodeRef} style={style} className="sv-tuning-row">
-      <span className="sv-drag-handle" {...attributes} {...listeners}>⠿</span>
       <div className="sv-tuning-bubble-wrap">
-        {renderContent()}
-        <button
-          className="sv-delete-btn"
-          onClick={() => onDelete(msg)}
-          title="Eliminar mensaje"
-        >×</button>
+        <span className="sv-drag-handle" {...attributes} {...listeners}>⠿</span>
+        <div className="sv-tuning-bubble-area">
+          {renderContent()}
+        </div>
+        <button className="sv-delete-btn" onClick={() => onDelete(msg)} title="Eliminar">×</button>
       </div>
-      <button className="sv-insert-after-btn" onClick={() => onInsertAfter(msg)}>
-        + insertar aquí
-      </button>
     </div>
   )
 }
 
 // ─── Insert form ──────────────────────────────────────────────────────────────
 
-function InsertForm({ afterMsg, senders, onConfirm, onCancel }) {
+function InsertForm({ senders, onConfirm, onCancel }) {
   const [sender, setSender] = useState('')
   const [content, setContent] = useState('')
 
   function handleSubmit(e) {
     e.preventDefault()
     if (!content.trim()) return
-    const ts = afterMsg ? addSecond(afterMsg.timestamp) : new Date().toISOString()
-    onConfirm({ sender: sender || null, content: content.trim(), timestamp: ts, type: 'text' })
+    onConfirm({ sender: sender || null, content: content.trim(), timestamp: null, type: 'text' })
   }
 
   return (
@@ -276,15 +320,22 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
   const [syncing, setSyncing]       = useState(false)
   const messagesRef                 = useRef(null)
 
+  // Search state
+  const [searchQuery, setSearchQuery]     = useState('')
+
   // Tuning state
   const [tuningMode, setTuningMode]       = useState(false)
   const [editMessages, setEditMessages]   = useState(null)
+  const editMessagesRef                   = useRef(null)
   const [history, setHistory]             = useState([])
   const [historyIdx, setHistoryIdx]       = useState(-1)
   const [consolidation, setConsolidation] = useState(null)
   const [insertForm, setInsertForm]       = useState(null)  // { afterMsg } | null
+  function log(msg) {
+    console.log('[tuning]', msg)
+  }
 
-  const sensors = useSensors(useSensor(PointerSensor))
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
   // ── carga mensajes (read-only path) ────────────────────────────────────────
 
@@ -301,7 +352,7 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
 
   // carga mensajes con IDs para el tuning
   function loadEditMessages() {
-    return apiCall('GET', `/summarizer/${empresaId}/${contactPhone}/messages?include_ids=true`, null)
+    return apiCall('GET', `/summarizer/${empresaId}/${contactPhone}/messages?include_ids=true&inbound_only=true`, null)
       .then(data => data?.messages || [])
   }
 
@@ -313,7 +364,11 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
     }
   }, [messages])
 
-  // ── snapshot helpers ────────────────────────────────────────────────────────
+  // ── helpers ──────────────────────────────────────────────────────────────────
+
+  function withLocalIds(msgs) {
+    return msgs.map((m, i) => ({ ...m, _localId: m._id || `local-${i}` }))
+  }
 
   function pushSnapshot(msgs) {
     setHistory(prev => {
@@ -321,24 +376,40 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
       setHistoryIdx(newHist.length - 1)
       return newHist
     })
+    editMessagesRef.current = msgs
     setEditMessages(msgs)
   }
 
   async function putMessages(msgs) {
-    await apiCall('PUT', `/summarizer/${empresaId}/${contactPhone}/messages`, { messages: msgs })
+    log(`PUT /messages → enviando ${msgs.length} msgs`)
+    const res = await apiCall('PUT', `/summarizer/${empresaId}/${contactPhone}/messages`, { messages: msgs })
+    log(`PUT /messages ← ok=${res?.ok} count=${res?.message_count ?? '?'}`)
+    return res
+  }
+
+  async function reloadAndSnapshot() {
+    log('reloadAndSnapshot → GET /messages inbound_only')
+    const fresh = await loadEditMessages()
+    log(`reloadAndSnapshot ← ${fresh.length} msgs. IDs: [${fresh.slice(0,5).map(m=>m._id).join(',')}${fresh.length>5?'...':''}]`)
+    const msgs = withLocalIds(fresh)
+    pushSnapshot(msgs)
   }
 
   // ── tuning mode toggle ──────────────────────────────────────────────────────
 
   async function activateTuning() {
+    log('activateTuning → cargando mensajes inbound_only')
     const msgs = await loadEditMessages()
-    // Asignar _localId para DnD (fallback cuando _id es null)
-    const withLocal = msgs.map((m, i) => ({ ...m, _localId: m._id || `local-${i}` }))
+    log(`activateTuning ← ${msgs.length} msgs. IDs: [${msgs.slice(0,5).map(m=>m._id).join(',')}${msgs.length>5?'...':''}]`)
+    const withLocal = withLocalIds(msgs)
+    editMessagesRef.current = withLocal
     setEditMessages(withLocal)
     setHistory([withLocal])
     setHistoryIdx(0)
     setTuningMode(true)
-    // Cargar estado de consolidación
+    if (contactName) {
+      apiCall('POST', `/summarizer/${empresaId}/wa-open-chat`, { contact_name: contactName }).catch(() => {})
+    }
     apiCall('GET', `/summarizer/${empresaId}/${contactPhone}/consolidation`, null)
       .then(meta => setConsolidation(meta))
       .catch(() => setConsolidation(null))
@@ -355,60 +426,95 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
   async function handleUndo() {
     if (historyIdx <= 0) return
     const newIdx = historyIdx - 1
+    log(`undo historyIdx ${historyIdx}→${newIdx}, restaurando ${history[newIdx]?.length} msgs`)
     const msgs = history[newIdx]
     setHistoryIdx(newIdx)
     setEditMessages(msgs)
     await putMessages(msgs)
+    const fresh = withLocalIds(await loadEditMessages())
+    setEditMessages(fresh)
   }
 
   async function handleRedo() {
     if (historyIdx >= history.length - 1) return
     const newIdx = historyIdx + 1
+    log(`redo historyIdx ${historyIdx}→${newIdx}, restaurando ${history[newIdx]?.length} msgs`)
     const msgs = history[newIdx]
     setHistoryIdx(newIdx)
     setEditMessages(msgs)
     await putMessages(msgs)
+    const fresh = withLocalIds(await loadEditMessages())
+    setEditMessages(fresh)
   }
 
   // ── drag & drop ─────────────────────────────────────────────────────────────
 
   async function handleDragEnd(event) {
     const { active, over } = event
-    if (!over || active.id === over.id) return
+    log(`dragEnd active=${active?.id} over=${over?.id}`)
+    if (!over) { log('dragEnd → over=null, abortando'); return }
+    if (active.id === over.id) { log('dragEnd → mismo elemento, abortando'); return }
     const oldIdx = editMessages.findIndex(m => (m._id || m._localId) === active.id)
     const newIdx = editMessages.findIndex(m => (m._id || m._localId) === over.id)
-    if (oldIdx === -1 || newIdx === -1) return
+    log(`dragEnd → oldIdx=${oldIdx} newIdx=${newIdx} totalMsgs=${editMessages.length}`)
+    if (oldIdx === -1 || newIdx === -1) {
+      log(`dragEnd → índice no encontrado (oldIdx=${oldIdx} newIdx=${newIdx}), abortando`)
+      return
+    }
     const reordered = arrayMove(editMessages, oldIdx, newIdx)
-    pushSnapshot(reordered)
+    log(`dragEnd → reordered[0].id=${reordered[0]?._id} reordered[${reordered.length-1}].id=${reordered[reordered.length-1]?._id}`)
+    setEditMessages(reordered) // optimistic
     await putMessages(reordered)
+    await reloadAndSnapshot() // IDs frescos del server
   }
 
   // ── delete ──────────────────────────────────────────────────────────────────
 
   async function handleDelete(msg) {
-    if (msg._id) {
-      await apiCall('DELETE', `/summarizer/${empresaId}/${contactPhone}/message/${msg._id}`, null)
-    }
-    const updated = editMessages.filter(m => (m._id || m._localId) !== (msg._id || msg._localId))
-    pushSnapshot(updated)
+    log(`delete msg _id=${msg._id} _localId=${msg._localId} type=${msg.type}`)
+    const filtered = editMessages.filter(m => (m._id || m._localId) !== (msg._id || msg._localId))
+    log(`delete → de ${editMessages.length} a ${filtered.length} msgs`)
+    setEditMessages(filtered) // optimistic
+    await putMessages(filtered)
+    await reloadAndSnapshot()
   }
 
   // ── insert ──────────────────────────────────────────────────────────────────
 
-  function handleInsertAfter(msg) {
-    setInsertForm({ afterMsg: msg })
-  }
-
-  function handleInsertAtEnd() {
-    setInsertForm({ afterMsg: editMessages?.[editMessages.length - 1] || null })
+  function getLastVisibleIndex() {
+    if (!messagesRef.current || !editMessages?.length) return (editMessages?.length ?? 1) - 1
+    const container = messagesRef.current
+    const containerRect = container.getBoundingClientRect()
+    const rows = container.querySelectorAll('.sv-tuning-row')
+    let lastVisible = editMessages.length - 1
+    rows.forEach((row, i) => {
+      if (row.getBoundingClientRect().top < containerRect.bottom) lastVisible = i
+    })
+    return lastVisible
   }
 
   async function handleInsertConfirm(data) {
+    const insertAfterIdx = insertForm?.insertAfterIdx ?? (editMessagesRef.current?.length ?? 0) - 1
     setInsertForm(null)
-    await apiCall('POST', `/summarizer/${empresaId}/${contactPhone}/message`, data)
-    const fresh = await loadEditMessages()
-    const withLocal = fresh.map((m, i) => ({ ...m, _localId: m._id || `local-${i}` }))
-    pushSnapshot(withLocal)
+    const current = editMessagesRef.current || []
+    const newMsg = {
+      type: data.type || 'text',
+      content: data.content,
+      sender: data.sender || null,
+      timestamp: data.timestamp || null,
+      direction: 'in',
+      _localId: `local-insert-${Date.now()}`,
+    }
+    const insertAt = Math.min(insertAfterIdx + 1, current.length)
+    const next = [
+      ...current.slice(0, insertAt),
+      newMsg,
+      ...current.slice(insertAt),
+    ]
+    editMessagesRef.current = next
+    setEditMessages(next)
+    await putMessages(next)
+    await reloadAndSnapshot()
   }
 
   // ── consolidar ──────────────────────────────────────────────────────────────
@@ -494,6 +600,17 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
 
   const dndIds = (editMessages || []).map(m => m._id || m._localId)
 
+  // ── Search match count ───────────────────────────────────────────────────────
+
+  const searchMatchCount = useMemo(() => {
+    if (!searchQuery || !messages) return 0
+    const q = searchQuery.toLowerCase()
+    return messages.filter(m =>
+      (m.content && m.content.toLowerCase().includes(q)) ||
+      (m.transcription && m.transcription.toLowerCase().includes(q))
+    ).length
+  }, [searchQuery, messages])
+
   // ── render ──────────────────────────────────────────────────────────────────
 
   return (
@@ -557,56 +674,82 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
       </div>
 
       {/* Stats */}
-      <StatsBar messages={tuningMode ? editMessages : messages} />
+      {messages?.length > 0 && (
+        <div className="sv-stats-bar">
+          <div className="sv-search-wrap">
+            <input
+              className="sv-search-input"
+              type="text"
+              placeholder="Buscar…"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+            />
+            {searchQuery && (
+              <span className="sv-search-count">
+                {searchMatchCount === 0 ? 'sin resultados' : `${searchMatchCount} resultado${searchMatchCount !== 1 ? 's' : ''}`}
+              </span>
+            )}
+            {searchQuery && (
+              <button className="sv-search-clear" onClick={() => setSearchQuery('')} title="Limpiar">×</button>
+            )}
+          </div>
+          <span className="sv-stats-text">{statsText(messages)}</span>
+        </div>
+      )}
 
       {/* Layout tuning: dos columnas */}
       {tuningMode ? (
         <div className="sv-tuning-layout">
 
           {/* Panel izquierdo: mensajes editables */}
-          <div className="sv-tuning-messages" ref={messagesRef}>
-            {!editMessages && <div className="sv-loading">Cargando...</div>}
-            {editMessages && editMessages.length === 0 && (
-              <div className="sv-empty">Sin mensajes</div>
-            )}
+          <div className="sv-tuning-left">
+            <div className="sv-tuning-messages" ref={messagesRef}>
+              {!editMessages && <div className="sv-loading">Cargando...</div>}
+              {editMessages && editMessages.length === 0 && (
+                <div className="sv-empty">Sin mensajes</div>
+              )}
 
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-              <SortableContext items={dndIds} strategy={verticalListSortingStrategy}>
-                {(editMessages || []).map((msg) => (
-                  <div key={msg._id || msg._localId}>
-                    <SortableBubble
-                      msg={msg}
-                      onDelete={handleDelete}
-                      onInsertAfter={handleInsertAfter}
-                      apiCall={apiCall}
-                      empresaId={empresaId}
-                      contactPhone={contactPhone}
-                    />
-                    {insertForm?.afterMsg?._id === msg._id && (
-                      <InsertForm
-                        afterMsg={msg}
-                        senders={uniqueSenders}
-                        onConfirm={handleInsertConfirm}
-                        onCancel={() => setInsertForm(null)}
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                <SortableContext items={dndIds} strategy={verticalListSortingStrategy}>
+                  {(editMessages || []).map((msg) => {
+                    const q = searchQuery.toLowerCase()
+                    const matches = !searchQuery || (
+                      (msg.content && msg.content.toLowerCase().includes(q)) ||
+                      (msg.transcription && msg.transcription.toLowerCase().includes(q))
+                    )
+                    return (
+                      <SortableBubble
+                        key={msg._id || msg._localId}
+                        msg={msg}
+                        onDelete={handleDelete}
+                        apiCall={apiCall}
+                        empresaId={empresaId}
+                        contactPhone={contactPhone}
+                        highlight={searchQuery}
+                        dimmed={!matches}
                       />
-                    )}
-                  </div>
-                ))}
-              </SortableContext>
-            </DndContext>
+                    )
+                  })}
+                </SortableContext>
+              </DndContext>
+            </div>
 
-            {/* Insertar al final */}
-            {insertForm && !insertForm.afterMsg?._id && (
-              <InsertForm
-                afterMsg={insertForm.afterMsg}
-                senders={uniqueSenders}
-                onConfirm={handleInsertConfirm}
-                onCancel={() => setInsertForm(null)}
-              />
-            )}
-            <button className="sv-add-end-btn" onClick={handleInsertAtEnd}>
-              + Agregar mensaje al final
-            </button>
+            <div className="sv-tuning-footer">
+              {insertForm ? (
+                <InsertForm
+                  senders={uniqueSenders}
+                  onConfirm={handleInsertConfirm}
+                  onCancel={() => setInsertForm(null)}
+                />
+              ) : (
+                <button
+                  className="sv-add-end-btn"
+                  onClick={() => setInsertForm({ insertAfterIdx: getLastVisibleIndex() })}
+                >
+                  + Agregar mensaje
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Panel derecho: screenshot WA */}
@@ -627,14 +770,22 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
               return <DaySeparator key={`sep-${item.day}`} label={item.label} />
             }
             const { msg } = item
-            if (msg.type === 'audio') return <AudioBubble key={i} msg={msg} />
+            const q = searchQuery.toLowerCase()
+            const matches = !searchQuery || (
+              (msg.content && msg.content.toLowerCase().includes(q)) ||
+              (msg.transcription && msg.transcription.toLowerCase().includes(q))
+            )
+            const dimmed = !matches
+            if (msg.type === 'audio') return (
+              <AudioBubble key={i} msg={msg} highlight={searchQuery} dimmed={dimmed} />
+            )
             if (msg.type === 'image') return (
-              <ImageBubble key={i} msg={msg} apiCall={apiCall} empresaId={empresaId} contactPhone={contactPhone} />
+              <ImageBubble key={i} msg={msg} apiCall={apiCall} empresaId={empresaId} contactPhone={contactPhone} dimmed={dimmed} />
             )
             if (msg.type === 'document') return (
-              <DocumentBubble key={i} msg={msg} apiCall={apiCall} empresaId={empresaId} contactPhone={contactPhone} />
+              <DocumentBubble key={i} msg={msg} apiCall={apiCall} empresaId={empresaId} contactPhone={contactPhone} dimmed={dimmed} />
             )
-            return <TextBubble key={i} msg={msg} />
+            return <TextBubble key={i} msg={msg} highlight={searchQuery} dimmed={dimmed} />
           })}
         </div>
       )}
