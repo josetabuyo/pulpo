@@ -80,6 +80,181 @@ async def list_summaries(empresa_id: str, _: str = Depends(_check_auth)):
     }
 
 
+@router.get("/summarizer/{empresa_id}/wa-screenshot")
+async def wa_screenshot(empresa_id: str, _: str = Depends(_check_auth)):
+    """Screenshot del browser WA activo. Ruta literal antes de /{contact_phone}."""
+    from state import clients, wa_session
+    import base64 as _b64
+    session_id = None
+    for bot_phone, client in clients.items():
+        if client.get("status") == "ready" and client.get("type") == "whatsapp":
+            session_id = bot_phone
+            break
+    if not session_id or not wa_session:
+        return {"screenshot": None}
+    try:
+        page = wa_session.get_page(session_id)
+        if not page or page.is_closed():
+            return {"screenshot": None}
+        screenshot_bytes = await page.screenshot(type="png", full_page=False)
+        b64 = _b64.b64encode(screenshot_bytes).decode()
+        return {"screenshot": f"data:image/png;base64,{b64}"}
+    except Exception:
+        return {"screenshot": None}
+
+
+@router.post("/summarizer/{empresa_id}/wa-open-chat")
+async def wa_open_chat(empresa_id: str, body: dict, _: str = Depends(_check_auth)):
+    """Navega el browser WA al chat del contacto. body: {contact_name: str}"""
+    from state import clients, wa_session
+    contact_name = (body.get("contact_name") or "").strip()
+    if not contact_name:
+        return {"ok": False, "detail": "contact_name requerido"}
+    session_id = None
+    for bot_phone, client in clients.items():
+        if client.get("status") == "ready" and client.get("type") == "whatsapp":
+            session_id = bot_phone
+            break
+    if not session_id or not wa_session:
+        return {"ok": False, "detail": "Sin sesión WA"}
+    try:
+        page = wa_session.get_page(session_id)
+        if not page or page.is_closed():
+            return {"ok": False, "detail": "Página cerrada"}
+
+        _SEARCH_SEL = (
+            '[data-testid="search-input"] div[contenteditable="true"], '
+            '#side div[contenteditable="true"], '
+            '#side input[type="text"]'
+        )
+        _RESULT_JS = """(target) => {
+            const norm = s => s.replace(/[\\u00a0\\u202a\\u202c\\u200e\\u200f]/g, ' ').trim();
+            for (const s of document.querySelectorAll(
+                '[role="grid"] span[title], [role="listbox"] span[title]')) {
+                if (norm(s.getAttribute('title')) === norm(target))
+                    return s.closest('[role="row"]') || s.closest('[role="option"]') || s;
+            }
+            return null;
+        }"""
+
+        for attempt in range(3):
+            await page.keyboard.press("Escape")
+            await page.wait_for_timeout(400)
+
+            search_input = await page.query_selector(_SEARCH_SEL)
+            if not search_input:
+                return {"ok": False, "detail": "No encontré el input de búsqueda de WA"}
+
+            await search_input.click()
+            await page.wait_for_timeout(300)
+
+            # Limpiar con execCommand (más fiable que keyboard en contenteditable)
+            await page.evaluate("""(el) => {
+                el.focus();
+                document.execCommand('selectAll', false, null);
+                document.execCommand('delete', false, null);
+            }""", search_input)
+            await page.wait_for_timeout(200)
+
+            # Verificar que quedó vacío; fallback con Backspace si no
+            cur_text = await search_input.evaluate(
+                "el => (el.innerText || el.textContent || '').trim()")
+            if cur_text:
+                await search_input.click(click_count=3)
+                await page.keyboard.press("Backspace")
+                await page.wait_for_timeout(200)
+
+            await search_input.type(contact_name, delay=40)
+            await page.wait_for_timeout(2500)
+
+            result_handle = await page.evaluate_handle(_RESULT_JS, contact_name)
+            found = result_handle and not await result_handle.evaluate("el => el === null")
+            if found:
+                await result_handle.click()
+                await page.wait_for_timeout(1000)
+                return {"ok": True}
+
+            # No encontrado en este intento; siguiente vuelta limpiará y reintentará
+        await page.keyboard.press("Escape")
+        return {"ok": False, "detail": f"'{contact_name}' no encontrado en WA Web"}
+    except Exception as e:
+        return {"ok": False, "detail": str(e)}
+
+
+@router.post("/summarizer/{empresa_id}/wa-resize")
+async def wa_resize_viewport(empresa_id: str, body: dict, _: str = Depends(_check_auth)):
+    """Redimensiona el viewport del browser WA. body: {width: int, height: int}"""
+    from state import clients, wa_session
+    width = int(body.get("width", 0))
+    height = int(body.get("height", 0))
+    if width < 280 or height < 200:
+        return {"ok": False, "detail": "Dimensiones inválidas"}
+    session_id = None
+    for bot_phone, client in clients.items():
+        if client.get("status") == "ready" and client.get("type") == "whatsapp":
+            session_id = bot_phone
+            break
+    if not session_id or not wa_session:
+        return {"ok": False, "detail": "Sin sesión WA"}
+    try:
+        page = wa_session.get_page(session_id)
+        if not page or page.is_closed():
+            return {"ok": False, "detail": "Página cerrada"}
+        await page.set_viewport_size({"width": width, "height": height})
+        return {"ok": True, "width": width, "height": height}
+    except Exception as e:
+        return {"ok": False, "detail": str(e)}
+
+
+@router.post("/summarizer/{empresa_id}/wa-scroll")
+async def wa_scroll(empresa_id: str, body: dict, _: str = Depends(_check_auth)):
+    """Envía un evento de scroll al browser WA activo. body: {direction: 'up'|'down', amount: int}"""
+    from state import clients, wa_session
+    session_id = None
+    for bot_phone, client in clients.items():
+        if client.get("status") == "ready" and client.get("type") == "whatsapp":
+            session_id = bot_phone
+            break
+    if not session_id or not wa_session:
+        return {"ok": False, "detail": "Sin sesión WA"}
+    try:
+        page = wa_session.get_page(session_id)
+        if not page or page.is_closed():
+            return {"ok": False, "detail": "Página cerrada"}
+        direction = body.get("direction", "down")
+        amount = int(body.get("amount", 400))
+
+        # Posicionar el mouse sobre el área del chat (derecha del viewport WA)
+        vp = page.viewport_size or {"width": 980, "height": 980}
+        chat_x = int(vp["width"] * 0.65)
+        chat_y = int(vp["height"] * 0.5)
+        await page.mouse.move(chat_x, chat_y)
+
+        if direction == "bottom":
+            # Scroll masivo hacia abajo + espera lazy-load + segundo scroll
+            await page.mouse.wheel(0, 99999)
+            await page.wait_for_timeout(900)
+            await page.mouse.wheel(0, 99999)
+            scrolled = "mouse.wheel:bottom"
+        elif direction == "up":
+            await page.mouse.wheel(0, -amount)
+            scrolled = "mouse.wheel:up"
+        elif direction == "down":
+            await page.mouse.wheel(0, amount)
+            scrolled = "mouse.wheel:down"
+        elif direction == "left":
+            await page.mouse.wheel(-amount, 0)
+            scrolled = "mouse.wheel:left"
+        elif direction == "right":
+            await page.mouse.wheel(amount, 0)
+            scrolled = "mouse.wheel:right"
+        else:
+            scrolled = "unknown"
+        return {"ok": True, "scrolled": scrolled}
+    except Exception as e:
+        return {"ok": False, "detail": str(e)}
+
+
 @router.get("/summarizer/{empresa_id}/{contact_phone}", response_class=PlainTextResponse)
 async def get_summary(empresa_id: str, contact_phone: str, _: str = Depends(_check_auth)):
     """Devuelve el resumen acumulado de un contacto como texto plano (Markdown)."""
@@ -298,9 +473,10 @@ async def get_messages(
     empresa_id: str,
     contact_phone: str,
     include_ids: bool = Query(default=False),
+    inbound_only: bool = Query(default=False),
     _: str = Depends(_check_auth),
 ):
-    """Devuelve los mensajes del resumen (inbound) + respuestas del bot (outbound), ordenados por timestamp."""
+    """Devuelve los mensajes del resumen. inbound_only=true omite respuestas del bot (tuning mode)."""
     content = summarizer.get_summary(empresa_id, contact_phone)
     if content is None:
         raise HTTPException(status_code=404, detail="Sin resumen para este contacto")
@@ -316,14 +492,21 @@ async def get_messages(
 
     inbound = _parse_messages(content, empresa_id, contact_phone, owner_names, keep_ids=include_ids)
 
-    # Cuerpos ya presentes en el .md (texto o transcripción de audio).
-    # Sirve para descartar mensajes de DB que sean duplicados del scrape.
-    _inbound_bodies: set[str] = set()
-    for _m in inbound:
+    # inbound_only=true: solo mensajes scrapeados (tuning mode). Sin outbound de DB.
+    # No re-ordenar: _parse_messages ya aplica _id_sort_key (= orden del archivo después de rewrite).
+    # Ordenar por timestamp aquí destruiría el orden manual del drag-and-drop.
+    if inbound_only:
+        return {"messages": inbound}
+
+    # Mapa: cuerpo → índices en `inbound`.
+    # Permite corregir direction a "out" cuando la DB confirma que el mensaje fue outbound,
+    # evitando duplicados y preservando el orden del .md.
+    _inbound_body_to_idx: dict[str, list[int]] = {}
+    for i, _m in enumerate(inbound):
         if _m.get("content"):
-            _inbound_bodies.add(_m["content"].strip())
+            _inbound_body_to_idx.setdefault(_m["content"].strip(), []).append(i)
         if _m.get("transcription"):
-            _inbound_bodies.add(_m["transcription"].strip())
+            _inbound_body_to_idx.setdefault(_m["transcription"].strip(), []).append(i)
 
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(
@@ -335,12 +518,28 @@ async def get_messages(
             {"eid": empresa_id, "phone": _db_phone(empresa_id, contact_phone)},
         )).fetchall()
 
+    # Mensajes borrados intencionalmente del .md (tombstone).
+    # Evita que el merge con DB los resucite en el modo lectura.
+    import json as _excl_json
+    _excl_path = _summary_path(empresa_id, contact_phone).parent / "excluded_outbound.json"
+    _excluded_bodies: set[str] = set()
+    if _excl_path.exists():
+        try:
+            _excluded_bodies = set(_excl_json.loads(_excl_path.read_text(encoding="utf-8")))
+        except Exception:
+            pass
+
     outbound = []
     for body, ts_raw in rows:
         if not _is_useful(body):
             continue
-        # Descartar si ya aparece en el .md (scrapeado via delta_sync)
-        if body.strip() in _inbound_bodies:
+        if body.strip() in _excluded_bodies:
+            continue  # borrado intencionalmente del resumen
+        # Si ya aparece en el .md, corregir direction a "out" en lugar de duplicar.
+        if body.strip() in _inbound_body_to_idx:
+            for idx in _inbound_body_to_idx[body.strip()]:
+                if inbound[idx].get("direction") != "out":
+                    inbound[idx] = {**inbound[idx], "direction": "out"}
             continue
         ts_iso = None
         if ts_raw:
@@ -358,30 +557,6 @@ async def get_messages(
     all_msgs = sorted(inbound + outbound, key=lambda m: m.get("timestamp") or "")
     return {"messages": all_msgs}
 
-
-# ─── wa-screenshot SIN contact_phone (debe ir ANTES de los paths con contact_phone) ─────
-
-@router.get("/summarizer/{empresa_id}/wa-screenshot")
-async def wa_screenshot(empresa_id: str, _: str = Depends(_check_auth)):
-    """Devuelve screenshot del cliente WA activo de la empresa, o null si no hay ninguno."""
-    from state import clients, wa_session
-    session_id = None
-    for bot_phone, client in clients.items():
-        if client.get("status") == "ready" and client.get("type") == "whatsapp":
-            session_id = bot_phone
-            break
-    if not session_id or not wa_session:
-        return {"screenshot": None}
-    try:
-        import base64 as _b64
-        page = wa_session.get_page(session_id)
-        if not page or page.is_closed():
-            return {"screenshot": None}
-        screenshot_bytes = await page.screenshot(type="png", full_page=False)
-        b64 = _b64.b64encode(screenshot_bytes).decode()
-        return {"screenshot": f"data:image/png;base64,{b64}"}
-    except Exception:
-        return {"screenshot": None}
 
 
 import re as _re_sum
@@ -820,6 +995,17 @@ async def delete_message(
     return {"ok": True}
 
 
+def _msg_body_keys(messages: list[dict]) -> set[str]:
+    """Extrae los body keys del modo de matching DB-outbound: content y transcription stripeados."""
+    keys: set[str] = set()
+    for m in messages:
+        if m.get("content"):
+            keys.add(m["content"].strip())
+        if m.get("transcription"):
+            keys.add(m["transcription"].strip())
+    return keys
+
+
 @router.put("/summarizer/{empresa_id}/{contact_phone}/messages")
 async def rewrite_messages(
     empresa_id: str,
@@ -828,7 +1014,29 @@ async def rewrite_messages(
     _: str = Depends(_check_auth),
 ):
     """Reescribe el chat.md completo con la lista de mensajes ordenada."""
+    import json as _excl_json2
+
+    # Detectar qué mensajes se están borrando para actualizar el tombstone.
+    old_content = summarizer.get_summary(empresa_id, contact_phone) or ""
+    old_msgs = _parse_messages(old_content, empresa_id, contact_phone) if old_content else []
+    old_keys = _msg_body_keys(old_msgs)
+    new_keys = _msg_body_keys(body.messages)
+    deleted_keys = old_keys - new_keys
+
     rewrite_chat(empresa_id, contact_phone, body.messages)
+
+    if deleted_keys:
+        excl_path = _summary_path(empresa_id, contact_phone).parent / "excluded_outbound.json"
+        existing: set[str] = set()
+        if excl_path.exists():
+            try:
+                existing = set(_excl_json2.loads(excl_path.read_text(encoding="utf-8")))
+            except Exception:
+                pass
+        existing.update(deleted_keys)
+        existing -= new_keys  # quitar los que re-aparecieron (un-delete)
+        excl_path.write_text(_excl_json2.dumps(sorted(existing), ensure_ascii=False), encoding="utf-8")
+
     p = _summary_path(empresa_id, contact_phone)
     count = 0
     if p.exists():

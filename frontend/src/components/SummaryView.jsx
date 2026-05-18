@@ -331,8 +331,19 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
   const [historyIdx, setHistoryIdx]       = useState(-1)
   const [consolidation, setConsolidation] = useState(null)
   const [insertForm, setInsertForm]       = useState(null)  // { afterMsg } | null
+  const [saveStatus, setSaveStatus]       = useState(null)  // 'saving' | 'ok' | 'error'
+  const saveStatusTimer                   = useRef(null)
+
   function log(msg) {
     console.log('[tuning]', msg)
+  }
+
+  function notifySave(status) {
+    if (saveStatusTimer.current) clearTimeout(saveStatusTimer.current)
+    setSaveStatus(status)
+    if (status !== 'saving') {
+      saveStatusTimer.current = setTimeout(() => setSaveStatus(null), 3000)
+    }
   }
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
@@ -382,9 +393,22 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
 
   async function putMessages(msgs) {
     log(`PUT /messages → enviando ${msgs.length} msgs`)
-    const res = await apiCall('PUT', `/summarizer/${empresaId}/${contactPhone}/messages`, { messages: msgs })
-    log(`PUT /messages ← ok=${res?.ok} count=${res?.message_count ?? '?'}`)
-    return res
+    notifySave('saving')
+    try {
+      const res = await apiCall('PUT', `/summarizer/${empresaId}/${contactPhone}/messages`, { messages: msgs })
+      if (res?.ok) {
+        log(`PUT /messages ← ok count=${res?.message_count ?? '?'}`)
+        notifySave('ok')
+      } else {
+        log(`PUT /messages ← respuesta inesperada: ${JSON.stringify(res)}`)
+        notifySave('error')
+      }
+      return res
+    } catch (err) {
+      log(`PUT /messages ← ERROR: ${err}`)
+      notifySave('error')
+      throw err
+    }
   }
 
   async function reloadAndSnapshot() {
@@ -627,6 +651,12 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
         {consolidation && (
           <span className="sv-consolidation-badge" title={`Consolidado: ${consolidation.consolidated_at}`}>
             ✓ hasta {new Date(consolidation.last_message_ts || consolidation.consolidated_at).toLocaleDateString('es-AR')}
+          </span>
+        )}
+
+        {tuningMode && saveStatus && (
+          <span className={`sv-save-status sv-save-status--${saveStatus}`}>
+            {saveStatus === 'saving' ? '...' : saveStatus === 'ok' ? '✓ Guardado' : '✗ Error al guardar'}
           </span>
         )}
 

@@ -1474,6 +1474,19 @@ main { max-width: 900px; margin: 28px auto; padding: 0 16px; }
 .sv-md-btn--primary { background: #065f46; color: #a7f3d0; }
 .sv-md-btn--primary:hover { background: #047857; }
 
+/* Indicador de guardado en tuning */
+.sv-save-status {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.sv-save-status--saving { color: #94a3b8; background: #1e293b; }
+.sv-save-status--ok     { color: #6ee7b7; background: #065f46; }
+.sv-save-status--error  { color: #fca5a5; background: #7f1d1d; }
+
 /* Badge de consolidación */
 .sv-consolidation-badge {
   font-size: 11px;
