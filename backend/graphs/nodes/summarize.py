@@ -94,14 +94,15 @@ def _next_id(ts: str, entries: list[dict]) -> str:
     # Encontrar el próximo k libre: floor_num.1, floor_num.2 ...
     used_k: set[int] = set()
     for e in sorted_e:
-        try:
-            val = float(e["id_auto"])
-            if int(val) == floor_num and val != float(floor_num):
-                # Es una fracción de floor_num: e.g. 6.1 → k=1
-                frac = round((val - floor_num) * 10)
-                used_k.add(frac)
-        except ValueError:
-            pass
+        # Parsear como "floor.k" usando split para evitar pérdida de precisión con float
+        # (float("0.10") == float("0.1") → k=10 y k=1 serían indistinguibles con aritmética float)
+        parts = e["id_auto"].split(".")
+        if len(parts) == 2:
+            try:
+                if int(parts[0]) == floor_num:
+                    used_k.add(int(parts[1]))
+            except (ValueError, IndexError):
+                pass
     k = 1
     while k in used_k:
         k += 1

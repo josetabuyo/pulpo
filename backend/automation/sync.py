@@ -95,6 +95,11 @@ async def delta_sync(
     from db import log_message_historic
 
     # ── Acumular ─────────────────────────────────────────────────────────────
+    # Ordenar por timestamp ascendente antes de acumular: los mensajes más viejos reciben
+    # IDs más bajos, lo que garantiza que el sort de IDs en _parse_messages devuelva
+    # orden cronológico correcto. El scraper devuelve mensajes newest-first (reversed batch).
+    messages = sorted(messages, key=lambda m: m.get("timestamp", ""))
+
     saved = 0
     for msg in messages:
         body = msg.get("body", "")

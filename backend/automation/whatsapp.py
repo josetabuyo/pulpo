@@ -3032,10 +3032,20 @@ class WhatsAppSession(BrowserAutomation):
                 logger.info(f"[{session_id}] v2: search_input encontrado: {tag}")
                 await search_input.click()
                 await page.wait_for_timeout(400)
-                # Limpiar el input de cualquier búsqueda anterior
-                await page.keyboard.press("Control+a")
-                await page.keyboard.press("Delete")
+                # Limpiar con execCommand — más fiable que ctrl+a+del en contenteditable
+                await page.evaluate("""(el) => {
+                    el.focus();
+                    document.execCommand('selectAll', false, null);
+                    document.execCommand('delete', false, null);
+                }""", search_input)
                 await page.wait_for_timeout(200)
+                # Verificar que quedó vacío; si no, forzar con triple-click + backspace
+                cur_text = await search_input.evaluate(
+                    "el => (el.innerText || el.textContent || '').trim()")
+                if cur_text:
+                    await search_input.click(click_count=3)
+                    await page.keyboard.press("Backspace")
+                    await page.wait_for_timeout(200)
                 await search_input.type(name, delay=40)
                 await page.wait_for_timeout(3000)
                 # Diagnóstico: qué títulos hay en el DOM tras la búsqueda
@@ -3053,41 +3063,6 @@ class WhatsAppSession(BrowserAutomation):
                 result = await page.evaluate_handle(
                     """(target) => {
                         const norm = s => s.replace(/[\u00a0\u202a\u202c\u200e\u200f]/g, ' ').trim();
-                        for (const s of document.querySelectorAll('[role="grid"] span[title], [role="listbox"] span[title]')) {
-                            if (norm(s.getAttribute('title')) === norm(target))
-                                return s.closest('[role="row"]') || s.closest('[role="option"]') || s;
-                        }
-                        return null;
-                    }""",
-                    name,
-                )
-                found = result and not await result.evaluate("el => el === null")
-                logger.info(f"[{session_id}] v2: resultado búsqueda '{name}': found={found}")
-                if found:
-                    await result.click()
-                    await page.wait_for_timeout(2000)
-                    # NO presionar Escape — cerraría el chat recién abierto
-                    return True
-                # No encontrado: cerrar búsqueda y reportar fallo
-                await page.keyboard.press("Escape")
-                await page.wait_for_timeout(400)
-                return False
-                tag = await search_input.evaluate("el => el.tagName + (el.getAttribute('data-testid') || '')")
-                logger.info(f"[{session_id}] v2: search_input encontrado: {tag}")
-                await search_input.click()
-                await page.wait_for_timeout(400)
-                await page.keyboard.press("Control+a")
-                await search_input.type(name, delay=40)
-                await page.wait_for_timeout(1800)
-                # Diagnóstico: qué títulos hay en el DOM tras la búsqueda
-                all_titles = await page.evaluate("""() => {
-                    const spans = document.querySelectorAll('[role="grid"] span[title], [role="listbox"] span[title]');
-                    return Array.from(spans).slice(0, 8).map(s => s.getAttribute('title'));
-                }""")
-                logger.info(f"[{session_id}] v2: títulos en DOM tras búsqueda: {all_titles}")
-                result = await page.evaluate_handle(
-                    """(target) => {
-                        const norm = s => s.replace(/[ ‪‬‎‏]/g, \' \').trim();
                         for (const s of document.querySelectorAll('[role="grid"] span[title], [role="listbox"] span[title]')) {
                             if (norm(s.getAttribute('title')) === norm(target))
                                 return s.closest('[role="row"]') || s.closest('[role="option"]') || s;
@@ -3306,7 +3281,7 @@ class WhatsAppSession(BrowserAutomation):
 
                 _round_msgs: list[dict] = []
                 new_in_batch = 0
-                for msg in batch:
+                for msg in reversed(batch):
                     ts_str = _parse_ts(msg.get("time", ""), msg.get("date", ""))
 
                     if count_only:
