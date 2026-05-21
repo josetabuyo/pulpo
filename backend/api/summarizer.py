@@ -80,6 +80,26 @@ async def list_summaries(empresa_id: str, _: str = Depends(_check_auth)):
     }
 
 
+@router.get("/summarizer/{empresa_id}/consolidations")
+async def list_consolidations(empresa_id: str, _: str = Depends(_check_auth)):
+    """Metadata de consolidaciones de todos los contactos de la empresa."""
+    contacts_list = summarizer.list_contacts(empresa_id)
+    result = []
+    for phone in contacts_list:
+        meta = get_consolidation_meta(empresa_id, phone)
+        if meta:
+            p = _summary_path(empresa_id, phone)
+            result.append({
+                "phone": phone,
+                "name": get_contact_display_name(empresa_id, phone) or phone,
+                "consolidated_at": meta.get("consolidated_at"),
+                "last_message_ts": meta.get("last_message_ts"),
+                "message_count": meta.get("message_count", 0),
+                "path": str(p.parent / "consolidated" / "chat.md"),
+            })
+    return {"consolidations": result}
+
+
 @router.get("/summarizer/{empresa_id}/wa-screenshot")
 async def wa_screenshot(empresa_id: str, _: str = Depends(_check_auth)):
     """Screenshot del browser WA activo. Ruta literal antes de /{contact_phone}."""
@@ -649,11 +669,15 @@ async def sync_all_contacts(
 ):
     """
     FUENTE: DB (no WA Web).
-    Reconstruye el .md de TODOS los contactos de una empresa a partir de la base de datos.
+    Reconstruye el .md de los contactos registrados de una empresa a partir de la base de datos.
     Solo incluye mensajes entrantes (outbound=0). Para scrape desde WA Web usar /full-resync.
 
     Si from_date (YYYY-MM-DD): trim del .md desde esa fecha + re-procesa solo esos mensajes.
     Sin from_date: rebuild completo desde cero.
+
+    SEGURIDAD: solo procesa phones que están en contact_channels para la empresa.
+    Nunca procesa el universo completo de la tabla messages, que incluye grupos,
+    números desconocidos y cualquier cosa que haya mandado un mensaje alguna vez.
     """
     cutoff_dt = None
     if from_date:
@@ -665,37 +689,21 @@ async def sync_all_contacts(
     results = []
 
     async with AsyncSessionLocal() as session:
-        # Fuente de verdad: todos los phones con mensajes en DB para esta empresa.
-        # Incluye contactos nuevos que nunca tuvieron .md (bootstrap desde cero).
-        if cutoff_dt:
-            phone_rows = (await session.execute(
-                text("SELECT DISTINCT phone FROM messages WHERE connection_id = :eid AND outbound = 0 AND timestamp >= :cutoff"),
-                {"eid": empresa_id, "cutoff": from_date},
-            )).fetchall()
-        else:
-            phone_rows = (await session.execute(
-                text("SELECT DISTINCT phone FROM messages WHERE connection_id = :eid AND outbound = 0"),
-                {"eid": empresa_id},
-            )).fetchall()
+        # Fuente de verdad: solo contactos registrados en contact_channels para esta empresa.
+        # Esto garantiza que sync-all solo opera sobre contactos explícitamente creados,
+        # nunca sobre el universo abierto de mensajes recibidos.
+        channel_rows = (await session.execute(
+            text(
+                "SELECT DISTINCT cc.value FROM contact_channels cc "
+                "JOIN contacts c ON c.id = cc.contact_id "
+                "WHERE c.connection_id = :eid AND cc.type = 'whatsapp'"
+            ),
+            {"eid": empresa_id},
+        )).fetchall()
 
-        phones = [r[0] for r in phone_rows if r[0]]
+        phones = [r[0] for r in channel_rows if r[0]]
 
         for phone in phones:
-            # Saltar contactos que pertenecen principalmente a otra empresa
-            # (evita que grupos/contactos de empresas que comparten número contaminen
-            # el sumarizador de esta empresa).
-            own_count = (await session.execute(
-                text("SELECT COUNT(*) FROM messages WHERE connection_id = :eid AND phone = :phone AND outbound = 0"),
-                {"eid": empresa_id, "phone": phone},
-            )).scalar() or 0
-            other_count = (await session.execute(
-                text("SELECT COUNT(*) FROM messages WHERE connection_id != :eid AND phone = :phone AND outbound = 0"),
-                {"eid": empresa_id, "phone": phone},
-            )).scalar() or 0
-            if other_count > own_count * 3:
-                results.append({"phone": phone, "synced": 0, "skipped": True, "reason": "primarily_other_empresa"})
-                continue
-
             if cutoff_dt:
                 trim_contact_from_date(empresa_id, phone, cutoff_dt)
                 rows = (await session.execute(
@@ -867,7 +875,27 @@ async def count_dom_messages(
 
 # ─── Endpoints de manual tuning ─────────────────────────────────────────────
 
+from fastapi import UploadFile, File as FastAPIFile
+import uuid as _uuid
 from pydantic import BaseModel
+
+
+@router.post("/summarizer/{empresa_id}/{contact_phone}/upload-image")
+async def upload_image(
+    empresa_id: str,
+    contact_phone: str,
+    file: UploadFile = FastAPIFile(...),
+    _: str = Depends(_check_auth),
+):
+    """Sube una imagen al directorio de adjuntos del contacto. Devuelve {filename}."""
+    from graphs.nodes.summarize import get_attachments_dir
+    attachments_dir = get_attachments_dir(empresa_id, contact_phone)
+    raw_ext = Path(file.filename).suffix.lower() if file.filename and "." in file.filename else ".png"
+    ext = raw_ext if raw_ext in {".jpg", ".jpeg", ".png", ".gif", ".webp"} else ".png"
+    filename = f"img_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{_uuid.uuid4().hex[:6]}{ext}"
+    content = await file.read()
+    (attachments_dir / filename).write_bytes(content)
+    return {"ok": True, "filename": filename}
 
 
 class InsertMessageBody(BaseModel):

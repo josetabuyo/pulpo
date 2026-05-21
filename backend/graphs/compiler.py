@@ -173,6 +173,27 @@ async def execute_flow(flow: dict, state: FlowState) -> FlowState:
                 inc_unk   = contact_filter.get("include_unknown", False)
                 empresa   = state.empresa_id or ""
 
+                # Backend enforcement: inc_all / inc_unk son opciones masivas.
+                # Si la conexión no tiene allow_mass, las ignoramos aunque estén en el filtro
+                # (defensa en profundidad — la UI ya las oculta, pero alguien puede editar el DB).
+                if inc_all or inc_unk:
+                    from config import load_config as _lc
+                    _conn_id = cconfig.get("connection_id", "")
+                    _mass_allowed = False
+                    for _emp in _lc().get("empresas", []):
+                        if empresa and _emp["id"] != empresa:
+                            continue
+                        for _ph in _emp.get("phones", []):
+                            if _ph.get("number") == _conn_id and _ph.get("allow_mass", False):
+                                _mass_allowed = True
+                    if not _mass_allowed:
+                        inc_all = False
+                        inc_unk = False
+                        logger.warning(
+                            "[engine] inc_all/inc_unk ignorados: allow_mass=false para conexión %s",
+                            _conn_id,
+                        )
+
                 excluded_phones: set[str] = set()
                 for v in excluded:
                     excluded_phones |= await _resolve_filter_value(v, empresa)
