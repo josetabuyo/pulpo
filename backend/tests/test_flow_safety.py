@@ -8,6 +8,7 @@ Garantizan que el sistema NO envía mensajes cuando no debe:
   3. DISABLE_AUTO_REPLY=true → reply descartado globalmente
   4. DISABLE_AUTO_REPLY_PHONES → reply descartado solo para ese número
   5. Guard activated_at → no responde mensajes anteriores al flow
+  6. allow_mass=False → inc_all / inc_unk ignorados aunque estén en el filtro
 
 Son tests unitarios puros — no requieren servidor corriendo.
 """
@@ -760,3 +761,174 @@ async def test_guard_activatedat_permite_mensaje_nuevo():
         state = await run_flows(state, connection_id=bot_id)
 
     assert state.reply == "Bienvenido"
+
+
+# ─── 6. allow_mass: inc_all / inc_unk ignorados si la conexión no lo tiene activo ──
+
+def _flow_with_filter(connection_id: str, include_all_known=False, include_unknown=False):
+    """Flow con contact_filter en el nodo message_trigger."""
+    return {
+        "id": "test-allow-mass",
+        "name": "Flow con filtro masivo",
+        "connection_id": connection_id,
+        "contact_phone": None,
+        "created_at": "2020-01-01 00:00:00",
+        "definition": {
+            "nodes": [
+                {
+                    "id": "trigger",
+                    "type": "message_trigger",
+                    "config": {
+                        "connection_id": connection_id,
+                        "contact_filter": {
+                            "include_all_known": include_all_known,
+                            "include_unknown": include_unknown,
+                            "included": [],
+                            "excluded": [],
+                        },
+                    },
+                },
+                {"id": "reply", "type": "send_message", "config": {"message": "Respuesta masiva"}},
+            ],
+            "edges": [{"id": "e1", "source": "trigger", "target": "reply", "label": None}],
+        },
+    }
+
+
+def _cfg_with_allow_mass(conn_id: str, allow_mass: bool):
+    return {
+        "empresas": [
+            {
+                "id": "test_empresa",
+                "name": "Test",
+                "phones": [{"number": conn_id, "allow_mass": allow_mass}],
+            }
+        ]
+    }
+
+
+@pytest.mark.asyncio
+async def test_allow_mass_false_bloquea_inc_all():
+    """
+    Con allow_mass=False, include_all_known debe ser ignorado aunque esté en el filtro.
+    El contacto es "conocido" pero el flow NO debe ejecutarse.
+    """
+    from graphs.compiler import execute_flow
+    conn_id = "5491155612767"
+    flow = _flow_with_filter(conn_id, include_all_known=True)
+
+    state = FlowState(
+        message="Hola",
+        contact_phone="5491199990000",
+        canal="whatsapp",
+        connection_id=conn_id,
+        empresa_id="test_empresa",
+    )
+
+    with patch("config.load_config", return_value=_cfg_with_allow_mass(conn_id, allow_mass=False)), \
+         patch("graphs.compiler._is_known_contact", new_callable=AsyncMock, return_value=True):
+        result = await execute_flow(flow, state)
+
+    assert result.reply is None, "inc_all con allow_mass=False no debe producir reply"
+
+
+@pytest.mark.asyncio
+async def test_allow_mass_true_permite_inc_all():
+    """
+    Con allow_mass=True, include_all_known debe funcionar normalmente.
+    El contacto es "conocido" y el flow SÍ debe ejecutarse.
+    """
+    from graphs.compiler import execute_flow
+    conn_id = "5491155612767"
+    flow = _flow_with_filter(conn_id, include_all_known=True)
+
+    state = FlowState(
+        message="Hola",
+        contact_phone="5491199990000",
+        canal="whatsapp",
+        connection_id=conn_id,
+        empresa_id="test_empresa",
+    )
+
+    with patch("config.load_config", return_value=_cfg_with_allow_mass(conn_id, allow_mass=True)), \
+         patch("graphs.compiler._is_known_contact", new_callable=AsyncMock, return_value=True):
+        result = await execute_flow(flow, state)
+
+    assert result.reply == "Respuesta masiva", "inc_all con allow_mass=True debe producir reply"
+
+
+@pytest.mark.asyncio
+async def test_allow_mass_false_bloquea_inc_unk():
+    """
+    Con allow_mass=False, include_unknown debe ser ignorado aunque esté en el filtro.
+    El contacto es "desconocido" pero el flow NO debe ejecutarse.
+    """
+    from graphs.compiler import execute_flow
+    conn_id = "5491155612767"
+    flow = _flow_with_filter(conn_id, include_unknown=True)
+
+    state = FlowState(
+        message="Hola",
+        contact_phone="5491100000000",
+        canal="whatsapp",
+        connection_id=conn_id,
+        empresa_id="test_empresa",
+    )
+
+    with patch("config.load_config", return_value=_cfg_with_allow_mass(conn_id, allow_mass=False)), \
+         patch("graphs.compiler._is_known_contact", new_callable=AsyncMock, return_value=False):
+        result = await execute_flow(flow, state)
+
+    assert result.reply is None, "inc_unk con allow_mass=False no debe producir reply"
+
+
+@pytest.mark.asyncio
+async def test_allow_mass_false_no_afecta_filtro_individual():
+    """
+    allow_mass=False NO debe bloquear flows con contactos explícitos en 'included'.
+    Solo bloquea las opciones masivas (inc_all / inc_unk).
+    """
+    from graphs.compiler import execute_flow
+    conn_id = "5491155612767"
+    contact = "5491199990000"
+
+    flow_individual = {
+        "id": "test-individual",
+        "name": "Flow individual",
+        "connection_id": conn_id,
+        "contact_phone": None,
+        "created_at": "2020-01-01 00:00:00",
+        "definition": {
+            "nodes": [
+                {
+                    "id": "trigger",
+                    "type": "message_trigger",
+                    "config": {
+                        "connection_id": conn_id,
+                        "contact_filter": {
+                            "include_all_known": False,
+                            "include_unknown": False,
+                            "included": [contact],
+                            "excluded": [],
+                        },
+                    },
+                },
+                {"id": "reply", "type": "send_message", "config": {"message": "Solo para vos"}},
+            ],
+            "edges": [{"id": "e1", "source": "trigger", "target": "reply", "label": None}],
+        },
+    }
+
+    state = FlowState(
+        message="Hola",
+        contact_phone=contact,
+        canal="whatsapp",
+        connection_id=conn_id,
+        empresa_id="test_empresa",
+    )
+
+    with patch("config.load_config", return_value=_cfg_with_allow_mass(conn_id, allow_mass=False)):
+        result = await execute_flow(flow_individual, state)
+
+    assert result.reply == "Solo para vos", \
+        "Filtro con contacto explícito debe funcionar aunque allow_mass=False"
