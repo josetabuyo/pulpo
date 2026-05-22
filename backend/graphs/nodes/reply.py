@@ -94,6 +94,18 @@ class SendMessageNode(BaseNode):
             logger.info("[SendMessageNode] [sim] WA → %s: %s", to, message[:80])
             return
 
+        # v2: si la conexión es una instancia OpenWA, usar wa_v2_manager
+        try:
+            from automation.whatsapp_v2 import wa_v2_manager
+            if connection_id in wa_v2_manager._instances:
+                result = await wa_v2_manager.send_message(connection_id, to, message)
+                logger.info("[SendMessageNode] WA-v2 → %s enviado", to)
+                return
+        except Exception as e:
+            logger.error("[SendMessageNode] Error WA-v2 → %s: %s", to, e)
+            return
+
+        # v1: adapter Playwright
         try:
             from state import wa_session
             ok = await wa_session.send_message(connection_id, to, message)

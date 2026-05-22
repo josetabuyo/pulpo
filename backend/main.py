@@ -32,6 +32,7 @@ from api.contacts import router as contacts_router
 from api.summarizer import router as summarizer_router
 from api.flows import router as flows_router, seed_default_flows
 from api.fb_session import router as fb_session_router
+from api.whatsapp_v2 import router as whatsapp_v2_router
 import sim as sim_engine
 
 # ── Logging con rotación automática ──────────────────────────────────────────
@@ -252,6 +253,7 @@ app.include_router(contacts_router, prefix="/api")
 app.include_router(summarizer_router, prefix="/api")
 app.include_router(flows_router, prefix="/api")
 app.include_router(fb_session_router, prefix="/api")
+app.include_router(whatsapp_v2_router)
 
 
 @app.get("/health")
