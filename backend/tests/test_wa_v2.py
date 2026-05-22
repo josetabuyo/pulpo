@@ -38,7 +38,8 @@ def test_inbound_from_me_ignored(client):
 
 
 def test_status(client):
-    r = client.get("/api/wa-v2/status")
+    from conftest import ADMIN
+    r = client.get("/api/wa-v2/status", headers=ADMIN)
     assert r.status_code == 200
     data = r.json()
     assert "instances" in data

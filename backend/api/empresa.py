@@ -108,12 +108,17 @@ def empresa_get(bot_id: str, bot: dict = Depends(_require_empresa)):
 
     connections = []
 
+    from automation.whatsapp_v2 import wa_v2_manager
     for phone in bot.get("phones", []):
         number = phone["number"]
-        status = clients.get(number, {}).get("status", "stopped")
+        phone_type = phone.get("type", "whatsapp")
+        if phone_type == "whatsapp_v2":
+            status = wa_v2_manager.get_state(number)
+        else:
+            status = clients.get(number, {}).get("status", "stopped")
         connections.append({
             "id": number,
-            "type": "whatsapp",
+            "type": phone_type,
             "number": number,
             "status": status,
         })
@@ -141,9 +146,28 @@ def empresa_get(bot_id: str, bot: dict = Depends(_require_empresa)):
 @router.post("/empresa/{bot_id}/connect/{number}")
 async def empresa_connect(bot_id: str, number: str, background_tasks: BackgroundTasks, bot: dict = Depends(_require_empresa)):
 
-    if not any(p["number"] == number for p in bot.get("phones", [])):
+    phone_entry = next((p for p in bot.get("phones", []) if p["number"] == number), None)
+    if not phone_entry:
         raise HTTPException(status_code=404, detail="Número no pertenece a esta empresa")
 
+    phone_type = phone_entry.get("type", "whatsapp")
+
+    # ── v2: OpenWA ───────────────────────────────────────────────────────────
+    if phone_type == "whatsapp_v2":
+        from automation.whatsapp_v2 import wa_v2_manager
+        state = wa_v2_manager.get_state(number)
+        if state in ("connecting", "qr_ready", "ready"):
+            return {"ok": True, "status": state, "sessionId": number}
+        import os
+        backend_port = os.getenv("BACKEND_PORT", "8003")
+        webhook_url = f"http://localhost:{backend_port}/api/wa-v2/inbound"
+        # Puerto: 8090 + índice entre los phones v2 de esta empresa
+        v2_phones = [p["number"] for p in bot.get("phones", []) if p.get("type") == "whatsapp_v2"]
+        port = 8090 + v2_phones.index(number)
+        background_tasks.add_task(wa_v2_manager.start_instance, number, port, webhook_url)
+        return {"ok": True, "status": "connecting", "sessionId": number}
+
+    # ── v1: Playwright ───────────────────────────────────────────────────────
     existing = clients.get(number, {})
     if existing.get("status") in ("connecting", "qr_needed", "qr_ready", "ready"):
         return {"ok": True, "status": existing["status"], "sessionId": number}
@@ -158,7 +182,13 @@ async def empresa_connect(bot_id: str, number: str, background_tasks: Background
 
 
 @router.get("/empresa/{bot_id}/qr/{session_id}")
-def empresa_qr(bot_id: str, session_id: str, _: dict = Depends(_require_empresa)):
+def empresa_qr(bot_id: str, session_id: str, bot: dict = Depends(_require_empresa)):
+
+    # Detectar si es v2
+    phone_entry = next((p for p in bot.get("phones", []) if p["number"] == session_id), None)
+    if phone_entry and phone_entry.get("type") == "whatsapp_v2":
+        from automation.whatsapp_v2 import wa_v2_manager
+        return wa_v2_manager.get_qr(session_id)
 
     state = clients.get(session_id)
     if not state:
@@ -173,8 +203,14 @@ def empresa_qr(bot_id: str, session_id: str, _: dict = Depends(_require_empresa)
 @router.post("/empresa/{bot_id}/disconnect/{number}")
 async def empresa_disconnect(bot_id: str, number: str, bot: dict = Depends(_require_empresa)):
 
-    if not any(p["number"] == number for p in bot.get("phones", [])):
+    phone_entry = next((p for p in bot.get("phones", []) if p["number"] == number), None)
+    if not phone_entry:
         raise HTTPException(status_code=404, detail="Número no pertenece a esta empresa")
+
+    if phone_entry.get("type") == "whatsapp_v2":
+        from automation.whatsapp_v2 import wa_v2_manager
+        await wa_v2_manager.stop_instance(number)
+        return {"ok": True}
 
     if sim_engine.SIM_MODE:
         sim_engine.sim_disconnect(number)

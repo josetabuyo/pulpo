@@ -32,7 +32,7 @@ export function normalizeBot(bot) {
     name: bot.name,
     connections: [
       ...(bot.phones ?? []).map(p => ({
-        id: p.number, type: 'whatsapp', number: p.number, status: p.status,
+        id: p.number, type: p.type || 'whatsapp', number: p.number, status: p.status,
         allowMass: p.allowMass ?? false,
       })),
       ...(bot.telegram ?? []).map(t => ({
@@ -340,7 +340,8 @@ function ConnectionRow({
   useEffect(() => setLocalStatus(conn.status), [conn.status])
   useEffect(() => () => stopRef.current?.(), [])
 
-  const isTg = conn.type === 'telegram'
+  const isTg  = conn.type === 'telegram'
+  const isV2  = conn.type === 'whatsapp_v2'
   const displayId = isTg
     ? (conn.username ? `@${conn.username}` : conn.botName || conn.number)
     : `+${conn.number}`
@@ -393,7 +394,7 @@ function ConnectionRow({
       onDragEnd={mode === 'admin' ? e => e.currentTarget.classList.remove('dragging') : undefined}
     >
       <div className="ec-conn-main">
-        <span className={`ec-chan-badge ec-chan-badge--${isTg ? 'tg' : 'wa'}`}>{isTg ? 'TG' : 'WA'}</span>
+        <span className={`ec-chan-badge ec-chan-badge--${isTg ? 'tg' : isV2 ? 'wa2' : 'wa'}`}>{isTg ? 'TG' : isV2 ? 'WA2' : 'WA'}</span>
         <span className="ec-conn-id">{displayId}</span>
         {simMode && <span className="ec-sim-badge">SIM</span>}
         <StatusPill status={localStatus} isTg={isTg} />

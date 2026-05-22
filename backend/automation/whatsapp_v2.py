@@ -2,12 +2,11 @@
 WhatsAppV2Manager — adapter para OpenWA (@open-wa/wa-automate).
 
 Mantiene un dict de instancias OpenWA (un proceso Node.js por teléfono).
-Recibe webhooks y los normaliza a FlowState para pasarlos al engine.
+Recibe webhooks (mensajes y eventos de ciclo de vida) y los procesa.
 """
 import asyncio
 import base64
 import logging
-import os
 import signal
 import tempfile
 from datetime import datetime
@@ -18,11 +17,11 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# Puerto base para instancias OpenWA (teléfono 0 → 8090, 1 → 8091, ...)
 _BASE_PORT = 8090
-
-# Directorio donde OpenWA guarda las sesiones
 _SESSIONS_DIR = Path(__file__).parent.parent.parent / "data" / "wa-v2-sessions"
+
+# Estados de ciclo de vida que OpenWA puede emitir
+_OPENWA_READY_STATES = {"CONNECTED", "authenticated", "ready"}
 
 
 class _Instance:
@@ -35,6 +34,10 @@ class _Instance:
 class WhatsAppV2Manager:
     def __init__(self):
         self._instances: dict[str, _Instance] = {}
+        # Estado de ciclo de vida por phone: "connecting" / "qr_ready" / "ready" / "disconnected"
+        self._states: dict[str, str] = {}
+        # QR base64 más reciente por phone (None cuando ya no aplica)
+        self._qr_store: dict[str, Optional[str]] = {}
 
     # ── Gestión de instancias ────────────────────────────────────────────────
 
@@ -54,7 +57,11 @@ class WhatsAppV2Manager:
             "--session-data-path", str(_SESSIONS_DIR),
             "--log-level", "info",
             "--disable-spins", "true",
+            "--qr-format", "image",   # QR como imagen base64 en el webhook
         ]
+
+        self._states[phone] = "connecting"
+        self._qr_store[phone] = None
 
         logger.info("[wa-v2] Iniciando instancia %s en puerto %d", phone, port)
         process = await asyncio.create_subprocess_exec(
@@ -70,9 +77,14 @@ class WhatsAppV2Manager:
             return
         async for line in process.stdout:
             logger.info("[wa-v2:%s] %s", phone, line.decode(errors="replace").rstrip())
+        # Proceso terminó
+        if self._states.get(phone) not in ("ready",):
+            self._states[phone] = "disconnected"
 
     async def stop_instance(self, phone: str) -> None:
         inst = self._instances.pop(phone, None)
+        self._states.pop(phone, None)
+        self._qr_store.pop(phone, None)
         if not inst:
             return
         try:
@@ -86,13 +98,32 @@ class WhatsAppV2Manager:
         for phone in list(self._instances.keys()):
             await self.stop_instance(phone)
 
+    def get_state(self, phone: str) -> str:
+        if phone not in self._instances and phone not in self._states:
+            return "stopped"
+        return self._states.get(phone, "stopped")
+
+    def get_qr(self, phone: str) -> dict:
+        state = self.get_state(phone)
+        qr = self._qr_store.get(phone)
+        result: dict = {"status": state}
+        if qr:
+            result["qr"] = qr
+        return result
+
     def status(self) -> list[dict]:
+        phones = set(self._instances.keys()) | set(self._states.keys())
         return [
-            {"phone": inst.phone, "port": inst.port, "pid": inst.process.pid}
-            for inst in self._instances.values()
+            {
+                "phone": phone,
+                "port": self._instances[phone].port if phone in self._instances else None,
+                "pid": self._instances[phone].process.pid if phone in self._instances else None,
+                "state": self._states.get(phone, "stopped"),
+            }
+            for phone in phones
         ]
 
-    # ── REST OpenWA ─────────────────────────────────────────────────────────
+    # ── REST OpenWA ──────────────────────────────────────────────────────────
 
     def _url(self, phone: str, path: str) -> str:
         inst = self._instances.get(phone)
@@ -110,40 +141,69 @@ class WhatsAppV2Manager:
             r.raise_for_status()
             return r.json()
 
-    async def get_history(self, phone: str, contact_jid: str, count: int = 100) -> list[dict]:
-        async with httpx.AsyncClient(timeout=15) as client:
+    async def get_history(self, phone: str, contact_jid: str, count: int = 0) -> list[dict]:
+        """count=0 → todos los mensajes."""
+        async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(
-                self._url(phone, f"/api/getAllMessagesInChat"),
+                self._url(phone, "/api/getAllMessagesInChat"),
                 params={"chatId": contact_jid, "includeMe": "true", "includeNotifications": "false"},
             )
             r.raise_for_status()
             msgs = r.json().get("response", [])
-            return msgs[-count:]
+            return msgs if not count else msgs[-count:]
 
     # ── Webhook handler ──────────────────────────────────────────────────────
 
     async def handle_webhook(self, payload: dict) -> None:
         """
-        Normaliza payload de OpenWA → FlowState y ejecuta run_flows().
-
-        Payload relevante:
-          payload["from"]               → JID remitente "5491155...@c.us"
-          payload["body"]               → texto o base64 (si --auto-download)
-          payload["type"]               → "chat" | "ptt" | "image" | "document"
-          payload["isGroupMsg"]         → bool
-          payload["sender"]["pushname"] → nombre del contacto
-          payload["t"]                  → timestamp unix
-          payload["fromMe"]             → ignorar si True
-          payload["sessionId"]          → phone del bot
+        Despacha eventos de OpenWA:
+          - qr / QR           → guarda QR, estado = qr_ready
+          - authenticated / CONNECTED / ready → estado = ready, limpia QR
+          - CONFLICT / disconnected           → estado = disconnected
+          - mensaje (has "body")              → run_flows()
         """
+        session_id = payload.get("sessionId", "")
+        event = payload.get("event") or payload.get("dataType") or ""
+
+        # ── Eventos de ciclo de vida ─────────────────────────────────────────
+        if event in ("qr", "QR") or "qr" in (payload.keys() & {"qr"}):
+            qr_data = payload.get("qr") or payload.get("data", "")
+            if qr_data and session_id:
+                self._qr_store[session_id] = qr_data
+                self._states[session_id] = "qr_ready"
+                logger.info("[wa-v2] QR listo para %s", session_id)
+            return
+
+        if event in _OPENWA_READY_STATES or payload.get("state") in _OPENWA_READY_STATES:
+            if session_id:
+                self._states[session_id] = "ready"
+                self._qr_store[session_id] = None
+                logger.info("[wa-v2] Instancia %s conectada", session_id)
+            return
+
+        if event in ("CONFLICT", "disconnected", "UNPAIRED"):
+            if session_id:
+                self._states[session_id] = "disconnected"
+                logger.info("[wa-v2] Instancia %s desconectada (event=%s)", session_id, event)
+            return
+
+        # ── Mensajes ─────────────────────────────────────────────────────────
         if payload.get("fromMe"):
             return
 
+        # Si no tiene "from" probablemente es un evento desconocido — ignorar
+        if not payload.get("from"):
+            logger.debug("[wa-v2] Payload sin 'from' ignorado: event=%r", event)
+            return
+
+        await self._handle_message(payload)
+
+    async def _handle_message(self, payload: dict) -> None:
         session_id = payload.get("sessionId", "")
-        from_jid = payload.get("from", "")
-        msg_type = payload.get("type", "chat")
-        body = payload.get("body", "")
-        sender = payload.get("sender") or {}
+        from_jid   = payload.get("from", "")
+        msg_type   = payload.get("type", "chat")
+        body       = payload.get("body", "")
+        sender     = payload.get("sender") or {}
         contact_name = sender.get("pushname", "")
         ts = payload.get("t")
         timestamp = datetime.fromtimestamp(ts) if ts else None
@@ -151,12 +211,10 @@ class WhatsAppV2Manager:
         contact_phone = from_jid.replace("@c.us", "").replace("@g.us", "")
         bot_phone = session_id
 
-        # Determinar tipo de mensaje y adjunto
-        message_type = "text"
+        message_type: str = "text"
         attachment_path: Optional[str] = None
 
         if msg_type == "ptt" and body:
-            # Base64 ogg — guardar como archivo temporal para TranscribeAudioNode
             message_type = "audio"
             attachment_path = await _save_base64(body, suffix=".ogg")
             body = ""
@@ -190,6 +248,7 @@ class WhatsAppV2Manager:
 
 
 async def _save_base64(data: str, suffix: str) -> str:
+    _SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=_SESSIONS_DIR)
     tmp.write(base64.b64decode(data))
     tmp.close()
