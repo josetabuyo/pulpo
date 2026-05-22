@@ -40,6 +40,12 @@ NODE_TYPES: dict[str, NodeType] = {
         color="#16a34a",
         description="Punto de entrada para mensajes de WhatsApp. Solo activa el flow si el mensaje viene por WA.",
     ),
+    "whatsapp_trigger_v2": NodeType(
+        id="whatsapp_trigger_v2",
+        label="WhatsApp Trigger v2",
+        color="#15803d",
+        description="Trigger WA vía OpenWA (sin Playwright manual). Usar en flows nuevos.",
+    ),
     "telegram_trigger": NodeType(
         id="telegram_trigger",
         label="Telegram Trigger",
@@ -162,6 +168,7 @@ _CLASSIFY_SUBSTRINGS: list[tuple[str, str]] = [
     ("transcribe", "transcribe_audio"),
     ("save_attachment", "save_attachment"),
     ("check_contact", "check_contact"),
+    ("whatsapp_trigger_v2", "whatsapp_trigger_v2"),
     ("whatsapp_trigger", "whatsapp_trigger"),
     ("telegram_trigger", "telegram_trigger"),
     ("message_join", "message_join"),
