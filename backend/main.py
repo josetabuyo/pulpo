@@ -202,7 +202,7 @@ async def lifespan(app: FastAPI):
 
         # Delta sync al arrancar: captura mensajes perdidos desde el último reinicio
         async def _startup_delta_sync():
-            await asyncio.sleep(15)  # esperar que los bots reconecten
+            await asyncio.sleep(90)  # esperar reconexión de bots + tiempo para ops manuales de UI
             await _run_delta_sync()
 
         asyncio.create_task(_startup_delta_sync())

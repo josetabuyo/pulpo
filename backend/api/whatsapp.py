@@ -351,6 +351,31 @@ async def sync_status():
     return {"running": _sync_running}
 
 
+@router.get("/whatsapp/wa-queue", dependencies=[Depends(require_admin)])
+async def get_wa_queue(session_id: "str | None" = None):
+    """Devuelve los jobs de la cola de operaciones WA (filtrable por session_id)."""
+    import dataclasses
+    from browser_queue import _QUEUES
+    result = {}
+    for sid, q in _QUEUES.items():
+        if session_id and sid != session_id:
+            continue
+        jobs = q.get_jobs()
+        if jobs:
+            result[sid] = [dataclasses.asdict(j) for j in jobs]
+    return result
+
+
+@router.delete("/whatsapp/wa-queue/{job_id}", dependencies=[Depends(require_admin)])
+async def cancel_wa_job(job_id: str):
+    """Cancela un job pendiente de la cola WA."""
+    from browser_queue import _QUEUES
+    for q in _QUEUES.values():
+        if q.cancel(job_id):
+            return {"ok": True}
+    raise HTTPException(404, "Job no encontrado o no cancelable")
+
+
 class FullSyncBody(BaseModel):
     from_date: Optional[date] = None
     contact_phone: Optional[str] = None
@@ -550,17 +575,13 @@ async def _run_delta_sync(contact_phone: "str | None" = None) -> None:
     Llamado por _poll_sidebar_for_delta cuando detecta un cambio en el sidebar.
     Para al primer mensaje ya presente en DB (semántica UNTIL_KNOWN).
     """
-    global _sync_running
     import logging
     from db import log_message_historic, get_contacts
     from config import get_empresas_for_connection
+    from browser_queue import get_queue
 
     _log = logging.getLogger(__name__)
     mode = "delta-sync"
-    if _sync_running:
-        _log.info(f"[{mode}] Ya hay un sync en curso, ignorando.")
-        return
-    _sync_running = True
     _log.info(f"[{mode}] Iniciando...")
     try:
         for session_id, state in list(clients.items()):
@@ -634,72 +655,82 @@ async def _run_delta_sync(contact_phone: "str | None" = None) -> None:
                 _doc_dir = _get_att_dir(item["summarizer_eid"], _first_phone) if _first_phone else None
 
                 _log.info(f"[{mode}] Escaneando '{contact_name}'...")
-                # Obtener el timestamp más reciente ya registrado → punto de corte del delta
-                _stop_before_ts = None
-                if _first_phone:
-                    from api.summarizer import _newest_message_ts
-                    _stop_before_ts = _newest_message_ts(item["summarizer_eid"], _first_phone)
 
-                messages = await wa_session.scrape_full_history_v2(
-                    session_id, contact_name, doc_save_dir=_doc_dir,
-                    stop_before_ts=_stop_before_ts,
-                )
-                messages.sort(key=lambda m: m.get("timestamp") or "", reverse=True)
+                _item = item
+                _contact_name = contact_name
+                _wa_channels = wa_channels
+                _doc_dir_c = _doc_dir
+                _first_phone_c = _first_phone
+                _bot_phone = bot_phone
 
-                new_count = 0
-                stop_ts = None
-                for msg in messages:
-                    for ch in wa_channels:
-                        phone = ch["value"]
-                        is_group = ch.get("is_group", False)
-                        if is_group and msg.get("sender"):
-                            body = f"{msg['sender']}: {msg['body']}"
-                        else:
-                            body = msg["body"]
-                        outbound = 1 if msg.get("is_outbound") else 0
+                job = get_queue(session_id).enqueue("delta_sync", _contact_name)
 
-                        # Intentar guardar en el primer empresa_id con summarizer
-                        eid = item["summarizer_eid"]
-                        saved = await log_message_historic(
-                            eid, bot_phone, phone, contact_name,
-                            body, msg["timestamp"], outbound,
-                            replace_audio=True,
-                        )
-                        if not saved:
-                            # Primer mensaje ya existente → este es el punto de corte
-                            stop_ts = msg["timestamp"]
-                            break
-                        new_count += 1
+                async def _do_delta(_item=_item, _contact_name=_contact_name,
+                                    _wa_channels=_wa_channels, _doc_dir_c=_doc_dir_c,
+                                    _first_phone_c=_first_phone_c, _bot_phone=_bot_phone):
+                    _stop_before_ts = None
+                    if _first_phone_c:
+                        from api.summarizer import _newest_message_ts
+                        _stop_before_ts = _newest_message_ts(_item["summarizer_eid"], _first_phone_c)
 
-                        if body and body.strip():
-                            from datetime import datetime as _dt
-                            try:
-                                ts_dt = _dt.strptime(msg["timestamp"], "%Y-%m-%d %H:%M:%S")
-                            except (ValueError, TypeError):
-                                ts_dt = _dt.now()
-                            from graphs.compiler import run_flows
-                            from graphs.nodes.state import FlowState as _FlowState
-                            _state = _FlowState(
-                                message=body,
-                                message_type=msg.get("msg_type", "text"),
-                                contact_phone=phone,
-                                contact_name=contact_name,
-                                canal="whatsapp",
-                                from_delta_sync=True,
-                                timestamp=ts_dt,
+                    _msgs = await wa_session.scrape_full_history_v2(
+                        session_id, _contact_name, doc_save_dir=_doc_dir_c,
+                        stop_before_ts=_stop_before_ts,
+                    )
+                    _msgs.sort(key=lambda m: m.get("timestamp") or "", reverse=True)
+
+                    new_count = 0
+                    stop_ts = None
+                    for msg in _msgs:
+                        for ch in _wa_channels:
+                            phone = ch["value"]
+                            is_group = ch.get("is_group", False)
+                            if is_group and msg.get("sender"):
+                                body = f"{msg['sender']}: {msg['body']}"
+                            else:
+                                body = msg["body"]
+                            outbound = 1 if msg.get("is_outbound") else 0
+
+                            eid = _item["summarizer_eid"]
+                            saved = await log_message_historic(
+                                eid, _bot_phone, phone, _contact_name,
+                                body, msg["timestamp"], outbound,
+                                replace_audio=True,
                             )
-                            await run_flows(_state, connection_id=bot_phone)
-                    else:
-                        continue
-                    break  # parar en cuanto un canal encuentra el primer existente
+                            if not saved:
+                                stop_ts = msg["timestamp"]
+                                break
+                            new_count += 1
 
-                _log.info(f"[{mode}] '{contact_name}': {new_count} nuevos, paró en {stop_ts or 'tope del chat'}")
+                            if body and body.strip():
+                                from datetime import datetime as _dt
+                                try:
+                                    ts_dt = _dt.strptime(msg["timestamp"], "%Y-%m-%d %H:%M:%S")
+                                except (ValueError, TypeError):
+                                    ts_dt = _dt.now()
+                                from graphs.compiler import run_flows
+                                from graphs.nodes.state import FlowState as _FlowState
+                                _state = _FlowState(
+                                    message=body,
+                                    message_type=msg.get("msg_type", "text"),
+                                    contact_phone=phone,
+                                    contact_name=_contact_name,
+                                    canal="whatsapp",
+                                    from_delta_sync=True,
+                                    timestamp=ts_dt,
+                                )
+                                await run_flows(_state, connection_id=_bot_phone)
+                        else:
+                            continue
+                        break
+
+                    _log.info(f"[{mode}] '{_contact_name}': {new_count} nuevos, paró en {stop_ts or 'tope del chat'}")
+
+                await get_queue(session_id).run(job, _do_delta())
 
         _log.info(f"[{mode}] Completado.")
     except Exception as _e:
         _log.exception(f"[{mode}] Error inesperado: {_e}")
-    finally:
-        _sync_running = False
 
 
 @router.post("/whatsapp/bootstrap-contact", dependencies=[Depends(require_client)])

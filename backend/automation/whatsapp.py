@@ -36,6 +36,8 @@ SEND_TIMEOUT_MS      = 15_000
 
 # Lock por sesión: serializa el acceso al browser entre import y delta-sync.
 # Sin esto, ambos pueden navegar a chats distintos simultáneamente en la misma página.
+# El lock por sesión ahora vive en browser_queue.BrowserQueue._lock.
+# Se mantiene este dict vacío para compatibilidad con imports externos que aún lo referencien.
 _SESSION_BROWSER_LOCKS: dict[str, asyncio.Lock] = {}
 
 
@@ -2719,6 +2721,35 @@ class WhatsAppSession(BrowserAutomation):
                     continue;
                 }}
 
+                // ── Documento sin data-pre-plain-text (Excel, PDF enviados sin caption) ─
+                // Documentos enviados por WA frecuentemente NO tienen ppEl — caerían al vacío.
+                if (!ppEl) {{
+                    const dlBtnNoPP = c.querySelector(
+                        'div[role="button"][title^="Descargar"], div[role="button"][title^="Download"]'
+                    );
+                    if (dlBtnNoPP) {{
+                        const fname3 = dlBtnNoPP.title
+                            .replace(/^(?:Descargar|Download)\s*"?/i, '').replace(/"$/, '').trim();
+                        const innerParts3 = (dlBtnNoPP.innerText || '').split('\\n');
+                        const sizeLine3 = innerParts3[2] || '';
+                        const sizeMatch3 = sizeLine3.match(/•\s*([\d.,]+\s*[kKmMgG]?[bB])/);
+                        const fsize3 = sizeMatch3 ? sizeMatch3[1].trim() : '';
+                        c.setAttribute('data-pulpo-done','1');
+                        results.push({{ type:'document', time, date, sender, isOut, filename: fname3, size: fsize3, absTop, msgId }});
+                        continue;
+                    }}
+                    // Fallback: document-title sin ppEl
+                    const docNameElNoPP = c.querySelector('[data-testid="document-title"]');
+                    if (docNameElNoPP) {{
+                        const fname4 = docNameElNoPP.innerText.trim();
+                        const sizeEl4 = c.querySelector('[data-testid="document-size"]');
+                        const fsize4 = sizeEl4 ? sizeEl4.innerText.trim() : '';
+                        c.setAttribute('data-pulpo-done','1');
+                        results.push({{ type:'document', time, date, sender, isOut, filename: fname4, size: fsize4, absTop, msgId }});
+                        continue;
+                    }}
+                }}
+
                 // ── Texto (incluye audio CON caption, docs con caption) ───
                 if (ppEl) {{
                     // Sub-tipo audio con data-pre-plain-text (raro pero posible)
@@ -2733,7 +2764,7 @@ class WhatsAppSession(BrowserAutomation):
                         results.push({{ type:'audio', time, date, sender, isOut, audioId: btn ? aid : null, absTop, msgId }});
                         continue;
                     }}
-                    // Documento
+                    // Documento — intento 1: data-testid="document-title"
                     const docNameEl = c.querySelector('[data-testid="document-title"]');
                     if (docNameEl) {{
                         const fname = docNameEl.innerText.trim();
@@ -2741,6 +2772,21 @@ class WhatsAppSession(BrowserAutomation):
                         const fsize = sizeEl ? sizeEl.innerText.trim() : '';
                         c.setAttribute('data-pulpo-done','1');
                         results.push({{ type:'document', time, date, sender, isOut, filename: fname, size: fsize, absTop, msgId }});
+                        continue;
+                    }}
+                    // Documento — intento 2: botón de descarga (más robusto para Excel/PDF sin title cargado)
+                    const dlBtn = c.querySelector(
+                        'div[role="button"][title^="Descargar"], div[role="button"][title^="Download"]'
+                    );
+                    if (dlBtn) {{
+                        const fname2 = dlBtn.title
+                            .replace(/^(?:Descargar|Download)\s*"?/i, '').replace(/"$/, '').trim();
+                        const innerParts = (dlBtn.innerText || '').split('\\n');
+                        const sizeLine = innerParts[2] || '';
+                        const sizeMatch = sizeLine.match(/•\s*([\d.,]+\s*[kKmMgG]?[bB])/);
+                        const fsize2 = sizeMatch ? sizeMatch[1].trim() : '';
+                        c.setAttribute('data-pulpo-done','1');
+                        results.push({{ type:'document', time, date, sender, isOut, filename: fname2, size: fsize2, absTop, msgId }});
                         continue;
                     }}
                     // Imagen con ppEl (imagen enviada, con o sin caption)
@@ -3000,11 +3046,8 @@ class WhatsAppSession(BrowserAutomation):
             except Exception:
                 return None
 
-        # ──────────────────────────────────────────────────────────────────────
-        # Serializar acceso al browser para esta sesión.
-        # Delta-sync y el import comparten la misma page — sin lock navegan concurrentemente.
-        _browser_lock = _SESSION_BROWSER_LOCKS.setdefault(session_id, asyncio.Lock())
-        await _browser_lock.acquire()
+        # El lock de serialización ahora lo gestiona BrowserQueue externamente.
+        # scrape_full_history_v2 asume que el caller ya adquirió el lock vía queue.run().
         _orig_viewport: dict = page.viewport_size or {"width": 1280, "height": 800}
         try:
             # 1. Abrir chat usando el input de búsqueda del sidebar de WA Web.
@@ -3115,12 +3158,29 @@ class WhatsAppSession(BrowserAutomation):
             """)
             logger.info(f"[{session_id}] v2: chat abierto = '{_header_title}' (esperado: '{contact_name}')")
 
-            # 2. Ampliar viewport durante el scrape: WA renderiza más mensajes por ronda.
+            # 2. Limpiar marcas de runs anteriores en el DOM.
+            # data-pulpo-done persiste entre runs cuando el chat es pequeño y WA
+            # no recicla los nodos. Sin esto un segundo run devuelve 0 mensajes.
+            _cleaned = await page.evaluate("""() => {
+                let n = 0;
+                document.querySelectorAll('[data-pulpo-done],[data-pulpo-audio-id],[data-pulpo-counted]')
+                    .forEach(el => {
+                        el.removeAttribute('data-pulpo-done');
+                        el.removeAttribute('data-pulpo-audio-id');
+                        el.removeAttribute('data-pulpo-counted');
+                        n++;
+                    });
+                return n;
+            }""")
+            if _cleaned:
+                logger.info(f"[{session_id}] v2: limpiados {_cleaned} atributos data-pulpo-* del DOM anterior")
+
+            # 2b. Ampliar viewport durante el scrape: WA renderiza más mensajes por ronda.
             #    Se restaura en el finally.
             await page.set_viewport_size({"width": _orig_viewport["width"], "height": 2400})
             logger.info(f"[{session_id}] v2: viewport ampliado a {_orig_viewport['width']}x2400 para el scrape")
 
-            # 2b. Instalar interceptor de blobs
+            # 2c. Instalar interceptor de blobs
             await self._install_blob_interceptor(page)
 
             # 2b. Clickear el banner "obtener mensajes anteriores de tu teléfono" si aparece.
@@ -3302,10 +3362,20 @@ class WhatsAppSession(BrowserAutomation):
                         results.append({"timestamp": ts_str})
                         continue
 
-                    # Sin sender en la key: mismo mensaje re-renderizado sin ppEl
-                    # tendría sender='' pero mismo ts+tipo+body → se deduplica.
-                    _body_preview = (msg.get("body") or "")[:30]
-                    key = f"{ts_str}|{msg.get('type','')}|{_body_preview}"
+                    # Dedup key: usar data-id si está disponible (único por mensaje en WA Web).
+                    # Fallback por tipo cuando data-id falta: filename / audioId / imgSrc / body.
+                    # Body sola no sirve para docs del mismo minuto — todos tendrían key idéntica.
+                    _msg_id = msg.get("msgId") or ""
+                    if _msg_id:
+                        key = f"id|{_msg_id}"
+                    else:
+                        _disc = (
+                            msg.get("filename")
+                            or msg.get("audioId")
+                            or (msg.get("imgSrc") or "")[:60]
+                            or (msg.get("body") or "")[:30]
+                        )
+                        key = f"{ts_str}|{msg.get('type','')}|{_disc}"
                     if key in seen_keys:
                         continue
                     seen_keys.add(key)
@@ -3613,7 +3683,7 @@ class WhatsAppSession(BrowserAutomation):
                 await page.evaluate("document.body.style.zoom = '';")
             except Exception:
                 pass
-            _browser_lock.release()
+            pass  # lock release handled by BrowserQueue.run()
 
     # ------------------------------------------------------------------
     # Estado

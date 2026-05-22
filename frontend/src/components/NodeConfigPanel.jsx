@@ -696,6 +696,7 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
   const [screenshotOpen, setScreenshotOpen] = useState(true)
   const [screenshotUrl, setScreenshotUrl]   = useState(null)
   const [dateFromConsolidation, setDateFromConsolidation] = useState(null)
+  const [waQueue, setWaQueue]               = useState([])
 
   function handleImportFromDateChange(e) {
     setImportFromDate(e.target.value)
@@ -825,6 +826,19 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
     const t = setInterval(fetchScreenshot, 3000)
     return () => clearInterval(t)
   }, [screenshotOpen, importing])
+
+  useEffect(() => {
+    if (nodeType !== 'whatsapp_trigger') return
+    const sessionId = config?.connection_id
+    if (!sessionId || !apiCall) return
+    const poll = () =>
+      apiCall('GET', `/whatsapp/wa-queue?session_id=${sessionId}`, null)
+        .then(data => setWaQueue(data?.[sessionId] || []))
+        .catch(() => {})
+    poll()
+    const t = setInterval(poll, 3000)
+    return () => clearInterval(t)
+  }, [nodeType, config?.connection_id])
 
   async function handleBackupAndClean() {
     setBackingUp(true)
@@ -1001,6 +1015,47 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
         {/* ── Monitor scraper WA ─────────────────────────────────────────── */}
         {nodeType === 'whatsapp_trigger' && (
           <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+
+            {/* Cola de operaciones WA */}
+            {waQueue.length > 0 && (
+              <div style={{ background: '#0f172a', borderRadius: 6, padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ fontSize: 10, color: '#334155', fontWeight: 700, letterSpacing: '0.06em', marginBottom: 2 }}>
+                  COLA WA
+                </div>
+                {waQueue.map(job => {
+                  const statusColor = {
+                    pending:   '#fbbf24',
+                    running:   '#4ade80',
+                    done:      '#334155',
+                    error:     '#f87171',
+                    cancelled: '#334155',
+                  }[job.status] || '#94a3b8'
+                  const typeLabel = {
+                    delta_sync:   'delta',
+                    full_resync:  'full-resync',
+                    import_wa:    'importar',
+                    startup_sync: 'arranque',
+                  }[job.type] || job.type
+                  return (
+                    <div key={job.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontFamily: 'monospace', opacity: job.status === 'cancelled' ? 0.5 : 1 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor, flexShrink: 0, ...(job.status === 'running' ? { animation: 'pulse 1.2s infinite' } : {}) }} />
+                      <span style={{ color: '#64748b', flexShrink: 0 }}>{typeLabel}</span>
+                      <span style={{ color: '#94a3b8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.label}</span>
+                      {job.status === 'error' && job.error && (
+                        <span style={{ color: '#f87171', fontSize: 10, maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={job.error}>⚠ {job.error}</span>
+                      )}
+                      {job.status === 'pending' && (
+                        <button
+                          onClick={() => apiCall('DELETE', `/whatsapp/wa-queue/${job.id}`, null).catch(() => {})}
+                          style={{ background: 'none', border: 'none', color: '#475569', cursor: 'pointer', fontSize: 13, padding: '0 2px', lineHeight: 1 }}
+                          title="Cancelar"
+                        >×</button>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
 
             {/* Reintentos */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

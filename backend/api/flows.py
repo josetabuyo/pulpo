@@ -357,6 +357,7 @@ async def _run_contact_import(
         _dedup_loaded as _sum_dedup_loaded,
     )
     from automation.sync import delta_sync, StopCondition
+    from browser_queue import get_queue
 
     if force_clear:
         from graphs.nodes.summarize import _BASE, clear_contact_full as _ccf
@@ -375,65 +376,74 @@ async def _run_contact_import(
         _name_path.write_text(contact_name, encoding="utf-8")
 
     doc_dir = _get_att_dir(empresa_id, contact_phone)
-    total_scraped = 0
-    total_new = 0
+    _result_holder: dict = {"scraped": 0, "new": 0}
 
-    for _attempt in range(max_retries):
-        _dedup_key = (empresa_id, contact_phone)
-        _sum_dedup_loaded.discard(_dedup_key)
-        _sum_dedup.pop(_dedup_key, None)
+    job_type = "full_resync" if force_clear else "import_wa"
+    job = get_queue(session_id).enqueue(job_type, contact_name)
 
-        _md_path = _sum_path(empresa_id, contact_phone)
-        skip_audio_ts = _build_skip_set(_md_path)
-        entries_before = _count_md_entries(_md_path)
+    async def _do_import():
+        total_scraped = 0
+        total_new = 0
+        for _attempt in range(max_retries):
+            _dedup_key = (empresa_id, contact_phone)
+            _sum_dedup_loaded.discard(_dedup_key)
+            _sum_dedup.pop(_dedup_key, None)
 
-        def _on_progress(round_n: int, new_in_round: int, total: int):
+            _md_path = _sum_path(empresa_id, contact_phone)
+            skip_audio_ts = _build_skip_set(_md_path)
+            entries_before = _count_md_entries(_md_path)
+
+            def _on_progress(round_n: int, new_in_round: int, total: int):
+                if on_attempt_update:
+                    on_attempt_update(_attempt, round_n, total)
+
+            try:
+                result = await delta_sync(
+                    wa_session=wa_session,
+                    session_id=session_id,
+                    contact_name=contact_name,
+                    empresa_id=empresa_id,
+                    contact_phone=contact_phone,
+                    stop_condition=StopCondition.FULL_ENRICH,
+                    since_date=since_date,
+                    owner_name=owner_name,
+                    on_progress=_on_progress,
+                    doc_save_dir=doc_dir,
+                    skip_audio_ts=skip_audio_ts,
+                    max_scroll_rounds=500,
+                )
+            except Exception as e:
+                _log.error("[import] '%s' intento %d error: %s", contact_name, _attempt + 1, e)
+                raise
+
+            if _md_path.exists():
+                _text = _md_path.read_text(encoding="utf-8")
+                _blocks = [b.strip() for b in _text.split("---\n") if b.strip()]
+                _blocks.sort(key=lambda b: b.split("\n")[0][3:].strip() if b.startswith("## ") else "")
+                _md_path.write_text("\n".join(b + "\n---" for b in _blocks) + "\n", encoding="utf-8")
+
+            entries_after = _count_md_entries(_md_path)
+            new_entries = entries_after - entries_before
+            retryable = _count_retryable_audios(_md_path)
+            total_scraped += result["scraped"]
+            total_new += new_entries
+
+            _log.info("[import] '%s' intento %d/%d: scraped=%d new=%d retryable=%d",
+                      contact_name, _attempt + 1, max_retries, result["scraped"], new_entries, retryable)
+
             if on_attempt_update:
-                on_attempt_update(_attempt, round_n, total)
+                on_attempt_update(_attempt, None, result["scraped"], new_entries, retryable, done=True)
 
-        try:
-            result = await delta_sync(
-                wa_session=wa_session,
-                session_id=session_id,
-                contact_name=contact_name,
-                empresa_id=empresa_id,
-                contact_phone=contact_phone,
-                stop_condition=StopCondition.FULL_ENRICH,
-                since_date=since_date,
-                owner_name=owner_name,
-                on_progress=_on_progress,
-                doc_save_dir=doc_dir,
-                skip_audio_ts=skip_audio_ts,
-                max_scroll_rounds=500,
-            )
-        except Exception as e:
-            _log.error("[import] '%s' intento %d error: %s", contact_name, _attempt + 1, e)
-            raise
+            if new_entries == 0 and retryable == 0:
+                break
+            if _attempt < max_retries - 1:
+                await _asyncio.sleep(3)
 
-        if _md_path.exists():
-            _text = _md_path.read_text(encoding="utf-8")
-            _blocks = [b.strip() for b in _text.split("---\n") if b.strip()]
-            _blocks.sort(key=lambda b: b.split("\n")[0][3:].strip() if b.startswith("## ") else "")
-            _md_path.write_text("\n".join(b + "\n---" for b in _blocks) + "\n", encoding="utf-8")
+        _result_holder["scraped"] = total_scraped
+        _result_holder["new"] = total_new
 
-        entries_after = _count_md_entries(_md_path)
-        new_entries = entries_after - entries_before
-        retryable = _count_retryable_audios(_md_path)
-        total_scraped += result["scraped"]
-        total_new += new_entries
-
-        _log.info("[import] '%s' intento %d/%d: scraped=%d new=%d retryable=%d",
-                  contact_name, _attempt + 1, max_retries, result["scraped"], new_entries, retryable)
-
-        if on_attempt_update:
-            on_attempt_update(_attempt, None, result["scraped"], new_entries, retryable, done=True)
-
-        if new_entries == 0 and retryable == 0:
-            break
-        if _attempt < max_retries - 1:
-            await _asyncio.sleep(3)
-
-    return {"scraped": total_scraped, "new": total_new}
+    await get_queue(session_id).run(job, _do_import())
+    return _result_holder
 
 
 def _build_skip_set(md_path: "Path") -> "set[str]":

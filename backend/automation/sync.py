@@ -163,9 +163,10 @@ async def delta_sync(
 def _resolve_sender(msg: dict, contact_name: str, owner_name: str | None) -> str:
     """
     Determina el sender canónico de un mensaje.
-    Saliente: sender del scraper > owner_name > "Tú"
+    Saliente: owner_name > "Tú" (nunca msg["sender"] — WA Web pone el nombre de la cuenta,
+              que varía entre dispositivos y genera inconsistencias con "Tú").
     Entrante: sender del scraper > contact_name
     """
     if msg.get("is_outbound"):
-        return msg.get("sender") or owner_name or "Tú"
+        return owner_name or "Tú"
     return msg.get("sender") or contact_name
