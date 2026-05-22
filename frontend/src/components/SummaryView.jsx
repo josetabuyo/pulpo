@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors,
 } from '@dnd-kit/core'
@@ -25,6 +26,12 @@ function formatTime(isoTs) {
 
 function dayKey(isoTs) {
   return isoTs ? isoTs.slice(0, 10) : ''
+}
+
+function safeShortDate(isoTs) {
+  if (!isoTs) return '?'
+  const d = new Date(isoTs)
+  return isNaN(d.getTime()) ? '?' : d.toLocaleDateString('es-AR')
 }
 
 function addSecond(isoTs) {
@@ -121,7 +128,7 @@ function AudioBubble({ msg, highlight, dimmed }) {
 function ImageBubble({ msg, apiCall, empresaId, contactPhone, dimmed }) {
   const isOut = msg.direction === 'out'
   const [blobUrl, setBlobUrl] = useState(null)
-  const [modalOpen, setModalOpen] = useState(false)
+  const [modalUrl, setModalUrl] = useState(null)
 
   useEffect(() => {
     if (!msg.filename) return
@@ -142,6 +149,28 @@ function ImageBubble({ msg, apiCall, empresaId, contactPhone, dimmed }) {
     }
   }, [msg.filename, empresaId, contactPhone]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  function handleOpen() {
+    if (!msg.filename) return
+    if (blobUrl) {
+      setModalUrl(blobUrl)
+      return
+    }
+    // Blob no cargó aún — fetch on-demand
+    const path = `/summarizer/${empresaId}/${contactPhone}/docs/${encodeURIComponent(msg.filename)}`
+    apiCall('GET_BLOB', path, null)
+      .then(blob => {
+        if (!blob || blob.size === 0) return
+        const url = URL.createObjectURL(blob)
+        setModalUrl(url)
+      })
+      .catch(() => {})
+  }
+
+  function handleClose() {
+    if (modalUrl && modalUrl !== blobUrl) URL.revokeObjectURL(modalUrl)
+    setModalUrl(null)
+  }
+
   return (
     <>
       <div
@@ -153,9 +182,10 @@ function ImageBubble({ msg, apiCall, empresaId, contactPhone, dimmed }) {
           <ReplyQuote text={msg.reply_to} />
           <div
             className={`sv-img-row${blobUrl ? ' sv-img-row--loaded' : ''}`}
-            onClick={blobUrl ? () => setModalOpen(true) : undefined}
-            style={{ cursor: blobUrl ? 'pointer' : 'default' }}
-            title={blobUrl ? 'Click para ampliar' : undefined}
+            onClick={msg.filename ? handleOpen : undefined}
+            onPointerDown={e => e.stopPropagation()}
+            style={{ cursor: msg.filename ? 'pointer' : 'default' }}
+            title={msg.filename ? 'Click para ampliar' : undefined}
           >
             {blobUrl ? (
               <img src={blobUrl} alt={msg.filename || 'imagen'} className="sv-img-thumb" />
@@ -170,10 +200,11 @@ function ImageBubble({ msg, apiCall, empresaId, contactPhone, dimmed }) {
           <span className="sv-bubble-time">{formatTime(msg.timestamp)}</span>
         </div>
       </div>
-      {modalOpen && blobUrl && (
-        <div className="sv-img-modal" onClick={() => setModalOpen(false)}>
-          <img src={blobUrl} alt={msg.filename || 'imagen'} className="sv-img-modal-img" />
-        </div>
+      {modalUrl && createPortal(
+        <div className="sv-img-modal" onClick={handleClose}>
+          <img src={modalUrl} alt={msg.filename || 'imagen'} className="sv-img-modal-img" />
+        </div>,
+        document.body
       )}
     </>
   )
@@ -260,7 +291,7 @@ function SortableBubble({ msg, onDelete, apiCall, empresaId, contactPhone, highl
   }
 
   return (
-    <div ref={setNodeRef} style={style} className="sv-tuning-row">
+    <div ref={setNodeRef} style={style} className="sv-tuning-row" data-localid={msg._id || msg._localId}>
       <div className="sv-tuning-bubble-wrap">
         <span className="sv-drag-handle" {...attributes} {...listeners}>⠿</span>
         <div className="sv-tuning-bubble-area">
@@ -274,18 +305,56 @@ function SortableBubble({ msg, onDelete, apiCall, empresaId, contactPhone, highl
 
 // ─── Insert form ──────────────────────────────────────────────────────────────
 
-function InsertForm({ senders, onConfirm, onCancel }) {
+function InsertForm({ senders, onConfirm, onCancel, apiCall, empresaId, contactPhone }) {
   const [sender, setSender] = useState('')
   const [content, setContent] = useState('')
+  const [pastedImage, setPastedImage] = useState(null)  // { file, previewUrl }
+  const [uploading, setUploading] = useState(false)
 
-  function handleSubmit(e) {
+  useEffect(() => {
+    return () => {
+      if (pastedImage?.previewUrl) URL.revokeObjectURL(pastedImage.previewUrl)
+    }
+  }, [pastedImage])
+
+  function handlePaste(e) {
+    const items = Array.from(e.clipboardData?.items || [])
+    const imgItem = items.find(item => item.type.startsWith('image/'))
+    if (!imgItem) return
     e.preventDefault()
+    const file = imgItem.getAsFile()
+    if (!file) return
+    if (pastedImage?.previewUrl) URL.revokeObjectURL(pastedImage.previewUrl)
+    setPastedImage({ file, previewUrl: URL.createObjectURL(file) })
+  }
+
+  function removeImage() {
+    if (pastedImage?.previewUrl) URL.revokeObjectURL(pastedImage.previewUrl)
+    setPastedImage(null)
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    if (pastedImage) {
+      if (uploading) return
+      setUploading(true)
+      try {
+        const formData = new FormData()
+        formData.append('file', pastedImage.file, pastedImage.file.name || 'image.png')
+        const res = await apiCall('POST_FORM', `/summarizer/${empresaId}/${contactPhone}/upload-image`, formData)
+        if (!res?.filename) throw new Error('upload failed')
+        onConfirm({ type: 'image', sender: sender || null, filename: res.filename, caption: content.trim() || '', timestamp: null })
+      } catch {
+        setUploading(false)
+      }
+      return
+    }
     if (!content.trim()) return
     onConfirm({ sender: sender || null, content: content.trim(), timestamp: null, type: 'text' })
   }
 
   return (
-    <form className="sv-insert-form" onSubmit={handleSubmit}>
+    <form className="sv-insert-form" onSubmit={handleSubmit} onPaste={handlePaste}>
       <input
         list="sv-senders-list"
         placeholder="Sender (opcional)"
@@ -296,16 +365,35 @@ function InsertForm({ senders, onConfirm, onCancel }) {
       <datalist id="sv-senders-list">
         {senders.map(s => <option key={s} value={s} />)}
       </datalist>
-      <textarea
-        placeholder="Contenido del mensaje"
-        value={content}
-        onChange={e => setContent(e.target.value)}
-        className="sv-insert-content"
-        rows={2}
-        autoFocus
-      />
+      {pastedImage ? (
+        <div className="sv-insert-img-preview">
+          <div className="sv-insert-img-wrap">
+            <img src={pastedImage.previewUrl} alt="preview" className="sv-insert-img-thumb" />
+            <button type="button" className="sv-insert-img-remove" onClick={removeImage}>×</button>
+          </div>
+          <textarea
+            placeholder="Caption (opcional)"
+            value={content}
+            onChange={e => setContent(e.target.value)}
+            className="sv-insert-content"
+            rows={1}
+            autoFocus
+          />
+        </div>
+      ) : (
+        <textarea
+          placeholder="Contenido del mensaje — o pegá una imagen (⌘V)"
+          value={content}
+          onChange={e => setContent(e.target.value)}
+          className="sv-insert-content"
+          rows={2}
+          autoFocus
+        />
+      )}
       <div className="sv-insert-actions">
-        <button type="submit" className="sv-insert-ok">Agregar</button>
+        <button type="submit" className="sv-insert-ok" disabled={uploading}>
+          {uploading ? 'Subiendo…' : 'Agregar'}
+        </button>
         <button type="button" className="sv-insert-cancel" onClick={onCancel}>Cancelar</button>
       </div>
     </form>
@@ -322,6 +410,8 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
 
   // Search state
   const [searchQuery, setSearchQuery]     = useState('')
+  const [matchIdx, setMatchIdx]           = useState(0)
+  const bubbleRefs                        = useRef({})
 
   // Tuning state
   const [tuningMode, setTuningMode]       = useState(false)
@@ -371,7 +461,13 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
       })
   }
 
-  useEffect(() => { loadMessages() }, [empresaId, contactPhone])
+  useEffect(() => {
+    loadMessages()
+    // Cargar consolidación en paralelo para mostrar badge y bloquear tuning
+    apiCall('GET', `/summarizer/${empresaId}/${contactPhone}/consolidation`, null)
+      .then(meta => setConsolidation(meta?.consolidated_at ? meta : null))
+      .catch(() => setConsolidation(null))
+  }, [empresaId, contactPhone])
 
   useEffect(() => {
     if (messages && messagesRef.current) {
@@ -450,7 +546,7 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
       apiCall('POST', `/summarizer/${empresaId}/wa-open-chat`, { contact_name: contactName }).catch(() => {})
     }
     apiCall('GET', `/summarizer/${empresaId}/${contactPhone}/consolidation`, null)
-      .then(meta => setConsolidation(meta))
+      .then(meta => setConsolidation(meta?.consolidated_at ? meta : null))
       .catch(() => setConsolidation(null))
   }
 
@@ -538,7 +634,10 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
     const current = editMessagesRef.current || []
     const newMsg = {
       type: data.type || 'text',
-      content: data.content,
+      ...(data.type === 'image'
+        ? { filename: data.filename, caption: data.caption || '' }
+        : { content: data.content }
+      ),
       sender: data.sender || null,
       timestamp: data.timestamp || null,
       direction: 'in',
@@ -625,30 +724,69 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
   const items = []
   if (messages) {
     let lastDay = null
-    for (const msg of messages) {
+    messages.forEach((msg, msgIdx) => {
       const day = dayKey(msg.timestamp)
       if (day && day !== lastDay) {
         items.push({ kind: 'sep', day, label: formatDate(msg.timestamp) })
         lastDay = day
       }
-      items.push({ kind: 'msg', msg })
-    }
+      items.push({ kind: 'msg', msg, msgIdx })
+    })
   }
 
   // ── IDs para DnD (el contexto necesita array de IDs) ────────────────────────
 
   const dndIds = (editMessages || []).map(m => m._id || m._localId)
 
-  // ── Search match count ───────────────────────────────────────────────────────
+  // ── Search: índices que coinciden (read-only y tuning por separado) ──────────
 
-  const searchMatchCount = useMemo(() => {
-    if (!searchQuery || !messages) return 0
+  const readMatchingIndices = useMemo(() => {
+    if (!searchQuery || !messages) return []
     const q = searchQuery.toLowerCase()
-    return messages.filter(m =>
-      (m.content && m.content.toLowerCase().includes(q)) ||
-      (m.transcription && m.transcription.toLowerCase().includes(q))
-    ).length
+    return messages.reduce((acc, m, i) => {
+      if ((m.content && m.content.toLowerCase().includes(q)) ||
+          (m.transcription && m.transcription.toLowerCase().includes(q))) acc.push(i)
+      return acc
+    }, [])
   }, [searchQuery, messages])
+
+  const tuningMatchingIndices = useMemo(() => {
+    if (!searchQuery || !editMessages?.length) return []
+    const q = searchQuery.toLowerCase()
+    return editMessages.reduce((acc, m, i) => {
+      if ((m.content && m.content.toLowerCase().includes(q)) ||
+          (m.transcription && m.transcription.toLowerCase().includes(q))) acc.push(i)
+      return acc
+    }, [])
+  }, [searchQuery, editMessages])
+
+  const matchingIndices = tuningMode ? tuningMatchingIndices : readMatchingIndices
+
+  useEffect(() => { setMatchIdx(0) }, [searchQuery])
+
+  useEffect(() => {
+    if (!matchingIndices.length) return
+    if (tuningMode) {
+      const msg = editMessages?.[matchingIndices[matchIdx]]
+      if (!msg) return
+      const localId = msg._id || msg._localId
+      const el = messagesRef.current?.querySelector(`[data-localid="${CSS.escape(String(localId))}"]`)
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    } else {
+      const el = bubbleRefs.current[matchingIndices[matchIdx]]
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [matchIdx, matchingIndices]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function goNext() {
+    if (!matchingIndices.length) return
+    setMatchIdx(i => (i + 1) % matchingIndices.length)
+  }
+
+  function goPrev() {
+    if (!matchingIndices.length) return
+    setMatchIdx(i => (i - 1 + matchingIndices.length) % matchingIndices.length)
+  }
 
   // ── render ──────────────────────────────────────────────────────────────────
 
@@ -663,9 +801,9 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
           <span className="sv-contact-phone">{contactPhone}</span>
         </div>
 
-        {consolidation && (
+        {consolidation && (consolidation.last_message_ts || consolidation.consolidated_at) && (
           <span className="sv-consolidation-badge" title={`Consolidado: ${consolidation.consolidated_at}`}>
-            ✓ hasta {new Date(consolidation.last_message_ts || consolidation.consolidated_at).toLocaleDateString('es-AR')}
+            ✓ hasta {safeShortDate(consolidation.last_message_ts || consolidation.consolidated_at)}
           </span>
         )}
 
@@ -702,9 +840,15 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
           </>
         ) : (
           <>
-            <button className="sv-md-btn sv-md-btn--tuning" onClick={activateTuning} title="Activar modo edición">
-              ✏ Tuning
-            </button>
+            {consolidation ? (
+              <span className="sv-consolidated-badge" title={`Consolidado el ${consolidation.consolidated_at ? new Date(consolidation.consolidated_at).toLocaleDateString('es-AR') : '?'} — solo lectura`}>
+                📦 Consolidado
+              </span>
+            ) : (
+              <button className="sv-md-btn sv-md-btn--tuning" onClick={activateTuning} title="Activar modo edición">
+                ✏ Tuning
+              </button>
+            )}
             <button className="sv-md-btn" onClick={handleSync} disabled={syncing} title="Delta sync desde historial WA">
               {syncing ? '...' : '↻'}
             </button>
@@ -728,11 +872,19 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
               placeholder="Buscar…"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') { e.preventDefault(); e.shiftKey ? goPrev() : goNext() }
+              }}
             />
-            {searchQuery && (
-              <span className="sv-search-count">
-                {searchMatchCount === 0 ? 'sin resultados' : `${searchMatchCount} resultado${searchMatchCount !== 1 ? 's' : ''}`}
-              </span>
+            {searchQuery && matchingIndices.length === 0 && (
+              <span className="sv-search-count">sin resultados</span>
+            )}
+            {searchQuery && matchingIndices.length > 0 && (
+              <>
+                <span className="sv-search-count">{matchIdx + 1}/{matchingIndices.length}</span>
+                <button className="sv-search-nav" onClick={goPrev} title="Anterior (Shift+Enter)">↑</button>
+                <button className="sv-search-nav" onClick={goNext} title="Siguiente (Enter)">↓</button>
+              </>
             )}
             {searchQuery && (
               <button className="sv-search-clear" onClick={() => setSearchQuery('')} title="Limpiar">×</button>
@@ -785,6 +937,9 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
                   senders={uniqueSenders}
                   onConfirm={handleInsertConfirm}
                   onCancel={() => setInsertForm(null)}
+                  apiCall={apiCall}
+                  empresaId={empresaId}
+                  contactPhone={contactPhone}
                 />
               ) : (
                 <button
@@ -814,23 +969,28 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
             if (item.kind === 'sep') {
               return <DaySeparator key={`sep-${item.day}`} label={item.label} />
             }
-            const { msg } = item
+            const { msg, msgIdx } = item
             const q = searchQuery.toLowerCase()
             const matches = !searchQuery || (
               (msg.content && msg.content.toLowerCase().includes(q)) ||
               (msg.transcription && msg.transcription.toLowerCase().includes(q))
             )
             const dimmed = !matches
-            if (msg.type === 'audio') return (
-              <AudioBubble key={i} msg={msg} highlight={searchQuery} dimmed={dimmed} />
+            const isCurrent = searchQuery && matchingIndices[matchIdx] === msgIdx
+            let bubble
+            if (msg.type === 'audio') bubble = <AudioBubble msg={msg} highlight={searchQuery} dimmed={dimmed} />
+            else if (msg.type === 'image') bubble = <ImageBubble msg={msg} apiCall={apiCall} empresaId={empresaId} contactPhone={contactPhone} dimmed={dimmed} />
+            else if (msg.type === 'document') bubble = <DocumentBubble msg={msg} apiCall={apiCall} empresaId={empresaId} contactPhone={contactPhone} dimmed={dimmed} />
+            else bubble = <TextBubble msg={msg} highlight={searchQuery} dimmed={dimmed} />
+            return (
+              <div
+                key={i}
+                ref={el => { bubbleRefs.current[msgIdx] = el }}
+                className={`sv-msg-wrap${isCurrent ? ' sv-match-current' : ''}`}
+              >
+                {bubble}
+              </div>
             )
-            if (msg.type === 'image') return (
-              <ImageBubble key={i} msg={msg} apiCall={apiCall} empresaId={empresaId} contactPhone={contactPhone} dimmed={dimmed} />
-            )
-            if (msg.type === 'document') return (
-              <DocumentBubble key={i} msg={msg} apiCall={apiCall} empresaId={empresaId} contactPhone={contactPhone} dimmed={dimmed} />
-            )
-            return <TextBubble key={i} msg={msg} highlight={searchQuery} dimmed={dimmed} />
           })}
         </div>
       )}

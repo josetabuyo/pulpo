@@ -15,6 +15,7 @@ from graphs.nodes.summarize import (
     clear_contact_full, _newest_message_ts, trim_contact_from_date,
     migrate_empresa_to_slugs, get_contact_display_name,
     delete_message_by_id, rewrite_chat, consolidate_contact, get_consolidation_meta,
+    get_consolidation_dir,
     _path as _summary_path,
 )
 
@@ -88,14 +89,14 @@ async def list_consolidations(empresa_id: str, _: str = Depends(_check_auth)):
     for phone in contacts_list:
         meta = get_consolidation_meta(empresa_id, phone)
         if meta:
-            p = _summary_path(empresa_id, phone)
+            cdir = get_consolidation_dir(empresa_id, phone)
             result.append({
                 "phone": phone,
                 "name": get_contact_display_name(empresa_id, phone) or phone,
                 "consolidated_at": meta.get("consolidated_at"),
                 "last_message_ts": meta.get("last_message_ts"),
                 "message_count": meta.get("message_count", 0),
-                "path": str(p.parent / "consolidated" / "chat.md"),
+                "path": str(cdir / "chat.md") if cdir else "",
             })
     return {"consolidations": result}
 

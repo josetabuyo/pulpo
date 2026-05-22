@@ -626,15 +626,26 @@ def rewrite_chat(empresa_id: str, contact_phone: str, messages: list[dict]) -> N
 
 
 def consolidate_contact(empresa_id: str, contact_phone: str) -> dict:
-    """Consolida el chat.md actual: copia a consolidated/ y guarda metadata."""
+    """Consolida el historial completo: copia todos los archivos del contacto a
+    consolidated/YYYY-MM-DDTHH-MM-SS/ para preservar imágenes, documentos y audios."""
     import json as _json
     p = _path(empresa_id, contact_phone)
     slug_dir = p.parent
-    consolidated_dir = slug_dir / "consolidated"
+
+    now = datetime.now()
+    stamp = now.strftime("%Y-%m-%dT%H-%M-%S")
+    consolidated_dir = slug_dir / "consolidated" / stamp
     consolidated_dir.mkdir(parents=True, exist_ok=True)
 
-    if p.exists():
-        shutil.copy2(p, consolidated_dir / "chat.md")
+    _SKIP_SUFFIXES = {".bak.md", ".DS_Store"}
+    for f in slug_dir.iterdir():
+        if not f.is_file():
+            continue
+        if f.name.startswith("."):
+            continue
+        if any(f.name.endswith(s) for s in _SKIP_SUFFIXES):
+            continue
+        shutil.copy2(f, consolidated_dir / f.name)
 
     last_ts = _newest_message_ts(empresa_id, contact_phone)
     message_count = 0
@@ -643,7 +654,7 @@ def consolidate_contact(empresa_id: str, contact_phone: str) -> dict:
         message_count = sum(1 for block in content.split("\n---\n") if block.strip().startswith("## "))
 
     meta = {
-        "consolidated_at": datetime.now().isoformat(timespec="seconds"),
+        "consolidated_at": now.isoformat(timespec="seconds"),
         "last_message_ts": last_ts.isoformat(timespec="seconds") if last_ts else None,
         "message_count": message_count,
     }
@@ -655,13 +666,40 @@ def get_consolidation_meta(empresa_id: str, contact_phone: str) -> "dict | None"
     """Retorna metadata de la última consolidación, o None si no existe."""
     import json as _json
     p = _path(empresa_id, contact_phone)
-    meta_file = p.parent / "consolidated" / "metadata.json"
-    if not meta_file.exists():
+    base = p.parent / "consolidated"
+    if not base.exists():
         return None
-    try:
-        return _json.loads(meta_file.read_text(encoding="utf-8"))
-    except Exception:
+
+    stamped = sorted(
+        (d for d in base.iterdir() if d.is_dir()),
+        key=lambda d: d.name,
+        reverse=True,
+    )
+    for d in stamped:
+        meta_file = d / "metadata.json"
+        if meta_file.exists():
+            try:
+                return _json.loads(meta_file.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+    return None
+
+
+def get_consolidation_dir(empresa_id: str, contact_phone: str) -> "Path | None":
+    """Retorna el directorio de la consolidación más reciente, o None si no hay ninguna."""
+    p = _path(empresa_id, contact_phone)
+    base = p.parent / "consolidated"
+    if not base.exists():
         return None
+    stamped = sorted(
+        (d for d in base.iterdir() if d.is_dir()),
+        key=lambda d: d.name,
+        reverse=True,
+    )
+    for d in stamped:
+        if (d / "metadata.json").exists():
+            return d
+    return None
 
 
 class SummarizeNode(BaseNode):
