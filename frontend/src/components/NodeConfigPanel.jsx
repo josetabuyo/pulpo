@@ -666,7 +666,7 @@ function SummarizeInfo({ empresaId, apiCall, onGoToUIs }) {
 
 // ─── Formulario principal ──────────────────────────────────────────────────────
 
-const TRIGGER_TYPES = new Set(['whatsapp_trigger', 'whatsapp_trigger_v2', 'telegram_trigger', 'message_trigger'])
+const TRIGGER_TYPES = new Set(['whatsapp_trigger', 'telegram_trigger', 'message_trigger'])
 
 function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onGoToUIs }) {
   const updateNodeConfig  = useFlowStore(s => s.updateNodeConfig)

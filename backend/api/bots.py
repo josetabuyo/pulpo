@@ -37,20 +37,13 @@ def get_bots():
     config = load_config()
     result = []
     for bot in config.get("empresas", []):
-        from automation.whatsapp_v2 import wa_v2_manager
         phones = []
         for phone in bot.get("phones", []):
             session_id = phone["number"]
-            phone_type = phone.get("type", "whatsapp")
-            if phone_type == "whatsapp_v2":
-                status = wa_v2_manager.get_state(session_id)
-            else:
-                status = clients.get(session_id, {}).get("status", "stopped")
             phones.append({
                 "number": phone["number"],
-                "type": phone_type,
                 "sessionId": session_id,
-                "status": status,
+                "status": clients.get(session_id, {}).get("status", "stopped"),
                 "allowMass": phone.get("allow_mass", False),
             })
         telegram = []

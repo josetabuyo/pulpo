@@ -1010,9 +1010,8 @@ main { max-width: 900px; margin: 28px auto; padding: 0 16px; }
   font-size: 10px; font-weight: 700; padding: 2px 6px;
   border-radius: 4px; letter-spacing: .3px; flex-shrink: 0;
 }
-.ec-chan-badge--wa  { background: #25d366; color: white; }
-.ec-chan-badge--wa2 { background: #15803d; color: white; }
-.ec-chan-badge--tg  { background: #229ed9; color: white; }
+.ec-chan-badge--wa { background: #25d366; color: white; }
+.ec-chan-badge--tg { background: #229ed9; color: white; }
 .ec-conn-id {
   font-size: 13px; font-weight: 500; color: #1e293b;
   min-width: 110px; font-family: var(--font-mono); letter-spacing: -.3px;
