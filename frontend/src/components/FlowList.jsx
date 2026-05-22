@@ -86,25 +86,43 @@ export default function FlowList({ empresaId, apiCall, connections, onGoToUIs })
     setDeleting(null)
   }
 
-  // ── Modo editor ──────────────────────────────────────────────────────────────
-
-  if (editing) {
-    return (
-      <FlowEditor
-        flow={editing}
-        connections={connections}
-        apiCall={apiCall}
-        typeMap={typeMap}
-        onBack={() => { setEditing(null); loadFlows() }}
-        onSaved={() => loadFlows()}
-        onGoToUIs={onGoToUIs}
-      />
-    )
-  }
-
-  // ── Modo lista ───────────────────────────────────────────────────────────────
+  // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
+    <>
+    {editing && (
+      <div
+        style={{
+          position: 'fixed', inset: 0, zIndex: 1000,
+          background: 'rgba(0,0,0,.55)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+        onClick={e => e.target === e.currentTarget && setEditing(null)}
+      >
+        <div style={{
+          background: '#fff',
+          borderRadius: 16,
+          width: '92vw',
+          maxWidth: 1300,
+          height: '88vh',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          boxShadow: '0 24px 64px rgba(0,0,0,.35)',
+        }}>
+          <FlowEditor
+            flow={editing}
+            connections={connections}
+            apiCall={apiCall}
+            typeMap={typeMap}
+            onBack={() => { setEditing(null); loadFlows() }}
+            onSaved={() => loadFlows()}
+            onGoToUIs={onGoToUIs}
+          />
+        </div>
+      </div>
+    )}
+    {/* ── Lista ── */}
     <div style={{ padding: '16px 16px 8px' }}>
       {/* Header de la sección */}
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14 }}>
@@ -150,6 +168,7 @@ export default function FlowList({ empresaId, apiCall, connections, onGoToUIs })
         </div>
       )}
     </div>
+    </>
   )
 }
 

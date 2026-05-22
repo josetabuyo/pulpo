@@ -197,3 +197,177 @@ test('sv-save-status--ok tiene color verde y sv-save-status--error tiene color r
   expect(errR).toBeGreaterThan(errG)
   expect(errR).toBeGreaterThan(errB)
 })
+
+// ─── Regresión: sv-msg-wrap no rompe alineación ──────────────────────────────
+// Cuando cada burbuja se envuelve en un div.sv-msg-wrap (necesario para refs de
+// búsqueda), la alineación out/in debe seguir funcionando. Sin la regla CSS
+// `sv-msg-wrap { display:flex; flex-direction:column }` este test falla.
+
+test('sv-bubble--out sigue a la derecha cuando está dentro de sv-msg-wrap', async ({ page }) => {
+  await login(page)
+
+  const result = await page.evaluate(() => {
+    const container = document.createElement('div')
+    container.style.cssText = 'display:flex;flex-direction:column;width:400px;position:fixed;top:0;left:0'
+    document.body.appendChild(container)
+
+    const wrapOut = document.createElement('div')
+    wrapOut.className = 'sv-msg-wrap'
+    const bubbleOut = document.createElement('div')
+    bubbleOut.className = 'sv-bubble sv-bubble--out'
+    bubbleOut.style.cssText = 'min-width:80px;padding:8px 12px'
+    bubbleOut.textContent = 'Mensaje out'
+    wrapOut.appendChild(bubbleOut)
+    container.appendChild(wrapOut)
+
+    const wrapIn = document.createElement('div')
+    wrapIn.className = 'sv-msg-wrap'
+    const bubbleIn = document.createElement('div')
+    bubbleIn.className = 'sv-bubble sv-bubble--in'
+    bubbleIn.style.cssText = 'min-width:80px;padding:8px 12px'
+    bubbleIn.textContent = 'Mensaje in'
+    wrapIn.appendChild(bubbleIn)
+    container.appendChild(wrapIn)
+
+    const containerRect = container.getBoundingClientRect()
+    const outRect = bubbleOut.getBoundingClientRect()
+    const inRect = bubbleIn.getBoundingClientRect()
+    document.body.removeChild(container)
+
+    return {
+      containerRight: containerRect.right,
+      containerLeft: containerRect.left,
+      outRight: outRect.right,
+      inLeft: inRect.left,
+    }
+  })
+
+  // out debe llegar al borde derecho del contenedor (±2px)
+  expect(Math.abs(result.outRight - result.containerRight)).toBeLessThan(3)
+  // in debe empezar en el borde izquierdo (±2px)
+  expect(Math.abs(result.inLeft - result.containerLeft)).toBeLessThan(3)
+})
+
+test('sv-msg-wrap tiene display:flex y flex-direction:column', async ({ page }) => {
+  await login(page)
+
+  const result = await page.evaluate(() => {
+    const el = document.createElement('div')
+    el.className = 'sv-msg-wrap'
+    el.style.cssText = 'position:fixed;top:-9999px'
+    document.body.appendChild(el)
+    const cs = window.getComputedStyle(el)
+    const display = cs.display
+    const flexDir = cs.flexDirection
+    document.body.removeChild(el)
+    return { display, flexDir }
+  })
+
+  expect(result.display).toBe('flex')
+  expect(result.flexDir).toBe('column')
+})
+
+// ─── Regresión: badge de consolidación ───────────────────────────────────────
+
+test('sv-consolidated-badge tiene color verde (protección visual)', async ({ page }) => {
+  await login(page)
+
+  const result = await page.evaluate(() => {
+    const el = document.createElement('span')
+    el.className = 'sv-consolidated-badge'
+    el.style.cssText = 'position:fixed;top:-9999px'
+    document.body.appendChild(el)
+    const cs = window.getComputedStyle(el)
+    const color = cs.color
+    const background = cs.backgroundColor
+    document.body.removeChild(el)
+    return { color, background }
+  })
+
+  // Color de texto verde (G dominante)
+  const colorMatch = result.color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/)
+  expect(colorMatch).not.toBeNull()
+  const [, r, g, b] = colorMatch.map(Number)
+  expect(g).toBeGreaterThan(r)
+  expect(g).toBeGreaterThan(b)
+})
+
+test('sv-consolidated-badge no tiene cursor de puntero (no es clickeable)', async ({ page }) => {
+  await login(page)
+
+  const cursor = await page.evaluate(() => {
+    const el = document.createElement('span')
+    el.className = 'sv-consolidated-badge'
+    el.style.cssText = 'position:fixed;top:-9999px'
+    document.body.appendChild(el)
+    const cs = window.getComputedStyle(el)
+    const val = cs.cursor
+    document.body.removeChild(el)
+    return val
+  })
+
+  expect(cursor).toBe('default')
+})
+
+// ─── Regresión: preview de imagen pegada ─────────────────────────────────────
+
+test('sv-insert-img-thumb tiene max-height y border-radius (thumbnail de paste)', async ({ page }) => {
+  await login(page)
+
+  const result = await page.evaluate(() => {
+    const container = document.createElement('div')
+    container.style.cssText = 'position:fixed;top:-9999px'
+    document.body.appendChild(container)
+    const img = document.createElement('img')
+    img.className = 'sv-insert-img-thumb'
+    container.appendChild(img)
+    const cs = window.getComputedStyle(img)
+    const maxHeight = cs.maxHeight
+    const borderRadius = cs.borderRadius
+    document.body.removeChild(container)
+    return { maxHeight, borderRadius }
+  })
+
+  expect(result.maxHeight).not.toBe('none')
+  expect(parseFloat(result.maxHeight)).toBeGreaterThan(0)
+  expect(parseFloat(result.borderRadius)).toBeGreaterThan(0)
+})
+
+test('sv-insert-img-preview tiene display:flex y flex-direction:column', async ({ page }) => {
+  await login(page)
+
+  const result = await page.evaluate(() => {
+    const el = document.createElement('div')
+    el.className = 'sv-insert-img-preview'
+    el.style.cssText = 'position:fixed;top:-9999px'
+    document.body.appendChild(el)
+    const cs = window.getComputedStyle(el)
+    const display = cs.display
+    const flexDir = cs.flexDirection
+    document.body.removeChild(el)
+    return { display, flexDir }
+  })
+
+  expect(result.display).toBe('flex')
+  expect(result.flexDir).toBe('column')
+})
+
+test('sv-insert-img-remove está posicionado absolute para overlay sobre la imagen', async ({ page }) => {
+  await login(page)
+
+  const position = await page.evaluate(() => {
+    const wrap = document.createElement('div')
+    wrap.className = 'sv-insert-img-wrap'
+    wrap.style.cssText = 'position:relative;display:inline-flex;top:-9999px'
+    document.body.appendChild(wrap)
+    const btn = document.createElement('button')
+    btn.className = 'sv-insert-img-remove'
+    wrap.appendChild(btn)
+    const cs = window.getComputedStyle(btn)
+    const val = cs.position
+    document.body.removeChild(wrap)
+    return val
+  })
+
+  expect(position).toBe('absolute')
+})

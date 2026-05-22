@@ -555,13 +555,78 @@ function SheetCacheButton({ apiCall }) {
   )
 }
 
+function ConsolidationCard({ c }) {
+  const [copied, setCopied] = useState(false)
+  function copy() {
+    navigator.clipboard.writeText(c.path)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+  const consolidatedDate = c.consolidated_at
+    ? new Date(c.consolidated_at).toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : null
+  const limitDate = c.last_message_ts
+    ? new Date(c.last_message_ts).toLocaleDateString('es-AR', { day: 'numeric', month: 'short', year: 'numeric' })
+    : null
+  return (
+    <div style={{
+      background: '#0a1628', border: '1px solid #1e3a5f', borderRadius: 8,
+      padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ fontSize: 15 }}>📦</span>
+        <span style={{ fontSize: 12, color: '#93c5fd', fontWeight: 600, flex: 1 }}>
+          {c.name !== c.phone ? c.name : c.phone}
+        </span>
+        <span style={{
+          fontSize: 9, fontWeight: 700, letterSpacing: '0.06em',
+          background: '#14532d', color: '#4ade80', borderRadius: 4,
+          padding: '2px 6px',
+        }}>🔒 PROTEGIDO</span>
+      </div>
+      {consolidatedDate && (
+        <div style={{ fontSize: 10, color: '#475569' }}>
+          Consolidado el <span style={{ color: '#94a3b8' }}>{consolidatedDate}</span>
+          {limitDate && <> · hasta <span style={{ color: '#94a3b8' }}>{limitDate}</span></>}
+          {c.message_count > 0 && <> · <span style={{ color: '#64748b' }}>{c.message_count} msgs</span></>}
+        </div>
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <code style={{
+          fontSize: 9, color: '#7dd3fc', background: '#0f172a',
+          padding: '4px 7px', borderRadius: 5, wordBreak: 'break-all',
+          flex: 1, lineHeight: 1.5, fontFamily: 'monospace',
+        }}>
+          {c.path}
+        </code>
+        <button
+          onClick={copy}
+          style={{
+            fontSize: 9, padding: '3px 7px', borderRadius: 4, cursor: 'pointer', flexShrink: 0,
+            background: copied ? '#166534' : 'transparent',
+            border: `1px solid ${copied ? '#16a34a' : '#1e3a5f'}`,
+            color: copied ? '#4ade80' : '#3b82f6',
+            transition: 'all 0.2s',
+          }}
+        >
+          {copied ? '✓' : 'Copiar'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function SummarizeInfo({ empresaId, apiCall, onGoToUIs }) {
   const [absPath, setAbsPath] = useState(null)
+  const [consolidations, setConsolidations] = useState([])
 
   useEffect(() => {
     if (!empresaId || !apiCall) return
     apiCall('GET', `/summarizer/${empresaId}`, null)
       .then(data => { if (data?.path) setAbsPath(data.path) })
+      .catch(() => {})
+    apiCall('GET', `/summarizer/${empresaId}/consolidations`, null)
+      .then(data => { if (Array.isArray(data?.consolidations)) setConsolidations(data.consolidations) })
       .catch(() => {})
   }, [empresaId, apiCall])
 
@@ -579,6 +644,14 @@ function SummarizeInfo({ empresaId, apiCall, onGoToUIs }) {
           {displayPath}
         </code>
       </div>
+
+      {consolidations.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <span style={S.label}>CONSOLIDADOS</span>
+          {consolidations.map(c => <ConsolidationCard key={c.phone} c={c} />)}
+        </div>
+      )}
+
       {empresaId && onGoToUIs && (
         <button
           onClick={onGoToUIs}
@@ -622,6 +695,7 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
   const [scraperStatus, setScraperStatus]   = useState(null)
   const [screenshotOpen, setScreenshotOpen] = useState(true)
   const [screenshotUrl, setScreenshotUrl]   = useState(null)
+  const [dateFromConsolidation, setDateFromConsolidation] = useState(null)
 
   function handleImportFromDateChange(e) {
     setImportFromDate(e.target.value)
@@ -650,6 +724,25 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
     apiCall('GET', `/empresas/${empresaId}/flows/${flowId}/import-status`, null)
       .then(st => { if (st && (st.attempts?.length > 0 || st.running)) setScraperStatus(st) })
       .catch(() => {})
+    // Pre-llenar fecha desde la consolidación más reciente si el campo está vacío
+    if (!localStorage.getItem('wa_import_from_date')) {
+      apiCall('GET', `/summarizer/${empresaId}/consolidations`, null)
+        .then(data => {
+          const list = data?.consolidations || []
+          if (!list.length) return
+          const latest = list.reduce((best, c) => {
+            if (!best) return c
+            return (c.last_message_ts || '') > (best.last_message_ts || '') ? c : best
+          }, null)
+          if (latest?.last_message_ts) {
+            const dateStr = latest.last_message_ts.slice(0, 10)
+            setImportFromDate(dateStr)
+            setDateFromConsolidation(dateStr)
+            localStorage.setItem('wa_import_from_date', dateStr)
+          }
+        })
+        .catch(() => {})
+    }
   }, [nodeType, empresaId, flowId])
 
   function handleChange(newConfig) { updateNodeConfig(node.id, newConfig) }
@@ -948,15 +1041,22 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
 
           {nodeType === 'whatsapp_trigger' && config.contact_filter?.included?.length > 0 && (
             <>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <span style={{ fontSize: 11, color: '#64748b', flexShrink: 0 }}>Desde</span>
-                <input
-                  type="date"
-                  style={{ ...S.input, flex: 1, colorScheme: 'dark' }}
-                  value={importFromDate}
-                  onChange={handleImportFromDateChange}
-                  placeholder="(todo el historial)"
-                />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <span style={{ fontSize: 11, color: '#64748b', flexShrink: 0 }}>Desde</span>
+                  <input
+                    type="date"
+                    style={{ ...S.input, flex: 1, colorScheme: 'dark' }}
+                    value={importFromDate}
+                    onChange={handleImportFromDateChange}
+                    placeholder="(todo el historial)"
+                  />
+                </div>
+                {dateFromConsolidation && importFromDate === dateFromConsolidation && (
+                  <span style={{ fontSize: 10, color: '#3b82f6', paddingLeft: 2 }}>
+                    📦 límite de consolidación
+                  </span>
+                )}
               </div>
               <button
                 onClick={handleImportWA}

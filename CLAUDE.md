@@ -193,32 +193,34 @@ Hay tres tipos de browser Playwright/Chromium corriendo en paralelo. **Nunca con
 
 | Tipo | Cómo identificarlo en `ps` | Tocar |
 |------|---------------------------|-------|
-| **MCP** (Claude + dev) | proceso node `playwright-mcp` + Chrome con `--user-data-dir=/var/folders/...` | ✅ OK matar |
+| **playwright-cli** (Claude) | proceso CLI efímero (sin servidor permanente) — `playwright-cli open/close` | ✅ OK cerrar |
 | **WA bots** | Chrome con `--user-data-dir=.../data/sessions/{número}/profile` | ❌ NUNCA |
 | **Tests de UI** | Chrome lanzado por `playwright test` (también `/var/folders/...`) | ✅ OK (solo existen mientras corren tests) |
 
-### Cuando el MCP se traba
-El servidor MCP es el proceso node `playwright-mcp` — **nunca matarlo**, es el que le da las herramientas de browser a Claude.
+### Cuando playwright-cli se traba
+playwright-cli es un CLI global — **no hay servidor permanente**. Claude lo usa directamente via Bash: `playwright-cli open`, `playwright-cli goto`, `playwright-cli screenshot`, etc.
 
-Lo que hay que hacer es matar solo el **Chrome** que el MCP lanzó (tiene user-data-dir temporal en `/var/folders/...`). El servidor node lo reinicia solo:
-
+Si el browser se traba:
 ```bash
-# Matar solo el Chrome del MCP (NO el servidor node)
-pkill -f "playwright_chromiumdev_profile"
+# Cerrar la sesión actual
+playwright-cli close
 
-# Verificar que los WA bots sobrevivieron
+# Ver todas las sesiones abiertas y cerrarlas
+playwright-cli list
+playwright-cli close-all
+
+# Si hay procesos zombie
+playwright-cli kill-all
+```
+
+Verificar que los WA bots sobrevivieron:
+```bash
 ps aux | grep "data/sessions" | grep -v grep
 ```
 
-Si el servidor node también está caído (porque alguien lo mató), el **usuario** lo reinicia en su terminal:
-```bash
-npm exec @playwright/mcp@latest --browser chromium
-```
-Claude NO puede iniciarlo — necesita que el servidor esté corriendo para tener las herramientas.
-
-La clave para distinguir: `--user-data-dir`
-- `/var/folders/...` → temporal (MCP o test) — matar el Chrome OK, nunca el node server
-- `.../data/sessions/` → persistente WA — NUNCA tocar
+La clave para distinguir:
+- `playwright-cli` (Claude) → efímero, sin user-data-dir persistente — cerrar OK
+- `.../data/sessions/` → WA bot persistente — NUNCA tocar
 
 ## Sesiones WhatsApp — reglas críticas
 - **NUNCA `pkill -9`** en procesos Playwright/Chromium — SIGKILL corrompe el perfil Chrome y pierde la sesión WA

@@ -107,103 +107,6 @@ function Toggle({ checked, onChange, disabled }) {
   )
 }
 
-// ─── ContactModal ──────────────────────────────────────────────────────────────
-
-function ContactModal({ botId, contact, apiCall, onClose, onSaved }) {
-  const isEdit = !!contact
-  const [name, setName] = useState(contact?.name ?? '')
-  const [channels, setChannels] = useState(contact?.channels ?? [])
-  const [newType, setNewType] = useState('whatsapp')
-  const [newVal, setNewVal] = useState('')
-  const [newIsGroup, setNewIsGroup] = useState(false)
-  const [chErr, setChErr] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [err, setErr] = useState('')
-
-  async function handleSave(e) {
-    e.preventDefault(); setErr(''); setSaving(true)
-    if (!name.trim()) { setErr('El nombre es obligatorio'); setSaving(false); return }
-    let res
-    if (isEdit) {
-      res = await apiCall('PUT', `/contacts/${contact.id}`, { name }).catch(() => null)
-      if (!res?.id) { setErr(res?.detail || 'Error al guardar'); setSaving(false); return }
-    } else {
-      res = await apiCall('POST', `/bots/${botId}/contacts`, { name, channels }).catch(() => null)
-      if (!res?.id) { setErr(res?.detail || 'Error al crear'); setSaving(false); return }
-    }
-    setSaving(false); onSaved(res)
-  }
-
-  async function addChannel(e) {
-    e.preventDefault(); setChErr('')
-    const val = newVal.trim(); if (!val) return
-    if (isEdit) {
-      const res = await apiCall('POST', `/contacts/${contact.id}/channels`, { type: newType, value: val, is_group: newIsGroup }).catch(() => null)
-      if (!res?.id) { setChErr(res?.detail || 'Error al agregar canal'); return }
-      setChannels(c => [...c, res])
-    } else {
-      setChannels(c => [...c, { id: Date.now(), type: newType, value: val, is_group: newIsGroup }])
-    }
-    setNewVal(''); setNewIsGroup(false)
-  }
-
-  async function removeChannel(ch) {
-    if (isEdit) await apiCall('DELETE', `/contact-channels/${ch.id}`, null).catch(() => null)
-    setChannels(c => c.filter(x => x.id !== ch.id))
-  }
-
-  return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal-box">
-        <div className="modal-header">
-          <span>{isEdit ? 'Editar contacto' : 'Nuevo contacto'}</span>
-          <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
-        </div>
-        <form onSubmit={handleSave}>
-          <div className="fg"><label>Nombre</label>
-            <input value={name} onChange={e => setName(e.target.value)} placeholder="Nombre del contacto" autoFocus />
-          </div>
-          <div className="fg"><label>Canales</label>
-            {channels.length > 0
-              ? <div className="channel-list">
-                  {channels.map(ch => (
-                    <div key={ch.id} className="channel-item">
-                      <span className="ch-badge ch-badge--small">{channelLabel(ch)}</span>
-                      <span className="ch-value">{ch.value}</span>
-                      <button type="button" className="btn-ghost btn-sm" onClick={() => removeChannel(ch)}>✕</button>
-                    </div>
-                  ))}
-                </div>
-              : <div className="empty" style={{ padding: '8px 0', fontSize: 13 }}>Sin canales</div>
-            }
-            <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-              <select value={newType} onChange={e => { setNewType(e.target.value); setNewIsGroup(false) }} style={{ width: 130 }}>
-                <option value="whatsapp">WhatsApp</option>
-                <option value="telegram">Telegram</option>
-              </select>
-              <input style={{ flex: 1, minWidth: 120 }} value={newVal} onChange={e => setNewVal(e.target.value)}
-                placeholder={newType === 'whatsapp' ? (newIsGroup ? 'Nombre del grupo' : 'Número (sin +)') : 'Número o @username'} />
-              <button type="button" className="btn-ghost btn-sm" onClick={addChannel}>+ Canal</button>
-            </div>
-            {newType === 'whatsapp' && (
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, marginTop: 4, cursor: 'pointer' }}>
-                <input type="checkbox" checked={newIsGroup} onChange={e => setNewIsGroup(e.target.checked)} />
-                👥 Es grupo de WhatsApp
-              </label>
-            )}
-            {chErr && <div style={{ fontSize: 12, color: '#c00', marginTop: 4 }}>{chErr}</div>}
-          </div>
-          {err && <div style={{ fontSize: 13, color: '#c00', marginBottom: 8 }}>{err}</div>}
-          <div className="portal-save-row">
-            <button type="button" className="btn-ghost btn-sm" onClick={onClose}>Cancelar</button>
-            <button type="submit" className="btn-primary btn-sm" disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
-
 // ─── EmpresaConfigTab ──────────────────────────────────────────────────────────
 
 function EmpresaConfigTab({ botId, botName, apiCall, onNameChange }) {
@@ -768,7 +671,7 @@ function GoogleSetupModal({ botId, apiCall, onClose, onSaved }) {
   )
 }
 
-function GoogleConnectionsSection({ botId, apiCall, mode }) {
+function GoogleConnectionsSection({ botId, apiCall, mode, hideAddButton = false }) {
   const [conns, setConns] = useState([])
   const [showModal, setShowModal] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -810,7 +713,7 @@ function GoogleConnectionsSection({ botId, apiCall, mode }) {
           )}
         </div>
       ))}
-      {mode === 'admin' && (
+      {!hideAddButton && mode === 'admin' && (
         <div className="ec-add-row">
           <button className="btn-sm" style={{ background: '#f0fdf4', color: '#15803d' }} onClick={() => setShowModal(true)}>+ Google Sheets</button>
         </div>
@@ -844,10 +747,18 @@ export default function EmpresaCard({
   const [activeTab, setActiveTab] = useState('connections')
   const [paused, setPaused] = useState(false)
   const [pauseLoading, setPauseLoading] = useState(false)
+  const [hasSummarizer, setHasSummarizer] = useState(false)
 
   useEffect(() => {
     apiCall('GET', `/empresa/${bot.id}/paused`, null)
       .then(r => { if (r?.paused !== undefined) setPaused(r.paused) })
+      .catch(() => {})
+  }, [bot.id])
+
+  useEffect(() => {
+    setHasSummarizer(false)
+    apiCall('GET', `/empresas/${bot.id}/flows/has-node/summarize`, null)
+      .then(data => { if (data?.found) setHasSummarizer(true) })
       .catch(() => {})
   }, [bot.id])
 
@@ -911,7 +822,7 @@ export default function EmpresaCard({
 
   const tabs = [
     { id: 'connections', label: 'Conexiones', count: conns.length },
-    { id: 'uis', label: 'UIs', count: null },
+    ...(hasSummarizer ? [{ id: 'uis', label: 'UIs', count: null }] : []),
     { id: 'flow', label: 'Flow', count: null },
     ...(mode === 'empresa' ? [{ id: 'config', label: 'Configurar', count: null }] : []),
   ]
@@ -1037,13 +948,14 @@ export default function EmpresaCard({
             )}
 
             {/* Google Connections */}
-            <GoogleConnectionsSection botId={botId} apiCall={apiCall} mode={mode} />
+            <GoogleConnectionsSection botId={botId} apiCall={apiCall} mode={mode} hideAddButton={mode === 'admin'} />
 
             {/* Add row */}
             {mode === 'admin' && (
               <div className="ec-add-row">
                 <button className="btn-blue btn-sm" onClick={() => onAddPhone?.(botId)}>+ WhatsApp</button>
                 <button className="btn-sm" style={{ background: '#e3f2fd', color: '#0d47a1' }} onClick={() => onAddTelegram?.(botId)}>+ Telegram</button>
+                <button className="btn-sm" style={{ background: '#f0fdf4', color: '#15803d' }} onClick={() => setShowGoogleModal(true)}>+ Google Sheets</button>
               </div>
             )}
 
@@ -1061,12 +973,10 @@ export default function EmpresaCard({
                       placeholder="Token @BotFather (123456:ABC...)" style={{ flex: 1 }} />
                     <button type="submit" className="btn-sm" style={{ background: '#e3f2fd', color: '#0d47a1' }} disabled={addingConn}>+ TG</button>
                   </form>
-                </div>
-                <div style={{ padding: '8px 20px' }}>
                   <button
                     type="button"
                     className="btn-sm"
-                    style={{ background: '#f0fdf4', color: '#15803d' }}
+                    style={{ background: '#f0fdf4', color: '#15803d', alignSelf: 'center' }}
                     onClick={() => setShowGoogleModal(true)}
                   >+ Google Sheets</button>
                 </div>
@@ -1078,7 +988,7 @@ export default function EmpresaCard({
               <GoogleSetupModal
                 botId={botId} apiCall={apiCall}
                 onClose={() => setShowGoogleModal(false)}
-                onSaved={() => {}}
+                onSaved={() => { setShowGoogleModal(false); onRefresh?.() }}
               />
             )}
           </div>
@@ -1086,7 +996,7 @@ export default function EmpresaCard({
 
         {/* ── UIs ── */}
         {activeTab === 'uis' && (
-          <UIsList botId={botId} apiCall={apiCall} waConns={waConns} />
+          <UIsList botId={botId} apiCall={apiCall} />
         )}
 
         {/* ── Flow ── */}

@@ -58,7 +58,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
   }, [setSelectedNodeId])
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(90vh - 220px)', minHeight: 480 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 480 }}>
       <FlowHeader
         flow={flow}
         connections={connections}

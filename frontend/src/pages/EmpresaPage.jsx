@@ -6,6 +6,24 @@ import EmpresaCard from '../components/EmpresaCard.jsx'
 // ─── Helpers de API empresa ──────────────────────────────────────
 
 async function empresaApi(method, path, body) {
+  if (method === 'GET_BLOB') {
+    const res = await authFetch('/api' + path, { method: 'GET' })
+    return res.blob()
+  }
+  if (method === 'GET_TEXT') {
+    const res = await authFetch('/api' + path, { method: 'GET' })
+    return res.text()
+  }
+  if (method === 'POST_FORM') {
+    // No poner Content-Type — el browser lo genera con el boundary correcto para multipart
+    const { getAccessToken } = await import('../lib/auth.js')
+    const token = getAccessToken()
+    const headers = {}
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    const res = await fetch('/api' + path, { method: 'POST', body, headers, credentials: 'include' })
+    if (res.status === 401) return { _unauthorized: true }
+    return res.json()
+  }
   const res = await authFetch('/api' + path, {
     method,
     body: body ? JSON.stringify(body) : undefined,

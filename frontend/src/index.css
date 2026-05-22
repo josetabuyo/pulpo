@@ -994,7 +994,7 @@ main { max-width: 900px; margin: 28px auto; padding: 0 16px; }
   padding: 1px 6px; border-radius: 10px; min-width: 18px; text-align: center;
 }
 .ec-tab--active .ec-tab-badge { background: #7c3aed; color: white; }
-.ec-content { padding: 0; }
+.ec-content { padding: 0; min-height: 240px; }
 .ec-section-label {
   font-size: 10px; font-weight: 700; text-transform: uppercase;
   letter-spacing: .7px; padding: 5px 20px 4px; border-bottom: 1px solid #f0f0f0;
@@ -1224,6 +1224,18 @@ main { max-width: 900px; margin: 28px auto; padding: 0 16px; }
   color: #7c3aed;
   white-space: nowrap;
 }
+.sv-search-nav {
+  background: none;
+  border: 1px solid #2a2a4a;
+  color: #7c3aed;
+  font-size: 11px;
+  padding: 1px 5px;
+  cursor: pointer;
+  line-height: 1.4;
+  border-radius: 3px;
+}
+.sv-search-nav:hover { background: #1a1a3a; }
+.sv-search-nav:disabled { opacity: 0.3; cursor: default; }
 .sv-search-clear {
   background: none;
   border: none;
@@ -1235,6 +1247,16 @@ main { max-width: 900px; margin: 28px auto; padding: 0 16px; }
   border-radius: 2px;
 }
 .sv-search-clear:hover { color: #8888aa; }
+/* Wrapper de cada mensaje: mantiene flex column para que align-self funcione */
+.sv-msg-wrap {
+  display: flex;
+  flex-direction: column;
+}
+.sv-match-current .sv-bubble {
+  outline: 2px solid #7c3aed88;
+  outline-offset: 1px;
+  border-radius: 10px;
+}
 .sv-highlight {
   background: #7c3aed44;
   color: #c4b5fd;
@@ -1697,6 +1719,66 @@ main { max-width: 900px; margin: 28px auto; padding: 0 16px; }
 }
 
 .sv-insert-cancel:hover { background: #1e293b; }
+
+/* Badge consolidado (reemplaza botón Tuning) */
+.sv-consolidated-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: #0a2010;
+  border: 1px solid #14532d;
+  color: #4ade80;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: default;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+
+/* Preview de imagen pegada en InsertForm */
+.sv-insert-img-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sv-insert-img-wrap {
+  position: relative;
+  display: inline-flex;
+  align-self: flex-start;
+}
+
+.sv-insert-img-thumb {
+  max-height: 140px;
+  max-width: 100%;
+  border-radius: 6px;
+  object-fit: contain;
+  border: 1px solid #334155;
+  display: block;
+}
+
+.sv-insert-img-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: rgba(15,23,42,0.85);
+  border: none;
+  color: #ef4444;
+  font-size: 16px;
+  line-height: 1;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.sv-insert-img-remove:hover { background: rgba(15,23,42,1); }
 
 /* WAScreenshotPanel */
 .wa-screenshot-panel {
