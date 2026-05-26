@@ -424,11 +424,22 @@ def extract_bubble_texts(cropped_path: Path, bubbles: list[dict]) -> list[dict]:
         timestamp = _extract_timestamp(raw_blocks)
         msg_type = classify_msg_type(text, raw_blocks)
 
+        # Click point in cropped-panel coordinates (no sidebar offset yet)
+        if msg_type == "audio":
+            rx, ry = _find_play_button(crop, bubble["type"])
+            click_point = {"x": x0 + rx, "y": y0 + ry}
+        elif msg_type == "file":
+            rx, ry = _find_file_click(crop)
+            click_point = {"x": x0 + rx, "y": y0 + ry}
+        else:
+            click_point = None
+
         results.append({
             "id": len(bubbles) - i,   # 1 = newest (bottom), N = oldest (top)
             "sender": bubble["type"],
             "msg_type": msg_type,
             "timestamp": timestamp,
+            "click_point": click_point,
             "bbox": {"x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0},
             "text": text,
             "raw_blocks": raw_blocks,
