@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 # Import our modules
@@ -104,6 +105,8 @@ RE_AUDIO_LOOSE = re.compile(r'^0[\s\-\.]?\d{2}$')  # "0 38", "058", "0-38"
 RE_FILE_EXT = re.compile(r'\.(xlsx?|docx?|pdf|csv|pptx?|txt|zip|rar|mov|mp4|png|jpg|jpeg)\b', re.I)
 RE_SCREEN_REC = re.compile(r'Screen Recording', re.I)
 RE_SIZE = re.compile(r'\d+[\.,]?\d*\s*(kB|MB|GB|k8|M8)\b', re.I)
+# Audio duration: M:SS not followed by a/p (am/pm) — distinguishes "1:11" (audio) from "3:55 p. m." (timestamp)
+RE_AUDIO_DURATION = re.compile(r'\b\d{1,2}:\d{2}\b(?!\s*[ap])', re.I)
 RE_NOISE = re.compile(r'^(\+|\s*Escribe un mensaje.*|.*filtrados.*|.*encriptados.*|\d{3,}/\d{3,})', re.I)
 
 
@@ -237,6 +240,26 @@ def _core_time(text: str) -> str | None:
     return (m.group(1) + m.group(2).lower()) if m else None
 
 
+def _extract_timestamp(raw_blocks: list[dict]) -> str | None:
+    """Extract the message timestamp string from per-bubble OCR blocks.
+
+    Tries standalone blocks first (short, only a time), then embedded
+    (timestamp at end of a longer text line).
+    """
+    for b in raw_blocks:
+        t = b["text"].strip()
+        if len(t) < 25 and RE_TIME.search(t):
+            m = RE_TIME.search(t)
+            return t[m.start():m.end()].strip()
+    for b in raw_blocks:
+        t = b["text"].strip()
+        if RE_TIME_END.search(t):
+            m = RE_TIME.search(t)
+            if m:
+                return t[m.start():m.end()].strip()
+    return None
+
+
 def _split_bubble_by_timestamps(bubble: dict, blocks: list[dict], img_h: int) -> list[dict]:
     """Split a merged color blob into individual message boxes.
 
@@ -341,6 +364,31 @@ def draw_message_boxes(cropped_path: Path, messages, blocks) -> Path:
     return out, split
 
 
+def _is_waveform_garbage(text: str) -> bool:
+    """True if the block looks like OCR noise from an audio waveform."""
+    if len(text) < 5:
+        return False
+    noise = sum(1 for c in text if c in '|•01-[]lL ')
+    return noise / len(text) > 0.45
+
+
+def classify_msg_type(text: str, raw_blocks: list[dict]) -> str:
+    """Classify a bubble as: text | audio | file | media.
+
+    Priority: file > audio > media > text.
+    All signals are derived from OCR output — no hardcoded colors.
+    """
+    if RE_SIZE.search(text) or RE_FILE_EXT.search(text) or RE_SCREEN_REC.search(text):
+        return "file"
+    has_duration = bool(RE_AUDIO_DURATION.search(text))
+    has_waveform = any(_is_waveform_garbage(b["text"]) for b in raw_blocks)
+    if has_duration or has_waveform:
+        return "audio"
+    if not text.strip():
+        return "media"
+    return "text"
+
+
 def extract_bubble_texts(cropped_path: Path, bubbles: list[dict]) -> list[dict]:
     """OCR each individual bubble crop and return per-message structured data.
 
@@ -373,16 +421,118 @@ def extract_bubble_texts(cropped_path: Path, bubbles: list[dict]) -> list[dict]:
         tmp.unlink()
 
         text = " ".join(b["text"].strip() for b in raw_blocks if b["text"].strip())
+        timestamp = _extract_timestamp(raw_blocks)
+        msg_type = classify_msg_type(text, raw_blocks)
 
         results.append({
-            "id": i + 1,
+            "id": len(bubbles) - i,   # 1 = newest (bottom), N = oldest (top)
             "sender": bubble["type"],
+            "msg_type": msg_type,
+            "timestamp": timestamp,
             "bbox": {"x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0},
             "text": text,
             "raw_blocks": raw_blocks,
         })
 
+    missing = [r["id"] for r in results if r["timestamp"] is None]
+    if missing:
+        print(f"  ⚠  sin timestamp: ids {missing}")
     return results
+
+
+def _find_play_button(crop: Image.Image, sender: str) -> tuple[int, int]:
+    """Locate the ▶ play button in an audio bubble crop.
+
+    Layout differs by sender:
+    - "other": [▶ button][waveform][avatar RIGHT]  → search left 30% of crop
+    - "me":    [avatar LEFT][▶ button][waveform]   → avatar ≈ bubble height wide,
+                                                      skip it then search next band
+
+    No hardcoded colors — finds the darkest compact region in the search window.
+    """
+    arr = np.array(crop.convert("L"))
+    h, w = arr.shape
+
+    if sender == "me":
+        # Avatar is roughly square (diameter ≈ bubble height). Skip it.
+        x_start = int(h * 0.75)
+        x_end   = min(w, x_start + int(h * 0.70))
+    else:
+        x_start = 0
+        x_end   = w // 3
+
+    region = arr[:, x_start:x_end]
+    lo, hi = int(region.min()), int(region.max())
+    if hi == lo:
+        return (x_start + x_end) // 2, h // 2
+    dark_thresh = lo + (hi - lo) * 0.30
+    mask = region < dark_thresh
+    if not mask.any():
+        return (x_start + x_end) // 2, h // 2
+    ys, xs = np.where(mask)
+    return x_start + int(np.median(xs)), int(np.median(ys))
+
+
+def _find_file_click(crop: Image.Image) -> tuple[int, int]:
+    """Locate the click point for a file attachment.
+
+    The file box is a sub-region with a uniform color noticeably different
+    from the bubble background. We find the centroid of all pixels that
+    deviate significantly from the bubble's median color.
+    """
+    arr = np.array(crop.convert("RGB")).astype(np.float32)
+    h, w = arr.shape[:2]
+    bg = np.median(arr.reshape(-1, 3), axis=0)
+    diff = np.sqrt(((arr - bg) ** 2).sum(axis=2))
+    thresh = diff.mean() + diff.std() * 0.8
+    mask = diff > thresh
+    if not mask.any():
+        return w // 2, h // 2
+    ys, xs = np.where(mask)
+    return int(xs.mean()), int(ys.mean())
+
+
+def draw_click_crosshairs(annotated_path: Path, bubble_data: list[dict]) -> Path:
+    """Draw click points on the annotated image, type-aware.
+
+    - text  → no cross (skip)
+    - audio → cross on ▶ play button (left third, darkest region)
+    - file  → cross on file-box center (inner region differing from bg)
+    - media → cross at center (fallback)
+
+    Color: red. Numbers match bubble id.
+    """
+    cropped_path = Path(str(annotated_path).replace("_annotated", "_cropped"))
+    panel = Image.open(cropped_path)
+    img = Image.open(annotated_path).convert("RGB")
+    draw = ImageDraw.Draw(img)
+    ARM = 10
+
+    for b in bubble_data:
+        if b["msg_type"] == "text":
+            continue
+
+        x0 = b["bbox"]["x"]
+        y0 = b["bbox"]["y"]
+        bw = b["bbox"]["w"]
+        bh = b["bbox"]["h"]
+        crop = panel.crop((x0, y0, x0 + bw, y0 + bh))
+
+        if b["msg_type"] == "audio":
+            rx, ry = _find_play_button(crop, b["sender"])
+        elif b["msg_type"] == "file":
+            rx, ry = _find_file_click(crop)
+        else:
+            rx, ry = bw // 2, bh // 2
+
+        cx, cy = x0 + rx, y0 + ry
+        draw.line([(cx - ARM, cy), (cx + ARM, cy)], fill=(255, 0, 0), width=2)
+        draw.line([(cx, cy - ARM), (cx, cy + ARM)], fill=(255, 0, 0), width=2)
+        draw.text((cx + ARM + 2, cy - 6), str(b["id"]), fill=(255, 0, 0))
+
+    out = annotated_path.parent / annotated_path.name.replace("_annotated", "_click_points")
+    img.save(out)
+    return out
 
 
 def count_stats(messages):
@@ -431,6 +581,9 @@ def run_pipeline(img_path: Path):
         json.dump(bubble_data, f, indent=2, ensure_ascii=False)
     print(f"  → {out_bubbles.name}  ({len(bubble_data)} mensajes)")
 
+    click_img = draw_click_crosshairs(annotated, bubble_data)
+    print(f"  → {click_img.name}  (debug: centros de click)")
+
     print(f"\n{'─'*60}")
     print("BUBBLES (text per message)")
     print(f"{'─'*60}")
@@ -438,10 +591,6 @@ def run_pipeline(img_path: Path):
         preview = b["text"][:80].replace("\n", " ")
         print(f"  #{b['id']:2d} [{b['sender']:5s}]  {preview}")
 
-    out = ASSETS / (img_path.stem + "_pipeline_result.json")
-    with open(out, "w") as f:
-        json.dump({"stats": stats, "messages": [asdict(m) for m in messages]}, f, indent=2, ensure_ascii=False)
-    print(f"\nFull results: {out}")
     return stats, messages
 
 
