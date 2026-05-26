@@ -341,6 +341,50 @@ def draw_message_boxes(cropped_path: Path, messages, blocks) -> Path:
     return out, split
 
 
+def extract_bubble_texts(cropped_path: Path, bubbles: list[dict]) -> list[dict]:
+    """OCR each individual bubble crop and return per-message structured data.
+
+    Running OCR on the full image and then assigning blocks by Y position is fragile.
+    Cropping first and OCR-ing each bubble independently gives a 1:1 mapping between
+    image region and message text, with no positional guesswork.
+
+    Scale: at least 3x; bumped to 5x for very short bubbles (<40px) to keep text legible.
+    """
+    img = Image.open(cropped_path)
+    img_w, img_h = img.size
+    results: list[dict] = []
+
+    for i, bubble in enumerate(bubbles):
+        x0 = max(0, bubble["x"])
+        y0 = max(0, bubble["y"])
+        x1 = min(img_w, bubble["x"] + bubble["w"])
+        y1 = min(img_h, bubble["y"] + bubble["h"])
+
+        crop = img.crop((x0, y0, x1, y1))
+        cw, ch = crop.size
+
+        scale = 5.0 if ch < 40 else 3.0
+        crop_up = crop.resize((int(cw * scale), int(ch * scale)), Image.LANCZOS)
+
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+            tmp = Path(f.name)
+        crop_up.save(tmp)
+        raw_blocks = run_ocr(tmp)
+        tmp.unlink()
+
+        text = " ".join(b["text"].strip() for b in raw_blocks if b["text"].strip())
+
+        results.append({
+            "id": i + 1,
+            "sender": bubble["type"],
+            "bbox": {"x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0},
+            "text": text,
+            "raw_blocks": raw_blocks,
+        })
+
+    return results
+
+
 def count_stats(messages):
     stats = {"total": len(messages), "other": 0, "me": 0, "audio": 0, "files": []}
     for m in messages:
@@ -380,16 +424,19 @@ def run_pipeline(img_path: Path):
           f"(me={sum(1 for b in bubbles if b['type']=='me')}  "
           f"other={sum(1 for b in bubbles if b['type']=='other')})")
 
+    print("\n[4/4] OCR per bubble crop...")
+    bubble_data = extract_bubble_texts(cropped, bubbles)
+    out_bubbles = ASSETS / (img_path.stem + "_bubbles.json")
+    with open(out_bubbles, "w") as f:
+        json.dump(bubble_data, f, indent=2, ensure_ascii=False)
+    print(f"  → {out_bubbles.name}  ({len(bubble_data)} mensajes)")
+
     print(f"\n{'─'*60}")
-    print("RESULTS")
+    print("BUBBLES (text per message)")
     print(f"{'─'*60}")
-    print(f"Messages found:    {stats['total']}")
-    print(f"  Other person:    {stats.get('other', 0)}")
-    print(f"  Me:              {stats.get('me', 0)}")
-    print(f"Audio messages:    {stats['audio']}")
-    print(f"File attachments:  {len(stats['files'])}")
-    for f in stats["files"]:
-        print(f"  [{f['kind']}] {f['name']}  {f['size']}")
+    for b in bubble_data:
+        preview = b["text"][:80].replace("\n", " ")
+        print(f"  #{b['id']:2d} [{b['sender']:5s}]  {preview}")
 
     out = ASSETS / (img_path.stem + "_pipeline_result.json")
     with open(out, "w") as f:
