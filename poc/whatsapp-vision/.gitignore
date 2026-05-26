@@ -1,0 +1,7 @@
+assets/
+session/
+session_copy/
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
