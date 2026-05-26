@@ -305,6 +305,89 @@ async def get_screenshot(session_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/capture-chat/{session_id}", dependencies=[Depends(require_admin)])
+async def capture_chat(session_id: str, contact: str, out: str = ""):
+    """
+    POC Vision Scraper: navega al chat del contacto en WA Web y toma screenshot.
+    Recarga la página para partir de estado limpio. Si `out` es un path, guarda PNG.
+    """
+    import pathlib
+
+    page = wa_session.get_page(session_id)
+    if not page or page.is_closed():
+        raise HTTPException(status_code=404, detail="Sesión no activa.")
+
+    # Recargar WA Web para estado completamente limpio (sin búsqueda acumulada)
+    await page.goto("https://web.whatsapp.com/", wait_until="domcontentloaded", timeout=30_000)
+    await page.wait_for_timeout(2000)
+
+    # Si aparece "Usar aquí", clickear para recuperar la sesión
+    use_here = page.locator('button:has-text("Usar aquí")')
+    if await use_here.count() > 0:
+        await use_here.click()
+        await page.wait_for_timeout(3000)
+
+    # Esperar lista de chats
+    await page.wait_for_selector('[data-testid="chat-list"]', timeout=25_000)
+
+    # Abrir búsqueda — el input está limpio porque la página recién cargó
+    await page.locator('[data-testid="chat-list-search-container"]').click()
+    await page.wait_for_timeout(700)
+
+    search_input = page.locator('input[type="text"]').first
+    await search_input.wait_for(timeout=5_000)
+    await page.keyboard.type(contact, delay=80)
+    await page.wait_for_timeout(2500)
+
+    # Primer resultado de búsqueda
+    first_result = page.locator('[data-testid="cell-frame-container"]').first
+    try:
+        await first_result.wait_for(timeout=7_000)
+        await first_result.click()
+    except Exception:
+        dbg_bytes = await page.screenshot(type="png", full_page=False)
+        pathlib.Path("/Users/josetabuyo/Development/pulpo/poc-whatsapp-vision/assets/debug_search.png").write_bytes(dbg_bytes)
+        titles = await page.evaluate(
+            "() => [...document.querySelectorAll('[data-testid=\"cell-frame-title\"]')].map(e => e.innerText?.trim())"
+        )
+        raise HTTPException(status_code=500, detail=f"No encontré '{contact}'. Visibles: {titles}")
+
+    # Esperar a que el panel del chat esté visible (mensajes cargados)
+    try:
+        await page.wait_for_selector('[data-testid="conversation-panel-messages"]', timeout=10_000)
+    except Exception:
+        pass
+    await page.wait_for_timeout(2000)
+
+    screenshot_bytes = await page.screenshot(type="png", full_page=False)
+    b64 = base64.b64encode(screenshot_bytes).decode()
+
+    if out:
+        pathlib.Path(out).write_bytes(screenshot_bytes)
+
+    return {"screenshot": f"data:image/png;base64,{b64}", "saved": out or None}
+
+
+@router.post("/poc/click/{session_id}", dependencies=[Depends(require_admin)])
+async def poc_click(session_id: str, body: dict):
+    """POC: click en coordenadas absolutas del viewport. Body: {x, y, wait_ms?}"""
+    page = wa_session.get_page(session_id)
+    if not page or page.is_closed():
+        raise HTTPException(status_code=404, detail="Sesión no activa.")
+    x = int(body["x"])
+    y = int(body["y"])
+    wait_ms = int(body.get("wait_ms", 1500))
+    await page.mouse.click(x, y)
+    await page.wait_for_timeout(wait_ms)
+    screenshot_bytes = await page.screenshot(type="png", full_page=False)
+    b64 = base64.b64encode(screenshot_bytes).decode()
+    out = body.get("out")
+    if out:
+        import pathlib
+        pathlib.Path(out).write_bytes(screenshot_bytes)
+    return {"clicked": {"x": x, "y": y}, "screenshot": f"data:image/png;base64,{b64}", "saved": out or None}
+
+
 @router.get("/debug/idb/{session_id}", dependencies=[Depends(require_admin)])
 async def debug_idb(session_id: str):
     """Diagnóstico temporal: qué databases y stores existen en el IndexedDB de la página WA."""

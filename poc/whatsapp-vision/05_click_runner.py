@@ -1,107 +1,120 @@
 """
-05_click_runner.py — Ejecuta los clicks sobre los mensajes que lo requieren.
+05_click_runner.py — Ejecuta los clicks via el backend Pulpo (sesión WA ya activa).
 
-Flujo por bubble (orden: id=1 primero = más nuevo):
-  1. Lee _bubbles.json del último run del pipeline
-  2. Filtra audio y file (tienen click_point)
-  3. Para cada uno:
-       a. click en click_point (▶ para audio, descarga para file)
-       b. espera breve
-       c. screenshot nuevo
-       d. re-detecta bubbles para ver qué cambió
-  4. Reporta resultado
+Flujo:
+  1. capture-chat  → navega al contacto y toma screenshot
+  2. pipeline      → detecta bubbles, clasifica, calcula click_points
+  3. por cada audio/file (orden id=1 primero = más nuevo):
+       a. POST /poc/click/{session_id}  con coords viewport (crop_x + sidebar_x)
+       b. screenshot guardado en assets/after_click_{id}.png
+  4. reporte final
 
 Uso:
-  python 05_click_runner.py <bubbles_json> <profile_dir>
+  python 05_click_runner.py <session_id> <contact_name>
 
-  bubbles_json  → assets/luiz_fernando_pita_bubbles.json
-  profile_dir   → data/poc_profile/  (copia del perfil de producción)
-
-ANTES DE CORRER:
-  cp -r /ruta/al/perfil/produccion  poc-whatsapp-vision/data/poc_profile/
+  session_id   → número de teléfono, ej: 5491155612767
+  contact_name → nombre exacto como aparece en WA, ej: "Luis Fernando Pita"
 """
 from __future__ import annotations
 
-import asyncio
 import json
+import subprocess
 import sys
+import urllib.request
+import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from wa_driver import WADriver
-from element_detector import detect_bubbles
-from PIL import Image
+ASSETS    = Path(__file__).parent / "assets"
+BACKEND   = "http://localhost:8000"
+SIDEBAR_X = 580   # medido en el pipeline
+AUTH      = {"x-password": "MonoLoco"}
 
-ASSETS = Path(__file__).parent / "assets"
+# ── Helpers HTTP ──────────────────────────────────────────────────────────────
 
+def _get(path: str) -> dict:
+    req = urllib.request.Request(f"{BACKEND}{path}", headers=AUTH)
+    with urllib.request.urlopen(req) as r:
+        return json.loads(r.read())
 
-def load_bubbles(json_path: Path) -> list[dict]:
-    with open(json_path) as f:
-        data = json.load(f)
-    # Solo los que requieren acción, ordenados id ascendente (más nuevo primero)
-    actionable = [b for b in data if b.get("click_point") is not None]
-    actionable.sort(key=lambda b: b["id"])
+def _post(path: str, body: dict) -> dict:
+    data = json.dumps(body).encode()
+    req  = urllib.request.Request(f"{BACKEND}{path}", data=data,
+                                  headers={"Content-Type": "application/json", **AUTH})
+    with urllib.request.urlopen(req) as r:
+        return json.loads(r.read())
+
+# ── Steps ─────────────────────────────────────────────────────────────────────
+
+def step_capture(session_id: str, contact: str) -> Path:
+    """Navega al chat y guarda el screenshot en assets/."""
+    out = str(ASSETS / "current.png")
+    encoded = urllib.parse.quote(contact)
+    print(f"[1] capture-chat → {contact}")
+    _get(f"/api/capture-chat/{session_id}?contact={encoded}&out={out}")
+    return Path(out)
+
+def step_pipeline(screenshot: Path) -> list[dict]:
+    """Corre el pipeline y retorna los bubbles con click_point."""
+    print(f"[2] pipeline → {screenshot.name}")
+    result = subprocess.run(
+        [sys.executable, str(Path(__file__).parent / "04_full_pipeline.py"), str(screenshot)],
+        capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        print(result.stderr)
+        raise RuntimeError("pipeline falló")
+    bubbles_json = ASSETS / (screenshot.stem + "_bubbles.json")
+    bubbles = json.loads(bubbles_json.read_text())
+    actionable = [b for b in bubbles if b.get("click_point")]
+    actionable.sort(key=lambda b: b["id"])   # id=1 primero (más nuevo)
+    print(f"   {len(bubbles)} bubbles detectados  |  {len(actionable)} con acción")
     return actionable
 
+def step_click(session_id: str, bubble: dict) -> Path:
+    """Ejecuta el click y guarda el screenshot post-click."""
+    cp  = bubble["click_point"]
+    vx  = cp["x"] + SIDEBAR_X
+    vy  = cp["y"]
+    out = str(ASSETS / f"after_click_{bubble['id']}.png")
+    print(f"   click #{bubble['id']:2d} {bubble['msg_type']:6s} "
+          f"crop({cp['x']},{cp['y']}) → viewport({vx},{vy})")
+    _post(f"/api/poc/click/{session_id}",
+          {"x": vx, "y": vy, "wait_ms": 2000, "out": out})
+    return Path(out)
 
-def redetect(screenshot_path: Path) -> int:
-    """Corre detección de burbujas sobre el screenshot y retorna la cantidad."""
-    img = Image.open(screenshot_path)
-    bubbles = detect_bubbles(img, footer_px=70)
-    return len(bubbles)
+# ── Main ──────────────────────────────────────────────────────────────────────
 
+def run(session_id: str, contact: str) -> None:
+    ASSETS.mkdir(exist_ok=True)
+    # Limpiar assets generados antes de cada run — nunca confiar en datos viejos
+    subprocess.run([str(Path(__file__).parent / "clean.sh")], check=True)
 
-async def run(bubbles_json: Path, profile_dir: Path) -> None:
-    bubbles = load_bubbles(bubbles_json)
-    print(f"\n{len(bubbles)} bubbles con acción pendiente")
-    for b in bubbles:
-        print(f"  #{b['id']:2d} [{b['sender']:5s}] {b['msg_type']:6s}  "
-              f"click_point={b['click_point']}  ts={b['timestamp']}")
+    screenshot  = step_capture(session_id, contact)
+    actionable  = step_pipeline(screenshot)
 
-    if not bubbles:
-        print("Nada que hacer.")
+    if not actionable:
+        print("Sin acciones pendientes.")
         return
 
-    driver = WADriver(profile_dir=profile_dir, headless=False)
-    await driver.connect()
-
-    # Confirmar que el viewport está en el chat correcto antes de empezar
-    input("\n[?] Confirmá que el chat está abierto y visible → Enter para continuar: ")
-
+    print(f"\n[3] ejecutando {len(actionable)} clicks…")
     results = []
-    for b in bubbles:
-        bid   = b["id"]
-        btype = b["msg_type"]
-        cp    = b["click_point"]
-        cx, cy = cp["x"], cp["y"]
+    for b in actionable:
+        try:
+            shot = step_click(session_id, b)
+            results.append({"id": b["id"], "type": b["msg_type"],
+                            "ts": b["timestamp"], "shot": shot.name, "ok": True})
+        except Exception as e:
+            results.append({"id": b["id"], "type": b["msg_type"], "ok": False, "error": str(e)})
 
-        print(f"\n── #{bid} {btype} ──")
-
-        if btype == "file":
-            dl_path = await driver.download(cx, cy)
-            result = {"id": bid, "type": btype, "downloaded": str(dl_path)}
-        else:
-            # audio → click play, luego screenshot para ver si el player abrió
-            await driver.click(cx, cy)
-            await driver.wait(1500)
-            shot = await driver.screenshot(name=f"after_click_{bid}")
-            n_bubbles = redetect(shot)
-            result = {"id": bid, "type": btype, "screenshot": shot.name,
-                      "bubbles_after": n_bubbles}
-
-        results.append(result)
-        print(f"   → {result}")
-
-    print("\n\n══ RESUMEN ══")
+    print("\n══ RESUMEN ══")
     for r in results:
-        print(f"  #{r['id']:2d}  {r}")
-
-    await driver.close()
-
+        status = "✓" if r["ok"] else "✗"
+        print(f"  {status} #{r['id']:2d} {r['type']:6s}  ts={r.get('ts')}  → {r.get('shot', r.get('error'))}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Uso: python 05_click_runner.py <bubbles.json> <profile_dir>")
+        print("Uso: python 05_click_runner.py <session_id> <contact_name>")
         sys.exit(1)
-    asyncio.run(run(Path(sys.argv[1]), Path(sys.argv[2])))
+    run(sys.argv[1], sys.argv[2])

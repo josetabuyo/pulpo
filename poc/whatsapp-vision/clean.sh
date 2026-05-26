@@ -8,6 +8,8 @@ find "$ASSETS" -type f \( \
   -o -name "*_bubbles.json" \
   -o -name "*_pipeline_result.json" \
   -o -name "*_click_points.png" \
+  -o -name "after_click_*.png" \
+  -o -name "current.png" \
   -o -name "debug_*.png" \
   -o -name "bottom_check.png" \
 \) -delete

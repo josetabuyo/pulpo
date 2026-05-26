@@ -455,11 +455,10 @@ def _find_play_button(crop: Image.Image, sender: str) -> tuple[int, int]:
     """Locate the ▶ play button in an audio bubble crop.
 
     Layout differs by sender:
-    - "other": [▶ button][waveform][avatar RIGHT]  → search left 30% of crop
-    - "me":    [avatar LEFT][▶ button][waveform]   → avatar ≈ bubble height wide,
-                                                      skip it then search next band
+    - "other": [▶ button][waveform]  → ▶ is at far left, ~25px wide; search first 12.5%
+    - "me":    [avatar][▶ button][waveform]  → avatar ≈ bubble height wide, skip then search
 
-    No hardcoded colors — finds the darkest compact region in the search window.
+    Uses min-x of dark pixels (not median) for "other" so waveform bars don't push it right.
     """
     arr = np.array(crop.convert("L"))
     h, w = arr.shape
@@ -469,8 +468,10 @@ def _find_play_button(crop: Image.Image, sender: str) -> tuple[int, int]:
         x_start = int(h * 0.75)
         x_end   = min(w, x_start + int(h * 0.70))
     else:
+        # ▶ is at the very left edge of the bubble; waveform bars start ~30px in.
+        # Narrow window to avoid including waveform dark pixels.
         x_start = 0
-        x_end   = w // 3
+        x_end   = max(1, w // 8)
 
     region = arr[:, x_start:x_end]
     lo, hi = int(region.min()), int(region.max())
@@ -481,6 +482,9 @@ def _find_play_button(crop: Image.Image, sender: str) -> tuple[int, int]:
     if not mask.any():
         return (x_start + x_end) // 2, h // 2
     ys, xs = np.where(mask)
+    if sender == "other":
+        # Use min-x: ▶ is the leftmost dark region; median would average in waveform bars
+        return x_start + int(xs.min()), int(np.median(ys))
     return x_start + int(np.median(xs)), int(np.median(ys))
 
 
