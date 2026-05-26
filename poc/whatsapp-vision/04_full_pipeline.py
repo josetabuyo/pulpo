@@ -96,6 +96,9 @@ from dataclasses import dataclass, field, asdict
 from typing import Literal
 
 RE_TIME = re.compile(r'\d{1,2}:\d{2}\s*(a|p)\.?\s*m\.?', re.I)
+# Timestamp at END of a block (handles OCR-merged text+timestamp, e.g. "Que haces capo!!? 7:29 p. m.")
+RE_TIME_END = re.compile(r'\d{1,2}:\d{2}\s*(a|p)\.?\s*m\.?\s*[JVjv/✓✔✗]*\s*$', re.I)
+RE_CORE_TIME = re.compile(r'(\d{1,2}:\d{2})\s*(a|p)', re.I)
 RE_DURATION = re.compile(r'^\d+:\d{2}$')
 RE_AUDIO_LOOSE = re.compile(r'^0[\s\-\.]?\d{2}$')  # "0 38", "058", "0-38"
 RE_FILE_EXT = re.compile(r'\.(xlsx?|docx?|pdf|csv|pptx?|txt|zip|rar|mov|mp4|png|jpg|jpeg)\b', re.I)
@@ -228,28 +231,100 @@ def group_into_messages(blocks, y_gap=0.020):
     return messages
 
 
+def _core_time(text: str) -> str | None:
+    """Extract normalized HH:MM+a/p from a text block (e.g. '7:29p')."""
+    m = RE_CORE_TIME.search(text)
+    return (m.group(1) + m.group(2).lower()) if m else None
+
+
+def _split_bubble_by_timestamps(bubble: dict, blocks: list[dict], img_h: int) -> list[dict]:
+    """Split a merged color blob into individual message boxes.
+
+    Two categories of timestamp indicators are used:
+    1. Standalone blocks (role=='timestamp'): short blocks like '7:29 p. m.'
+    2. Embedded blocks: longer OCR blocks where text+timestamp were merged on one
+       line, e.g. 'Que haces capo??!! 7:29 p. m.' — detected via RE_TIME_END.
+
+    To avoid double-counting (when both exist for the same message), embedded blocks
+    are skipped when a standalone of the same core time exists within 80px below.
+    """
+    b_y0_frac = bubble["y"] / img_h
+    b_y1_frac = (bubble["y"] + bubble["h"]) / img_h
+
+    inner = [b for b in blocks if b_y0_frac <= b["y"] <= b_y1_frac]
+
+    standalone = [b for b in inner if b.get("role") == "timestamp"]
+    embedded = [
+        b for b in inner
+        if b.get("role") != "timestamp" and RE_TIME_END.search(b["text"].strip())
+    ]
+
+    def has_same_time_standalone_below(emb: dict) -> bool:
+        emb_core = _core_time(emb["text"])
+        emb_bot = (emb["y"] + emb.get("h", 0.008)) * img_h
+        for s in standalone:
+            s_top = s["y"] * img_h
+            if 0 < s_top - emb_bot <= 80 and _core_time(s["text"]) == emb_core:
+                return True
+        return False
+
+    clean_embedded = [e for e in embedded if not has_same_time_standalone_below(e)]
+
+    all_cut_blocks = standalone + clean_embedded
+
+    if len(all_cut_blocks) <= 1:
+        return [bubble]
+
+    cut_points: list[int] = []
+    for b in all_cut_blocks:
+        y_bot = int((b["y"] + b.get("h", 0.008)) * img_h) + 6
+        y_bot = min(y_bot, bubble["y"] + bubble["h"])
+        cut_points.append(y_bot)
+    cut_points = sorted(set(cut_points))
+
+    sub_bubbles: list[dict] = []
+    y_start_px = bubble["y"]
+    for cut in cut_points:
+        h_slice = cut - y_start_px
+        if h_slice > 10:
+            sub_bubbles.append({
+                "x": bubble["x"],
+                "y": y_start_px,
+                "w": bubble["w"],
+                "h": h_slice,
+                "type": bubble["type"],
+            })
+        y_start_px = cut
+
+    remaining = (bubble["y"] + bubble["h"]) - y_start_px
+    if sub_bubbles and remaining > 0:
+        sub_bubbles[-1]["h"] += remaining
+
+    return sub_bubbles if sub_bubbles else [bubble]
+
+
 def draw_message_boxes(cropped_path: Path, messages, blocks) -> Path:
     """Draw bounding boxes around each detected bubble using color-based detection.
 
-    Boxes come from element_detector.detect_bubbles() — one box per bubble regardless
-    of how many OCR paragraphs it contains. Color coding:
-      green  → "me" bubble
-      blue   → "other" bubble
+    Color coding: green → "me" bubble, blue → "other" bubble.
 
-    NOTE: media bubbles (photo/video thumbnails) are NOT color-uniform and will be
-    missed by the detector. File-attachment bubbles (xlsx, mov, etc.) are white
-    rectangles and will be detected as "other" or merged with their container.
-    This is a known limitation of the color-based approach.
+    Consecutive messages from the same person are split using OCR timestamps:
+    each message ends at the bottom of its timestamp, so N timestamps in one
+    color blob → N separate boxes.
     """
     img = Image.open(cropped_path).convert("RGB")
     draw = ImageDraw.Draw(img)
     w, h = img.size
-    PAD = 4  # pixels of extra padding around each box
+    PAD = 4
 
-    # Detect bubbles by color (replaces OCR-based message grouping for drawing)
     bubbles = detect_bubbles(img, footer_px=70)
 
-    for i, bubble in enumerate(bubbles):
+    # Split merged blobs into individual message boxes via timestamp positions
+    split: list[dict] = []
+    for bubble in bubbles:
+        split.extend(_split_bubble_by_timestamps(bubble, blocks, h))
+
+    for i, bubble in enumerate(split):
         x0 = max(0,     bubble["x"] - PAD)
         y0 = max(0,     bubble["y"] - PAD)
         x1 = min(w - 1, bubble["x"] + bubble["w"] + PAD)
@@ -263,7 +338,7 @@ def draw_message_boxes(cropped_path: Path, messages, blocks) -> Path:
 
     out = ASSETS / (cropped_path.stem.replace("_cropped", "") + "_annotated.png")
     img.save(out)
-    return out, bubbles
+    return out, split
 
 
 def count_stats(messages):
