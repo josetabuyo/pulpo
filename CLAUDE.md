@@ -2,7 +2,12 @@
 
 ## Forma de trabajar
 - Responder siempre en **español**
-- Para mensajes cortos: ejecutar `say -v "Paulina" "..."` para hablar en voz alta
+- Para mensajes cortos: hablar via la cola del backend (nunca `say` directo — colisiona con otras voces):
+  ```bash
+  curl -s -X POST http://localhost:8700/queue/speak \
+    -H "Content-Type: application/json" \
+    -d '{"text":"...","voice":"Tessa","family":"Pulpo"}'
+  ```
 - Para código, logs o texto largo: solo texto, sin voz
 - Trabajar un problema a la vez
 
@@ -21,6 +26,39 @@ Si un comando hace A+B+C en un pipe, no puede aprobar A sin B.
 Comandos simples = auditoría real.
 
 **Cuando necesites encadenar:** pedir aprobación explícita o dividir en pasos separados.
+
+---
+
+## Multi-agente — Haiku y Opus
+
+Al inicio de cada respuesta, chequeá silenciosamente si Haiku u Opus terminaron trabajo pendiente:
+
+```bash
+ls session/haiku-done.flag session/opus-done.flag 2>/dev/null
+```
+
+Si existe algún flag:
+1. Leé el final del outbox correspondiente (`tail -30 session/haiku-outbox.md`)
+2. Eliminá el flag (`rm session/haiku-done.flag`)
+3. Informame brevemente qué encontraron antes de responder mi pregunta
+
+### Delegar a Haiku
+
+Haiku maneja: lectura masiva de archivos, búsquedas, tareas repetitivas, análisis de logs.
+
+```bash
+echo "tu tarea con contexto completo" > session/haiku-inbox.md
+```
+
+El resultado queda en `session/haiku-outbox.md`. Haiku avisa cuando termina con una notificación macOS.
+
+### Consultar a Opus
+
+Opus asesora en decisiones de arquitectura, merges riesgosos, o cuando hay duda sobre impacto en producción.
+
+```bash
+echo "contexto + pregunta preparada" > session/opus-inbox.md
+```
 
 ---
 
