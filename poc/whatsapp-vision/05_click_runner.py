@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 ASSETS    = Path(__file__).parent / "assets"
 BACKEND   = "http://localhost:8000"
 SIDEBAR_X = 580   # medido en el pipeline
+HEADER_Y  =  60   # header WA recortado en crop_chat_panel
 AUTH      = {"x-password": "MonoLoco"}
 
 # ── Helpers HTTP ──────────────────────────────────────────────────────────────
@@ -76,7 +77,7 @@ def step_click(session_id: str, bubble: dict) -> Path:
     """Ejecuta el click y guarda el screenshot post-click."""
     cp  = bubble["click_point"]
     vx  = cp["x"] + SIDEBAR_X
-    vy  = cp["y"]
+    vy  = cp["y"] + HEADER_Y
     out = str(ASSETS / f"after_click_{bubble['id']}.png")
     print(f"   click #{bubble['id']:2d} {bubble['msg_type']:6s} "
           f"crop({cp['x']},{cp['y']}) → viewport({vx},{vy})")
