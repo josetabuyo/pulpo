@@ -388,6 +388,57 @@ async def poc_click(session_id: str, body: dict):
     return {"clicked": {"x": x, "y": y}, "screenshot": f"data:image/png;base64,{b64}", "saved": out or None}
 
 
+@router.post("/poc/audio-interceptor/{session_id}", dependencies=[Depends(require_admin)])
+async def poc_install_audio_interceptor(session_id: str):
+    """Instala (o resetea) el interceptor de blobs de audio. Llamar una vez antes de los clicks."""
+    page = wa_session.get_page(session_id)
+    if not page or page.is_closed():
+        raise HTTPException(status_code=404, detail="Sesión no activa.")
+    result = await page.evaluate(_BLOB_INTERCEPTOR_JS)
+    # Reset completo: buffer de captura Y set de deduplicación
+    await page.evaluate("() => { window.__pulpo_captured_blobs = []; window.__pulpo_seen_blobs = new Set(); }")
+    return {"status": result}
+
+
+@router.post("/poc/download-audio/{session_id}", dependencies=[Depends(require_admin)])
+async def poc_download_audio(session_id: str, body: dict = None):
+    """
+    Drena los blobs capturados desde el último drain, descarga cada uno y guarda en disco.
+    Body (opcional): { "out_dir": "/ruta/al/dir" }
+    Retorna lista de archivos guardados con su blob_url y path.
+    """
+    import pathlib
+    import base64 as _b64
+
+    page = wa_session.get_page(session_id)
+    if not page or page.is_closed():
+        raise HTTPException(status_code=404, detail="Sesión no activa.")
+
+    out_dir = pathlib.Path((body or {}).get("out_dir", "/tmp/pulpo-audio"))
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    blobs = await page.evaluate(_DRAIN_BLOBS_JS)
+    if not blobs:
+        return {"files": [], "count": 0}
+
+    files = []
+    for i, blob in enumerate(blobs):
+        url = blob.get("url")
+        if not url:
+            continue
+        b64 = await page.evaluate(_FETCH_BLOB_JS, url)
+        if not b64:
+            files.append({"blob_url": url, "error": "fetch failed"})
+            continue
+        audio_bytes = _b64.b64decode(b64)
+        ts = blob.get("ts", 0)
+        fname = out_dir / f"audio_{ts}_{i}.ogg"
+        fname.write_bytes(audio_bytes)
+        files.append({"blob_url": url, "path": str(fname), "size": len(audio_bytes)})
+
+    return {"files": files, "count": len(files)}
+
+
 @router.get("/debug/idb/{session_id}", dependencies=[Depends(require_admin)])
 async def debug_idb(session_id: str):
     """Diagnóstico temporal: qué databases y stores existen en el IndexedDB de la página WA."""

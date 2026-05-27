@@ -4,10 +4,12 @@
 Flujo:
   1. capture-chat  → navega al contacto y toma screenshot
   2. pipeline      → detecta bubbles, clasifica, calcula click_points
-  3. por cada audio/file (orden id=1 primero = más nuevo):
-       a. POST /poc/click/{session_id}  con coords viewport (crop_x + sidebar_x)
-       b. screenshot guardado en assets/after_click_{id}.png
-  4. reporte final
+  3. instala interceptor de blobs de audio
+  4. por cada audio/file (orden id=1 primero = más nuevo):
+       a. POST /poc/click/{session_id}  con coords viewport (crop_x + sidebar_x + header_y)
+       b. POST /poc/download-audio/{session_id}  → guarda .ogg en downloads/
+       c. screenshot guardado en assets/after_click_{id}.png
+  5. reporte final
 
 Uso:
   python 05_click_runner.py <session_id> <contact_name>
@@ -26,11 +28,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-ASSETS    = Path(__file__).parent / "assets"
-BACKEND   = "http://localhost:8000"
-SIDEBAR_X = 580   # medido en el pipeline
-HEADER_Y  =  60   # header WA recortado en crop_chat_panel
-AUTH      = {"x-password": "MonoLoco"}
+ASSETS     = Path(__file__).parent / "assets"
+DOWNLOADS  = Path(__file__).parent / "downloads"
+BACKEND    = "http://localhost:8000"
+SIDEBAR_X  = 580   # medido en el pipeline
+HEADER_Y   =  60   # header WA recortado en crop_chat_panel
+AUTH       = {"x-password": "MonoLoco"}
 
 # ── Helpers HTTP ──────────────────────────────────────────────────────────────
 
@@ -73,8 +76,13 @@ def step_pipeline(screenshot: Path) -> list[dict]:
     print(f"   {len(bubbles)} bubbles detectados  |  {len(actionable)} con acción")
     return actionable
 
-def step_click(session_id: str, bubble: dict) -> Path:
-    """Ejecuta el click y guarda el screenshot post-click."""
+def step_install_interceptor(session_id: str) -> None:
+    """Instala el interceptor de blobs de audio antes de los clicks."""
+    result = _post(f"/api/poc/audio-interceptor/{session_id}", {})
+    print(f"[3] interceptor de audio → {result.get('status')}")
+
+def step_click(session_id: str, bubble: dict) -> tuple[Path, list[dict]]:
+    """Ejecuta el click, descarga audio si aplica. Retorna (screenshot, archivos)."""
     cp  = bubble["click_point"]
     vx  = cp["x"] + SIDEBAR_X
     vy  = cp["y"] + HEADER_Y
@@ -82,37 +90,57 @@ def step_click(session_id: str, bubble: dict) -> Path:
     print(f"   click #{bubble['id']:2d} {bubble['msg_type']:6s} "
           f"crop({cp['x']},{cp['y']}) → viewport({vx},{vy})")
     _post(f"/api/poc/click/{session_id}",
-          {"x": vx, "y": vy, "wait_ms": 2000, "out": out})
-    return Path(out)
+          {"x": vx, "y": vy, "wait_ms": 2500, "out": out})
+
+    files = []
+    if bubble["msg_type"] == "audio":
+        dl = _post(f"/api/poc/download-audio/{session_id}",
+                   {"out_dir": str(DOWNLOADS)})
+        files = dl.get("files", [])
+        for f in files:
+            if "path" in f:
+                print(f"     ↓ audio guardado → {Path(f['path']).name}  ({f['size']} bytes)")
+            else:
+                print(f"     ✗ blob fetch falló: {f.get('error')}")
+
+    return Path(out), files
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def run(session_id: str, contact: str) -> None:
     ASSETS.mkdir(exist_ok=True)
+    DOWNLOADS.mkdir(exist_ok=True)
     # Limpiar assets generados antes de cada run — nunca confiar en datos viejos
     subprocess.run([str(Path(__file__).parent / "clean.sh")], check=True)
 
-    screenshot  = step_capture(session_id, contact)
-    actionable  = step_pipeline(screenshot)
+    screenshot = step_capture(session_id, contact)
+    actionable = step_pipeline(screenshot)
 
     if not actionable:
         print("Sin acciones pendientes.")
         return
 
-    print(f"\n[3] ejecutando {len(actionable)} clicks…")
+    step_install_interceptor(session_id)
+
+    print(f"\n[4] ejecutando {len(actionable)} clicks…")
     results = []
     for b in actionable:
         try:
-            shot = step_click(session_id, b)
-            results.append({"id": b["id"], "type": b["msg_type"],
-                            "ts": b["timestamp"], "shot": shot.name, "ok": True})
+            shot, files = step_click(session_id, b)
+            results.append({
+                "id": b["id"], "type": b["msg_type"], "ts": b["timestamp"],
+                "shot": shot.name, "audio_files": [f.get("path") for f in files if "path" in f],
+                "ok": True,
+            })
         except Exception as e:
             results.append({"id": b["id"], "type": b["msg_type"], "ok": False, "error": str(e)})
 
     print("\n══ RESUMEN ══")
     for r in results:
         status = "✓" if r["ok"] else "✗"
-        print(f"  {status} #{r['id']:2d} {r['type']:6s}  ts={r.get('ts')}  → {r.get('shot', r.get('error'))}")
+        audios = r.get("audio_files", [])
+        audio_str = f"  [{len(audios)} audio(s)]" if audios else ""
+        print(f"  {status} #{r['id']:2d} {r['type']:6s}  ts={r.get('ts')}  → {r.get('shot', r.get('error'))}{audio_str}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
