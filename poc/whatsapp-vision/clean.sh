@@ -12,5 +12,6 @@ find "$ASSETS" -type f \( \
   -o -name "current.png" \
   -o -name "debug_*.png" \
   -o -name "bottom_check.png" \
+  -o -name "audio_*.ogg" \
 \) -delete
 echo "assets/ limpio"

@@ -29,7 +29,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 ASSETS     = Path(__file__).parent / "assets"
-DOWNLOADS  = Path(__file__).parent / "downloads"
 BACKEND    = "http://localhost:8000"
 SIDEBAR_X  = 580   # medido en el pipeline
 HEADER_Y   =  60   # header WA recortado en crop_chat_panel
@@ -95,7 +94,7 @@ def step_click(session_id: str, bubble: dict) -> tuple[Path, list[dict]]:
     files = []
     if bubble["msg_type"] == "audio":
         dl = _post(f"/api/poc/download-audio/{session_id}",
-                   {"out_dir": str(DOWNLOADS)})
+                   {"out_dir": str(ASSETS)})
         files = dl.get("files", [])
         for f in files:
             if "path" in f:
@@ -109,7 +108,6 @@ def step_click(session_id: str, bubble: dict) -> tuple[Path, list[dict]]:
 
 def run(session_id: str, contact: str) -> None:
     ASSETS.mkdir(exist_ok=True)
-    DOWNLOADS.mkdir(exist_ok=True)
     # Limpiar assets generados antes de cada run — nunca confiar en datos viejos
     subprocess.run([str(Path(__file__).parent / "clean.sh")], check=True)
 
