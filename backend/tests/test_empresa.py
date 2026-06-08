@@ -86,7 +86,7 @@ def test_empresa_get_connections_structure(client):
     assert len(conns) > 0
     for c in conns:
         assert "id" in c
-        assert c["type"] in ("whatsapp", "telegram")
+        assert c["type"] == "telegram"
         assert "status" in c
 
 
@@ -108,34 +108,6 @@ def test_empresa_get_no_auth(client):
 
 
 
-def test_empresa_connect_sim(client):
-    """En modo sim, connect devuelve status ready inmediatamente."""
-    token = _get_token(client)
-    conns = client.get(f"/api/empresa/{BOT_ID}", headers=_auth(token)).json()["connections"]
-    wa_conns = [c for c in conns if c["type"] == "whatsapp"]
-    if not wa_conns:
-        return
-    number = wa_conns[0]["id"]
-
-    r = client.post(f"/api/empresa/{BOT_ID}/connect/{number}", headers=_auth(token))
-    assert r.status_code == 200
-    assert r.json()["sessionId"] == number
-
-
-def test_empresa_disconnect_sim(client):
-    """Disconnect en modo sim → ok."""
-    token = _get_token(client)
-    conns = client.get(f"/api/empresa/{BOT_ID}", headers=_auth(token)).json()["connections"]
-    wa_conns = [c for c in conns if c["type"] == "whatsapp"]
-    if not wa_conns:
-        return
-    number = wa_conns[0]["id"]
-
-    r = client.post(f"/api/empresa/{BOT_ID}/disconnect/{number}", headers=_auth(token))
-    assert r.status_code == 200
-    assert r.json()["ok"] is True
-
-    client.post(f"/api/empresa/{BOT_ID}/connect/{number}", headers=_auth(token))
 
 
 # ─── Refresh + Logout ────────────────────────────────────────────

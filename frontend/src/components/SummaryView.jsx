@@ -8,7 +8,6 @@ import {
   useSortable, arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import WAScreenshotPanel from './WAScreenshotPanel'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -952,10 +951,7 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
             </div>
           </div>
 
-          {/* Panel derecho: screenshot WA */}
-          <div className="sv-tuning-screenshot">
-            <WAScreenshotPanel empresaId={empresaId} apiCall={apiCall} active={tuningMode} />
-          </div>
+          <div className="sv-tuning-screenshot" />
         </div>
       ) : (
         /* Layout normal: lista de mensajes */

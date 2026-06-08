@@ -52,7 +52,7 @@ class TestUvicornPollingFilter:
         assert not self.f.filter(_record('127.0.0.1 - "GET /api/empresa/gm_herreria/paused HTTP/1.1" 200'))
 
     def test_permite_mensaje_real(self):
-        assert self.f.filter(_record('127.0.0.1 - "POST /api/whatsapp/send HTTP/1.1" 200'))
+        assert self.f.filter(_record('127.0.0.1 - "POST /api/sim/send HTTP/1.1" 200'))
 
     def test_permite_health(self):
         assert self.f.filter(_record('127.0.0.1 - "GET /health HTTP/1.1" 200'))

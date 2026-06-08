@@ -9,9 +9,8 @@ PUT    /api/empresas/{id}/flows/{flow_id}        → actualizar (auth)
 DELETE /api/empresas/{id}/flows/{flow_id}        → eliminar (auth)
 """
 import os
-import re
 import logging
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi import Header
 from pydantic import BaseModel
 from typing import Optional
@@ -27,9 +26,6 @@ from graphs.nodes import NODE_REGISTRY
 router = APIRouter()
 
 _ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin")
-
-# Estado en memoria del import WA en curso, keyed by f"{empresa_id}:{flow_id}"
-_import_status: dict[str, dict] = {}
 
 # ─── Auth helpers ─────────────────────────────────────────────────────────────
 
@@ -249,21 +245,20 @@ async def replay_flow(
     if not flow or flow["empresa_id"] != empresa_id:
         raise HTTPException(status_code=404, detail="Flow no encontrado")
 
-    # Encontrar el nodo trigger y su connection_id + canal
+    # Encontrar el nodo trigger y su connection_id
     nodes = flow.get("definition", {}).get("nodes", [])
     trigger = next(
-        (n for n in nodes if n.get("type") in ("whatsapp_trigger", "telegram_trigger", "message_trigger")),
+        (n for n in nodes if n.get("type") in ("telegram_trigger", "message_trigger")),
         None,
     )
     if not trigger:
         raise HTTPException(status_code=400, detail="El flow no tiene un nodo trigger de mensajes")
 
-    trigger_type = trigger.get("type", "")
     connection_id = trigger.get("config", {}).get("connection_id", "")
     if not connection_id:
         raise HTTPException(status_code=400, detail="El trigger no tiene connection_id configurado")
 
-    canal = "telegram" if trigger_type == "telegram_trigger" else "whatsapp"
+    canal = "telegram"
 
     date_filter = ""
     date_params: dict = {}
@@ -271,8 +266,6 @@ async def replay_flow(
         date_filter = " AND timestamp >= :from_date"
         date_params["from_date"] = from_date
 
-    # Los mensajes pueden estar guardados bajo el número WA (connection_id)
-    # o bajo el empresa_id. Probamos ambos y usamos el que tenga datos.
     from db import AsyncSessionLocal, text as _text
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(
@@ -329,310 +322,6 @@ async def replay_flow(
         processed += 1
 
     return {"processed": processed, "skipped": skipped}
-
-
-async def _run_contact_import(
-    *,
-    empresa_id: str,
-    contact_name: str,
-    contact_phone: str,
-    session_id: str,
-    wa_session,
-    owner_name: "str | None" = None,
-    since_date=None,
-    max_retries: int = 1,
-    force_clear: bool = False,
-    on_attempt_update=None,
-) -> dict:
-    """
-    Pipeline unificado de importación para un contacto.
-    Usado por full-resync (force_clear=True) e import-wa-history (force_clear=False).
-    """
-    import asyncio as _asyncio
-    from datetime import datetime as _dt
-    from graphs.nodes.summarize import (
-        get_attachments_dir as _get_att_dir,
-        _path as _sum_path,
-        _dedup as _sum_dedup,
-        _dedup_loaded as _sum_dedup_loaded,
-    )
-    from automation.sync import delta_sync, StopCondition
-    from browser_queue import get_queue
-
-    if force_clear:
-        from graphs.nodes.summarize import _BASE, clear_contact_full as _ccf
-        from db import delete_contact_messages
-        import shutil as _shutil
-        _chat_src = _BASE / empresa_id / contact_phone / "chat.md"
-        if _chat_src.exists():
-            _ts = _dt.now().strftime("%Y%m%d_%H%M")
-            _bak_dir = _BASE / empresa_id / f"{contact_phone}.bak.{_ts}"
-            _bak_dir.mkdir(parents=True, exist_ok=True)
-            _shutil.copy2(_chat_src, _bak_dir / "chat.md")
-        _ccf(empresa_id, contact_phone)
-        await delete_contact_messages(empresa_id, contact_name)
-        _name_path = _BASE / empresa_id / contact_phone / "name.txt"
-        _name_path.parent.mkdir(parents=True, exist_ok=True)
-        _name_path.write_text(contact_name, encoding="utf-8")
-
-    doc_dir = _get_att_dir(empresa_id, contact_phone)
-    _result_holder: dict = {"scraped": 0, "new": 0}
-
-    job_type = "full_resync" if force_clear else "import_wa"
-    job = get_queue(session_id).enqueue(job_type, contact_name)
-
-    async def _do_import():
-        total_scraped = 0
-        total_new = 0
-        for _attempt in range(max_retries):
-            _dedup_key = (empresa_id, contact_phone)
-            _sum_dedup_loaded.discard(_dedup_key)
-            _sum_dedup.pop(_dedup_key, None)
-
-            _md_path = _sum_path(empresa_id, contact_phone)
-            skip_audio_ts = _build_skip_set(_md_path)
-            entries_before = _count_md_entries(_md_path)
-
-            def _on_progress(round_n: int, new_in_round: int, total: int):
-                if on_attempt_update:
-                    on_attempt_update(_attempt, round_n, total)
-
-            try:
-                result = await delta_sync(
-                    wa_session=wa_session,
-                    session_id=session_id,
-                    contact_name=contact_name,
-                    empresa_id=empresa_id,
-                    contact_phone=contact_phone,
-                    stop_condition=StopCondition.FULL_ENRICH,
-                    since_date=since_date,
-                    owner_name=owner_name,
-                    on_progress=_on_progress,
-                    doc_save_dir=doc_dir,
-                    skip_audio_ts=skip_audio_ts,
-                    max_scroll_rounds=500,
-                )
-            except Exception as e:
-                _log.error("[import] '%s' intento %d error: %s", contact_name, _attempt + 1, e)
-                raise
-
-            if _md_path.exists():
-                _text = _md_path.read_text(encoding="utf-8")
-                _blocks = [b.strip() for b in _text.split("---\n") if b.strip()]
-                _blocks.sort(key=lambda b: b.split("\n")[0][3:].strip() if b.startswith("## ") else "")
-                _md_path.write_text("\n".join(b + "\n---" for b in _blocks) + "\n", encoding="utf-8")
-
-            entries_after = _count_md_entries(_md_path)
-            new_entries = entries_after - entries_before
-            retryable = _count_retryable_audios(_md_path)
-            total_scraped += result["scraped"]
-            total_new += new_entries
-
-            _log.info("[import] '%s' intento %d/%d: scraped=%d new=%d retryable=%d",
-                      contact_name, _attempt + 1, max_retries, result["scraped"], new_entries, retryable)
-
-            if on_attempt_update:
-                on_attempt_update(_attempt, None, result["scraped"], new_entries, retryable, done=True)
-
-            if new_entries == 0 and retryable == 0:
-                break
-            if _attempt < max_retries - 1:
-                await _asyncio.sleep(3)
-
-        _result_holder["scraped"] = total_scraped
-        _result_holder["new"] = total_new
-
-    await get_queue(session_id).run(job, _do_import())
-    return _result_holder
-
-
-def _build_skip_set(md_path: "Path") -> "set[str]":
-    """Timestamps (YYYY-MM-DD HH:MM) de audios ya correctamente transcritos en chat.md."""
-    if not md_path.exists():
-        return set()
-    skip: set[str] = set()
-    current_ts = ""
-    for line in md_path.read_text(encoding="utf-8").split("\n"):
-        if line.startswith("## "):
-            current_ts = line[3:].strip()
-        elif line.startswith("**[audio]**") and current_ts:
-            body = line[len("**[audio]**"):].strip()
-            failed = ("sin blob" in body or "error" in body or not body
-                      or body.startswith("[audio"))
-            if not failed:
-                skip.add(current_ts)
-    return skip
-
-
-def _count_md_entries(md_path: "Path") -> int:
-    if not md_path.exists():
-        return 0
-    return md_path.read_text(encoding="utf-8").count("---\n")
-
-
-_PLACEHOLDER_RE = re.compile(
-    r'\[audio(?:\s*[—–-]\s*(?:sin\s*blob|error[^\]]*|no\s*disponible))?\]',
-    re.IGNORECASE,
-)
-
-def _count_retryable_audios(md_path: "Path") -> int:
-    """Cuenta entradas de audio con placeholder reintentable (sin blob / error)."""
-    if not md_path.exists():
-        return 0
-    return len(_PLACEHOLDER_RE.findall(md_path.read_text(encoding="utf-8")))
-
-
-@router.get("/empresas/{empresa_id}/flows/{flow_id}/import-status")
-async def get_import_status(
-    empresa_id: str,
-    flow_id: str,
-    request: Request,
-    x_password: Optional[str] = Header(None),
-):
-    """Devuelve el estado actual del import WA para el flow. Polleable cada 2s."""
-    _require_empresa(empresa_id, request, x_password)
-    key = f"{empresa_id}:{flow_id}"
-    return _import_status.get(key, {"running": False})
-
-
-@router.post("/empresas/{empresa_id}/flows/{flow_id}/import-wa-history")
-async def import_wa_history(
-    empresa_id: str,
-    flow_id: str,
-    background_tasks: BackgroundTasks,
-    request: Request,
-    x_password: Optional[str] = Header(None),
-):
-    """
-    Raspa el historial WA para cada contacto del trigger y acumula en el .md del
-    summarizer. Con max_retries>1 repite la pasada saltando audios ya transcritos
-    para capturar mensajes que WA Web no había cargado en la primera ronda.
-    Corre en background — responde inmediatamente.
-    """
-    _require_empresa(empresa_id, request, x_password)
-    flow = await db.get_flow(flow_id)
-    if not flow or flow["empresa_id"] != empresa_id:
-        raise HTTPException(status_code=404, detail="Flow no encontrado")
-
-    nodes = flow.get("definition", {}).get("nodes", [])
-    trigger = next(
-        (n for n in nodes if n.get("type") in ("whatsapp_trigger", "telegram_trigger", "message_trigger")),
-        None,
-    )
-    if not trigger or trigger.get("type") != "whatsapp_trigger":
-        raise HTTPException(status_code=400, detail="El flow no tiene un whatsapp_trigger")
-
-    trigger_config = trigger.get("config", {})
-    connection_id = trigger_config.get("connection_id", "")
-    contact_filter = trigger_config.get("contact_filter", {})
-    included = contact_filter.get("included", [])
-    if not included:
-        raise HTTPException(status_code=400, detail="El trigger no tiene contactos en la lista de inclusión")
-
-    from_date: Optional[str] = request.query_params.get("from_date")
-    try:
-        max_retries = int(request.query_params.get("max_retries", "1"))
-        max_retries = max(1, min(max_retries, 10))
-    except ValueError:
-        max_retries = 1
-
-    async def _do_import():
-        from datetime import datetime as _dt
-        from state import wa_session, clients
-        from config import load_config as _load_config
-
-        _status_key = f"{empresa_id}:{flow_id}"
-
-        # Guard de concurrencia
-        if _import_status.get(_status_key, {}).get("running"):
-            _log.info("[import-wa] Import ya en curso para %s, ignorando doble llamada", _status_key)
-            return
-        _import_status[_status_key] = {
-            "running": True,
-            "contact": included[0] if included else "",
-            "max_retries": max_retries,
-            "attempt": 0,
-            "attempts": [],
-            "started_at": _dt.now().isoformat(),
-            "finished_at": None,
-        }
-
-        session_id = connection_id if connection_id in clients and clients[connection_id].get("status") == "ready" else None
-        if not session_id:
-            for bot_phone, client in clients.items():
-                if client.get("status") == "ready" and client.get("type") == "whatsapp":
-                    session_id = bot_phone
-                    break
-        if not session_id or not wa_session:
-            _log.error("[import-wa] Sin sesión WA lista (connection_id=%s empresa=%s)", connection_id, empresa_id)
-            _import_status[_status_key] = {"running": False, "error": "Sin sesión WA activa"}
-            return
-
-        since_date = None
-        if from_date:
-            try:
-                since_date = _dt.fromisoformat(from_date)
-            except ValueError:
-                pass
-
-        _cfg = _load_config()
-        _empresa_cfg = next((e for e in _cfg.get("empresas", []) if e["id"] == empresa_id), None)
-        owner_name = None
-        if _empresa_cfg:
-            for ph in _empresa_cfg.get("phones", []):
-                if ph.get("number") == session_id and ph.get("owner_name"):
-                    owner_name = ph["owner_name"]
-                    break
-
-        for contact_name in included:
-            contact_phone = contact_name
-            _import_status[_status_key].update({"contact": contact_name, "attempt": 0, "attempts": []})
-
-            def _on_attempt_update(attempt_idx, round_n, scraped, new_entries=None, retryable=None, *, done=False):
-                _cur = _import_status.get(_status_key, {})
-                _attempts = _cur.get("attempts", [])
-                while len(_attempts) <= attempt_idx:
-                    _attempts.append({"n": attempt_idx + 1, "scraped": 0, "new": 0, "round": 0, "done": False})
-                if not done:
-                    _attempts[attempt_idx]["round"] = round_n
-                    _attempts[attempt_idx]["scraped"] = scraped
-                    _cur["attempt"] = attempt_idx + 1
-                else:
-                    _attempts[attempt_idx]["scraped"] = scraped
-                    _attempts[attempt_idx]["new"] = new_entries or 0
-                    _attempts[attempt_idx]["done"] = True
-                    if retryable is not None:
-                        _attempts[attempt_idx]["retryable"] = retryable
-
-            try:
-                await _run_contact_import(
-                    empresa_id=empresa_id,
-                    contact_name=contact_name,
-                    contact_phone=contact_phone,
-                    session_id=session_id,
-                    wa_session=wa_session,
-                    owner_name=owner_name,
-                    since_date=since_date,
-                    max_retries=max_retries,
-                    force_clear=False,
-                    on_attempt_update=_on_attempt_update,
-                )
-            except Exception as e:
-                _log.error("[import-wa] Error para '%s': %s", contact_name, e)
-                _cur = _import_status.get(_status_key, {})
-                _attempts = _cur.get("attempts", [])
-                if _attempts:
-                    _attempts[-1]["done"] = True
-                    _attempts[-1]["error"] = str(e)
-
-        _import_status[_status_key] = {
-            **_import_status.get(_status_key, {}),
-            "running": False,
-            "finished_at": _dt.now().isoformat(),
-        }
-
-    background_tasks.add_task(_do_import)
-    return {"status": "started", "contacts": included, "max_retries": max_retries}
 
 
 @router.delete("/empresas/{empresa_id}/flows/{flow_id}", status_code=204)

@@ -13,11 +13,8 @@ router = APIRouter()
 
 
 def _find_session(config: dict, session_id: str):
-    """Returns (bot, item, canonical_id, type). Telegram can be found by tokenId short form."""
+    """Returns (bot, item, canonical_id, type). Finds Telegram sessions by tokenId short form."""
     for bot in config.get("empresas", []):
-        for phone in bot.get("phones", []):
-            if phone["number"] == session_id:
-                return bot, phone, session_id, "whatsapp"
         for tg in bot.get("telegram", []):
             token_id = tg["token"].split(":")[0]
             canonical = f"{bot['id']}-tg-{token_id}"
@@ -127,11 +124,13 @@ async def send_chat_message(number: str, contact: str, body: SendMessageBody):
             await session.commit()
         return {"ok": True}
 
-    # Modo real: enviar vía WhatsApp Web
-    from state import wa_session
-    ok = await wa_session.send_message(number, contact, body.text)
-    if not ok:
-        raise HTTPException(status_code=503, detail="No se pudo enviar. Verificá que el bot esté conectado.")
+    tg_client = clients.get(number)
+    if not tg_client:
+        raise HTTPException(status_code=503, detail="Bot de Telegram no está activo")
+    try:
+        await tg_client["client"].bot.send_message(chat_id=int(contact), text=body.text)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"No se pudo enviar por Telegram: {e}")
 
     await log_outbound_message(bot["id"], number, contact, body.text)
     _accumulate_outbound(bot["id"], contact, body.text)
@@ -148,12 +147,6 @@ async def send_chat_message(number: str, contact: str, body: SendMessageBody):
 async def client_disconnect(number: str):
     if sim_engine.SIM_MODE:
         sim_engine.sim_disconnect(number)
-    else:
-        from state import wa_session
-        await wa_session.close_session(number)
 
-    if number in clients:
-        clients[number]["status"] = "disconnected"
-        clients[number]["qr"] = None
-
+    clients.pop(number, None)
     return {"ok": True}

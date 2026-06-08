@@ -56,7 +56,7 @@ def _state_with_ts(hours_old: float | None, connection_id="5491171876959") -> Fl
     return FlowState(
         message="Hola",
         contact_phone="5491199990000",
-        canal="whatsapp",
+        canal="telegram",
         connection_id=connection_id,
         timestamp=ts,
     )

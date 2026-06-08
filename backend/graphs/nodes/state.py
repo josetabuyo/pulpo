@@ -18,15 +18,15 @@ class FlowState:
     attachment_path: Optional[str] = None  # ruta a adjunto descargado (imagen, doc)
 
     # ── Contexto de la conversación ───────────────────────────────
-    connection_id: str = ""             # ID de la conexión (número WA o session TG) que recibió el mensaje
+    connection_id: str = ""             # ID de la conexión (session TG) que recibió el mensaje
     bot_name: str = ""
     empresa_id: str = ""
     contact_phone: str = ""
     contact_name: str = ""
-    canal: str = "whatsapp"            # whatsapp / telegram
+    canal: str = "telegram"            # telegram
 
     # ── Flags de transporte ───────────────────────────────────────
-    from_poll: bool = False            # True = preview del sidebar WA, no acumular ni responder
+    from_poll: bool = False            # True = preview del sidebar, no acumular ni responder
     from_delta_sync: bool = False      # True = sync histórico, acumular pero no responder
     timestamp: Optional[datetime] = None  # timestamp real del mensaje (útil en delta-sync)
 

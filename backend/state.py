@@ -4,10 +4,10 @@ Equivalente al objeto `clients` de Node.js.
 
 Estructura de cada entrada:
   clients[session_id] = {
-      "status":  str,   # stopped | connecting | qr_ready | authenticated | ready | disconnected | failed
+      "status":  str,   # stopped | connecting | ready | disconnected | failed
       "qr":      str | None,
       "connection_id": str,
-      "type":    "whatsapp" | "telegram",
+      "type":    "telegram",
       "client":  objeto runtime | None,
   }
 """
@@ -15,8 +15,3 @@ Estructura de cada entrada:
 from typing import Any
 
 clients: dict[str, dict[str, Any]] = {}
-
-# Singleton de WhatsAppSession — un browser, N sesiones en paralelo
-# Importación diferida para evitar ciclos
-from automation.whatsapp import WhatsAppSession
-wa_session = WhatsAppSession(headless=True)

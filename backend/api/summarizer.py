@@ -64,7 +64,7 @@ async def list_summaries(empresa_id: str, _: str = Depends(_check_auth)):
             text(
                 "SELECT cc.value, c.name FROM contact_channels cc "
                 "JOIN contacts c ON cc.contact_id = c.id "
-                "WHERE c.connection_id = :eid AND cc.type = 'whatsapp'"
+                "WHERE c.connection_id = :eid AND cc.type = 'telegram'"
             ),
             {"eid": empresa_id},
         )).fetchall()
@@ -99,181 +99,6 @@ async def list_consolidations(empresa_id: str, _: str = Depends(_check_auth)):
                 "path": str(cdir / "chat.md") if cdir else "",
             })
     return {"consolidations": result}
-
-
-@router.get("/summarizer/{empresa_id}/wa-screenshot")
-async def wa_screenshot(empresa_id: str, _: str = Depends(_check_auth)):
-    """Screenshot del browser WA activo. Ruta literal antes de /{contact_phone}."""
-    from state import clients, wa_session
-    import base64 as _b64
-    session_id = None
-    for bot_phone, client in clients.items():
-        if client.get("status") == "ready" and client.get("type") == "whatsapp":
-            session_id = bot_phone
-            break
-    if not session_id or not wa_session:
-        return {"screenshot": None}
-    try:
-        page = wa_session.get_page(session_id)
-        if not page or page.is_closed():
-            return {"screenshot": None}
-        screenshot_bytes = await page.screenshot(type="png", full_page=False)
-        b64 = _b64.b64encode(screenshot_bytes).decode()
-        return {"screenshot": f"data:image/png;base64,{b64}"}
-    except Exception:
-        return {"screenshot": None}
-
-
-@router.post("/summarizer/{empresa_id}/wa-open-chat")
-async def wa_open_chat(empresa_id: str, body: dict, _: str = Depends(_check_auth)):
-    """Navega el browser WA al chat del contacto. body: {contact_name: str}"""
-    from state import clients, wa_session
-    contact_name = (body.get("contact_name") or "").strip()
-    if not contact_name:
-        return {"ok": False, "detail": "contact_name requerido"}
-    session_id = None
-    for bot_phone, client in clients.items():
-        if client.get("status") == "ready" and client.get("type") == "whatsapp":
-            session_id = bot_phone
-            break
-    if not session_id or not wa_session:
-        return {"ok": False, "detail": "Sin sesión WA"}
-    try:
-        page = wa_session.get_page(session_id)
-        if not page or page.is_closed():
-            return {"ok": False, "detail": "Página cerrada"}
-
-        _SEARCH_SEL = (
-            '[data-testid="search-input"] div[contenteditable="true"], '
-            '#side div[contenteditable="true"], '
-            '#side input[type="text"]'
-        )
-        _RESULT_JS = """(target) => {
-            const norm = s => s.replace(/[\\u00a0\\u202a\\u202c\\u200e\\u200f]/g, ' ').trim();
-            for (const s of document.querySelectorAll(
-                '[role="grid"] span[title], [role="listbox"] span[title]')) {
-                if (norm(s.getAttribute('title')) === norm(target))
-                    return s.closest('[role="row"]') || s.closest('[role="option"]') || s;
-            }
-            return null;
-        }"""
-
-        for attempt in range(3):
-            await page.keyboard.press("Escape")
-            await page.wait_for_timeout(400)
-
-            search_input = await page.query_selector(_SEARCH_SEL)
-            if not search_input:
-                return {"ok": False, "detail": "No encontré el input de búsqueda de WA"}
-
-            await search_input.click()
-            await page.wait_for_timeout(300)
-
-            # Limpiar con execCommand (más fiable que keyboard en contenteditable)
-            await page.evaluate("""(el) => {
-                el.focus();
-                document.execCommand('selectAll', false, null);
-                document.execCommand('delete', false, null);
-            }""", search_input)
-            await page.wait_for_timeout(200)
-
-            # Verificar que quedó vacío; fallback con Backspace si no
-            cur_text = await search_input.evaluate(
-                "el => (el.innerText || el.textContent || '').trim()")
-            if cur_text:
-                await search_input.click(click_count=3)
-                await page.keyboard.press("Backspace")
-                await page.wait_for_timeout(200)
-
-            await search_input.type(contact_name, delay=40)
-            await page.wait_for_timeout(2500)
-
-            result_handle = await page.evaluate_handle(_RESULT_JS, contact_name)
-            found = result_handle and not await result_handle.evaluate("el => el === null")
-            if found:
-                await result_handle.click()
-                await page.wait_for_timeout(1000)
-                return {"ok": True}
-
-            # No encontrado en este intento; siguiente vuelta limpiará y reintentará
-        await page.keyboard.press("Escape")
-        return {"ok": False, "detail": f"'{contact_name}' no encontrado en WA Web"}
-    except Exception as e:
-        return {"ok": False, "detail": str(e)}
-
-
-@router.post("/summarizer/{empresa_id}/wa-resize")
-async def wa_resize_viewport(empresa_id: str, body: dict, _: str = Depends(_check_auth)):
-    """Redimensiona el viewport del browser WA. body: {width: int, height: int}"""
-    from state import clients, wa_session
-    width = int(body.get("width", 0))
-    height = int(body.get("height", 0))
-    if width < 280 or height < 200:
-        return {"ok": False, "detail": "Dimensiones inválidas"}
-    session_id = None
-    for bot_phone, client in clients.items():
-        if client.get("status") == "ready" and client.get("type") == "whatsapp":
-            session_id = bot_phone
-            break
-    if not session_id or not wa_session:
-        return {"ok": False, "detail": "Sin sesión WA"}
-    try:
-        page = wa_session.get_page(session_id)
-        if not page or page.is_closed():
-            return {"ok": False, "detail": "Página cerrada"}
-        await page.set_viewport_size({"width": width, "height": height})
-        return {"ok": True, "width": width, "height": height}
-    except Exception as e:
-        return {"ok": False, "detail": str(e)}
-
-
-@router.post("/summarizer/{empresa_id}/wa-scroll")
-async def wa_scroll(empresa_id: str, body: dict, _: str = Depends(_check_auth)):
-    """Envía un evento de scroll al browser WA activo. body: {direction: 'up'|'down', amount: int}"""
-    from state import clients, wa_session
-    session_id = None
-    for bot_phone, client in clients.items():
-        if client.get("status") == "ready" and client.get("type") == "whatsapp":
-            session_id = bot_phone
-            break
-    if not session_id or not wa_session:
-        return {"ok": False, "detail": "Sin sesión WA"}
-    try:
-        page = wa_session.get_page(session_id)
-        if not page or page.is_closed():
-            return {"ok": False, "detail": "Página cerrada"}
-        direction = body.get("direction", "down")
-        amount = int(body.get("amount", 400))
-
-        # Posicionar el mouse sobre el área del chat (derecha del viewport WA)
-        vp = page.viewport_size or {"width": 980, "height": 980}
-        chat_x = int(vp["width"] * 0.65)
-        chat_y = int(vp["height"] * 0.5)
-        await page.mouse.move(chat_x, chat_y)
-
-        if direction == "bottom":
-            # Scroll masivo hacia abajo + espera lazy-load + segundo scroll
-            await page.mouse.wheel(0, 99999)
-            await page.wait_for_timeout(900)
-            await page.mouse.wheel(0, 99999)
-            scrolled = "mouse.wheel:bottom"
-        elif direction == "up":
-            await page.mouse.wheel(0, -amount)
-            scrolled = "mouse.wheel:up"
-        elif direction == "down":
-            await page.mouse.wheel(0, amount)
-            scrolled = "mouse.wheel:down"
-        elif direction == "left":
-            await page.mouse.wheel(-amount, 0)
-            scrolled = "mouse.wheel:left"
-        elif direction == "right":
-            await page.mouse.wheel(amount, 0)
-            scrolled = "mouse.wheel:right"
-        else:
-            scrolled = "unknown"
-        return {"ok": True, "scrolled": scrolled}
-    except Exception as e:
-        return {"ok": False, "detail": str(e)}
 
 
 @router.get("/summarizer/{empresa_id}/{contact_phone}", response_class=PlainTextResponse)
@@ -501,14 +326,7 @@ async def get_messages(
     if content is None:
         raise HTTPException(status_code=404, detail="Sin resumen para este contacto")
 
-    from config import load_config as _load_config
-    _cfg = _load_config()
-    _empresa_cfg = next((e for e in _cfg.get("empresas", []) if e["id"] == empresa_id), None)
     owner_names: set[str] = {"Tú"}
-    if _empresa_cfg:
-        for ph in _empresa_cfg.get("phones", []):
-            if ph.get("owner_name"):
-                owner_names.add(ph["owner_name"])
 
     messages = _parse_messages(content, empresa_id, contact_phone, owner_names, keep_ids=include_ids)
     p = _summary_path(empresa_id, contact_phone)
@@ -587,74 +405,6 @@ async def sync_contact(empresa_id: str, contact_phone: str, _: str = Depends(_ch
     return {"synced": synced}
 
 
-@router.post("/summarizer/{empresa_id}/{contact_phone}/full-resync")
-async def full_resync_contact(
-    empresa_id: str,
-    contact_phone: str,
-    from_date: str = Query(default=None),
-    max_retries: int = Query(default=1, ge=1, le=10),
-    _: str = Depends(_check_auth),
-):
-    """
-    Full re-sync: backup, limpia .md + adjuntos + DB del contacto, luego dispara
-    un scrape WA Web completo. Delega en _run_contact_import(force_clear=True).
-    """
-    from state import wa_session, clients
-    from graphs.nodes.summarize import get_contact_display_name as _get_display_name
-    from db import get_contacts
-    from api.flows import _run_contact_import
-    from config import load_config as _load_config
-    from datetime import datetime as _dt
-
-    # Resolver nombre del contacto
-    contact_name = _get_display_name(empresa_id, contact_phone) or contact_phone
-    for contact in await get_contacts(empresa_id):
-        wa_chs = [ch for ch in contact.get("channels", []) if ch["type"] == "whatsapp"]
-        if any(ch["value"] == contact_phone for ch in wa_chs):
-            contact_name = contact["name"]
-            break
-
-    # Sesión WA activa
-    session_id = None
-    for bot_phone, client in clients.items():
-        if client.get("status") == "ready" and client.get("type") == "whatsapp":
-            session_id = bot_phone
-            break
-    if not session_id or not wa_session:
-        raise HTTPException(status_code=503, detail="Sin sesión WA activa")
-
-    # Owner name
-    _cfg = _load_config()
-    _empresa_cfg = next((e for e in _cfg.get("empresas", []) if e["id"] == empresa_id), None)
-    owner_name = None
-    if _empresa_cfg:
-        for ph in _empresa_cfg.get("phones", []):
-            if ph.get("number") == session_id and ph.get("owner_name"):
-                owner_name = ph["owner_name"]
-                break
-
-    since_date = None
-    if from_date:
-        try:
-            since_date = _dt.fromisoformat(from_date)
-        except ValueError:
-            pass
-
-    result = await _run_contact_import(
-        empresa_id=empresa_id,
-        contact_name=contact_name,
-        contact_phone=contact_phone,
-        session_id=session_id,
-        wa_session=wa_session,
-        owner_name=owner_name,
-        since_date=since_date,
-        max_retries=max_retries,
-        force_clear=True,
-    )
-
-    return {"scraped": result["scraped"], "saved": result["new"], "contact_name": contact_name}
-
-
 @router.post("/summarizer/{empresa_id}/migrate-to-slugs")
 async def migrate_to_slugs(empresa_id: str, _: str = Depends(_check_auth)):
     """Migra la estructura vieja ({nombre}.md) a la nueva ({slug}/chat.md). Idempotente."""
@@ -697,7 +447,7 @@ async def sync_all_contacts(
             text(
                 "SELECT DISTINCT cc.value FROM contact_channels cc "
                 "JOIN contacts c ON c.id = cc.contact_id "
-                "WHERE c.connection_id = :eid AND cc.type = 'whatsapp'"
+                "WHERE c.connection_id = :eid AND cc.type = 'telegram'"
             ),
             {"eid": empresa_id},
         )).fetchall()
@@ -815,63 +565,6 @@ async def download_summaries(empresa_id: str, _: str = Depends(_check_auth)):
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="summaries_{empresa_id}.zip"'},
     )
-
-
-@router.get("/summarizer/{empresa_id}/{contact_phone}/count-dom")
-async def count_dom_messages(
-    empresa_id: str,
-    contact_phone: str,
-    since_date: str | None = Query(default=None, description="YYYY-MM-DD — cuenta solo hasta esta fecha"),
-    _: str = Depends(_check_auth),
-):
-    """
-    Cuenta mensajes en el DOM de WA Web para un contacto scrolleando todo el historial.
-    Usa el mismo mecanismo que full-resync pero sin extraer contenido — solo cuenta.
-    Útil para validar manualmente cuántos mensajes tiene WA vs cuántos capturó el scraper.
-
-    Retorna: total, from_date, to_date, contact_name
-    """
-    from state import wa_session, clients
-    from db import get_contacts as _get_contacts
-    from graphs.nodes.summarize import get_contact_display_name as _get_display_name
-
-    contact_name = _get_display_name(empresa_id, contact_phone) or contact_phone
-    for contact in await _get_contacts(empresa_id):
-        wa_chs = [ch for ch in contact.get("channels", []) if ch["type"] == "whatsapp"]
-        if any(ch["value"] == contact_phone for ch in wa_chs):
-            contact_name = contact["name"]
-            break
-
-    session_id = None
-    for bot_phone, client in clients.items():
-        if client.get("status") == "ready" and client.get("type") == "whatsapp":
-            session_id = bot_phone
-            break
-    if not session_id or not wa_session:
-        raise HTTPException(status_code=503, detail="Sin sesión WA activa")
-
-    stop_ts = None
-    if since_date:
-        try:
-            from datetime import datetime as _dt
-            stop_ts = _dt.strptime(since_date, "%Y-%m-%d")
-        except ValueError:
-            raise HTTPException(status_code=400, detail="since_date inválido, usar YYYY-MM-DD")
-
-    msgs = await wa_session.scrape_full_history_v2(
-        session_id,
-        contact_name,
-        count_only=True,
-        stop_before_ts=stop_ts,
-    )
-
-    timestamps = sorted(m["timestamp"] for m in msgs if m.get("timestamp"))
-    return {
-        "total": len(timestamps),
-        "from_date": timestamps[0] if timestamps else None,
-        "to_date": timestamps[-1] if timestamps else None,
-        "contact_name": contact_name,
-    }
 
 
 # ─── Endpoints de manual tuning ─────────────────────────────────────────────

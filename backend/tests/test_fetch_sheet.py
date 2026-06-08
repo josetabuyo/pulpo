@@ -20,7 +20,7 @@ def make_state() -> FlowState:
         message="quiero un herrero",
         empresa_id="test",
         connection_id="test",
-        canal="whatsapp",
+        canal="telegram",
     )
 
 

@@ -29,13 +29,7 @@ _TG_RE  = re.compile(r"^(@\w+|\d+)$")
 
 def _validate_channel_value(type: str, value: str, is_group: bool = False) -> str | None:
     """Retorna mensaje de error o None si es válido."""
-    if type == "whatsapp":
-        if not value:
-            return "El valor WhatsApp no puede estar vacío"
-        # Los grupos WA tienen nombre (texto), no número
-        if not is_group and not value.isdigit():
-            return "El valor WhatsApp debe ser numérico (sin +, espacios ni guiones)"
-    elif type == "telegram":
+    if type == "telegram":
         if not _TG_RE.match(value):
             return "El valor Telegram debe ser un número o @username"
     return None
@@ -79,7 +73,7 @@ async def create_contact(bot_id: str, body: ContactIn, token_empresa_id: str = D
         raise HTTPException(400, "El nombre es obligatorio")
 
     for ch in body.channels:
-        if ch.type not in ("whatsapp", "telegram"):
+        if ch.type not in ("telegram",):
             raise HTTPException(400, f"Tipo de canal inválido: {ch.type}")
         err = _validate_channel_value(ch.type, ch.value.strip(), ch.is_group)
         if err:
@@ -133,7 +127,7 @@ async def add_channel(contact_id: int, body: ChannelIn, token_empresa_id: str = 
     if not contact:
         raise HTTPException(404, "Contacto no encontrado")
     _check_auth(contact["connection_id"], token_empresa_id)
-    if body.type not in ("whatsapp", "telegram"):
+    if body.type not in ("telegram",):
         raise HTTPException(400, f"Tipo de canal inválido: {body.type}")
     err = _validate_channel_value(body.type, body.value.strip(), body.is_group)
     if err:

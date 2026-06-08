@@ -8,7 +8,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import FlowEditor from './FlowEditor.jsx'
 
-const CONNECTION_LABELS = { whatsapp: 'WA', telegram: 'TG' }
+const CONNECTION_LABELS = { telegram: 'TG' }
 
 function formatDate(iso) {
   if (!iso) return '—'

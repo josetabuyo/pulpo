@@ -380,18 +380,6 @@ function Field({ field, config, onChange }) {
   }
 
   if (type === 'contact_filter') {
-    const connectionId = config.connection_id || ''
-    async function handleBootstrap(contactName) {
-      try {
-        await apiCall('POST', '/whatsapp/bootstrap-contact', {
-          contact_name: contactName,
-          empresa_id: empresaId,
-          connection_id: connectionId,
-        })
-      } catch (e) {
-        console.error('bootstrap error', e)
-      }
-    }
     return (
       <div style={S.fieldWrap}>
         {labelEl}
@@ -401,7 +389,6 @@ function Field({ field, config, onChange }) {
           contacts={field._contacts || []}
           suggested={field._suggested || []}
           allowMass={field._allow_mass ?? false}
-          onBootstrap={connectionId ? handleBootstrap : undefined}
         />
       </div>
     )
@@ -666,7 +653,7 @@ function SummarizeInfo({ empresaId, apiCall, onGoToUIs }) {
 
 // ─── Formulario principal ──────────────────────────────────────────────────────
 
-const TRIGGER_TYPES = new Set(['whatsapp_trigger', 'telegram_trigger', 'message_trigger'])
+const TRIGGER_TYPES = new Set(['telegram_trigger', 'message_trigger'])
 
 function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onGoToUIs }) {
   const updateNodeConfig  = useFlowStore(s => s.updateNodeConfig)
@@ -684,24 +671,6 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
   const [backupMsg, setBackupMsg]   = useState('')
   const [backingUp, setBackingUp]   = useState(false)
   const [showBackupConfirm, setShowBackupConfirm] = useState(false)
-  const [importing, setImporting]       = useState(false)
-  const [importMsg, setImportMsg]       = useState('')
-  const [importFromDate, setImportFromDate] = useState(
-    () => localStorage.getItem('wa_import_from_date') || ''
-  )
-  const [importMaxRetries, setImportMaxRetries] = useState(
-    () => parseInt(localStorage.getItem('wa_import_max_retries') || '1', 10)
-  )
-  const [scraperStatus, setScraperStatus]   = useState(null)
-  const [screenshotOpen, setScreenshotOpen] = useState(true)
-  const [screenshotUrl, setScreenshotUrl]   = useState(null)
-  const [dateFromConsolidation, setDateFromConsolidation] = useState(null)
-  const [waQueue, setWaQueue]               = useState([])
-
-  function handleImportFromDateChange(e) {
-    setImportFromDate(e.target.value)
-    localStorage.setItem('wa_import_from_date', e.target.value)
-  }
 
   const isFixed = nodeType === 'start' || nodeType === 'end'
   const isTrigger = TRIGGER_TYPES.has(nodeType)
@@ -720,31 +689,6 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
     })
   }, [empresaId])
 
-  useEffect(() => {
-    if (nodeType !== 'whatsapp_trigger' || !empresaId || !flowId || !apiCall) return
-    apiCall('GET', `/empresas/${empresaId}/flows/${flowId}/import-status`, null)
-      .then(st => { if (st && (st.attempts?.length > 0 || st.running)) setScraperStatus(st) })
-      .catch(() => {})
-    // Pre-llenar fecha desde la consolidación más reciente si el campo está vacío
-    if (!localStorage.getItem('wa_import_from_date')) {
-      apiCall('GET', `/summarizer/${empresaId}/consolidations`, null)
-        .then(data => {
-          const list = data?.consolidations || []
-          if (!list.length) return
-          const latest = list.reduce((best, c) => {
-            if (!best) return c
-            return (c.last_message_ts || '') > (best.last_message_ts || '') ? c : best
-          }, null)
-          if (latest?.last_message_ts) {
-            const dateStr = latest.last_message_ts.slice(0, 10)
-            setImportFromDate(dateStr)
-            setDateFromConsolidation(dateStr)
-            localStorage.setItem('wa_import_from_date', dateStr)
-          }
-        })
-        .catch(() => {})
-    }
-  }, [nodeType, empresaId, flowId])
 
   function handleChange(newConfig) { updateNodeConfig(node.id, newConfig) }
   function handleDelete() { if (!isFixed) deleteNode(node.id) }
@@ -782,63 +726,6 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
     }
   }
 
-  async function handleImportWA() {
-    if (!flowId) return
-    setImporting(true)
-    setImportMsg('')
-    setScraperStatus(null)
-    try {
-      const qs = new URLSearchParams()
-      if (importFromDate) qs.set('from_date', importFromDate)
-      qs.set('max_retries', String(importMaxRetries))
-      await apiCall('POST', `/empresas/${empresaId}/flows/${flowId}/import-wa-history?${qs}`, {})
-    } catch {
-      setImportMsg('Error al iniciar la importación')
-      setImporting(false)
-      return
-    }
-    const poll = setInterval(async () => {
-      try {
-        const st = await apiCall('GET', `/empresas/${empresaId}/flows/${flowId}/import-status`, null)
-        setScraperStatus(st)
-        if (st && !st.running) {
-          clearInterval(poll)
-          setImporting(false)
-        }
-      } catch { clearInterval(poll); setImporting(false) }
-    }, 2000)
-    setTimeout(() => { clearInterval(poll); setImporting(false) }, 10 * 60 * 1000)
-  }
-
-  async function fetchScreenshot() {
-    const sessionId = config.connection_id
-    if (!sessionId) return
-    try {
-      const res = await apiCall('GET', `/screenshot/${sessionId}`, null)
-      if (res?.screenshot) setScreenshotUrl(res.screenshot)
-    } catch {}
-  }
-
-  useEffect(() => {
-    if (!screenshotOpen) return
-    fetchScreenshot()
-    if (!importing) return
-    const t = setInterval(fetchScreenshot, 3000)
-    return () => clearInterval(t)
-  }, [screenshotOpen, importing])
-
-  useEffect(() => {
-    if (nodeType !== 'whatsapp_trigger') return
-    const sessionId = config?.connection_id
-    if (!sessionId || !apiCall) return
-    const poll = () =>
-      apiCall('GET', `/whatsapp/wa-queue?session_id=${sessionId}`, null)
-        .then(data => setWaQueue(data?.[sessionId] || []))
-        .catch(() => {})
-    poll()
-    const t = setInterval(poll, 3000)
-    return () => clearInterval(t)
-  }, [nodeType, config?.connection_id])
 
   async function handleBackupAndClean() {
     setBackingUp(true)
@@ -1012,79 +899,6 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
           </div>
         )}
 
-        {/* ── Monitor scraper WA ─────────────────────────────────────────── */}
-        {nodeType === 'whatsapp_trigger' && (
-          <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
-
-            {/* Cola de operaciones WA */}
-            {waQueue.length > 0 && (
-              <div style={{ background: '#0f172a', borderRadius: 6, padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <div style={{ fontSize: 10, color: '#334155', fontWeight: 700, letterSpacing: '0.06em', marginBottom: 2 }}>
-                  COLA WA
-                </div>
-                {waQueue.map(job => {
-                  const statusColor = {
-                    pending:   '#fbbf24',
-                    running:   '#4ade80',
-                    done:      '#334155',
-                    error:     '#f87171',
-                    cancelled: '#334155',
-                  }[job.status] || '#94a3b8'
-                  const typeLabel = {
-                    delta_sync:   'delta',
-                    full_resync:  'full-resync',
-                    import_wa:    'importar',
-                    startup_sync: 'arranque',
-                  }[job.type] || job.type
-                  return (
-                    <div key={job.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontFamily: 'monospace', opacity: job.status === 'cancelled' ? 0.5 : 1 }}>
-                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor, flexShrink: 0, ...(job.status === 'running' ? { animation: 'pulse 1.2s infinite' } : {}) }} />
-                      <span style={{ color: '#64748b', flexShrink: 0 }}>{typeLabel}</span>
-                      <span style={{ color: '#94a3b8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.label}</span>
-                      {job.status === 'error' && job.error && (
-                        <span style={{ color: '#f87171', fontSize: 10, maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={job.error}>⚠ {job.error}</span>
-                      )}
-                      {job.status === 'pending' && (
-                        <button
-                          onClick={() => apiCall('DELETE', `/whatsapp/wa-queue/${job.id}`, null).catch(() => {})}
-                          style={{ background: 'none', border: 'none', color: '#475569', cursor: 'pointer', fontSize: 13, padding: '0 2px', lineHeight: 1 }}
-                          title="Cancelar"
-                        >×</button>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-
-            {/* Reintentos */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ ...S.label, margin: 0, flex: 1 }}>REINTENTOS</span>
-              <button
-                onClick={() => { const v = Math.max(1, importMaxRetries - 1); setImportMaxRetries(v); localStorage.setItem('wa_import_max_retries', v) }}
-                style={S.miniBtn}
-              >−</button>
-              <span style={{ fontSize: 13, color: '#e2e8f0', minWidth: 18, textAlign: 'center' }}>{importMaxRetries}</span>
-              <button
-                onClick={() => { const v = Math.min(10, importMaxRetries + 1); setImportMaxRetries(v); localStorage.setItem('wa_import_max_retries', v) }}
-                style={S.miniBtn}
-              >+</button>
-            </div>
-
-            {/* Screenshot inline */}
-            {screenshotOpen && (
-              <div style={{ borderRadius: 6, overflow: 'hidden', border: '1px solid #1e293b', background: '#0f172a' }}>
-                {screenshotUrl
-                  ? <img src={screenshotUrl} alt="WA browser" style={{ width: '100%', display: 'block' }} />
-                  : <div style={{ padding: 16, color: '#475569', fontSize: 11, textAlign: 'center' }}>
-                      {importing ? <><SpinDots /> cargando screenshot…</> : 'Sin sesión activa'}
-                    </div>
-                }
-              </div>
-            )}
-
-          </div>
-        )}
       </div>
 
       {['fetch_sheet', 'search_sheet', 'gsheet'].includes(nodeType) && (
@@ -1093,84 +907,6 @@ function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onG
 
       {isTrigger && config.connection_id && (
         <div style={{ paddingTop: 8, borderTop: '1px solid #1e293b', display: 'flex', flexDirection: 'column', gap: 6 }}>
-
-          {nodeType === 'whatsapp_trigger' && config.contact_filter?.included?.length > 0 && (
-            <>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  <span style={{ fontSize: 11, color: '#64748b', flexShrink: 0 }}>Desde</span>
-                  <input
-                    type="date"
-                    style={{ ...S.input, flex: 1, colorScheme: 'dark' }}
-                    value={importFromDate}
-                    onChange={handleImportFromDateChange}
-                    placeholder="(todo el historial)"
-                  />
-                </div>
-                {dateFromConsolidation && importFromDate === dateFromConsolidation && (
-                  <span style={{ fontSize: 10, color: '#3b82f6', paddingLeft: 2 }}>
-                    📦 límite de consolidación
-                  </span>
-                )}
-              </div>
-              <button
-                onClick={handleImportWA}
-                disabled={importing}
-                style={{
-                  width: '100%', padding: '7px 12px',
-                  background: importing ? '#0f172a' : 'transparent',
-                  border: '1px solid #065f46',
-                  borderRadius: 6, color: '#34d399', fontSize: 12, cursor: 'pointer',
-                  fontWeight: 600,
-                }}
-              >
-                {importing ? '⏳ Importando de WA...' : '↓ Sincronizar historial de WA'}
-              </button>
-              {importMsg && (
-                <div style={{ fontSize: 11, color: importMsg.startsWith('⏳') ? '#fbbf24' : '#f87171', textAlign: 'center' }}>
-                  {importMsg}
-                </div>
-              )}
-              {/* Log de intentos — aparece junto al botón para que sea visible sin scrollear */}
-              {scraperStatus && (
-                <div style={{ background: '#0f172a', borderRadius: 6, padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 5 }}>
-                  <div style={{ fontSize: 10, color: '#334155', fontWeight: 700, letterSpacing: '0.06em', marginBottom: 2 }}>
-                    SCRAPER — {scraperStatus.contact || '…'}
-                  </div>
-                  {scraperStatus.running && (!scraperStatus.attempts || scraperStatus.attempts.length === 0) && (
-                    <div style={{ fontSize: 11, color: '#475569', fontFamily: 'monospace' }}>
-                      Iniciando… <SpinDots />
-                    </div>
-                  )}
-                  {(scraperStatus.attempts || []).map((a, i) => (
-                    <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 11, fontFamily: 'monospace' }}>
-                      <span style={{ color: '#334155', minWidth: 28 }}>{a.n}/{scraperStatus.max_retries}</span>
-                      {a.done
-                        ? <>
-                            <span style={{ color: '#475569' }}>{a.scraped} msgs</span>
-                            <span style={{ color: a.new > 0 ? '#4ade80' : '#334155', marginLeft: 2 }}>+{a.new}</span>
-                            <span style={{ color: '#4ade80', marginLeft: 2 }}>✓</span>
-                            {a.error && <span style={{ color: '#f87171', marginLeft: 2 }}>⚠</span>}
-                          </>
-                        : <>
-                            <span style={{ color: '#475569' }}>{a.scraped} msgs</span>
-                            <span style={{ color: '#334155', marginLeft: 2 }}>ronda {a.round}</span>
-                            <span style={{ marginLeft: 2 }}><SpinDots /></span>
-                          </>
-                      }
-                    </div>
-                  ))}
-                  {!scraperStatus.running && scraperStatus.finished_at && (
-                    <div style={{ fontSize: 10, color: '#334155', marginTop: 2 }}>
-                      {scraperStatus.attempts?.every(a => a.new === 0 && a.done)
-                        ? '↑ Sin cambios nuevos'
-                        : '↑ Completado'}
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
-          )}
 
           {config.contact_filter && (
             <>

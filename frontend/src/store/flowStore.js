@@ -13,7 +13,6 @@ export function useFlowStore(selector) {
 // Tipos de nodo disponibles en la paleta (los que el usuario puede arrastrar).
 // El orden importa: así aparecen en la paleta.
 export const PALETTE_TYPES = [
-  'whatsapp_trigger',
   'telegram_trigger',
   'message_join',
   'router',
@@ -36,7 +35,6 @@ export const PALETTE_TYPES = [
 // Config por defecto al crear un nodo nuevo desde la paleta
 const DEFAULT_CONFIGS = {
   message_trigger:   { connection_id: '', contact_phone: '', message_pattern: '' },
-  whatsapp_trigger:  { connection_id: '', contact_filter: { include_all_known: false, include_unknown: false, included: [], excluded: [] }, message_pattern: '', cooldown_hours: 4 },
   telegram_trigger:  { connection_id: '', contact_filter: { include_all_known: false, include_unknown: false, included: [], excluded: [] }, message_pattern: '', cooldown_hours: 4 },
   message_join:      {},
   router:          { prompt: '', routes: [], fallback: '', model: 'llama-3.3-70b-versatile' },

@@ -39,16 +39,15 @@ def test_create_contact(client):
 
 def test_create_contact_with_channels(client):
     auth = get_empresa_token(BOT_ID, BOT_PWD, client)
-    phone = _uniq_phone()
     r = client.post(f"/api/bots/{BOT_ID}/contacts", json={
         "name": "Con Canales",
-        "channels": [{"type": "whatsapp", "value": phone}],
+        "channels": [{"type": "telegram", "value": "@testcanal"}],
     }, headers=auth)
     assert r.status_code == 201
     body = r.json()
     assert len(body["channels"]) == 1
-    assert body["channels"][0]["type"] == "whatsapp"
-    assert body["channels"][0]["value"] == phone
+    assert body["channels"][0]["type"] == "telegram"
+    assert body["channels"][0]["value"] == "@testcanal"
     client.delete(f"/api/contacts/{body['id']}", headers=auth)
 
 
@@ -109,57 +108,27 @@ def test_add_and_delete_channel(client):
 def test_channel_uniqueness(client):
     """Un mismo (type, value) no puede estar en dos contactos."""
     auth = get_empresa_token(BOT_ID, BOT_PWD, client)
-    phone = _uniq_phone("549111")
+    import time as _time
+    tg_value = f"@user{int(_time.time() * 1000) % 10_000_000}"
     c1 = client.post(f"/api/bots/{BOT_ID}/contacts", json={"name": "C1"}, headers=auth).json()
     c2 = client.post(f"/api/bots/{BOT_ID}/contacts", json={"name": "C2"}, headers=auth).json()
     # Asignar canal a c1
     client.post(f"/api/contacts/{c1['id']}/channels",
-                json={"type": "whatsapp", "value": phone}, headers=auth)
+                json={"type": "telegram", "value": tg_value}, headers=auth)
     # Intentar el mismo canal en c2 → debe dar 409
     r = client.post(f"/api/contacts/{c2['id']}/channels",
-                    json={"type": "whatsapp", "value": phone}, headers=auth)
+                    json={"type": "telegram", "value": tg_value}, headers=auth)
     assert r.status_code == 409
     client.delete(f"/api/contacts/{c1['id']}", headers=auth)
     client.delete(f"/api/contacts/{c2['id']}", headers=auth)
 
 
-def test_channel_validation_whatsapp(client):
-    """WhatsApp solo acepta números."""
+def test_channel_validation_telegram(client):
+    """Telegram rechaza valores que no sean @username ni ID numérico."""
     auth = get_empresa_token(BOT_ID, BOT_PWD, client)
     c = client.post(f"/api/bots/{BOT_ID}/contacts", json={"name": "Val Test"}, headers=auth).json()
     r = client.post(f"/api/contacts/{c['id']}/channels",
-                    json={"type": "whatsapp", "value": "+5491100000001"}, headers=auth)
-    assert r.status_code == 400
-    client.delete(f"/api/contacts/{c['id']}", headers=auth)
-
-
-# ─── is_group ─────────────────────────────────────────────────────
-
-def test_create_group_channel(client):
-    """Canal WhatsApp con is_group=True acepta nombre (no número)."""
-    auth = get_empresa_token(BOT_ID, BOT_PWD, client)
-
-    # Usar valor único por run para evitar colisión si el cleanup falló en una ejecución anterior
-    group_value = f"Grupo Test {int(time.time() * 1000) % 10_000_000}"
-
-    r = client.post(f"/api/bots/{BOT_ID}/contacts", json={
-        "name": f"Contacto {group_value}",
-        "channels": [{"type": "whatsapp", "value": group_value, "is_group": True}],
-    }, headers=auth)
-    assert r.status_code == 201
-    body = r.json()
-    ch = body["channels"][0]
-    assert ch["is_group"] is True
-    assert ch["value"] == group_value
-    client.delete(f"/api/contacts/{body['id']}", headers=auth)
-
-
-def test_group_channel_rejects_number_as_non_group(client):
-    """Un canal WA sin is_group sigue requiriendo número."""
-    auth = get_empresa_token(BOT_ID, BOT_PWD, client)
-    c = client.post(f"/api/bots/{BOT_ID}/contacts", json={"name": "Val Grupo"}, headers=auth).json()
-    r = client.post(f"/api/contacts/{c['id']}/channels",
-                    json={"type": "whatsapp", "value": "Nombre del Grupo", "is_group": False}, headers=auth)
+                    json={"type": "telegram", "value": "nombre invalido"}, headers=auth)
     assert r.status_code == 400
     client.delete(f"/api/contacts/{c['id']}", headers=auth)
 
@@ -170,7 +139,7 @@ def test_list_contacts_includes_channels(client):
     auth = get_empresa_token(BOT_ID, BOT_PWD, client)
     c = client.post(f"/api/bots/{BOT_ID}/contacts", json={
         "name": "Lista Test",
-        "channels": [{"type": "whatsapp", "value": _uniq_phone("549112")}],
+        "channels": [{"type": "telegram", "value": "@listatest"}],
     }, headers=auth).json()
     contacts = client.get(f"/api/bots/{BOT_ID}/contacts", headers=auth).json()
     found = next((x for x in contacts if x["id"] == c["id"]), None)

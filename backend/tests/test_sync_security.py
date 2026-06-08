@@ -35,7 +35,7 @@ async def setup_and_teardown():
             text("SELECT last_insert_rowid()")
         )).scalar()
         await s.execute(
-            text("INSERT INTO contact_channels (contact_id, type, value) VALUES (:cid, 'whatsapp', :val)"),
+            text("INSERT INTO contact_channels (contact_id, type, value) VALUES (:cid, 'telegram', :val)"),
             {"cid": contact_id, "val": REGISTERED},
         )
 
@@ -80,7 +80,7 @@ async def test_sync_all_query_solo_devuelve_contactos_registrados():
             text(
                 "SELECT DISTINCT cc.value FROM contact_channels cc "
                 "JOIN contacts c ON c.id = cc.contact_id "
-                "WHERE c.connection_id = :eid AND cc.type = 'whatsapp'"
+                "WHERE c.connection_id = :eid AND cc.type = 'telegram'"
             ),
             {"eid": EMPRESA_TEST},
         )).fetchall()

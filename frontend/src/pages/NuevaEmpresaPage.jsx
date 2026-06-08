@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import StatusBadge from '../components/StatusBadge.jsx'
 import { authFetch, setAccessToken } from '../lib/auth.js'
@@ -10,83 +10,23 @@ function empresaApi(method, path, body) {
   }).then(r => r.json())
 }
 
-// ─── Fila de conexión (igual que DashboardPage pero con empresa auth) ─────────
+// ─── Fila de conexión Telegram ────────────────────────────────────────────────
 
-export function ConexionRow({ conn, botId, onDelete, onConnected }) {
-  const [showQr, setShowQr]     = useState(false)
-  const [qrSrc, setQrSrc]       = useState(null)
-  const [qrStatus, setQrStatus] = useState('')
-  const [status, setStatus]     = useState(conn.status)
-  const stopRef = useRef(null)
-
+export function ConexionRow({ conn, botId, onDelete }) {
+  const [status, setStatus] = useState(conn.status)
   useEffect(() => setStatus(conn.status), [conn.status])
-  useEffect(() => () => stopRef.current?.(), [])
-
-  const isTelegram  = conn.type === 'telegram'
-  const isConnected = status === 'ready'
-  const isConnecting = ['connecting', 'qr_needed', 'qr_ready', 'authenticated'].includes(status)
-
-  async function handleConnect() {
-    setShowQr(true); setQrSrc(null); setQrStatus('Iniciando...')
-    let interval = null
-    const stop = () => { if (interval) { clearInterval(interval); interval = null } }
-    stopRef.current = stop
-
-    const res = await empresaApi('POST', `/empresa/${botId}/connect/${conn.id}`, null).catch(() => null)
-    if (!res) { stop(); setShowQr(false); return }
-    if (res.status === 'ready') { stop(); setStatus('ready'); setShowQr(false); onConnected?.(); return }
-
-    interval = setInterval(async () => {
-      const data = await empresaApi('GET', `/empresa/${botId}/qr/${conn.id}`, null).catch(() => null)
-      if (!data) return
-      if (data.status === 'ready') { stop(); setStatus('ready'); setShowQr(false); onConnected?.() }
-      else if (['failed', 'disconnected'].includes(data.status)) { stop(); setStatus(data.status); setShowQr(false) }
-      else {
-        setStatus(data.status)
-        if (data.qr) { setQrSrc(data.qr); setQrStatus('El código se renueva cada 20 segundos') }
-      }
-    }, 3000)
-  }
-
-  async function handleDisconnect() {
-    await empresaApi('POST', `/empresa/${botId}/disconnect/${conn.id}`, null).catch(() => null)
-    setStatus('disconnected')
-  }
 
   return (
-    <div>
-      <div className="phone-row" style={{ background: isTelegram ? '#f0f4ff' : undefined }}>
-        <div className="phone-number">
-          <span className={isTelegram ? 'tg-label' : 'wa-label'}>{isTelegram ? 'TG' : 'WA'}</span>
-          <span className="phone-id">{isTelegram ? conn.id : `+${conn.id}`}</span>
-        </div>
-        <div style={{ flex: 1 }} />
-        <div className="phone-actions">
-          <StatusBadge status={status} />
-          {!isTelegram && !showQr && !isConnected && !isConnecting && (
-            <button className="btn-primary btn-sm" onClick={handleConnect}>Vincular QR</button>
-          )}
-          {!isTelegram && !showQr && isConnected && (
-            <button className="btn-danger btn-sm" onClick={handleDisconnect}>Desconectar</button>
-          )}
-          {!isTelegram && isConnecting && !showQr && (
-            <span style={{ fontSize: 12, color: '#888' }}>Conectando...</span>
-          )}
-          <button className="btn-danger btn-sm" onClick={() => onDelete(conn)}>Eliminar</button>
-        </div>
+    <div className="phone-row" style={{ background: '#f0f4ff' }}>
+      <div className="phone-number">
+        <span className="tg-label">TG</span>
+        <span className="phone-id">{conn.id}</span>
       </div>
-
-      {showQr && (
-        <div className="portal-qr-section" style={{ marginLeft: 16, marginBottom: 8 }}>
-          <p className="qr-hint">
-            Abrí WhatsApp → <strong>Dispositivos vinculados</strong> → <strong>Vincular dispositivo</strong>
-          </p>
-          <div className="qr-wrap">{qrSrc ? <img src={qrSrc} alt="QR" /> : <div className="spinner" />}</div>
-          <p className="qr-status">{qrStatus}</p>
-          <button className="btn-ghost btn-sm" style={{ marginTop: 8 }}
-            onClick={() => { stopRef.current?.(); setShowQr(false) }}>Cancelar</button>
-        </div>
-      )}
+      <div style={{ flex: 1 }} />
+      <div className="phone-actions">
+        <StatusBadge status={status} />
+        <button className="btn-danger btn-sm" onClick={() => onDelete(conn)}>Eliminar</button>
+      </div>
     </div>
   )
 }
@@ -159,29 +99,10 @@ function StepDatos({ onCreated }) {
 
 function StepConexiones({ session, onDone }) {
   const { botId } = session
-  const [conns, setConns]         = useState([])
-  const [waInput, setWaInput]     = useState('')
-  const [tgInput, setTgInput]     = useState('')
-  const [waError, setWaError]     = useState('')
-  const [tgError, setTgError]     = useState('')
-  const [loading, setLoading]     = useState(false)
-  // conexiones compartidas pendientes de configurar filtro
-  const [sharedPending, setSharedPending] = useState([]) // [{ number, sharedWith[] }]
-
-  async function addWa(e) {
-    e.preventDefault(); setWaError('')
-    const number = waInput.trim()
-    if (!number) return
-    setLoading(true)
-    const res = await empresaApi('POST', `/empresa/${botId}/whatsapp`, { number }).catch(() => null)
-    setLoading(false)
-    if (!res?.ok) { setWaError(res?.detail || 'Error al agregar'); return }
-    setConns(c => [...c, { id: number, type: 'whatsapp', status: 'stopped' }])
-    setWaInput('')
-    if (res.shared) {
-      setSharedPending(p => [...p, { number, sharedWith: res.shared_with }])
-    }
-  }
+  const [conns, setConns]     = useState([])
+  const [tgInput, setTgInput] = useState('')
+  const [tgError, setTgError] = useState('')
+  const [loading, setLoading] = useState(false)
 
   async function addTg(e) {
     e.preventDefault(); setTgError('')
@@ -200,12 +121,8 @@ function StepConexiones({ session, onDone }) {
   }
 
   async function removeConn(conn) {
-    if (conn.type === 'whatsapp') {
-      await empresaApi('DELETE', `/empresa/${botId}/whatsapp/${conn.id}`, null).catch(() => null)
-    } else {
-      const tokenId = conn.id.split('-tg-')[1]
-      await empresaApi('DELETE', `/empresa/${botId}/telegram/${tokenId}`, null).catch(() => null)
-    }
+    const tokenId = conn.id.split('-tg-')[1]
+    await empresaApi('DELETE', `/empresa/${botId}/telegram/${tokenId}`, null).catch(() => null)
     setConns(c => c.filter(x => x.id !== conn.id))
   }
 
@@ -213,46 +130,8 @@ function StepConexiones({ session, onDone }) {
     <div style={{ maxWidth: 580, width: '100%' }}>
       <div className="logo">🔌</div>
       <h1>Agregar conexiones</h1>
-      <p className="subtitle">Conectá tus canales de WhatsApp y Telegram. Podés hacerlo ahora o más tarde.</p>
+      <p className="subtitle">Conectá tu bot de Telegram. Podés hacerlo ahora o más tarde.</p>
 
-      {/* WhatsApp */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-title">📱 WhatsApp</div>
-        <p style={{ fontSize: 13, color: '#666', marginBottom: 8 }}>
-          Ingresá el número del teléfono que va a usar el bot (con código de país, sin el <code>+</code>).<br />
-          Luego vas a vincular el QR desde WhatsApp → <strong>Dispositivos vinculados</strong>.
-        </p>
-        <form onSubmit={addWa} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-          <input style={{ flex: 1 }} type="tel" value={waInput} onChange={e => setWaInput(e.target.value)}
-            placeholder="Número sin + (ej: 5491155612767)" />
-          <button type="submit" className="btn-primary btn-sm" disabled={loading}>Agregar</button>
-        </form>
-        {waError && <div className="error" style={{ marginBottom: 8 }}>{waError}</div>}
-        <div className="phones-table">
-          {conns.filter(c => c.type === 'whatsapp').map(c => (
-            <ConexionRow key={c.id} conn={c} botId={botId}
-              onDelete={removeConn} onConnected={() => setConns(cs => cs.map(x => x.id === c.id ? { ...x, status: 'ready' } : x))} />
-          ))}
-          {conns.filter(c => c.type === 'whatsapp').length === 0 && (
-            <div className="empty" style={{ padding: 8 }}>Sin números aún</div>
-          )}
-        </div>
-
-        {/* Aviso: número compartido con otras empresas */}
-        {sharedPending.map(s => (
-          <div key={s.number} style={{
-            marginTop: 10, padding: '10px 12px', borderRadius: 6,
-            background: '#fffbeb', border: '1px solid #fcd34d', fontSize: 13,
-          }}>
-            <strong>⚠ Número compartido:</strong> +{s.number} ya está en uso por{' '}
-            <strong>{s.sharedWith.join(', ')}</strong>.<br />
-            Está bien si atienden contactos distintos, pero <strong>configurá el filtro de contactos</strong>{' '}
-            en cada flow para evitar respuestas duplicadas al mismo contacto.
-          </div>
-        ))}
-      </div>
-
-      {/* Telegram */}
       <div className="card" style={{ marginBottom: 24 }}>
         <div className="card-title">✈️ Telegram</div>
         <details open style={{ marginBottom: 12, fontSize: 13, color: '#555' }}>
@@ -274,10 +153,10 @@ function StepConexiones({ session, onDone }) {
         </form>
         {tgError && <div style={{ fontSize: 13, color: tgError.includes('Requiere') ? '#b45309' : 'var(--error)', marginBottom: 8 }}>{tgError}</div>}
         <div className="phones-table">
-          {conns.filter(c => c.type === 'telegram').map(c => (
+          {conns.map(c => (
             <ConexionRow key={c.id} conn={c} botId={botId} onDelete={removeConn} />
           ))}
-          {conns.filter(c => c.type === 'telegram').length === 0 && (
+          {conns.length === 0 && (
             <div className="empty" style={{ padding: 8 }}>Sin bots aún</div>
           )}
         </div>

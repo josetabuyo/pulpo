@@ -1,8 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import SimChat from '../SimChat.jsx'
+import { useState, useEffect, useRef } from 'react'
 import FlowList from './FlowList.jsx'
 import UIsList from './UIsList.jsx'
-import ContactFilterEditor, { DEFAULT_FILTER } from './ContactFilterEditor.jsx'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -13,15 +11,11 @@ const STATUS_LABELS = {
 }
 
 
-const CHANNEL_LABELS = { whatsapp: '📱 WA', telegram: '✈️ TG' }
-function channelLabel(ch) { return ch.is_group ? '👥 Grupo WA' : (CHANNEL_LABELS[ch.type] || ch.type) }
+function isInactive(s) { return ['stopped', 'failed', 'disconnected', undefined, null].includes(s) }
 
-function isInactive(s) { return ['stopped', 'failed', 'disconnected', 'qr_needed', undefined, null].includes(s) }
-function isConnecting(s) { return ['connecting', 'qr_ready', 'authenticated'].includes(s) }
-
-function dotColor(status, isTg) {
-  if (status === 'ready') return isTg ? '#2196f3' : '#25d366'
-  if (isConnecting(status)) return '#f59e0b'
+function dotColor(status) {
+  if (status === 'ready') return '#2196f3'
+  if (['connecting'].includes(status)) return '#f59e0b'
   return '#ef4444'
 }
 
@@ -30,16 +24,10 @@ export function normalizeBot(bot) {
   return {
     id: bot.id,
     name: bot.name,
-    connections: [
-      ...(bot.phones ?? []).map(p => ({
-        id: p.number, type: 'whatsapp', number: p.number, status: p.status,
-        allowMass: p.allowMass ?? false,
-      })),
-      ...(bot.telegram ?? []).map(t => ({
-        id: `${bot.id}-tg-${t.tokenId}`, type: 'telegram', number: t.tokenId, status: t.status,
-        username: t.username || '', botName: t.botName || '',
-      })),
-    ],
+    connections: (bot.telegram ?? []).map(t => ({
+      id: `${bot.id}-tg-${t.tokenId}`, type: 'telegram', number: t.tokenId, status: t.status,
+      username: t.username || '', botName: t.botName || '',
+    })),
   }
 }
 
@@ -166,131 +154,12 @@ function EmpresaConfigTab({ botId, botName, apiCall, onNameChange }) {
   )
 }
 
-// ─── ConnectionFilterPanel ───────────────────────────────────────────────────────
-
-// ConnectionFilterPanel — panel de filtro de contactos para una conexión.
-// Se renderiza como sibling de ec-conn-main (fuera del flex row de botones).
-// Usa ContactFilterPicker para tener el mismo look que el editor de flows.
-function ConnectionFilterPanel({ number, botId, apiCall, onClose }) {
-  const [filter, setFilter]     = useState(DEFAULT_FILTER)
-  const [saving, setSaving]     = useState(false)
-  const [loaded, setLoaded]     = useState(false)
-  const [contacts, setContacts] = useState([])
-  const [suggested, setSuggested] = useState([])
-
-  useEffect(() => {
-    Promise.all([
-      apiCall('GET', `/connections/${number}/filter-config`, null).catch(() => null),
-      apiCall('GET', `/bots/${botId}/contacts`, null).catch(() => []),
-      apiCall('GET', `/bots/${botId}/contacts/suggested`, null).catch(() => []),
-    ]).then(([filterData, contactsData, suggestedData]) => {
-      if (filterData) setFilter({ ...DEFAULT_FILTER, ...filterData })
-      if (Array.isArray(contactsData)) setContacts(contactsData)
-      if (Array.isArray(suggestedData)) setSuggested(suggestedData)
-      setLoaded(true)
-    })
-  }, [])
-
-  async function save() {
-    setSaving(true)
-    await apiCall('PUT', `/connections/${number}/filter-config`, filter).catch(() => null)
-    setSaving(false)
-  }
-
-  return (
-    <div style={{ padding: '10px 16px 12px', background: '#0d1424', borderTop: '1px solid #1e293b' }}>
-      <div style={{ fontWeight: 600, color: '#cbd5e1', marginBottom: 8, fontSize: 11 }}>
-        Filtro default — +{number}
-      </div>
-      {!loaded
-        ? <div style={{ color: '#64748b', fontSize: 11 }}>Cargando...</div>
-        : <ContactFilterEditor value={filter} onChange={setFilter} contacts={contacts} suggested={suggested} />
-      }
-      <div style={{ marginTop: 10, display: 'flex', gap: 6 }}>
-        <button className="btn-primary btn-sm" onClick={save} disabled={saving || !loaded}>
-          {saving ? 'Guardando...' : 'Guardar filtro'}
-        </button>
-        <button className="btn-ghost btn-sm" onClick={onClose}>Cerrar</button>
-      </div>
-    </div>
-  )
-}
-
-// ─── BrowserPanel ───────────────────────────────────────────────────────────────
-
-function BrowserPanel({ number, connected, apiCall }) {
-  const [src, setSrc] = useState(null)
-  const [ts, setTs] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const intervalRef = useRef(null)
-
-  const fetchShot = useCallback(async () => {
-    if (!connected || !number) return
-    setLoading(true)
-    try {
-      const data = await apiCall('GET', `/screenshot/${number}`, null)
-      if (data?.screenshot) { setSrc(data.screenshot); setTs(new Date().toLocaleTimeString()) }
-    } catch {}
-    setLoading(false)
-  }, [connected, number, apiCall])
-
-  useEffect(() => {
-    if (!connected) { clearInterval(intervalRef.current); setSrc(null); return }
-    fetchShot()
-    intervalRef.current = setInterval(fetchShot, 8000)
-    return () => clearInterval(intervalRef.current)
-  }, [connected, fetchShot])
-
-  return (
-    <div className="ec-browser-panel">
-      <div className="ec-browser-panel__header">
-        <span className="ec-browser-panel__header-title">BROWSER</span>
-        {connected && (
-          <button
-            className="btn-ghost btn-sm"
-            style={{ fontSize: 11, padding: '2px 6px' }}
-            onClick={fetchShot}
-            disabled={loading}
-          >
-            {loading ? '...' : '↺'}
-          </button>
-        )}
-        {ts && <span className="ec-browser-panel__header-ts">{ts} · auto 8s</span>}
-      </div>
-      {connected && src
-        ? <img
-            className="ec-browser-panel__img"
-            src={src}
-            alt="WA Web"
-            onClick={() => window.open(src, '_blank')}
-            title="Click para ver en tamaño completo"
-          />
-        : <div className="ec-browser-panel__noise">
-            <span className="ec-browser-panel__closed-label">
-              {connected ? 'CARGANDO...' : 'BROWSER CERRADO'}
-            </span>
-          </div>
-      }
-    </div>
-  )
-}
-
 // ─── ConnectionRow ──────────────────────────────────────────────────────────────
 
-function ConnectionRow({
-  conn, mode, simMode, botId, apiCall, adminPwd,
-  onQR, onDisconnect, onScreenshot, onMove, onDelete, onReconnect, onRefresh,
-}) {
-  const [showQr, setShowQr] = useState(false)
-  const [qrSrc, setQrSrc] = useState(null)
-  const [qrStatus, setQrStatus] = useState('')
+function ConnectionRow({ conn, mode, simMode, botId, apiCall, onDelete, onReconnect }) {
   const [localStatus, setLocalStatus] = useState(conn.status)
-  const [showFilter, setShowFilter] = useState(false)
-  const [purgeLabel, setPurgeLabel] = useState('Purgar')
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0, openUp: false })
-  const [localAllowMass, setLocalAllowMass] = useState(conn.allowMass ?? false)
-  const stopRef = useRef(null)
   const menuRef = useRef(null)
   const menuBtnRef = useRef(null)
 
@@ -304,118 +173,35 @@ function ConnectionRow({
   function openMenu() {
     const rect = menuBtnRef.current?.getBoundingClientRect()
     if (!rect) { setMenuOpen(true); return }
-    const menuHeight = 280
+    const menuHeight = 120
     const spaceBelow = window.innerHeight - rect.bottom
     const openUp = spaceBelow < menuHeight
-    setMenuPos({
-      top: openUp ? rect.top - 4 : rect.bottom + 4,
-      left: rect.right,
-      openUp,
-    })
+    setMenuPos({ top: openUp ? rect.top - 4 : rect.bottom + 4, left: rect.right, openUp })
     setMenuOpen(true)
   }
 
-  async function handleToggleMass() {
-    const next = !localAllowMass
-    setLocalAllowMass(next)
-    try {
-      await apiCall('PATCH', `/connections/${conn.number}/settings`, { allow_mass: next })
-      onRefresh?.()
-    } catch {
-      setLocalAllowMass(!next)
-    }
-  }
-
-  async function handlePurge() {
-    setPurgeLabel('...')
-    try {
-      const res = await apiCall('POST', `/whatsapp/purge-drafts-session/${conn.number}`, {})
-      setPurgeLabel(res?.cleared > 0 ? `${res.cleared} ✓` : 'OK')
-    } catch {
-      setPurgeLabel('Error')
-    }
-    setTimeout(() => setPurgeLabel('Purgar'), 3000)
-  }
-
   useEffect(() => setLocalStatus(conn.status), [conn.status])
-  useEffect(() => () => stopRef.current?.(), [])
 
-  const isTg = conn.type === 'telegram'
-  const displayId = isTg
-    ? (conn.username ? `@${conn.username}` : conn.botName || conn.number)
-    : `+${conn.number}`
+  const displayId = conn.username ? `@${conn.username}` : conn.botName || conn.number
   const connected = localStatus === 'ready'
-  const inactive = isInactive(localStatus)
-  const connecting = isConnecting(localStatus)
-
-  async function empresaConnect() {
-    setShowQr(true); setQrSrc(null); setQrStatus('Iniciando...')
-    let interval = null
-    const stop = () => { if (interval) { clearInterval(interval); interval = null } }
-    stopRef.current = stop
-
-    const res = await apiCall('POST', `/empresa/${botId}/connect/${conn.id}`, null).catch(() => null)
-    if (!res || res.detail) { stop(); setShowQr(false); return }
-    if (res.status === 'ready') { stop(); setLocalStatus('ready'); setShowQr(false); return }
-
-    interval = setInterval(async () => {
-      const data = await apiCall('GET', `/empresa/${botId}/qr/${conn.id}`, null).catch(() => null)
-      if (!data) return
-      if (data.status === 'ready') { stop(); setLocalStatus('ready'); setShowQr(false) }
-      else if (['failed', 'disconnected'].includes(data.status)) { stop(); setLocalStatus(data.status); setShowQr(false) }
-      else { setLocalStatus(data.status); if (data.qr) { setQrSrc(data.qr); setQrStatus('El código se renueva cada 20 segundos') } }
-    }, 3000)
-  }
-
-  async function cancelConnect() {
-    stopRef.current?.()
-    setShowQr(false)
-    setLocalStatus('stopped')
-    await apiCall('POST', `/empresa/${botId}/disconnect/${conn.id}`, null).catch(() => null)
-  }
-
-  async function empresaDisconnect() {
-    await apiCall('POST', `/empresa/${botId}/disconnect/${conn.id}`, null).catch(() => null)
-    setLocalStatus('disconnected')
-  }
 
   return (
-    <div className={`ec-conn-row ec-conn-row--${isTg ? 'tg' : 'wa'}`}
+    <div className="ec-conn-row ec-conn-row--tg"
       draggable={mode === 'admin'}
       onDragStart={mode === 'admin' ? e => {
-        const type = isTg ? 'telegram' : 'phone'
-        e.dataTransfer.setData('type', type)
+        e.dataTransfer.setData('type', 'telegram')
         e.dataTransfer.setData('sourceBotId', botId)
-        if (isTg) e.dataTransfer.setData('tokenId', conn.number)
-        else e.dataTransfer.setData('number', conn.number)
+        e.dataTransfer.setData('tokenId', conn.number)
         e.currentTarget.classList.add('dragging')
       } : undefined}
       onDragEnd={mode === 'admin' ? e => e.currentTarget.classList.remove('dragging') : undefined}
     >
       <div className="ec-conn-main">
-        <span className={`ec-chan-badge ec-chan-badge--${isTg ? 'tg' : 'wa'}`}>{isTg ? 'TG' : 'WA'}</span>
+        <span className="ec-chan-badge ec-chan-badge--tg">TG</span>
         <span className="ec-conn-id">{displayId}</span>
         {simMode && <span className="ec-sim-badge">SIM</span>}
-        <StatusPill status={localStatus} isTg={isTg} />
+        <StatusPill status={localStatus} isTg={true} />
         <div className="ec-conn-actions">
-
-          {/* ── Empresa actions (inline, sin menú) ── */}
-          {mode === 'empresa' && !isTg && !showQr && inactive && !simMode && (
-            <button className="btn-primary btn-sm" onClick={empresaConnect}>Conectar</button>
-          )}
-          {mode === 'empresa' && !isTg && !showQr && inactive && simMode && (
-            <button className="btn-primary btn-sm" onClick={() => apiCall('POST', `/sim/connect/${conn.number}`, null).then(() => setLocalStatus('ready'))}>
-              Conectar sim
-            </button>
-          )}
-          {mode === 'empresa' && !isTg && !showQr && connected && (
-            <button className="btn-danger btn-sm" onClick={empresaDisconnect}>Desconectar</button>
-          )}
-          {mode === 'empresa' && !isTg && !showQr && connecting && (
-            <span className="ec-conn-hint">Conectando...</span>
-          )}
-
-          {/* ── Menú ⋯ ── */}
           <div style={{ position: 'relative' }}>
             <button
               ref={menuBtnRef}
@@ -435,70 +221,16 @@ function ConnectionRow({
                 background: '#1e293b', border: '1px solid #334155', borderRadius: 6,
                 boxShadow: '0 8px 24px rgba(0,0,0,.6)', minWidth: 190, padding: '4px 0',
               }}>
-                {/* Filtro — siempre visible si no es TG */}
-                {!isTg && (
-                  <button className="conn-menu-item" onClick={() => { setShowFilter(f => !f); setMenuOpen(false) }}>
-                    ⚙ Filtro default
-                  </button>
-                )}
-
-                {/* Admin: acciones de estado WA */}
-                {mode === 'admin' && !isTg && inactive && !simMode && (
-                  <button className="conn-menu-item" onClick={() => { onQR?.(conn); setMenuOpen(false) }}>
-                    📱 Vincular QR
-                  </button>
-                )}
-                {mode === 'admin' && !isTg && inactive && simMode && (
-                  <button className="conn-menu-item" onClick={() => { onQR?.(conn); setMenuOpen(false) }}>
-                    Conectar sim
-                  </button>
-                )}
-                {mode === 'admin' && connected && !isTg && !simMode && (
-                  <button
-                    className="conn-menu-item"
-                    onClick={() => { handlePurge(); setMenuOpen(false) }}
-                    disabled={purgeLabel === '...'}
-                  >
-                    🧹 {purgeLabel === 'Purgar' ? 'Purgar borradores' : purgeLabel}
-                  </button>
-                )}
                 {mode === 'admin' && connected && (
-                  <button className="conn-menu-item conn-menu-item--danger" onClick={() => { onDisconnect?.(conn); setMenuOpen(false) }}>
+                  <button className="conn-menu-item conn-menu-item--danger" onClick={() => { setMenuOpen(false) }}>
                     Desconectar
                   </button>
                 )}
-                {mode === 'admin' && isTg && ['stopped', 'failed', 'disconnected'].includes(localStatus) && !simMode && (
+                {mode === 'admin' && ['stopped', 'failed', 'disconnected'].includes(localStatus) && !simMode && (
                   <button className="conn-menu-item" onClick={() => { onReconnect?.(conn); setMenuOpen(false) }}>
                     Reconectar
                   </button>
                 )}
-                {mode === 'admin' && !isTg && (
-                  <button className="conn-menu-item" onClick={() => { onMove?.(conn); setMenuOpen(false) }}>
-                    Mover a otra empresa
-                  </button>
-                )}
-
-                {/* Separador + configuración de seguridad */}
-                {mode === 'admin' && !isTg && (
-                  <>
-                    <div style={{ margin: '4px 0', borderTop: '1px solid #334155' }} />
-                    <label
-                      className="conn-menu-item"
-                      style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}
-                      onClick={e => e.stopPropagation()}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={localAllowMass}
-                        onChange={handleToggleMass}
-                        style={{ width: 13, height: 13, cursor: 'pointer', flexShrink: 0 }}
-                      />
-                      <span>Habilitar masivo</span>
-                    </label>
-                  </>
-                )}
-
-                {/* Eliminar */}
                 {mode === 'admin' && (
                   <>
                     <div style={{ margin: '4px 0', borderTop: '1px solid #334155' }} />
@@ -512,32 +244,6 @@ function ConnectionRow({
           </div>
         </div>
       </div>
-
-      {/* Filter panel (outside flex, available in both modes) */}
-      {showFilter && !isTg && (
-        <ConnectionFilterPanel
-          number={conn.number}
-          botId={botId}
-          apiCall={apiCall}
-          onClose={() => setShowFilter(false)}
-        />
-      )}
-
-      {/* QR inline (empresa mode) */}
-      {mode === 'empresa' && showQr && (
-        <div className="ec-qr-inline">
-          <p className="qr-hint">WhatsApp → <strong>Dispositivos vinculados</strong> → <strong>Vincular dispositivo</strong></p>
-          <div className="qr-wrap">{qrSrc ? <img src={qrSrc} alt="QR" /> : <div className="spinner" />}</div>
-          <p className="qr-status">{qrStatus}</p>
-          <button className="btn-ghost btn-sm" style={{ marginTop: 8 }} onClick={cancelConnect}>Cancelar</button>
-        </div>
-      )}
-
-      {/* SimChat (admin mode + sim + connected WA) */}
-      {mode === 'admin' && simMode && connected && !isTg && (
-        <SimChat number={conn.number} pwd={adminPwd} />
-      )}
-
     </div>
   )
 }
@@ -730,16 +436,13 @@ export default function EmpresaCard({
   bot,          // { id, name, connections: [{id, type, number, status}] }
   simMode = false,
   apiCall,      // (method, path, body) => Promise — auth-agnostic
-  adminPwd,     // solo para SimChat en modo admin
   onRefresh,    // callback cuando se produce algún cambio que el padre debe recargar
   onExpand,     // admin only — abre la card en popup fullscreen
 
   // Admin-only — abren modales en el padre:
   onEditBot, onDeleteBot,
-  onAddPhone, onAddTelegram,
-  onDeletePhone, onMovePhone,
+  onAddTelegram,
   onDeleteTelegram, onReconnectTg,
-  onConnectWA, onDisconnectWA, onScreenshot,
 
   // Drag & drop (admin only)
   onDragOver, onDragLeave, onDrop,
@@ -773,25 +476,12 @@ export default function EmpresaCard({
   }
 
   // Empresa mode: inline add forms for connections
-  const [waInput, setWaInput] = useState('')
   const [tgInput, setTgInput] = useState('')
-  const [waErr, setWaErr] = useState('')
   const [showGoogleModal, setShowGoogleModal] = useState(false)
   const [tgErr, setTgErr] = useState('')
   const [addingConn, setAddingConn] = useState(false)
 
   const botId = bot.id
-
-  // Empresa mode: agregar conexiones
-  async function handleAddWa(e) {
-    e.preventDefault(); setWaErr('')
-    const number = waInput.trim(); if (!number) return
-    setAddingConn(true)
-    const res = await apiCall('POST', `/empresa/${botId}/whatsapp`, { number }).catch(() => null)
-    setAddingConn(false)
-    if (!res?.ok) { setWaErr(res?.detail || 'Error al agregar'); return }
-    setWaInput(''); onRefresh?.()
-  }
 
   async function handleAddTg(e) {
     e.preventDefault(); setTgErr('')
@@ -805,19 +495,14 @@ export default function EmpresaCard({
   }
 
   async function handleRemoveConn(conn) {
-    if (!confirm(`¿Eliminar ${conn.type === 'whatsapp' ? '+' + conn.number : conn.number}?`)) return
-    if (conn.type === 'whatsapp') {
-      await apiCall('DELETE', `/empresa/${botId}/whatsapp/${conn.id}`, null).catch(() => null)
-    } else {
-      const tokenId = conn.id.split('-tg-')[1]
-      await apiCall('DELETE', `/empresa/${botId}/telegram/${tokenId}`, null).catch(() => null)
-    }
+    if (!confirm(`¿Eliminar ${conn.number}?`)) return
+    const tokenId = conn.id.split('-tg-')[1]
+    await apiCall('DELETE', `/empresa/${botId}/telegram/${tokenId}`, null).catch(() => null)
     onRefresh?.()
   }
 
   // Computed
   const conns = bot.connections ?? []
-  const waConns = conns.filter(c => c.type === 'whatsapp')
   const tgConns = conns.filter(c => c.type === 'telegram')
 
   const tabs = [
@@ -851,8 +536,8 @@ export default function EmpresaCard({
                 <span
                   key={i}
                   className="ec-status-dot"
-                  style={{ background: dotColor(c.status, c.type === 'telegram') }}
-                  title={`${c.type === 'telegram' ? 'TG' : 'WA'} ${c.number}: ${STATUS_LABELS[c.status] || c.status}`}
+                  style={{ background: dotColor(c.status) }}
+                  title={`TG ${c.number}: ${STATUS_LABELS[c.status] || c.status}`}
                 />
               ))}
               {conns.length === 0 && <span style={{ fontSize: 11, color: '#94a3b8' }}>Sin canales</span>}
@@ -905,37 +590,13 @@ export default function EmpresaCard({
         {/* ── Connections ── */}
         {activeTab === 'connections' && (
           <div>
-            {conns.length === 0 && !mode !== 'empresa' && (
-              <div className="empty">Sin canales configurados</div>
-            )}
-
-            {waConns.length > 0 && (
-              <div>
-                <div className="ec-section-label ec-section-label--wa">WhatsApp</div>
-                {waConns.map(conn => (
-                  <ConnectionRow
-                    key={conn.id} conn={conn} mode={mode} simMode={simMode}
-                    botId={botId} apiCall={apiCall} adminPwd={adminPwd}
-                    onQR={conn => onConnectWA?.(conn)}
-                    onDisconnect={conn => onDisconnectWA?.(conn)}
-                    onScreenshot={conn => onScreenshot?.(conn)}
-                    onMove={conn => onMovePhone?.(conn)}
-                    onDelete={mode === 'admin' ? conn => onDeletePhone?.(conn) : conn => handleRemoveConn(conn)}
-                    onReconnect={() => {}}
-                    onRefresh={onRefresh}
-                  />
-                ))}
-              </div>
-            )}
-
             {tgConns.length > 0 && (
               <div>
                 <div className="ec-section-label ec-section-label--tg">Telegram</div>
                 {tgConns.map(conn => (
                   <ConnectionRow
                     key={conn.id} conn={conn} mode={mode} simMode={simMode}
-                    botId={botId} apiCall={apiCall} adminPwd={adminPwd}
-                    onQR={() => {}} onDisconnect={() => {}} onScreenshot={() => {}} onMove={() => {}}
+                    botId={botId} apiCall={apiCall}
                     onDelete={mode === 'admin' ? conn => onDeleteTelegram?.(conn) : conn => handleRemoveConn(conn)}
                     onReconnect={conn => onReconnectTg?.(conn)}
                   />
@@ -953,7 +614,6 @@ export default function EmpresaCard({
             {/* Add row */}
             {mode === 'admin' && (
               <div className="ec-add-row">
-                <button className="btn-blue btn-sm" onClick={() => onAddPhone?.(botId)}>+ WhatsApp</button>
                 <button className="btn-sm" style={{ background: '#e3f2fd', color: '#0d47a1' }} onClick={() => onAddTelegram?.(botId)}>+ Telegram</button>
                 <button className="btn-sm" style={{ background: '#f0fdf4', color: '#15803d' }} onClick={() => setShowGoogleModal(true)}>+ Google Sheets</button>
               </div>
@@ -963,11 +623,6 @@ export default function EmpresaCard({
               <div className="ec-add-forms">
                 <div className="ec-section-label" style={{ background: '#f8fafc', color: '#64748b', borderTop: '1px solid #e8e8f0' }}>Agregar canal</div>
                 <div className="ec-add-form-row">
-                  <form onSubmit={handleAddWa} style={{ display: 'flex', gap: 8, flex: 1 }}>
-                    <input type="tel" value={waInput} onChange={e => setWaInput(e.target.value)}
-                      placeholder="Número WA sin + (ej: 5491155612767)" style={{ flex: 1 }} />
-                    <button type="submit" className="btn-primary btn-sm" disabled={addingConn}>+ WA</button>
-                  </form>
                   <form onSubmit={handleAddTg} style={{ display: 'flex', gap: 8, flex: 1 }}>
                     <input value={tgInput} onChange={e => setTgInput(e.target.value)}
                       placeholder="Token @BotFather (123456:ABC...)" style={{ flex: 1 }} />
@@ -980,7 +635,6 @@ export default function EmpresaCard({
                     onClick={() => setShowGoogleModal(true)}
                   >+ Google Sheets</button>
                 </div>
-                {waErr && <div style={{ fontSize: 13, color: '#c00', padding: '4px 20px' }}>{waErr}</div>}
                 {tgErr && <div style={{ fontSize: 13, color: tgErr.includes('reinicio') ? '#b45309' : '#c00', padding: '4px 20px' }}>{tgErr}</div>}
               </div>
             )}

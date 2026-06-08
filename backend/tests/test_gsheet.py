@@ -23,7 +23,7 @@ CSV = (
 
 
 def make_state(query: str = "herrero", oficio_var: str = "") -> FlowState:
-    s = FlowState(message="test", empresa_id="test", connection_id="test", canal="whatsapp")
+    s = FlowState(message="test", empresa_id="test", connection_id="test", canal="telegram")
     s.query = query
     if oficio_var:
         s.vars["oficio"] = oficio_var

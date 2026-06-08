@@ -2,14 +2,13 @@
 SendMessageNode — único nodo que envía mensajes.
 
 Si `to` está vacío → escribe en state.reply (el adapter lo envía al usuario).
-Si `to` tiene valor → envía inmediatamente al destinatario via Telegram o WA.
+Si `to` tiene valor → envía inmediatamente al destinatario via Telegram.
 
 Config:
-  to:            str   — destinatario. Vacío = usuario de la conversación.
+  to:            str   — destinatario. Vacío = reply al usuario de la conversación.
                          Soporta placeholders: "{{worker_telegram_id}}", "{{contact_phone}}", etc.
   message:       str   — texto con placeholders.
-  channel:       str   — "auto" | "telegram" | "whatsapp"  (default: "auto")
-                         auto: numérico → telegram, con + o 10+ dígitos → whatsapp
+  channel:       str   — "telegram" (default: "telegram")
   max_age_hours: float — edad máxima del mensaje original para responder (solo reply al usuario).
                          0 = sin límite. Default: 1.
                          Previene respuestas automáticas a mensajes retroactivos.
@@ -29,7 +28,7 @@ class SendMessageNode(BaseNode):
 
         to      = interpolate(self.config.get("to", ""), state).strip()
         message = interpolate(self.config.get("message", ""), state)
-        channel = interpolate(self.config.get("channel", "auto"), state).strip() or "auto"
+        channel = interpolate(self.config.get("channel", "telegram"), state).strip() or "telegram"
 
         if not to:
             # Validar antigüedad del mensaje original antes de responder al usuario
@@ -52,13 +51,8 @@ class SendMessageNode(BaseNode):
         return state
 
     async def _send(self, to: str, message: str, channel: str, state: FlowState) -> None:
-        if channel == "auto":
-            channel = "telegram" if to.lstrip("-").isdigit() else "whatsapp"
-
         if channel == "telegram":
             await self._send_telegram(to, message, state.empresa_id)
-        elif channel == "whatsapp":
-            await self._send_whatsapp(to, message, state.connection_id)
         else:
             logger.warning("[SendMessageNode] canal desconocido: %s", channel)
 
@@ -88,22 +82,6 @@ class SendMessageNode(BaseNode):
         except Exception as e:
             logger.error("[SendMessageNode] Error TG → %s: %s", chat_id, e)
 
-    async def _send_whatsapp(self, to: str, message: str, connection_id: str) -> None:
-        import os
-        if os.getenv("ENABLE_BOTS", "false").lower() != "true":
-            logger.info("[SendMessageNode] [sim] WA → %s: %s", to, message[:80])
-            return
-
-        try:
-            from state import wa_session
-            ok = await wa_session.send_message(connection_id, to, message)
-            if not ok:
-                logger.warning("[SendMessageNode] WA → %s: send_message retornó False", to)
-            else:
-                logger.info("[SendMessageNode] WA → %s enviado", to)
-        except Exception as e:
-            logger.error("[SendMessageNode] Error WA → %s: %s", to, e)
-
     @classmethod
     def config_schema(cls) -> dict:
         return {
@@ -124,8 +102,8 @@ class SendMessageNode(BaseNode):
             "channel": {
                 "type":    "select",
                 "label":   "Canal",
-                "default": "auto",
-                "options": ["auto", "telegram", "whatsapp"],
+                "default": "telegram",
+                "options": ["telegram"],
             },
             "max_age_hours": {
                 "type":    "float",

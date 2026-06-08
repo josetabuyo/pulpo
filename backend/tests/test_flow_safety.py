@@ -68,7 +68,7 @@ def _state(connection_id="5491155612767"):
     return FlowState(
         message="Hola",
         contact_phone="5491199990000",
-        canal="whatsapp",
+        canal="telegram",
         connection_id=connection_id,
     )
 
@@ -139,7 +139,7 @@ async def test_flow_sin_trigger_no_dispara():
             "edges": [],
         },
     }
-    state = FlowState(message="Hola", contact_phone="5491199990000", canal="whatsapp", connection_id="5491199990000")
+    state = FlowState(message="Hola", contact_phone="5491199990000", canal="telegram", connection_id="5491199990000")
     result = await execute_flow(flow_sin_trigger, state)
     assert result.reply is None, "Flow sin trigger no debe producir reply"
 
@@ -240,7 +240,7 @@ async def test_flow_con_message_trigger_y_connection_null_en_db():
         state = FlowState(
             message="Hola",
             contact_phone="5491199990000",
-            canal="whatsapp",
+            canal="telegram",
             connection_id=bot_id,
         )
         state = await execute_flow(flow, state)
@@ -336,7 +336,7 @@ async def test_message_trigger_filtra_por_contact_phone():
         state = FlowState(
             message="Hola",
             contact_phone=correct_contact,
-            canal="whatsapp",
+            canal="telegram",
             connection_id=bot_id,
         )
         state = await execute_flow(flow, state)
@@ -346,7 +346,7 @@ async def test_message_trigger_filtra_por_contact_phone():
         state2 = FlowState(
             message="Hola",
             contact_phone=wrong_contact,
-            canal="whatsapp",
+            canal="telegram",
             connection_id=bot_id,
         )
         state2 = await execute_flow(flow, state2)
@@ -400,7 +400,7 @@ async def test_message_trigger_sin_contact_phone_filtra_todos():
         state = FlowState(
             message="Hola",
             contact_phone=contact1,
-            canal="whatsapp",
+            canal="telegram",
             connection_id=bot_id,
         )
         state = await execute_flow(flow, state)
@@ -410,7 +410,7 @@ async def test_message_trigger_sin_contact_phone_filtra_todos():
         state2 = FlowState(
             message="Hola",
             contact_phone=contact2,
-            canal="whatsapp",
+            canal="telegram",
             connection_id=bot_id,
         )
         state2 = await execute_flow(flow, state2)
@@ -490,7 +490,7 @@ async def test_migracion_start_a_message_trigger_explicito():
         state_legacy = FlowState(
             message="Hola",
             contact_phone=contact_phone,
-            canal="whatsapp",
+            canal="telegram",
             connection_id=bot_id,
         )
         state_legacy = await execute_flow(flow_legacy, state_legacy)
@@ -501,7 +501,7 @@ async def test_migracion_start_a_message_trigger_explicito():
         state_migrado = FlowState(
             message="Hola",
             contact_phone=contact_phone,
-            canal="whatsapp",
+            canal="telegram",
             connection_id=bot_id,
         )
         state_migrado = await execute_flow(flow_migrado, state_migrado)
@@ -538,7 +538,7 @@ async def test_migracion_start_a_message_trigger_explicito():
             state_otro = FlowState(
                 message="Hola",
                 contact_phone=contact_phone,  # contacto original
-                canal="whatsapp",
+                canal="telegram",
                 connection_id=bot_id,
             )
             state_otro = await execute_flow(flow_migrado_otro, state_otro)
@@ -548,7 +548,7 @@ async def test_migracion_start_a_message_trigger_explicito():
             state_contacto_correcto = FlowState(
                 message="Hola",
                 contact_phone="5491199991111",  # contacto especificado en el nodo
-                canal="whatsapp",
+                canal="telegram",
                 connection_id=bot_id,
             )
             state_contacto_correcto = await execute_flow(flow_migrado_otro, state_contacto_correcto)
@@ -587,7 +587,7 @@ async def test_migracion_start_a_message_trigger_explicito():
             state_wildcard = FlowState(
                 message="Hola",
                 contact_phone="5491199999999",  # contacto cualquiera
-                canal="whatsapp",
+                canal="telegram",
                 connection_id=bot_id,
             )
             state_wildcard = await execute_flow(flow_wildcard, state_wildcard)
@@ -641,7 +641,7 @@ async def test_flow_sin_nodo_entrada_no_se_ejecuta():
         state = FlowState(
             message="Hola",
             contact_phone=contact_phone,
-            canal="whatsapp",
+            canal="telegram",
             connection_id=bot_id,
         )
         state = await execute_flow(flow, state)
@@ -820,7 +820,7 @@ async def test_allow_mass_false_bloquea_inc_all():
     state = FlowState(
         message="Hola",
         contact_phone="5491199990000",
-        canal="whatsapp",
+        canal="telegram",
         connection_id=conn_id,
         empresa_id="test_empresa",
     )
@@ -845,7 +845,7 @@ async def test_allow_mass_true_permite_inc_all():
     state = FlowState(
         message="Hola",
         contact_phone="5491199990000",
-        canal="whatsapp",
+        canal="telegram",
         connection_id=conn_id,
         empresa_id="test_empresa",
     )
@@ -870,7 +870,7 @@ async def test_allow_mass_false_bloquea_inc_unk():
     state = FlowState(
         message="Hola",
         contact_phone="5491100000000",
-        canal="whatsapp",
+        canal="telegram",
         connection_id=conn_id,
         empresa_id="test_empresa",
     )
@@ -922,7 +922,7 @@ async def test_allow_mass_false_no_afecta_filtro_individual():
     state = FlowState(
         message="Hola",
         contact_phone=contact,
-        canal="whatsapp",
+        canal="telegram",
         connection_id=conn_id,
         empresa_id="test_empresa",
     )

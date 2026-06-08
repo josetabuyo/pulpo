@@ -33,14 +33,14 @@ class SaveContactNode(BaseNode):
             return state
 
         import db
-        existing = await db.find_contact_by_channel("whatsapp", phone) if phone else None
+        existing = await db.find_contact_by_channel("telegram", phone) if phone else None
         if existing and update:
             await db.update_contact(existing["id"], name, notes=notes)
         elif not existing:
             contact_id = await db.create_contact(empresa_id, name, notes=notes)
             if phone:
                 try:
-                    await db.add_channel(contact_id, "whatsapp", phone)
+                    await db.add_channel(contact_id, "telegram", phone)
                 except Exception:
                     pass
         return state

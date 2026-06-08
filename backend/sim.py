@@ -2,8 +2,7 @@
 Simulador de bots — activo cuando ENABLE_BOTS != "true" (worktrees de dev).
 
 Mantiene conversaciones en memoria y procesa mensajes por el mismo
-pipeline real (log_message, mark_answered, auto_reply) sin tocar
-WhatsApp ni Telegram.
+pipeline real (log_message, mark_answered, auto_reply) sin tocar Telegram real.
 """
 
 import logging
@@ -28,7 +27,7 @@ def sim_connect(session_id: str, connection_id: str) -> None:
         "status": "ready",
         "qr": None,
         "connection_id": connection_id,
-        "type": "whatsapp",
+        "type": "telegram",
         "client": None,
     }
     _conversations.setdefault(session_id, [])
@@ -66,8 +65,7 @@ async def sim_receive(
     ts = datetime.now().strftime("%H:%M:%S")
     conv = _conversations.setdefault(session_id, [])
 
-    # Detectar tipo de canal según session_id
-    channel_type = "telegram" if "-tg-" in session_id else "whatsapp"
+    channel_type = "telegram"
 
     # Dispatch multi-empresa: loguar bajo todos los bots que tienen esta conexión
     empresa_ids = get_empresas_for_connection(session_id)
@@ -132,10 +130,6 @@ def _get_phone_config(session_id: str) -> dict | None:
     from config import load_config
     config = load_config()
     for bot in config.get("empresas", []):
-        # WhatsApp phones
-        for phone in bot.get("phones", []):
-            if phone["number"] == session_id:
-                return {"connection_id": bot["id"], "bot_name": bot.get("name", bot["id"])}
         # Telegram bots — session_id = "{connection_id}-tg-{token_id}"
         for tg in bot.get("telegram", []):
             token_id = tg["token"].split(":")[0]

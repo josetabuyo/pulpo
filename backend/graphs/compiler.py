@@ -6,7 +6,7 @@ Responsabilidades:
   - execute_flow(): corre los nodos de un flow en secuencia
   - run_flows(): orquesta ambos y devuelve el FlowState con reply
 
-Los adapters (WA, Telegram, Sim) normalizan el mensaje a FlowState
+Los adapters (Telegram, Sim) normalizan el mensaje a FlowState
 y llaman a run_flows(). El engine no sabe nada de protocolos.
 """
 import logging
@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 
 # Tipos de nodo que actúan como entrada de un flow.
 # message_trigger = backward-compat (cualquier canal)
-# whatsapp_trigger / telegram_trigger = específicos por canal
-TRIGGER_TYPES: frozenset[str] = frozenset({"message_trigger", "whatsapp_trigger", "telegram_trigger"})
+# telegram_trigger = específico de Telegram
+TRIGGER_TYPES: frozenset[str] = frozenset({"message_trigger", "telegram_trigger"})
 
 # Cooldown por flow: (flow_id, contact_phone) → timestamp del último reply enviado.
 # Persiste en memoria mientras el backend esté corriendo.
@@ -64,23 +64,23 @@ async def _is_known_contact(contact_phone: str, empresa_id: str) -> bool:
 
 async def _resolve_filter_value(value: str, empresa_id: str) -> set[str]:
     """
-    Dado un valor del filtro (nombre o número), devuelve el set de teléfonos que representa.
+    Dado un valor del filtro (nombre o número/chat_id), devuelve el set de valores que representa.
     - Si parece número (solo dígitos, 7-15 chars): devuelve {value}
-    - Si parece nombre: busca los contactos con ese nombre y devuelve sus phones WA
+    - Si parece nombre: busca los contactos con ese nombre y devuelve sus chat_ids de Telegram
     """
     import re
     if re.match(r'^\d{7,15}$', value.strip()):
         return {value.strip()}
-    # Es un nombre — buscar sus canales WA
+    # Es un nombre — buscar sus canales Telegram
     from db import get_contacts
     contacts = await get_contacts(empresa_id)
-    phones: set[str] = set()
+    ids: set[str] = set()
     for c in contacts:
         if c["name"] == value:
             for ch in c.get("channels", []):
-                if ch["type"] == "whatsapp":
-                    phones.add(ch["value"])
-    return phones
+                if ch["type"] == "telegram":
+                    ids.add(ch["value"])
+    return ids
 
 
 def _enqueue_neighbors(
@@ -142,9 +142,6 @@ async def execute_flow(flow: dict, state: FlowState) -> FlowState:
             cconfig = candidate.get("config", {})
 
             # Filtro por canal
-            if ctype == "whatsapp_trigger" and state.canal != "whatsapp":
-                logger.debug("[engine] whatsapp_trigger no aplica: canal '%s' != 'whatsapp'", state.canal)
-                continue
             if ctype == "telegram_trigger" and state.canal != "telegram":
                 logger.debug("[engine] telegram_trigger no aplica: canal '%s' != 'telegram'", state.canal)
                 continue
@@ -185,6 +182,10 @@ async def execute_flow(flow: dict, state: FlowState) -> FlowState:
                             continue
                         for _ph in _emp.get("phones", []):
                             if _ph.get("number") == _conn_id and _ph.get("allow_mass", False):
+                                _mass_allowed = True
+                        for _tg in _emp.get("telegram", []):
+                            _tok_id = _tg.get("token", "").split(":")[0]
+                            if f"{_emp['id']}-tg-{_tok_id}" == _conn_id and _tg.get("allow_mass", False):
                                 _mass_allowed = True
                     if not _mass_allowed:
                         inc_all = False

@@ -32,13 +32,7 @@ NODE_TYPES: dict[str, NodeType] = {
         id="message_trigger",
         label="Trigger de mensaje",
         color="#166534",
-        description="Punto de entrada genérico (cualquier canal). Usar whatsapp_trigger o telegram_trigger para flows nuevos.",
-    ),
-    "whatsapp_trigger": NodeType(
-        id="whatsapp_trigger",
-        label="WhatsApp Trigger",
-        color="#16a34a",
-        description="Punto de entrada para mensajes de WhatsApp. Solo activa el flow si el mensaje viene por WA.",
+        description="Punto de entrada genérico (cualquier canal). Usar telegram_trigger para flows nuevos.",
     ),
     "telegram_trigger": NodeType(
         id="telegram_trigger",
@@ -68,7 +62,7 @@ NODE_TYPES: dict[str, NodeType] = {
         id="send_message",
         label="Enviar mensaje",
         color="#15803d",
-        description="Envía un mensaje al usuario o a un contacto externo vía WA/TG.",
+        description="Envía un mensaje al usuario o a un contacto externo vía Telegram.",
     ),
     "vector_search": NodeType(
         id="vector_search",
@@ -162,7 +156,6 @@ _CLASSIFY_SUBSTRINGS: list[tuple[str, str]] = [
     ("transcribe", "transcribe_audio"),
     ("save_attachment", "save_attachment"),
     ("check_contact", "check_contact"),
-    ("whatsapp_trigger", "whatsapp_trigger"),
     ("telegram_trigger", "telegram_trigger"),
     ("message_join", "message_join"),
     ("fetch_sheet",   "fetch_sheet"),
