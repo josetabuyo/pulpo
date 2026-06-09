@@ -180,6 +180,7 @@ function FlowRow({ flow, connections, onEdit, onToggle, onDelete, isDeleting }) 
 
   return (
     <div
+      className="flow-row"
       onClick={onEdit}
       style={{
         display: 'flex',

@@ -1,8 +1,60 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api.js'
 import MonitorPanel from '../components/MonitorPanel.jsx'
 import EmpresaCard, { normalizeBot } from '../components/EmpresaCard.jsx'
+
+// ─── WaviModal ────────────────────────────────────────────────────────────────
+
+function WaviModal({ open, onClose, pwd }) {
+  const [sessions, setSessions] = useState([])
+  const [starting, setStarting] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    setSessions([])
+    const fetch = () => api('GET', '/wavi/sessions', null, pwd).then(setSessions).catch(() => {})
+    fetch()
+    const id = setInterval(fetch, 3000)
+    return () => clearInterval(id)
+  }, [open, pwd])
+
+  async function handleConnect() {
+    setStarting(true)
+    await api('POST', '/wavi/sessions', { session: null }, pwd).catch(() => {})
+    setStarting(false)
+  }
+
+  return (
+    <div className={`overlay${open ? ' open' : ''}`} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ width: 420 }}>
+        <button className="modal-close" onClick={onClose}>✕</button>
+        <h3>Conectar WhatsApp (Wavi)</h3>
+        <p style={{ fontSize: 13, color: '#888', marginTop: 0 }}>
+          Iniciá el daemon y escaneá el QR con tu celular.
+        </p>
+        <button className="btn-primary" onClick={handleConnect} disabled={starting} style={{ marginBottom: 12 }}>
+          {starting ? 'Iniciando…' : '▶ Iniciar daemon + QR'}
+        </button>
+        <iframe
+          src={`/api/wavi/qr-page?pwd=${encodeURIComponent(pwd)}`}
+          style={{ width: '100%', height: 360, border: '1px solid #333', borderRadius: 6 }}
+          title="WhatsApp QR"
+        />
+        {sessions.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Sesiones</div>
+            {sessions.map(s => (
+              <div key={s.session} style={{ fontSize: 12, color: s.authenticated ? '#22c55e' : '#888', marginBottom: 2 }}>
+                {s.session}: {s.authenticated ? 'Conectado ✓' : s.connecting ? 'Conectando…' : 'Detenido'}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 // ─── Modales inline ────────────────────────────────────────────────────────────
 
@@ -94,6 +146,7 @@ function TelegramModal({ open, onClose, botId, onSave }) {
 
 export default function DashboardPage() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const pwd = sessionStorage.getItem('admin_pwd') || ''
 
   const [bots, setBots] = useState([])
@@ -111,8 +164,12 @@ export default function DashboardPage() {
   const [tgModal, setTgModal] = useState({ open: false, botId: null })
   const [expandedBot, setExpandedBot] = useState(null)
   const [monitorAlerts,     setMonitorAlerts]     = useState(0)
-  const [monitorCollapsed,  setMonitorCollapsed]  = useState(true)
+  const [monitorCollapsed,  setMonitorCollapsed]  = useState(() => searchParams.get('monitor') !== '1')
   const [companiesCollapsed, setCompaniesCollapsed] = useState(false)
+  const [configCollapsed,   setConfigCollapsed]   = useState(() => searchParams.get('config') !== '1')
+  const [pollMinutes,       setPollMinutes]        = useState(5)
+  const [pollSaving,        setPollSaving]         = useState(false)
+  const [waviModal,         setWaviModal]          = useState({ open: false })
 
   useEffect(() => { document.title = 'Pulpo — Dashboard' }, [])
 
@@ -137,6 +194,9 @@ export default function DashboardPage() {
     api('GET', '/mode', null, pwd).then(data => {
       if (data?.mode === 'sim') setSimMode(true)
     })
+    api('GET', '/config/settings', null, pwd)
+      .then(s => setPollMinutes(Math.round((s.wa_poll_interval_seconds || 300) / 60)))
+      .catch(() => {})
     loadBots()
     const interval = setInterval(loadBots, 6000)
 
@@ -155,6 +215,20 @@ export default function DashboardPage() {
 
     return () => { clearInterval(interval); clearInterval(syncInterval) }
   }, [loadBots, pwd])
+
+  useEffect(() => {
+    const empresaId = searchParams.get('empresa')
+    if (!empresaId || !bots.length || expandedBot) return
+    const bot = bots.find(b => b.id === empresaId)
+    if (bot) setExpandedBot({ bot, normalized: normalizeBot(bot) })
+  }, [bots, searchParams, expandedBot])
+
+  async function savePollInterval() {
+    setPollSaving(true)
+    const secs = Math.max(60, Math.min(3600, Math.round(pollMinutes * 60)))
+    await api('PUT', '/config/settings', { wa_poll_interval_seconds: secs }, pwd).catch(() => {})
+    setPollSaving(false)
+  }
 
   function logout() {
     sessionStorage.removeItem('admin_pwd')
@@ -189,7 +263,13 @@ export default function DashboardPage() {
         } catch { clearInterval(poll); setFbSessionLabel('FB Sesión'); setFbSessionRunning(false) }
       }, 3000)
       // Timeout máximo 130s
-      setTimeout(() => { clearInterval(poll); if (fbSessionRunning) { setFbSessionLabel('FB Sesión'); setFbSessionRunning(false) } }, 130_000)
+      setTimeout(() => {
+        clearInterval(poll)
+        setFbSessionRunning(prev => {
+          if (prev) setFbSessionLabel('FB Sesión')
+          return false
+        })
+      }, 130_000)
     } catch {
       setFbSessionLabel('⚠ Error')
       setTimeout(() => { setFbSessionLabel('FB Sesión'); setFbSessionRunning(false) }, 4000)
@@ -220,6 +300,27 @@ export default function DashboardPage() {
 
   function copyLink() {
     navigator.clipboard.writeText(window.location.origin + '/connect')
+  }
+
+  function toggleSection(key, collapsed, setCollapsed) {
+    const next = !collapsed
+    setCollapsed(next)
+    setSearchParams(prev => {
+      const p = new URLSearchParams(prev)
+      if (!next) p.set(key, '1')
+      else p.delete(key)
+      return p
+    }, { replace: true })
+  }
+
+  function openEmpresaModal(botData) {
+    setExpandedBot(botData)
+    setSearchParams(prev => {
+      const p = new URLSearchParams(prev)
+      if (botData) p.set('empresa', botData.bot.id)
+      else p.delete('empresa')
+      return p
+    }, { replace: true })
   }
 
   // ── Bot CRUD ──
@@ -281,39 +382,71 @@ export default function DashboardPage() {
       <header>
         <span>🐙 Pulpo — Admin</span>
         <div className="header-actions">
-          <button className="btn-ghost btn-sm" onClick={handleRefresh} disabled={refreshLabel !== '↺ Refresh'} title="Reconectar bots de Telegram">
-            {refreshLabel}
-          </button>
-          <button
-            className="btn-ghost btn-sm"
-            onClick={() => handleFbSession('luganense')}
-            disabled={fbSessionRunning}
-            title="Renovar cookies de Facebook (abre browser en el servidor)"
-          >
-            {fbSessionLabel}
-          </button>
-          <button className="btn-ghost btn-sm" onClick={handleRecentSync} disabled={recentSyncLabel === 'Actualizando...'} title="Captura los mensajes recientes visibles en cada chat (sin scroll histórico). Ideal tras un reinicio.">
-            {recentSyncLabel}
-          </button>
-          <button className="btn-ghost btn-sm" onClick={handleFullSync} disabled={syncRunning} title="Re-sincronizar historial">
-            {syncLabel}
-          </button>
           <button className="btn-ghost btn-sm" onClick={logout} title="Cerrar sesión">Salir</button>
         </div>
       </header>
 
       <main>
 
+        {/* ── Sección: Config ── */}
+        <div className="section-block">
+          <div className="section-block-header" onClick={() => toggleSection('config', configCollapsed, setConfigCollapsed)}>
+            <div className="section-block-title">⚙️ Config</div>
+            <button className="btn-ghost btn-sm" onClick={e => { e.stopPropagation(); toggleSection('config', configCollapsed, setConfigCollapsed) }}>
+              {configCollapsed ? '▼ Expandir' : '▲ Colapsar'}
+            </button>
+          </div>
+          <div style={{ display: configCollapsed ? 'none' : 'block', padding: '12px 16px' }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+              <button className="btn-ghost btn-sm" onClick={handleRefresh} disabled={refreshLabel !== '↺ Refresh'} title="Reconectar bots de Telegram">
+                {refreshLabel}
+              </button>
+              <button
+                className="btn-ghost btn-sm"
+                onClick={() => handleFbSession('luganense')}
+                disabled={fbSessionRunning}
+                title="Renovar cookies de Facebook (abre browser en el servidor)"
+              >
+                {fbSessionLabel}
+              </button>
+              <button className="btn-ghost btn-sm" onClick={handleRecentSync} disabled={recentSyncLabel === 'Actualizando...'} title="Captura los mensajes recientes visibles en cada chat (sin scroll histórico). Ideal tras un reinicio.">
+                {recentSyncLabel}
+              </button>
+              <button className="btn-ghost btn-sm" onClick={handleFullSync} disabled={syncRunning} title="Re-sincronizar historial">
+                {syncLabel}
+              </button>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+              <label style={{ fontSize: 13 }}>
+                Polling WhatsApp (minutos):&nbsp;
+                <input
+                  type="number" min={1} max={60} value={pollMinutes}
+                  onChange={e => setPollMinutes(Number(e.target.value))}
+                  style={{ width: 60, marginLeft: 4 }}
+                />
+              </label>
+              <button className="btn-ghost btn-sm" onClick={savePollInterval} disabled={pollSaving}>
+                {pollSaving ? 'Guardando…' : 'Guardar'}
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn-ghost btn-sm" onClick={() => setWaviModal({ open: true })}>
+                📱 Conectar WhatsApp (Wavi)
+              </button>
+            </div>
+          </div>
+        </div>
+
         {/* ── Sección: Monitor ── */}
         <div className="section-block">
-          <div className="section-block-header" onClick={() => setMonitorCollapsed(c => !c)}>
+          <div className="section-block-header" onClick={() => toggleSection('monitor', monitorCollapsed, setMonitorCollapsed)}>
             <div className="section-block-title">
               📊 Monitor
               {monitorAlerts > 0 && <span className="mon-badge-inline">{monitorAlerts} alertas</span>}
             </div>
             <button
               className="btn-ghost btn-sm"
-              onClick={e => { e.stopPropagation(); setMonitorCollapsed(c => !c) }}
+              onClick={e => { e.stopPropagation(); toggleSection('monitor', monitorCollapsed, setMonitorCollapsed) }}
             >{monitorCollapsed ? '▼ Expandir' : '▲ Colapsar'}</button>
           </div>
           <div style={{ display: monitorCollapsed ? 'none' : 'block' }}>
@@ -371,7 +504,7 @@ export default function DashboardPage() {
               key={bot.id}
               mode="admin"
               bot={normalizeBot(bot)}
-              onExpand={b => setExpandedBot({ bot, normalized: b })}
+              onExpand={b => openEmpresaModal({ bot, normalized: b })}
               simMode={simMode}
               apiCall={call}
               onRefresh={loadBots}
@@ -406,22 +539,28 @@ export default function DashboardPage() {
         onSave={handleSaveTg}
       />
 
+      <WaviModal
+        open={waviModal.open}
+        onClose={() => setWaviModal({ open: false })}
+        pwd={pwd}
+      />
+
       {/* Modal fullscreen de empresa expandida */}
       {expandedBot && (
         <div
           className="overlay open"
-          onClick={e => e.target === e.currentTarget && setExpandedBot(null)}
+          onClick={e => e.target === e.currentTarget && openEmpresaModal(null)}
         >
           <div className="modal" style={{ width: '92vw', maxWidth: '1200px', height: '90vh', overflowY: 'auto', padding: 0, paddingTop: 40 }}>
-            <button className="modal-close" onClick={() => setExpandedBot(null)}>✕</button>
+            <button className="modal-close" onClick={() => openEmpresaModal(null)}>✕</button>
             <EmpresaCard
               mode="admin"
               bot={expandedBot.normalized}
               simMode={simMode}
               apiCall={call}
               onRefresh={loadBots}
-              onEditBot={b => { setExpandedBot(null); setBotModal({ open: true, editBot: b }) }}
-              onDeleteBot={botId => { setExpandedBot(null); handleDeleteBot(botId) }}
+              onEditBot={b => { openEmpresaModal(null); setBotModal({ open: true, editBot: b }) }}
+              onDeleteBot={botId => { openEmpresaModal(null); handleDeleteBot(botId) }}
               onAddTelegram={botId => setTgModal({ open: true, botId })}
               onDeleteTelegram={conn => handleDeleteTg(conn.number)}
               onReconnectTg={conn => handleReconnectTg(conn.number)}

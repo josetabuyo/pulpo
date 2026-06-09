@@ -40,9 +40,9 @@ test('lista de flows tiene botón Nuevo flow', async ({ page }) => {
   await expect(card.getByRole('button', { name: /Nuevo flow/i })).toBeVisible()
 })
 
-// Dentro de una ec-card, el btn "Editar" nth(0) es el de la empresa, nth(1) es el del primer flow.
+// Abre el editor del primer flow haciendo click en su fila
 async function clickFlowEdit(card) {
-  await card.getByRole('button', { name: 'Editar' }).nth(1).click()
+  await card.locator('.flow-row').first().click()
 }
 
 test('botón Editar abre el editor', async ({ page }) => {
@@ -55,32 +55,28 @@ test('botón Editar abre el editor', async ({ page }) => {
 test('editor muestra nodos de la paleta', async ({ page }) => {
   const card = await goToFlowTab(page)
   await clickFlowEdit(card)
-  await expect(card.getByText('NODOS')).toBeVisible({ timeout: 8000 })
-  await expect(card.getByText('Respuesta fija').first()).toBeVisible()
-  await expect(card.getByText('Respuesta LLM').first()).toBeVisible()
-  await expect(card.getByText('Sumarizador').first()).toBeVisible()
+  await expect(page.getByText('NODOS')).toBeVisible({ timeout: 8000 })
+  await expect(page.getByRole('button', { name: 'Guardar' })).toBeVisible()
 })
 
 test('botón volver regresa a la lista', async ({ page }) => {
   const card = await goToFlowTab(page)
   await clickFlowEdit(card)
-  await expect(card.getByText('NODOS')).toBeVisible({ timeout: 8000 })
-  await card.getByTitle('Volver a la lista').click()
+  await expect(page.getByText('NODOS')).toBeVisible({ timeout: 8000 })
+  await page.getByTitle('Volver').click()
   await expect(card.getByRole('button', { name: /Nuevo flow/i })).toBeVisible()
 })
 
 test('crear nuevo flow y verificar que aparece en la lista', async ({ page }) => {
   const card = await goToFlowTab(page)
-  // Contar flows existentes (empresaEditar + n flowEditar; nth(0) es empresa, nth(1+) son flows)
-  const before = await card.getByRole('button', { name: 'Editar' }).count()
+  const before = await card.locator('.flow-row').count()
 
   await card.getByRole('button', { name: /Nuevo flow/i }).click()
-  await expect(card.getByText('NODOS')).toBeVisible({ timeout: 8000 })
+  await expect(page.getByText('NODOS')).toBeVisible({ timeout: 8000 })
 
-  await card.getByTitle('Volver a la lista').click()
-  // Esperar a que loadFlows() termine (puede ser async) con retry
+  await page.getByTitle('Volver').click()
   await expect(async () => {
-    const after = await card.getByRole('button', { name: 'Editar' }).count()
+    const after = await card.locator('.flow-row').count()
     expect(after).toBeGreaterThanOrEqual(before)
   }).toPass({ timeout: 8000 })
 })

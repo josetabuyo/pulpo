@@ -11,21 +11,29 @@ async function login(page) {
   await expect(page).toHaveURL('/dashboard')
 }
 
+async function expandMonitor(page) {
+  await page.locator('.section-block-header').filter({ hasText: 'Monitor' }).click()
+  await expect(page.locator('.mon-inline')).toBeVisible({ timeout: 5000 })
+}
+
 // ── Sección Monitor inline ────────────────────────────────────────────────────
 
 test('sección Monitor visible en el dashboard', async ({ page }) => {
   await login(page)
+  await expandMonitor(page)
   await expect(page.locator('.mon-inline')).toBeVisible()
 })
 
 test('monitor tiene tabs de fuente backend y frontend', async ({ page }) => {
   await login(page)
+  await expandMonitor(page)
   await expect(page.getByRole('button', { name: 'backend' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'frontend' })).toBeVisible()
 })
 
 test('monitor tiene selector de ventana de tiempo', async ({ page }) => {
   await login(page)
+  await expandMonitor(page)
   for (const label of ['15m', '30m', '1h', '3h']) {
     await expect(page.getByRole('button', { name: label })).toBeVisible()
   }
@@ -33,7 +41,8 @@ test('monitor tiene selector de ventana de tiempo', async ({ page }) => {
 
 test('monitor tiene botón Pausar', async ({ page }) => {
   await login(page)
-  await expect(page.getByRole('button', { name: /Pausar/ })).toBeVisible()
+  await expandMonitor(page)
+  await expect(page.locator('.mon-inline').getByRole('button', { name: /Pausar/ })).toBeVisible()
 })
 
 test('monitor muestra cuatro stat cards', async ({ page }) => {
@@ -46,6 +55,7 @@ test('monitor muestra cuatro stat cards', async ({ page }) => {
 
 test('el log muestra líneas del backend', async ({ page }) => {
   await login(page)
+  await expandMonitor(page)
   await expect(page.locator('.mon-line').first()).toBeVisible({ timeout: 5000 })
   const count = await page.locator('.mon-line').count()
   expect(count).toBeGreaterThan(0)
@@ -53,6 +63,7 @@ test('el log muestra líneas del backend', async ({ page }) => {
 
 test('el contador de líneas muestra un número mayor a 0', async ({ page }) => {
   await login(page)
+  await expandMonitor(page)
   await page.waitForTimeout(2500)
   const counter = page.locator('.mon-count')
   await expect(counter).toBeVisible()
@@ -65,6 +76,7 @@ test('el contador de líneas muestra un número mayor a 0', async ({ page }) => 
 
 test('filtro reduce las líneas mostradas', async ({ page }) => {
   await login(page)
+  await expandMonitor(page)
   await page.waitForTimeout(2500)
 
   const totalText = await page.locator('.mon-count').textContent()
@@ -80,6 +92,7 @@ test('filtro reduce las líneas mostradas', async ({ page }) => {
 
 test('filtro sin coincidencias muestra 0 líneas y mensaje vacío', async ({ page }) => {
   await login(page)
+  await expandMonitor(page)
   await page.locator('.mon-filter').fill('xXxNOEXISTExXx')
   await page.waitForTimeout(300)
   await expect(page.locator('.mon-empty')).toBeVisible()
@@ -89,8 +102,9 @@ test('filtro sin coincidencias muestra 0 líneas y mensaje vacío', async ({ pag
 
 test('pausar cambia el botón a Reanudar y muestra badge PAUSADO', async ({ page }) => {
   await login(page)
-  await page.getByRole('button', { name: /Pausar/ }).click()
-  await expect(page.getByRole('button', { name: /Reanudar/ })).toBeVisible()
+  await expandMonitor(page)
+  await page.locator('.mon-inline').getByRole('button', { name: /Pausar/ }).click()
+  await expect(page.locator('.mon-inline').getByRole('button', { name: /Reanudar/ })).toBeVisible()
   await expect(page.locator('.mon-paused-badge')).toBeVisible()
 })
 
@@ -98,14 +112,15 @@ test('pausar cambia el botón a Reanudar y muestra badge PAUSADO', async ({ page
 
 test('colapsar y expandir la sección Monitor', async ({ page }) => {
   await login(page)
+  await expandMonitor(page)
   await expect(page.locator('.mon-inline')).toBeVisible()
 
   // Colapsar
-  await page.getByRole('button', { name: /Colapsar/ }).first().click()
+  await page.locator('.section-block-header').filter({ hasText: 'Monitor' }).getByRole('button', { name: /Colapsar/ }).click()
   await expect(page.locator('.mon-inline')).not.toBeVisible()
 
   // Expandir
-  await page.getByRole('button', { name: /Expandir/ }).first().click()
+  await page.locator('.section-block-header').filter({ hasText: 'Monitor' }).getByRole('button', { name: /Expandir/ }).click()
   await expect(page.locator('.mon-inline')).toBeVisible()
 })
 

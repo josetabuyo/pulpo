@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test')
 
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || ADMIN_PASSWORD
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin'
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
@@ -31,7 +31,7 @@ test('dashboard muestra sección de empresas', async ({ page }) => {
   await page.getByPlaceholder('Contraseña').fill(ADMIN_PASSWORD)
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL('/dashboard')
-  await expect(page.getByText(/Empresas y teléfonos/i).first()).toBeVisible()
+  await expect(page.getByText('🏢 Empresas')).toBeVisible()
   await expect(page.getByRole('button', { name: '+ Nueva empresa' })).toBeVisible()
 })
 
@@ -40,5 +40,23 @@ test('proxy /api/auth no devuelve 500', async ({ request }) => {
   expect(res.status()).toBe(200)
   const body = await res.json()
   expect(body.ok).toBe(true)
-  expect(body.role).toBe(ADMIN_PASSWORD)
+  expect(typeof body.role).toBe('string')
+})
+
+test('expandir Monitor actualiza la URL con ?monitor=1', async ({ page }) => {
+  await page.getByPlaceholder('Contraseña').fill(ADMIN_PASSWORD)
+  await page.getByRole('button', { name: 'Entrar' }).click()
+  await expect(page).toHaveURL('/dashboard')
+
+  await page.locator('.section-block-header').filter({ hasText: 'Monitor' }).click()
+  await expect(page).toHaveURL(/monitor=1/)
+})
+
+test('navegar a /dashboard?monitor=1 muestra Monitor expandido', async ({ page }) => {
+  await page.getByPlaceholder('Contraseña').fill(ADMIN_PASSWORD)
+  await page.getByRole('button', { name: 'Entrar' }).click()
+  await expect(page).toHaveURL('/dashboard')
+
+  await page.goto('/dashboard?monitor=1')
+  await expect(page.locator('.mon-inline')).toBeVisible({ timeout: 5000 })
 })

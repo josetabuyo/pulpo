@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useNavigate } from 'react-router-dom'
 import { authFetch, setAccessToken, clearAccessToken, getAccessToken } from '../lib/auth.js'
 import EmpresaCard from '../components/EmpresaCard.jsx'
 
@@ -101,11 +101,12 @@ function EmpresaLogin({ onLogin, prefillBotId = '' }) {
     if (!res?.access_token) { setError('Credenciales incorrectas.'); return }
 
     setAccessToken(res.access_token)
-    localStorage.setItem('empresa_bot_id', res.bot_id)
+    sessionStorage.setItem('empresa_bot_id', res.bot_id)
 
     // Obtener nombre de la empresa
     const me = await fetch('/api/empresa/me', {
       headers: { 'Authorization': `Bearer ${res.access_token}` },
+      credentials: 'include',
     }).then(r => r.json()).catch(() => null)
 
     onLogin({ botId: res.bot_id, botName: me?.nombre ?? res.bot_id })
@@ -138,12 +139,34 @@ function EmpresaLogin({ onLogin, prefillBotId = '' }) {
 
 export default function EmpresaPage() {
   const { botId: botIdFromUrl } = useParams()
+  const navigate = useNavigate()
   const [session, setSession] = useState(null)
 
   useEffect(() => {
     const token = getAccessToken()
-    const botId = localStorage.getItem('empresa_bot_id')
-    if (!token || !botId) return
+    const botId = sessionStorage.getItem('empresa_bot_id')
+    if (!token || !botId) {
+      // Intento silencioso de recovery: si la URL tiene un botId, intentar refresh
+      if (botIdFromUrl) {
+        fetch('/api/empresa/refresh', { method: 'POST', credentials: 'include' })
+          .then(r => r.ok ? r.json() : null)
+          .then(async data => {
+            if (!data?.access_token) return
+            // Verificar que el refresh corresponde al bot correcto
+            const me = await fetch('/api/empresa/me', {
+              headers: { 'Authorization': `Bearer ${data.access_token}` },
+              credentials: 'include',
+            }).then(r => r.ok ? r.json() : null)
+            if (me?.bot_id === botIdFromUrl) {
+              setAccessToken(data.access_token)
+              sessionStorage.setItem('empresa_bot_id', me.bot_id)
+              setSession({ botId: me.bot_id, botName: me.nombre })
+            }
+          })
+          .catch(() => {})
+      }
+      return
+    }
 
     // Verificar que el token sigue siendo válido
     fetch('/api/empresa/me', {
@@ -167,22 +190,23 @@ export default function EmpresaPage() {
       if (me?.bot_id) setSession({ botId: me.bot_id, botName: me.nombre })
       else {
         clearAccessToken()
-        localStorage.removeItem('empresa_bot_id')
+        sessionStorage.removeItem('empresa_bot_id')
       }
     }).catch(() => {
       clearAccessToken()
-      localStorage.removeItem('empresa_bot_id')
+      sessionStorage.removeItem('empresa_bot_id')
     })
   }, [])
 
   function handleLogin({ botId, botName }) {
     setSession({ botId, botName })
+    navigate(`/empresa/${botId}`, { replace: true })
   }
 
   async function handleLogout() {
     await fetch('/api/empresa/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
     clearAccessToken()
-    localStorage.removeItem('empresa_bot_id')
+    sessionStorage.removeItem('empresa_bot_id')
     setSession(null)
   }
 
