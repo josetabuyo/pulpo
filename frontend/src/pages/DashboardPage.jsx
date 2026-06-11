@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api, apiQuiet } from '../api.js'
 import { useFbSession } from '../hooks/useFbSession.js'
 import MonitorPanel from '../components/MonitorPanel.jsx'
+import ArchitectureSection from '../components/ArchitectureSection.jsx'
 import EmpresaCard, { normalizeBot } from '../components/EmpresaCard.jsx'
 
 // ─── WaviModal ────────────────────────────────────────────────────────────────
@@ -166,6 +167,7 @@ export default function DashboardPage() {
   const [monitorCollapsed,  setMonitorCollapsed]  = useState(() => searchParams.get('monitor') !== '1')
   const [companiesCollapsed, setCompaniesCollapsed] = useState(false)
   const [configCollapsed,   setConfigCollapsed]   = useState(() => searchParams.get('config') !== '1')
+  const [archCollapsed,     setArchCollapsed]     = useState(() => searchParams.get('arquitectura') !== '1')
   const [pollMinutes,       setPollMinutes]        = useState(5)
   const [pollSaving,        setPollSaving]         = useState(false)
   const [waviModal,         setWaviModal]          = useState({ open: false })
@@ -346,6 +348,19 @@ export default function DashboardPage() {
       </header>
 
       <main>
+
+        {/* ── Sección: Arquitectura ── */}
+        <div className="section-block">
+          <div className="section-block-header" onClick={() => toggleSection('arquitectura', archCollapsed, setArchCollapsed)}>
+            <div className="section-block-title">🏛 Arquitectura</div>
+            <button className="btn-ghost btn-sm" onClick={e => { e.stopPropagation(); toggleSection('arquitectura', archCollapsed, setArchCollapsed) }}>
+              {archCollapsed ? '▼ Expandir' : '▲ Colapsar'}
+            </button>
+          </div>
+          <div style={{ display: archCollapsed ? 'none' : 'block', padding: '12px 16px' }}>
+            <ArchitectureSection pwd={pwd} collapsed={archCollapsed} />
+          </div>
+        </div>
 
         {/* ── Sección: Config ── */}
         <div className="section-block">

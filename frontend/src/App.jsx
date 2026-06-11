@@ -9,6 +9,8 @@ export default function App() {
     <Routes>
       <Route path="/" element={<LoginPage />} />
       <Route path="/dashboard" element={<DashboardPage />} />
+      {/* URL directa a la sección Arquitectura del dashboard */}
+      <Route path="/dashboard/arquitectura" element={<Navigate to="/dashboard?arquitectura=1" replace />} />
       <Route path="/empresa" element={<EmpresaPage />} />
       <Route path="/empresa/:botId" element={<EmpresaPage />} />
       <Route path="/empresa/nueva" element={<NuevaEmpresaPage />} />
