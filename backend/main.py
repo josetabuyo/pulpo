@@ -29,6 +29,7 @@ from api.flows import router as flows_router, seed_default_flows
 from api.fb_session import router as fb_session_router
 from api.wavi import router as wavi_router
 from api.settings import router as settings_router
+from api.architecture import router as architecture_router
 import sim as sim_engine
 import wavi_poller
 
@@ -218,6 +219,7 @@ app.include_router(flows_router, prefix="/api")
 app.include_router(fb_session_router, prefix="/api")
 app.include_router(wavi_router, prefix="/api")
 app.include_router(settings_router, prefix="/api")
+app.include_router(architecture_router, prefix="/api")
 
 
 @app.get("/health")

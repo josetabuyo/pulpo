@@ -21,6 +21,11 @@ const BASE_URL = `http://localhost:${PORT}`
 
 module.exports = defineConfig({
   testDir: './tests',
+  // El JSON alimenta GET /api/architecture (sección Arquitectura del dashboard)
+  reporter: [
+    ['list'],
+    ['json', { outputFile: '../monitor/test_report_frontend.json' }],
+  ],
   use: {
     baseURL: BASE_URL,
   },
