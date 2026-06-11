@@ -14,8 +14,9 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-WAVI_BIN = "/Users/josetabuyo/.local/bin/wavi"
-WAVI_ROOT = Path("/Users/josetabuyo/Development/wavi")
+# Configurables por env (.env de la raíz del worktree); defaults relativos a $HOME.
+WAVI_BIN = os.getenv("WAVI_BIN", str(Path.home() / ".local" / "bin" / "wavi"))
+WAVI_ROOT = Path(os.getenv("WAVI_ROOT", str(Path.home() / "Development" / "wavi")))
 WAVI_SESSIONS_DIR = WAVI_ROOT / "data" / "sessions"
 WAVI_QR_PAGE = WAVI_ROOT / "data" / "qr.html"
 

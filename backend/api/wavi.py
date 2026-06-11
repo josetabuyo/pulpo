@@ -1,5 +1,7 @@
 import asyncio
-from fastapi import APIRouter, Depends, Query
+import re
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
@@ -10,6 +12,19 @@ router = APIRouter()
 
 _CONNECTING_SESSIONS: set[str] = set()
 
+# Los nombres de sesión terminan en rutas (data/sessions/{session}) y en argv
+# del CLI wavi — un nombre arbitrario podría escapar del directorio.
+_SESSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+
+
+def _validate_session(session: str) -> str:
+    if not _SESSION_RE.match(session or ""):
+        raise HTTPException(
+            status_code=422,
+            detail="Nombre de sesión inválido: solo letras, números, '-' y '_' (máx. 64).",
+        )
+    return session
+
 
 class SessionCreate(BaseModel):
     session: str | None = None
@@ -17,7 +32,7 @@ class SessionCreate(BaseModel):
 
 @router.post("/wavi/sessions", dependencies=[Depends(require_admin)])
 async def create_wavi_session(body: SessionCreate):
-    session = body.session or "default"
+    session = _validate_session(body.session or "default")
     if session not in _CONNECTING_SESSIONS:
         _CONNECTING_SESSIONS.add(session)
         asyncio.create_task(_connect_and_cleanup(session))
@@ -34,9 +49,10 @@ async def _connect_and_cleanup(session: str):
 @router.get("/wavi/sessions", dependencies=[Depends(require_admin)])
 async def list_wavi_sessions():
     names = wd.list_session_names()
+    # El status de cada sesión invoca el CLI wavi (lento) — en paralelo
+    statuses = await asyncio.gather(*(wd.status(name) for name in names))
     results = []
-    for name in names:
-        st = await wd.status(name)
+    for name, st in zip(names, statuses):
         results.append({
             "session": name,
             "daemon_running": st["daemon_running"],
@@ -52,6 +68,7 @@ async def list_wavi_sessions():
 
 @router.get("/wavi/sessions/{session}", dependencies=[Depends(require_admin)])
 async def get_wavi_session(session: str):
+    _validate_session(session)
     st = await wd.status(session)
     st["connecting"] = session in _CONNECTING_SESSIONS
     return st
@@ -59,12 +76,14 @@ async def get_wavi_session(session: str):
 
 @router.delete("/wavi/sessions/{session}", dependencies=[Depends(require_admin)])
 async def stop_wavi_session(session: str):
+    _validate_session(session)
     result = await wd.stop(session)
     return result
 
 
 @router.get("/wavi/sessions/{session}/boarding", dependencies=[Depends(require_admin)])
 def get_boarding(session: str):
+    _validate_session(session)
     return {"path": str(wd.get_qr_page_path())}
 
 

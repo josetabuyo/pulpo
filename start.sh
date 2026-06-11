@@ -54,7 +54,7 @@ FRONT_LOG="$LOG_DIR/frontend.log"
 MODE="${1:-both}"
 
 start_back() {
-  if curl -sf "http://localhost:${BACKEND_PORT}/health" > /dev/null 2>&1; then
+  if curl -sf "http://localhost:${BACKEND_PORT}/api/health" > /dev/null 2>&1; then
     echo "⚠️  Backend ya está corriendo en :${BACKEND_PORT} — no lo reinicio"
     return
   fi

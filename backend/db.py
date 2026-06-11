@@ -177,6 +177,19 @@ async def init_db():
             "CREATE INDEX IF NOT EXISTS idx_google_connections_empresa ON google_connections(empresa_id)"
         ))
 
+        # ─── Wavi: dedup persistente del poller ──────────────────────
+        # Sobrevive reinicios: evita re-responder el último mensaje de cada
+        # chat cuando el cache en memoria del poller se pierde.
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS wavi_seen (
+                session    TEXT NOT NULL,
+                contact    TEXT NOT NULL,
+                msg_hash   TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (session, contact, msg_hash)
+            )
+        """))
+
 async def create_job(
     empresa_id: str,
     cliente_phone: str,
@@ -226,6 +239,44 @@ async def log_message(connection_id: str, connection_phone: str, phone: str, nam
         )
         await session.commit()
         return result.lastrowid
+
+
+# ─── Wavi: dedup persistente del poller ──────────────────────────────────────
+# El poller identifica mensajes por (session, contact, hash del texto).
+
+def wavi_msg_hash(text_value: str) -> str:
+    import hashlib
+    return hashlib.sha256(text_value.encode("utf-8")).hexdigest()[:16]
+
+
+async def wavi_seen_has(session_name: str, contact: str, msg_hash: str) -> bool:
+    async with AsyncSessionLocal() as session:
+        row = (await session.execute(
+            text("SELECT 1 FROM wavi_seen WHERE session=:s AND contact=:c AND msg_hash=:h LIMIT 1"),
+            {"s": session_name, "c": contact, "h": msg_hash},
+        )).fetchone()
+    return row is not None
+
+
+async def wavi_seen_add(session_name: str, contact: str, msg_hash: str) -> None:
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            text("INSERT OR IGNORE INTO wavi_seen (session, contact, msg_hash) VALUES (:s, :c, :h)"),
+            {"s": session_name, "c": contact, "h": msg_hash},
+        )
+        await session.commit()
+
+
+async def wavi_seen_prune(days: int = 14) -> int:
+    """Borra entradas más viejas que `days`. El dedup solo necesita cubrir
+    la ventana en la que un mensaje puede reaparecer en el sidebar."""
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            text("DELETE FROM wavi_seen WHERE created_at < datetime('now', :cutoff)"),
+            {"cutoff": f"-{int(days)} days"},
+        )
+        await session.commit()
+        return result.rowcount or 0
 
 
 _AUDIO_PLACEHOLDERS = ("[audio]", "[media]", "[audio — sin blob]", "[audio — error al transcribir]")

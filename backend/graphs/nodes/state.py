@@ -1,9 +1,17 @@
 """
 FlowState — estado que viaja por los nodos de un flow.
 
-Cada adapter (WA, Telegram, Sim) normaliza el mensaje entrante
+Cada adapter (Telegram, Wavi, Sim) normaliza el mensaje entrante
 a un FlowState antes de pasarlo al engine. Los nodos lo leen y
 modifican; el adapter lee el resultado y envía la respuesta.
+
+⚠️ contact_phone es el identificador del contacto EN SU CANAL, no siempre
+un teléfono:
+  - telegram → chat_id numérico
+  - wavi     → display name del contacto (check-updates no expone números)
+  - sim      → teléfono simulado
+Filtros, cooldowns y summaries se indexan por este valor; el teléfono real
+(si se conoce) vive en contact_channels de la DB.
 """
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -21,9 +29,9 @@ class FlowState:
     connection_id: str = ""             # ID de la conexión (session TG) que recibió el mensaje
     bot_name: str = ""
     empresa_id: str = ""
-    contact_phone: str = ""
+    contact_phone: str = ""            # ID del contacto en su canal (ver docstring del módulo)
     contact_name: str = ""
-    canal: str = "telegram"            # telegram
+    canal: str = "telegram"            # telegram | wavi | (sim usa telegram)
 
     # ── Flags de transporte ───────────────────────────────────────
     from_poll: bool = False            # True = preview del sidebar, no acumular ni responder
