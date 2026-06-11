@@ -36,8 +36,14 @@ _login_lock = asyncio.Lock()
 _UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/122.0.0.0 Safari/537.36"
+    "Chrome/136.0.0.0 Safari/537.36"
 )
+
+# Segundos que el browser visible permanece abierto cuando FB muestra algo sospechoso,
+# para que el usuario pueda leer el cartel antes de que se cierre.
+_PAUSE_ON_SUSPICIOUS = 90
+
+_SUSPICIOUS_URL_FRAGMENTS = ("login", "checkpoint", "index.php", "recover", "secure", "suspended", "hacked")
 
 # cache estructurado: "page_id:query" -> (timestamp, list[dict])
 _posts_cache: dict[str, tuple[float, list[dict]]] = {}
@@ -171,6 +177,7 @@ async def _load_posts(page_id: str, query: str, numeric_id: str = "") -> list[di
 
 async def _do_login_visible(email: str, password: str, cookies_path: Path) -> bool:
     """Abre browser VISIBLE para login en Facebook. Guarda cookies en cookies_path."""
+    import asyncio as _asyncio
     from playwright.async_api import async_playwright
 
     try:
@@ -186,30 +193,39 @@ async def _do_login_visible(email: str, password: str, cookies_path: Path) -> bo
             await page.fill("input[name='pass']", password)
             await page.press("input[name='pass']", "Enter")
 
-            # Esperar hasta 120s a que aparezca c_user (cookie de sesión real en FB)
-            logged_in = False
-            for _ in range(120):
+            # Esperar sin límite a que aparezca c_user
+            tick = 0
+            while True:
                 cookies = await ctx.cookies()
                 if any(c["name"] == "c_user" for c in cookies):
-                    logged_in = True
                     break
-                await page.wait_for_timeout(1_000)
+                await _asyncio.sleep(1)
+                tick += 1
+                if tick % 30 == 0:
+                    logger.info("[fetch_facebook] login visible: esperando c_user (%ds)...", tick)
 
-            if not logged_in:
-                logger.error("[fetch_facebook] Timeout esperando login — captcha o 2FA no completado en 120s")
-                await browser.close()
-                return False
+            # Intentar cerrar el aviso de "comportamiento automatizado" si aparece
+            try:
+                await page.get_by_text("Descartar", exact=True).click(timeout=5_000)
+                logger.info("[fetch_facebook] Aviso de Facebook cerrado automáticamente (botón Descartar).")
+            except Exception:
+                pass  # el aviso no apareció, seguir normal
 
-            await page.wait_for_timeout(2_000)
+            # Guardar cookies inmediatamente
+            cookies_path.write_text(json.dumps(cookies, ensure_ascii=False))
+            logger.info("[fetch_facebook] Login exitoso — cookies guardadas en %s.", cookies_path)
+            logger.info("[fetch_facebook] ⚠️  MIRÁ EL BROWSER: ¿Facebook muestra algún aviso o advertencia? Esperando 30s mínimo.")
 
-            if "login" in page.url or "checkpoint" in page.url or "index.php" in page.url:
-                logger.error("[fetch_facebook] Login falló. URL: %s", page.url)
-                await browser.close()
-                return False
+            # Espera mínima para que el usuario pueda leer mensajes de FB
+            for i in range(30, 0, -1):
+                logger.info("[fetch_facebook] Cerrando browser en %ds...", i)
+                await _asyncio.sleep(1)
 
-            cookies_path.write_text(json.dumps(await ctx.cookies(), ensure_ascii=False))
-            logger.info("[fetch_facebook] Login exitoso — cookies guardadas en %s", cookies_path)
-            await browser.close()
+            # Esperar a que el usuario cierre el browser
+            logger.info("[fetch_facebook] Tiempo mínimo cumplido. Cerrá el browser cuando quieras.")
+            while browser.is_connected():
+                await _asyncio.sleep(1)
+
             return True
 
     except Exception as e:

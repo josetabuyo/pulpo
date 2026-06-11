@@ -40,6 +40,12 @@ NODE_TYPES: dict[str, NodeType] = {
         color="#0369a1",
         description="Punto de entrada para mensajes de Telegram. Solo activa el flow si el mensaje viene por TG.",
     ),
+    "whatsapp_trigger": NodeType(
+        id="whatsapp_trigger",
+        label="WhatsApp Trigger",
+        color="#15803d",
+        description="Punto de entrada para mensajes de WhatsApp (Wavi). Solo activa el flow si el mensaje viene por WA.",
+    ),
     "message_join": NodeType(
         id="message_join",
         label="+",
@@ -146,6 +152,8 @@ _CLASSIFY_PATTERNS: list[tuple[str, str]] = [
 _CLASSIFY_SUBSTRINGS: list[tuple[str, str]] = [
     ("router",    "router"),
     ("summariz",  "summarize"),
+    ("whatsapp_trigger", "whatsapp_trigger"),
+    ("telegram_trigger", "telegram_trigger"),
     ("trigger",   "message_trigger"),
     ("llm",       "llm"),
     ("fetch",     "fetch"),

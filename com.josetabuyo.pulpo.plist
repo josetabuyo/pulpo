@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.josetabuyo.pulpo</string>
+	<key>Program</key>
+	<string>/bin/bash</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>/Users/josetabuyo/Development/pulpo/_/backend/start.sh</string>
+	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>ENABLE_BOTS</key>
+		<string>true</string>
+	</dict>
+	<key>WorkingDirectory</key>
+	<string>/Users/josetabuyo/Development/pulpo/_/backend</string>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>/Users/josetabuyo/Development/pulpo/_/monitor/backend.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Users/josetabuyo/Development/pulpo/_/monitor/backend.log</string>
+</dict>
+</plist>

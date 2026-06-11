@@ -102,3 +102,24 @@ def get_telegram_connections(config: dict) -> list[dict]:
         for tg in empresa.get("telegram", []):
             result.append({"connection_id": empresa_id, "token": tg["token"]})
     return result
+
+
+# ─── Global settings ──────────────────────────────────────────────────────────
+
+def get_settings() -> dict:
+    try:
+        return load_config().get("settings", {})
+    except Exception:
+        return {}
+
+
+def update_settings(patch: dict) -> dict:
+    cfg = load_config()
+    settings = cfg.setdefault("settings", {})
+    settings.update(patch)
+    save_config(cfg)
+    return settings
+
+
+def get_wa_poll_interval() -> int:
+    return int(get_settings().get("wa_poll_interval_seconds", 300))

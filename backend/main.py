@@ -27,7 +27,10 @@ from api.contacts import router as contacts_router
 from api.summarizer import router as summarizer_router
 from api.flows import router as flows_router, seed_default_flows
 from api.fb_session import router as fb_session_router
+from api.wavi import router as wavi_router
+from api.settings import router as settings_router
 import sim as sim_engine
+import wavi_poller
 
 # ── Logging con rotación automática ──────────────────────────────────────────
 _PROJECT_DIR = Path(__file__).parent.parent
@@ -167,6 +170,9 @@ async def lifespan(app: FastAPI):
         if not tg_configs:
             logger.warning("No hay bots de Telegram configurados en connections.json.")
 
+        wavi_poller.start()
+        logger.info("[wavi-poll] scheduler arrancado")
+
     yield
 
     # Apagado
@@ -176,6 +182,7 @@ async def lifespan(app: FastAPI):
             await tg_app.stop()
             await tg_app.shutdown()
         logger.info("Bots de Telegram detenidos.")
+        await wavi_poller.stop()
 
 
 from slowapi import _rate_limit_exceeded_handler
@@ -209,6 +216,8 @@ app.include_router(contacts_router, prefix="/api")
 app.include_router(summarizer_router, prefix="/api")
 app.include_router(flows_router, prefix="/api")
 app.include_router(fb_session_router, prefix="/api")
+app.include_router(wavi_router, prefix="/api")
+app.include_router(settings_router, prefix="/api")
 
 
 @app.get("/health")

@@ -24,10 +24,15 @@ export function normalizeBot(bot) {
   return {
     id: bot.id,
     name: bot.name,
-    connections: (bot.telegram ?? []).map(t => ({
-      id: `${bot.id}-tg-${t.tokenId}`, type: 'telegram', number: t.tokenId, status: t.status,
-      username: t.username || '', botName: t.botName || '',
-    })),
+    connections: [
+      ...(bot.telegram ?? []).map(t => ({
+        id: `${bot.id}-tg-${t.tokenId}`, type: 'telegram', number: t.tokenId, status: t.status,
+        username: t.username || '', botName: t.botName || '',
+      })),
+      ...(bot.phones ?? []).map(p => ({
+        id: p.sessionId, type: 'wavi', number: p.number, status: p.status,
+      })),
+    ],
   }
 }
 
@@ -481,6 +486,31 @@ export default function EmpresaCard({
   const [tgErr, setTgErr] = useState('')
   const [addingConn, setAddingConn] = useState(false)
 
+  // Wavi (WhatsApp) add — admin mode
+  const [showWaviPicker, setShowWaviPicker] = useState(false)
+  const [waviSessions, setWaviSessions] = useState([])
+  const [waviLoading, setWaviLoading] = useState(false)
+
+  async function openWaviPicker() {
+    setShowWaviPicker(true)
+    setWaviLoading(true)
+    const sessions = await apiCall('GET', '/wavi/sessions', null).catch(() => [])
+    setWaviSessions(Array.isArray(sessions) ? sessions : [])
+    setWaviLoading(false)
+  }
+
+  async function handleAddWavi(sessionName) {
+    setShowWaviPicker(false)
+    await apiCall('POST', '/connections', { empresaId: botId, number: sessionName }).catch(() => null)
+    onRefresh?.()
+  }
+
+  async function handleDeleteWavi(number) {
+    if (!confirm(`¿Desconectar WhatsApp ${number} de esta empresa?`)) return
+    await apiCall('DELETE', `/connections/${number}`, null).catch(() => null)
+    onRefresh?.()
+  }
+
   const botId = bot.id
 
   async function handleAddTg(e) {
@@ -504,6 +534,7 @@ export default function EmpresaCard({
   // Computed
   const conns = bot.connections ?? []
   const tgConns = conns.filter(c => c.type === 'telegram')
+  const waviConns = conns.filter(c => c.type === 'wavi')
 
   const tabs = [
     { id: 'connections', label: 'Conexiones', count: conns.length },
@@ -604,6 +635,24 @@ export default function EmpresaCard({
               </div>
             )}
 
+            {/* WhatsApp (Wavi) connections */}
+            {waviConns.length > 0 && (
+              <div>
+                <div className="ec-section-label" style={{ background: '#f0fdf4', color: '#15803d' }}>WhatsApp</div>
+                {waviConns.map(conn => (
+                  <div key={conn.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', fontSize: 13 }}>
+                    <span style={{ color: conn.status === 'ready' ? '#22c55e' : '#94a3b8' }}>📱</span>
+                    <span style={{ flex: 1 }}>{conn.number}</span>
+                    <span style={{ fontSize: 11, color: '#94a3b8' }}>{conn.status || 'stopped'}</span>
+                    {mode === 'admin' && (
+                      <button className="btn-sm" style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px' }}
+                        onClick={() => handleDeleteWavi(conn.number)}>✕</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
             {conns.length === 0 && mode === 'empresa' && (
               <div className="empty" style={{ padding: '20px 0 8px' }}>Sin canales configurados</div>
             )}
@@ -615,7 +664,31 @@ export default function EmpresaCard({
             {mode === 'admin' && (
               <div className="ec-add-row">
                 <button className="btn-sm" style={{ background: '#e3f2fd', color: '#0d47a1' }} onClick={() => onAddTelegram?.(botId)}>+ Telegram</button>
+                <button className="btn-sm" style={{ background: '#f0fdf4', color: '#15803d' }} onClick={() => openWaviPicker()}>+ WhatsApp</button>
                 <button className="btn-sm" style={{ background: '#f0fdf4', color: '#15803d' }} onClick={() => setShowGoogleModal(true)}>+ Google Sheets</button>
+              </div>
+            )}
+
+            {/* Wavi session picker */}
+            {showWaviPicker && (
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, margin: '8px 16px', padding: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: '#475569' }}>Sesiones Wavi disponibles</div>
+                {waviLoading && <div style={{ fontSize: 12, color: '#94a3b8' }}>Cargando…</div>}
+                {!waviLoading && waviSessions.length === 0 && (
+                  <div style={{ fontSize: 12, color: '#94a3b8' }}>No hay sesiones. Conectá una en Config → Conectar WhatsApp.</div>
+                )}
+                {!waviLoading && waviSessions.map(s => (
+                  <div key={s.session} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span style={{ flex: 1, fontSize: 12 }}>
+                      📱 {s.session}
+                      {s.authenticated ? <span style={{ color: '#22c55e', marginLeft: 6 }}>✓ conectado</span>
+                        : <span style={{ color: '#94a3b8', marginLeft: 6 }}>desconectado</span>}
+                    </span>
+                    <button className="btn-sm" style={{ background: '#f0fdf4', color: '#15803d' }}
+                      onClick={() => handleAddWavi(s.session)}>Asignar</button>
+                  </div>
+                ))}
+                <button className="btn-sm" style={{ marginTop: 8, color: '#94a3b8' }} onClick={() => setShowWaviPicker(false)}>Cancelar</button>
               </div>
             )}
 

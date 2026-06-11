@@ -21,7 +21,8 @@ logger = logging.getLogger(__name__)
 # Tipos de nodo que actúan como entrada de un flow.
 # message_trigger = backward-compat (cualquier canal)
 # telegram_trigger = específico de Telegram
-TRIGGER_TYPES: frozenset[str] = frozenset({"message_trigger", "telegram_trigger"})
+# whatsapp_trigger = específico de WhatsApp via Wavi
+TRIGGER_TYPES: frozenset[str] = frozenset({"message_trigger", "telegram_trigger", "whatsapp_trigger"})
 
 # Cooldown por flow: (flow_id, contact_phone) → timestamp del último reply enviado.
 # Persiste en memoria mientras el backend esté corriendo.
@@ -144,6 +145,9 @@ async def execute_flow(flow: dict, state: FlowState) -> FlowState:
             # Filtro por canal
             if ctype == "telegram_trigger" and state.canal != "telegram":
                 logger.debug("[engine] telegram_trigger no aplica: canal '%s' != 'telegram'", state.canal)
+                continue
+            if ctype == "whatsapp_trigger" and state.canal != "wavi":
+                logger.debug("[engine] whatsapp_trigger no aplica: canal '%s' != 'wavi'", state.canal)
                 continue
 
             # Filtro por connection_id
