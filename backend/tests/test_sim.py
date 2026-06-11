@@ -1,10 +1,11 @@
 """Tests del simulador — olvidados antes + logging de mensajes."""
-import os
 import pytest
-from conftest import ADMIN
+from conftest import ADMIN, server_sim_mode
 
-# Tests que solo tienen sentido en modo simulador (ENABLE_BOTS=false)
-SIM_MODE = os.getenv("ENABLE_BOTS", "true").lower() == "false"
+# Tests que solo tienen sentido en modo simulador (ENABLE_BOTS=false).
+# El modo se le pregunta al server corriendo (/api/mode), no al env local:
+# en producción los teléfonos simulados no existen y estos tests no aplican.
+SIM_MODE = server_sim_mode()
 sim_only = pytest.mark.skipif(not SIM_MODE, reason="Solo en modo simulador (ENABLE_BOTS=false)")
 
 
@@ -73,6 +74,7 @@ def test_sim_send_message(client):
             client.put(f"/api/empresas/{bot_id}/flows/{f['id']}", headers=ADMIN, json={"active": True})
 
 
+@sim_only
 def test_sim_send_appears_in_log(client):
     """Después de enviar, el log debe tener la línea [sim] MSG."""
     bots = client.get("/api/bots", headers=ADMIN).json()
@@ -133,6 +135,7 @@ def test_sim_reply_appears_in_log(client):
             client.put(f"/api/empresas/{bot_id}/flows/{f['id']}", headers=ADMIN, json={"active": True})
 
 
+@sim_only
 def test_sim_connect_disconnect(client):
     """Connect y disconnect de un número en modo sim."""
     bots = client.get("/api/bots", headers=ADMIN).json()
@@ -153,6 +156,7 @@ def test_sim_connect_disconnect(client):
     assert phone["status"] == "ready"
 
 
+@sim_only
 def test_sim_messages_endpoint(client):
     """GET /api/sim/messages/{number} devuelve lista."""
     bots = client.get("/api/bots", headers=ADMIN).json()
@@ -162,6 +166,7 @@ def test_sim_messages_endpoint(client):
     assert isinstance(r.json(), list)
 
 
+@sim_only
 def test_multi_empresa_dispatch(client):
     """Mensaje en conexión compartida se loguea bajo todas las empresas."""
     import time

@@ -25,6 +25,8 @@ __pycache__/
 
 # Playwright
 .playwright-mcp/
+.playwright-cli/
+backend/.playwright-cli/
 frontend/test-results/
 frontend/playwright-report/
 
@@ -32,3 +34,17 @@ frontend/playwright-report/
 monitor/
 data/summaries/
 node_modules
+
+# macOS
+.DS_Store
+
+# Sesión multi-agente y agente local
+session/
+.agent.json
+.claude/settings.local.json
+
+# Estado local de herramientas
+backend/.node-persist/
+
+# Colecciones Postman exportadas (locales)
+backend/open-wa-*.json
