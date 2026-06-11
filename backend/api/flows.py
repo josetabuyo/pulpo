@@ -246,9 +246,10 @@ async def replay_flow(
         raise HTTPException(status_code=404, detail="Flow no encontrado")
 
     # Encontrar el nodo trigger y su connection_id
+    from graphs.nodes import NODE_REGISTRY, TRIGGER_TYPES
     nodes = flow.get("definition", {}).get("nodes", [])
     trigger = next(
-        (n for n in nodes if n.get("type") in ("telegram_trigger", "message_trigger")),
+        (n for n in nodes if n.get("type") in TRIGGER_TYPES),
         None,
     )
     if not trigger:
@@ -258,7 +259,10 @@ async def replay_flow(
     if not connection_id:
         raise HTTPException(status_code=400, detail="El trigger no tiene connection_id configurado")
 
-    canal = "telegram"
+    # El canal del replay debe coincidir con el del trigger para que select_trigger aplique
+    # (whatsapp_trigger → wavi; telegram_trigger y message_trigger legacy → telegram)
+    trigger_cls = NODE_REGISTRY.get(trigger.get("type", ""))
+    canal = getattr(trigger_cls, "channel", None) or "telegram"
 
     date_filter = ""
     date_params: dict = {}
