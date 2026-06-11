@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { api } from '../api.js'
+import { api, apiQuiet } from '../api.js'
+import { useFbSession } from '../hooks/useFbSession.js'
 import MonitorPanel from '../components/MonitorPanel.jsx'
 import EmpresaCard, { normalizeBot } from '../components/EmpresaCard.jsx'
 
@@ -13,7 +14,7 @@ function WaviModal({ open, onClose, pwd }) {
   useEffect(() => {
     if (!open) return
     setSessions([])
-    const fetch = () => api('GET', '/wavi/sessions', null, pwd).then(setSessions).catch(() => {})
+    const fetch = () => apiQuiet('GET', '/wavi/sessions', null, pwd).then(s => { if (s) setSessions(s) })
     fetch()
     const id = setInterval(fetch, 3000)
     return () => clearInterval(id)
@@ -21,7 +22,7 @@ function WaviModal({ open, onClose, pwd }) {
 
   async function handleConnect() {
     setStarting(true)
-    await api('POST', '/wavi/sessions', { session: null }, pwd).catch(() => {})
+    await apiQuiet('POST', '/wavi/sessions', { session: null }, pwd)
     setStarting(false)
   }
 
@@ -156,8 +157,6 @@ export default function DashboardPage() {
   const [syncRunning, setSyncRunning] = useState(false)
   const [recentSyncLabel, setRecentSyncLabel] = useState('↑ Actualizar')
   const [simMode, setSimMode] = useState(false)
-  const [fbSessionLabel, setFbSessionLabel] = useState('FB Sesión')
-  const [fbSessionRunning, setFbSessionRunning] = useState(false)
 
   // Modales
   const [botModal, setBotModal] = useState({ open: false, editBot: null })
@@ -183,6 +182,8 @@ export default function DashboardPage() {
     [pwd]
   )
 
+  const { fbLabel: fbSessionLabel, fbRunning: fbSessionRunning, startFbSession: handleFbSession } = useFbSession(call)
+
   const loadBots = useCallback(async () => {
     const data = await call('GET', '/bots')
     if (Array.isArray(data)) setBots(data)
@@ -194,15 +195,14 @@ export default function DashboardPage() {
     api('GET', '/mode', null, pwd).then(data => {
       if (data?.mode === 'sim') setSimMode(true)
     })
-    api('GET', '/config/settings', null, pwd)
-      .then(s => setPollMinutes(Math.round((s.wa_poll_interval_seconds || 300) / 60)))
-      .catch(() => {})
+    apiQuiet('GET', '/config/settings', null, pwd)
+      .then(s => { if (s) setPollMinutes(Math.round((s.wa_poll_interval_seconds || 300) / 60)) })
     loadBots()
     const interval = setInterval(loadBots, 6000)
 
     // Polling del estado de sync para mantener botón deshabilitado mientras corre
     const syncInterval = setInterval(async () => {
-      const s = await api('GET', '/sync-status', null, pwd).catch(() => null)
+      const s = await apiQuiet('GET', '/sync-status', null, pwd)
       if (!s) return
       setSyncRunning(prev => {
         if (prev && !s.running) {
@@ -226,54 +226,13 @@ export default function DashboardPage() {
   async function savePollInterval() {
     setPollSaving(true)
     const secs = Math.max(60, Math.min(3600, Math.round(pollMinutes * 60)))
-    await api('PUT', '/config/settings', { wa_poll_interval_seconds: secs }, pwd).catch(() => {})
+    await apiQuiet('PUT', '/config/settings', { wa_poll_interval_seconds: secs }, pwd)
     setPollSaving(false)
   }
 
   function logout() {
     sessionStorage.removeItem('admin_pwd')
     navigate('/')
-  }
-
-  async function handleFbSession(pageId = 'luganense') {
-    if (fbSessionRunning) return
-    setFbSessionRunning(true)
-    setFbSessionLabel('Abriendo browser…')
-    try {
-      const res = await call('POST', `/fb/refresh-session?page_id=${pageId}`, {})
-      if (!res.ok) {
-        setFbSessionLabel('⚠ ' + (res.message || 'Error'))
-        setTimeout(() => { setFbSessionLabel('FB Sesión'); setFbSessionRunning(false) }, 5000)
-        return
-      }
-      // Polling del estado hasta que termine
-      setFbSessionLabel('Esperando login…')
-      const poll = setInterval(async () => {
-        try {
-          const st = await call('GET', `/fb/session-status?page_id=${pageId}`, null)
-          if (st.state === 'ok') {
-            setFbSessionLabel('✓ Sesión renovada')
-            clearInterval(poll)
-            setTimeout(() => { setFbSessionLabel('FB Sesión'); setFbSessionRunning(false) }, 4000)
-          } else if (st.state === 'error') {
-            setFbSessionLabel('⚠ ' + (st.message || 'Error'))
-            clearInterval(poll)
-            setTimeout(() => { setFbSessionLabel('FB Sesión'); setFbSessionRunning(false) }, 5000)
-          }
-        } catch { clearInterval(poll); setFbSessionLabel('FB Sesión'); setFbSessionRunning(false) }
-      }, 3000)
-      // Timeout máximo 130s
-      setTimeout(() => {
-        clearInterval(poll)
-        setFbSessionRunning(prev => {
-          if (prev) setFbSessionLabel('FB Sesión')
-          return false
-        })
-      }, 130_000)
-    } catch {
-      setFbSessionLabel('⚠ Error')
-      setTimeout(() => { setFbSessionLabel('FB Sesión'); setFbSessionRunning(false) }, 4000)
-    }
   }
 
   async function handleRefresh() {

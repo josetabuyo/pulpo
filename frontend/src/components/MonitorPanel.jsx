@@ -215,7 +215,10 @@ function useLogPoller(source, pwd, paused, windowMinutes, active) {
         for (const pat of ALERT_PATTERNS)
           if (line.includes(pat)) found.push(line.trim())
       if (found.length) setAlerts(prev => [...prev, ...found])
-    } catch {}
+    } catch (e) {
+      // El polling reintenta solo en el próximo tick; el rastro queda en consola
+      console.warn('[MonitorPanel] fetch de logs falló', e)
+    }
   }, [source, pwd, windowMinutes])
 
   useEffect(() => {

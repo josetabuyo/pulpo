@@ -20,38 +20,13 @@ export function api(method, path, body, password) {
   })
 }
 
-export async function connectAndPoll({ number, password, onQR, onReady, onError }) {
-  let interval = null
-  const stop = () => { if (interval) { clearInterval(interval); interval = null } }
-
-  let res
-  try {
-    res = await fetch(`/api/connect/${number}`, {
-      method: 'POST',
-      headers: { 'x-password': password },
-    }).then(r => r.json())
-  } catch {
-    onError('Error de red. Verificá la conexión.')
-    return stop
-  }
-
-  if (res.error) { onError(res.error); return stop }
-
-  const sessionId = res.sessionId
-
-  interval = setInterval(async () => {
-    try {
-      const data = await fetch(`/api/qr/${sessionId}`, {
-        headers: { 'x-password': password },
-      }).then(r => r.json())
-
-      if (data.status === 'ready') { stop(); onReady(); return }
-      if (data.status === 'failed' || data.status === 'disconnected') {
-        stop(); onError('Error al conectar. Intentá de nuevo.'); return
-      }
-      if (data.qr) onQR(data.qr)
-    } catch {}
-  }, 3000)
-
-  return stop
+/**
+ * Variante para polling/llamadas no críticas: nunca rechaza.
+ * Los errores quedan en console.warn (rastro para debugging) y devuelve null.
+ */
+export function apiQuiet(method, path, body, password, label) {
+  return api(method, path, body, password).catch(e => {
+    console.warn('[api]', label || path, e)
+    return null
+  })
 }

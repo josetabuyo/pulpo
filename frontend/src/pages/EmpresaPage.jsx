@@ -163,7 +163,8 @@ export default function EmpresaPage() {
               setSession({ botId: me.bot_id, botName: me.nombre })
             }
           })
-          .catch(() => {})
+          // El recovery es opcional: si falla, el usuario ve el login normal
+          .catch(e => console.warn('[EmpresaPage] recovery silencioso falló', e))
       }
       return
     }

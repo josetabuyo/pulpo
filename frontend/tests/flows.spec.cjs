@@ -67,6 +67,20 @@ test('botón volver regresa a la lista', async ({ page }) => {
   await expect(card.getByRole('button', { name: /Nuevo flow/i })).toBeVisible()
 })
 
+test('doble click en un nodo abre el panel de configuración', async ({ page }) => {
+  const card = await goToFlowTab(page)
+  await clickFlowEdit(card)
+  await expect(page.getByText('NODOS')).toBeVisible({ timeout: 8000 })
+
+  const nodes = page.locator('.react-flow__node')
+  const count = await nodes.count()
+  test.skip(count === 0, 'el flow no tiene nodos para configurar')
+
+  await nodes.first().dblclick()
+  // El panel (components/nodeconfig/ConfigForm) muestra el header con el label editable
+  await expect(page.getByTitle('Editar nombre del nodo')).toBeVisible({ timeout: 5000 })
+})
+
 test('crear nuevo flow y verificar que aparece en la lista', async ({ page }) => {
   const card = await goToFlowTab(page)
   const before = await card.locator('.flow-row').count()

@@ -1,23 +1,22 @@
-import { useState, useEffect, useRef } from 'react'
+/**
+ * EmpresaCard — card de una empresa con sus conexiones, flows y UIs.
+ * Funciona en dos modos: 'admin' (dashboard) y 'empresa' (portal del cliente).
+ *
+ * Las piezas viven en components/empresa/:
+ *   widgets.jsx           — StatusPill, CopyLinkBtn, dotColor, STATUS_LABELS
+ *   ConnectionRow.jsx     — fila Telegram con menú contextual
+ *   WaviConnections.jsx   — listado WhatsApp + picker de sesiones wavi
+ *   GoogleConnections.jsx — listado Google Sheets + modal de alta
+ *   EmpresaConfigTab.jsx  — tab Configurar (nombre/contraseña)
+ */
+import { useState, useEffect } from 'react'
 import FlowList from './FlowList.jsx'
 import UIsList from './UIsList.jsx'
-
-// ─── Helpers ────────────────────────────────────────────────────────────────────
-
-const STATUS_LABELS = {
-  ready: 'Conectado', qr_ready: 'Escaneando', connecting: 'Conectando',
-  authenticated: 'Autenticando', disconnected: 'Desconectado',
-  failed: 'Error', stopped: 'Sin iniciar', qr_needed: 'Sin iniciar',
-}
-
-
-function isInactive(s) { return ['stopped', 'failed', 'disconnected', undefined, null].includes(s) }
-
-function dotColor(status) {
-  if (status === 'ready') return '#2196f3'
-  if (['connecting'].includes(status)) return '#f59e0b'
-  return '#ef4444'
-}
+import { STATUS_LABELS, dotColor, CopyLinkBtn } from './empresa/widgets.jsx'
+import ConnectionRow from './empresa/ConnectionRow.jsx'
+import EmpresaConfigTab from './empresa/EmpresaConfigTab.jsx'
+import { GoogleSetupModal, GoogleConnectionsSection } from './empresa/GoogleConnections.jsx'
+import { WaviConnectionsList, WaviSessionPicker } from './empresa/WaviConnections.jsx'
 
 // Normaliza un bot del formato admin (/bots) al formato canónico de EmpresaCard
 export function normalizeBot(bot) {
@@ -35,406 +34,6 @@ export function normalizeBot(bot) {
     ],
   }
 }
-
-// ─── CopyLinkBtn ─────────────────────────────────────────────────────────────────
-
-function CopyLinkBtn({ botId }) {
-  const [copied, setCopied] = useState(false)
-
-  function getUrl() {
-    const base = import.meta.env.VITE_PUBLIC_URL || window.location.origin
-    return `${base}/empresa/${botId}`
-  }
-
-  function handleClick(e) {
-    e.stopPropagation()
-    const url = getUrl()
-    navigator.clipboard.writeText(url).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    })
-  }
-
-  return (
-    <span
-      title={copied ? '¡Copiado!' : getUrl()}
-      onClick={handleClick}
-      style={{
-        cursor: 'pointer',
-        fontSize: 13,
-        color: copied ? '#22c55e' : '#475569',
-        transition: 'color 0.2s',
-        userSelect: 'none',
-        lineHeight: 1,
-      }}
-    >
-      {copied ? '✓' : '🔗'}
-    </span>
-  )
-}
-
-// ─── StatusPill ─────────────────────────────────────────────────────────────────
-
-function StatusPill({ status, isTg }) {
-  const cls = isTg && status === 'ready' ? 's-tg-ready' : `s-${status ?? 'stopped'}`
-  return (
-    <span className={`badge ${cls}`}>
-      <span className="dot" />
-      {STATUS_LABELS[status] || status || 'Sin iniciar'}
-    </span>
-  )
-}
-
-// ─── Toggle ──────────────────────────────────────────────────────────────────────
-
-function Toggle({ checked, onChange, disabled }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      className={`ec-toggle ${checked ? 'ec-toggle--on' : 'ec-toggle--off'}`}
-      onClick={() => !disabled && onChange(!checked)}
-      disabled={disabled}
-    />
-  )
-}
-
-// ─── EmpresaConfigTab ──────────────────────────────────────────────────────────
-
-function EmpresaConfigTab({ botId, botName, apiCall, onNameChange }) {
-  const [form, setForm] = useState({ name: botName, newPassword: '', confirmPassword: '' })
-  const [saving, setSaving] = useState(false)
-  const [result, setResult] = useState(null)
-
-  useEffect(() => {
-    apiCall('GET', `/empresa/${botId}`, null).then(r => {
-      if (r?.bot_name) setForm(f => ({ ...f, name: r.bot_name }))
-    }).catch(() => {})
-  }, [botId, apiCall])
-
-  const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }))
-
-  async function handleSave(e) {
-    e.preventDefault(); setSaving(true); setResult(null)
-    const body = {}
-    if (form.name.trim() && form.name !== botName) body.name = form.name.trim()
-    if (form.newPassword) {
-      if (form.newPassword !== form.confirmPassword) { setSaving(false); setResult('pwd-mismatch'); return }
-      body.password = form.newPassword
-    }
-    if (Object.keys(body).length === 0) { setSaving(false); return }
-    const res = await apiCall('PUT', `/empresa/${botId}/config`, body).catch(() => null)
-    setSaving(false)
-    setResult(res?.ok ? 'ok' : (res?.detail || 'error'))
-    if (res?.ok) {
-      if (body.name) onNameChange?.(body.name)
-      if (body.password) setForm(f => ({ ...f, newPassword: '', confirmPassword: '' }))
-    }
-    setTimeout(() => setResult(null), 3000)
-  }
-
-  return (
-    <div className="ec-config-tab">
-      <form onSubmit={handleSave}>
-        <div className="fg"><label>Nombre de la empresa</label>
-          <input value={form.name} onChange={set('name')} placeholder="Nombre" />
-        </div>
-        <div className="fg"><label>Nueva contraseña <small style={{ fontWeight: 400, color: '#94a3b8' }}>(dejar vacío para no cambiar)</small></label>
-          <input type="password" value={form.newPassword} onChange={set('newPassword')} placeholder="Nueva contraseña" />
-        </div>
-        {form.newPassword && (
-          <div className="fg"><label>Confirmar contraseña</label>
-            <input type="password" value={form.confirmPassword} onChange={set('confirmPassword')} placeholder="Repetir contraseña" />
-          </div>
-        )}
-        <div className="portal-save-row">
-          <button type="submit" className="btn-primary btn-sm" disabled={saving}>{saving ? 'Guardando...' : 'Guardar cambios'}</button>
-          {result === 'ok' && <span className="portal-save-ok">✓ Guardado</span>}
-          {result === 'pwd-mismatch' && <span className="portal-save-err">Las contraseñas no coinciden</span>}
-          {result && result !== 'ok' && result !== 'pwd-mismatch' && <span className="portal-save-err">{result}</span>}
-        </div>
-      </form>
-    </div>
-  )
-}
-
-// ─── ConnectionRow ──────────────────────────────────────────────────────────────
-
-function ConnectionRow({ conn, mode, simMode, botId, apiCall, onDelete, onReconnect }) {
-  const [localStatus, setLocalStatus] = useState(conn.status)
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [menuPos, setMenuPos] = useState({ top: 0, left: 0, openUp: false })
-  const menuRef = useRef(null)
-  const menuBtnRef = useRef(null)
-
-  useEffect(() => {
-    if (!menuOpen) return
-    function onOutside(e) { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false) }
-    document.addEventListener('mousedown', onOutside)
-    return () => document.removeEventListener('mousedown', onOutside)
-  }, [menuOpen])
-
-  function openMenu() {
-    const rect = menuBtnRef.current?.getBoundingClientRect()
-    if (!rect) { setMenuOpen(true); return }
-    const menuHeight = 120
-    const spaceBelow = window.innerHeight - rect.bottom
-    const openUp = spaceBelow < menuHeight
-    setMenuPos({ top: openUp ? rect.top - 4 : rect.bottom + 4, left: rect.right, openUp })
-    setMenuOpen(true)
-  }
-
-  useEffect(() => setLocalStatus(conn.status), [conn.status])
-
-  const displayId = conn.username ? `@${conn.username}` : conn.botName || conn.number
-  const connected = localStatus === 'ready'
-
-  return (
-    <div className="ec-conn-row ec-conn-row--tg"
-      draggable={mode === 'admin'}
-      onDragStart={mode === 'admin' ? e => {
-        e.dataTransfer.setData('type', 'telegram')
-        e.dataTransfer.setData('sourceBotId', botId)
-        e.dataTransfer.setData('tokenId', conn.number)
-        e.currentTarget.classList.add('dragging')
-      } : undefined}
-      onDragEnd={mode === 'admin' ? e => e.currentTarget.classList.remove('dragging') : undefined}
-    >
-      <div className="ec-conn-main">
-        <span className="ec-chan-badge ec-chan-badge--tg">TG</span>
-        <span className="ec-conn-id">{displayId}</span>
-        {simMode && <span className="ec-sim-badge">SIM</span>}
-        <StatusPill status={localStatus} isTg={true} />
-        <div className="ec-conn-actions">
-          <div style={{ position: 'relative' }}>
-            <button
-              ref={menuBtnRef}
-              className="btn-ghost btn-sm"
-              onClick={() => menuOpen ? setMenuOpen(false) : openMenu()}
-              title="Opciones"
-              style={{ padding: '4px 8px', fontWeight: 600 }}
-            >⋯</button>
-
-            {menuOpen && (
-              <div ref={menuRef} style={{
-                position: 'fixed',
-                top: menuPos.openUp ? undefined : menuPos.top,
-                bottom: menuPos.openUp ? window.innerHeight - menuPos.top : undefined,
-                left: menuPos.left - 180,
-                zIndex: 9999,
-                background: '#1e293b', border: '1px solid #334155', borderRadius: 6,
-                boxShadow: '0 8px 24px rgba(0,0,0,.6)', minWidth: 190, padding: '4px 0',
-              }}>
-                {mode === 'admin' && connected && (
-                  <button className="conn-menu-item conn-menu-item--danger" onClick={() => { setMenuOpen(false) }}>
-                    Desconectar
-                  </button>
-                )}
-                {mode === 'admin' && ['stopped', 'failed', 'disconnected'].includes(localStatus) && !simMode && (
-                  <button className="conn-menu-item" onClick={() => { onReconnect?.(conn); setMenuOpen(false) }}>
-                    Reconectar
-                  </button>
-                )}
-                {mode === 'admin' && (
-                  <>
-                    <div style={{ margin: '4px 0', borderTop: '1px solid #334155' }} />
-                    <button className="conn-menu-item conn-menu-item--danger" onClick={() => { onDelete?.(conn); setMenuOpen(false) }}>
-                      🗑 Eliminar conexión
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─── Google Connections ──────────────────────────────────────────────────────────
-
-const PULPO_EMAIL = 'pulpo-sheets@booming-monitor-459317-d3.iam.gserviceaccount.com'
-
-function GoogleSetupModal({ botId, apiCall, onClose, onSaved }) {
-  const [tab, setTab] = useState('pulpo')       // 'pulpo' | 'propia'
-  const [jsonText, setJsonText] = useState('')
-  const [label, setLabel] = useState('')
-  const [err, setErr] = useState('')
-  const [saving, setSaving] = useState(false)
-
-  async function handleSavePulpo() {
-    setSaving(true)
-    try {
-      const r = await apiCall('POST', `/empresas/${botId}/google-connections`, {
-        credentials_json: '__pulpo_default__',
-        label: 'Cuenta Pulpo',
-      }).catch(() => null)
-      // pulpo-default ya existe y es global: no necesita POST, simplemente cerramos
-      onSaved?.()
-      onClose()
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function handleSavePropia(e) {
-    e.preventDefault()
-    setErr('')
-    let parsed
-    try { parsed = JSON.parse(jsonText) } catch { setErr('JSON inválido'); return }
-    if (!parsed.client_email || !parsed.private_key) {
-      setErr('El JSON debe tener client_email y private_key')
-      return
-    }
-    setSaving(true)
-    const res = await apiCall('POST', `/empresas/${botId}/google-connections`, {
-      credentials_json: jsonText,
-      label: label || parsed.client_email.split('@')[0],
-    }).catch(() => null)
-    setSaving(false)
-    if (!res?.ok) { setErr(res?.detail || 'Error al guardar'); return }
-    onSaved?.()
-    onClose()
-  }
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{ maxWidth: 520 }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <strong>Agregar cuenta Google Sheets</strong>
-          <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
-        </div>
-
-        <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-          <button
-            className={tab === 'pulpo' ? 'btn-primary btn-sm' : 'btn-ghost btn-sm'}
-            onClick={() => setTab('pulpo')}
-          >Usar cuenta Pulpo</button>
-          <button
-            className={tab === 'propia' ? 'btn-primary btn-sm' : 'btn-ghost btn-sm'}
-            onClick={() => setTab('propia')}
-          >Cuenta propia</button>
-        </div>
-
-        {tab === 'pulpo' && (
-          <div>
-            <p style={{ fontSize: 14, marginBottom: 12, color: '#374151' }}>
-              La cuenta de servicio de Pulpo puede escribir en tu hoja.
-              Solo necesitás compartirla como <strong>Editor</strong>.
-            </p>
-            <div style={{ background: '#f1f5f9', borderRadius: 8, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-              <span style={{ fontSize: 13, fontFamily: 'monospace', flex: 1 }}>{PULPO_EMAIL}</span>
-              <button
-                className="btn-ghost btn-sm"
-                onClick={() => navigator.clipboard.writeText(PULPO_EMAIL)}
-              >Copiar</button>
-            </div>
-            <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 20 }}>
-              En tu Google Sheet: <strong>Compartir → pegar el email → Editor → Listo</strong>
-            </p>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button className="btn-ghost btn-sm" onClick={onClose}>Cancelar</button>
-              <button className="btn-primary btn-sm" onClick={handleSavePulpo} disabled={saving}>
-                {saving ? 'Guardando...' : 'Confirmar'}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {tab === 'propia' && (
-          <form onSubmit={handleSavePropia}>
-            <div style={{ fontSize: 13, color: '#374151', marginBottom: 12 }}>
-              <strong>Pasos para obtener el JSON:</strong>
-              <ol style={{ paddingLeft: 18, marginTop: 6, lineHeight: 1.8 }}>
-                <li>console.cloud.google.com → Biblioteca → <em>Google Sheets API</em> → Habilitar</li>
-                <li>Credenciales → + Crear credenciales → <em>Cuenta de servicio</em> → Crear</li>
-                <li>Clic en la cuenta → Claves → Agregar clave → JSON → se descarga</li>
-                <li>Pegá el contenido acá</li>
-              </ol>
-            </div>
-            <textarea
-              rows={6}
-              value={jsonText}
-              onChange={e => setJsonText(e.target.value)}
-              placeholder='{"type": "service_account", "client_email": "...", "private_key": "..."}'
-              style={{ width: '100%', fontFamily: 'monospace', fontSize: 12, resize: 'vertical', boxSizing: 'border-box' }}
-            />
-            <input
-              type="text"
-              value={label}
-              onChange={e => setLabel(e.target.value)}
-              placeholder="Nombre amigable (opcional)"
-              style={{ width: '100%', marginTop: 8, boxSizing: 'border-box' }}
-            />
-            {err && <div style={{ color: '#c00', fontSize: 13, marginTop: 6 }}>{err}</div>}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
-              <button type="button" className="btn-ghost btn-sm" onClick={onClose}>Cancelar</button>
-              <button type="submit" className="btn-primary btn-sm" disabled={saving}>
-                {saving ? 'Guardando...' : 'Guardar'}
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function GoogleConnectionsSection({ botId, apiCall, mode, hideAddButton = false }) {
-  const [conns, setConns] = useState([])
-  const [showModal, setShowModal] = useState(false)
-  const [loading, setLoading] = useState(true)
-
-  async function load() {
-    setLoading(true)
-    const data = await apiCall('GET', `/empresas/${botId}/google-connections`, null).catch(() => [])
-    setConns(Array.isArray(data) ? data : [])
-    setLoading(false)
-  }
-
-  useEffect(() => { load() }, [botId])
-
-  async function handleDelete(conn) {
-    if (!confirm(`¿Eliminar conexión "${conn.label}"?`)) return
-    await apiCall('DELETE', `/empresas/${botId}/google-connections/${conn.id}`, null).catch(() => null)
-    load()
-  }
-
-  if (loading) return null
-  // En modo empresa sin google connections: no mostrar nada (el botón está en la sección "Agregar canal")
-  if (conns.length === 0 && mode !== 'admin') return null
-
-  return (
-    <div>
-      <div className="ec-section-label" style={{ background: '#f0fdf4', color: '#15803d' }}>Google Sheets</div>
-      {conns.map(conn => (
-        <div key={conn.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', borderBottom: '1px solid #f1f5f9' }}>
-          <span style={{ fontSize: 18 }}>📗</span>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 500, fontSize: 13 }}>{conn.label}</div>
-            <div style={{ fontSize: 12, color: '#6b7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{conn.email}</div>
-          </div>
-          {conn.id === 'pulpo-default' && (
-            <span style={{ fontSize: 11, color: '#6b7280', background: '#f1f5f9', borderRadius: 4, padding: '2px 6px' }}>Pulpo</span>
-          )}
-          {conn.id !== 'pulpo-default' && (
-            <button className="btn-danger btn-sm" onClick={() => handleDelete(conn)}>Eliminar</button>
-          )}
-        </div>
-      ))}
-      {!hideAddButton && mode === 'admin' && (
-        <div className="ec-add-row">
-          <button className="btn-sm" style={{ background: '#f0fdf4', color: '#15803d' }} onClick={() => setShowModal(true)}>+ Google Sheets</button>
-        </div>
-      )}
-      {showModal && <GoogleSetupModal botId={botId} apiCall={apiCall} onClose={() => setShowModal(false)} onSaved={load} />}
-    </div>
-  )
-}
-
-// ─── EmpresaCard (componente principal) ────────────────────────────────────────
 
 export default function EmpresaCard({
   mode,         // 'admin' | 'empresa'
@@ -457,17 +56,19 @@ export default function EmpresaCard({
   const [pauseLoading, setPauseLoading] = useState(false)
   const [hasSummarizer, setHasSummarizer] = useState(false)
 
+  const botId = bot.id
+
   useEffect(() => {
     apiCall('GET', `/empresa/${bot.id}/paused`, null)
       .then(r => { if (r?.paused !== undefined) setPaused(r.paused) })
-      .catch(() => {})
+      .catch(e => console.warn('[EmpresaCard] paused', e))
   }, [bot.id])
 
   useEffect(() => {
     setHasSummarizer(false)
     apiCall('GET', `/empresas/${bot.id}/flows/has-node/summarize`, null)
       .then(data => { if (data?.found) setHasSummarizer(true) })
-      .catch(() => {})
+      .catch(e => console.warn('[EmpresaCard] has-node', e))
   }, [bot.id])
 
   async function togglePause() {
@@ -488,16 +89,6 @@ export default function EmpresaCard({
 
   // Wavi (WhatsApp) add — admin mode
   const [showWaviPicker, setShowWaviPicker] = useState(false)
-  const [waviSessions, setWaviSessions] = useState([])
-  const [waviLoading, setWaviLoading] = useState(false)
-
-  async function openWaviPicker() {
-    setShowWaviPicker(true)
-    setWaviLoading(true)
-    const sessions = await apiCall('GET', '/wavi/sessions', null).catch(() => [])
-    setWaviSessions(Array.isArray(sessions) ? sessions : [])
-    setWaviLoading(false)
-  }
 
   async function handleAddWavi(sessionName) {
     setShowWaviPicker(false)
@@ -510,8 +101,6 @@ export default function EmpresaCard({
     await apiCall('DELETE', `/connections/${number}`, null).catch(() => null)
     onRefresh?.()
   }
-
-  const botId = bot.id
 
   async function handleAddTg(e) {
     e.preventDefault(); setTgErr('')
@@ -568,7 +157,7 @@ export default function EmpresaCard({
                   key={i}
                   className="ec-status-dot"
                   style={{ background: dotColor(c.status) }}
-                  title={`TG ${c.number}: ${STATUS_LABELS[c.status] || c.status}`}
+                  title={`${c.type === 'wavi' ? 'WA' : 'TG'} ${c.number}: ${STATUS_LABELS[c.status] || c.status}`}
                 />
               ))}
               {conns.length === 0 && <span style={{ fontSize: 11, color: '#94a3b8' }}>Sin canales</span>}
@@ -635,23 +224,7 @@ export default function EmpresaCard({
               </div>
             )}
 
-            {/* WhatsApp (Wavi) connections */}
-            {waviConns.length > 0 && (
-              <div>
-                <div className="ec-section-label" style={{ background: '#f0fdf4', color: '#15803d' }}>WhatsApp</div>
-                {waviConns.map(conn => (
-                  <div key={conn.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', fontSize: 13 }}>
-                    <span style={{ color: conn.status === 'ready' ? '#22c55e' : '#94a3b8' }}>📱</span>
-                    <span style={{ flex: 1 }}>{conn.number}</span>
-                    <span style={{ fontSize: 11, color: '#94a3b8' }}>{conn.status || 'stopped'}</span>
-                    {mode === 'admin' && (
-                      <button className="btn-sm" style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px' }}
-                        onClick={() => handleDeleteWavi(conn.number)}>✕</button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+            <WaviConnectionsList conns={waviConns} mode={mode} onDelete={handleDeleteWavi} />
 
             {conns.length === 0 && mode === 'empresa' && (
               <div className="empty" style={{ padding: '20px 0 8px' }}>Sin canales configurados</div>
@@ -664,32 +237,17 @@ export default function EmpresaCard({
             {mode === 'admin' && (
               <div className="ec-add-row">
                 <button className="btn-sm" style={{ background: '#e3f2fd', color: '#0d47a1' }} onClick={() => onAddTelegram?.(botId)}>+ Telegram</button>
-                <button className="btn-sm" style={{ background: '#f0fdf4', color: '#15803d' }} onClick={() => openWaviPicker()}>+ WhatsApp</button>
+                <button className="btn-sm" style={{ background: '#f0fdf4', color: '#15803d' }} onClick={() => setShowWaviPicker(true)}>+ WhatsApp</button>
                 <button className="btn-sm" style={{ background: '#f0fdf4', color: '#15803d' }} onClick={() => setShowGoogleModal(true)}>+ Google Sheets</button>
               </div>
             )}
 
-            {/* Wavi session picker */}
             {showWaviPicker && (
-              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, margin: '8px 16px', padding: 12 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: '#475569' }}>Sesiones Wavi disponibles</div>
-                {waviLoading && <div style={{ fontSize: 12, color: '#94a3b8' }}>Cargando…</div>}
-                {!waviLoading && waviSessions.length === 0 && (
-                  <div style={{ fontSize: 12, color: '#94a3b8' }}>No hay sesiones. Conectá una en Config → Conectar WhatsApp.</div>
-                )}
-                {!waviLoading && waviSessions.map(s => (
-                  <div key={s.session} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                    <span style={{ flex: 1, fontSize: 12 }}>
-                      📱 {s.session}
-                      {s.authenticated ? <span style={{ color: '#22c55e', marginLeft: 6 }}>✓ conectado</span>
-                        : <span style={{ color: '#94a3b8', marginLeft: 6 }}>desconectado</span>}
-                    </span>
-                    <button className="btn-sm" style={{ background: '#f0fdf4', color: '#15803d' }}
-                      onClick={() => handleAddWavi(s.session)}>Asignar</button>
-                  </div>
-                ))}
-                <button className="btn-sm" style={{ marginTop: 8, color: '#94a3b8' }} onClick={() => setShowWaviPicker(false)}>Cancelar</button>
-              </div>
+              <WaviSessionPicker
+                apiCall={apiCall}
+                onAssign={handleAddWavi}
+                onClose={() => setShowWaviPicker(false)}
+              />
             )}
 
             {mode === 'empresa' && (
