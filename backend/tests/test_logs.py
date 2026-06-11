@@ -42,9 +42,6 @@ class TestUvicornPollingFilter:
     def test_excluye_bots(self):
         assert not self.f.filter(_record('127.0.0.1 - "GET /api/bots HTTP/1.1" 200'))
 
-    def test_excluye_sync_status(self):
-        assert not self.f.filter(_record('127.0.0.1 - "GET /api/sync-status HTTP/1.1" 200'))
-
     def test_excluye_logs_latest(self):
         assert not self.f.filter(_record('127.0.0.1 - "GET /api/logs/latest?source=backend HTTP/1.1" 200'))
 

@@ -153,10 +153,6 @@ export default function DashboardPage() {
 
   const [bots, setBots] = useState([])
   const [loading, setLoading] = useState(true)
-  const [refreshLabel, setRefreshLabel] = useState('↺ Refresh')
-  const [syncLabel, setSyncLabel] = useState('⟳ Re-Sync')
-  const [syncRunning, setSyncRunning] = useState(false)
-  const [recentSyncLabel, setRecentSyncLabel] = useState('↑ Actualizar')
   const [simMode, setSimMode] = useState(false)
 
   // Modales
@@ -201,21 +197,7 @@ export default function DashboardPage() {
       .then(s => { if (s) setPollMinutes(Math.round((s.wa_poll_interval_seconds || 300) / 60)) })
     loadBots()
     const interval = setInterval(loadBots, 6000)
-
-    // Polling del estado de sync para mantener botón deshabilitado mientras corre
-    const syncInterval = setInterval(async () => {
-      const s = await apiQuiet('GET', '/sync-status', null, pwd)
-      if (!s) return
-      setSyncRunning(prev => {
-        if (prev && !s.running) {
-          setSyncLabel('✓ Listo')
-          setTimeout(() => setSyncLabel('⟳ Re-Sync'), 3000)
-        }
-        return s.running
-      })
-    }, 3000)
-
-    return () => { clearInterval(interval); clearInterval(syncInterval) }
+    return () => clearInterval(interval)
   }, [loadBots, pwd])
 
   useEffect(() => {
@@ -235,32 +217,6 @@ export default function DashboardPage() {
   function logout() {
     sessionStorage.removeItem('admin_pwd')
     navigate('/')
-  }
-
-  async function handleRefresh() {
-    setRefreshLabel('Reconectando...')
-    const res = await call('POST', '/refresh')
-    await loadBots()
-    const label = res.reconnected > 0 ? `↺ Refresh (${res.reconnected})` : '↺ Refresh'
-    setRefreshLabel(label)
-    setTimeout(() => setRefreshLabel('↺ Refresh'), 3000)
-  }
-
-  async function handleFullSync() {
-    setSyncLabel('Sincronizando...')
-    setSyncRunning(true)
-    await call('POST', '/full-sync')
-  }
-
-  async function handleRecentSync() {
-    setRecentSyncLabel('Actualizando...')
-    await call('POST', '/recent-sync')
-    setRecentSyncLabel('✓ Listo')
-    setTimeout(() => setRecentSyncLabel('↑ Actualizar'), 4000)
-  }
-
-  function copyLink() {
-    navigator.clipboard.writeText(window.location.origin + '/connect')
   }
 
   function toggleSection(key, collapsed, setCollapsed) {
@@ -372,9 +328,6 @@ export default function DashboardPage() {
           </div>
           <div style={{ display: configCollapsed ? 'none' : 'block', padding: '12px 16px' }}>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-              <button className="btn-ghost btn-sm" onClick={handleRefresh} disabled={refreshLabel !== '↺ Refresh'} title="Reconectar bots de Telegram">
-                {refreshLabel}
-              </button>
               <button
                 className="btn-ghost btn-sm"
                 onClick={() => handleFbSession('luganense')}
@@ -382,12 +335,6 @@ export default function DashboardPage() {
                 title="Renovar cookies de Facebook (abre browser en el servidor)"
               >
                 {fbSessionLabel}
-              </button>
-              <button className="btn-ghost btn-sm" onClick={handleRecentSync} disabled={recentSyncLabel === 'Actualizando...'} title="Captura los mensajes recientes visibles en cada chat (sin scroll histórico). Ideal tras un reinicio.">
-                {recentSyncLabel}
-              </button>
-              <button className="btn-ghost btn-sm" onClick={handleFullSync} disabled={syncRunning} title="Re-sincronizar historial">
-                {syncLabel}
               </button>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>

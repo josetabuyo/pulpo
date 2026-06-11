@@ -58,7 +58,6 @@ class _UvicornPollingFilter(logging.Filter):
     """Excluye del log de acceso de uvicorn los endpoints que la UI consulta periódicamente."""
     _POLLING = (
         '"GET /api/bots HTTP',
-        '"GET /api/sync-status HTTP',
         '"GET /api/logs/latest',
         '/paused HTTP',          # /api/empresa/{id}/paused
     )
