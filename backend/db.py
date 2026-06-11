@@ -1,7 +1,10 @@
+import logging
 from pathlib import Path
 from sqlalchemy import text, event
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
+
+logger = logging.getLogger(__name__)
 
 _DB_PATH = Path(__file__).parent.parent / "data" / "messages.db"
 _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -558,8 +561,8 @@ def _flow_row_to_dict(row, include_definition: bool = False) -> dict:
     if raw_cf:
         try:
             contact_filter = _json.loads(raw_cf)
-        except Exception:
-            pass
+        except ValueError as e:
+            logger.warning("contact_filter corrupto en flow %s — ignorado: %s", row[0], e)
     d = {
         "id":             row[0],
         "empresa_id":     row[1],

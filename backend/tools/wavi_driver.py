@@ -33,8 +33,8 @@ async def _run(*args: str, timeout: int = 120) -> tuple[int, str, str]:
     except asyncio.TimeoutError:
         try:
             proc.kill()
-        except Exception:
-            pass
+        except ProcessLookupError:
+            pass  # ya terminó solo
         return -1, "", "timeout"
 
 

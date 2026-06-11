@@ -537,11 +537,8 @@ async def backup_and_clean(empresa_id: str, _: str = Depends(_check_auth)):
             md_file.unlink()
             backed_up += 1
     # Invalidar dedup en memoria
-    from graphs.nodes.summarize import _dedup, _dedup_loaded
-    keys = [k for k in list(_dedup_loaded) if k[0] == empresa_id]
-    for k in keys:
-        _dedup_loaded.discard(k)
-        _dedup.pop(k, None)
+    from graphs.nodes.summarize import invalidate_dedup
+    invalidate_dedup(empresa_id)
     return {"backed_up": backed_up, "path": str(empresa_dir)}
 
 

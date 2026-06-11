@@ -111,8 +111,8 @@ def list_google_accounts():
                 "email": d.get("client_email", ""),
                 "label": "Cuenta principal",
             })
-        except Exception:
-            pass
+        except ValueError as e:
+            logger.warning("GOOGLE_SERVICE_ACCOUNT_JSON malformado — cuenta default omitida: %s", e)
     return accounts
 
 

@@ -1,9 +1,13 @@
+import logging
+
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
 from api.deps import require_admin
 from config import load_config, save_config
 from state import clients
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -95,8 +99,8 @@ def delete_bot(bot_id: str):
         if session_id in clients:
             try:
                 clients[session_id]["client"].destroy()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("[bots] destroy de %s falló: %s", session_id, e)
             del clients[session_id]
 
     for tg in bot.get("telegram", []):
@@ -105,8 +109,8 @@ def delete_bot(bot_id: str):
         if session_id in clients:
             try:
                 clients[session_id]["client"].stop_polling()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("[bots] stop_polling de %s falló: %s", session_id, e)
             del clients[session_id]
 
     config["empresas"] = [b for b in config["empresas"] if b["id"] != bot_id]

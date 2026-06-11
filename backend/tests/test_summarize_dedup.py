@@ -11,7 +11,7 @@ import textwrap
 
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from graphs.nodes.summarize import accumulate, _dedup, _dedup_loaded
+from graphs.nodes.summarize import accumulate, invalidate_dedup, _dedup, _dedup_loaded, _iter_entry_hashes
 from api.summarizer import _parse_messages
 
 
@@ -129,6 +129,52 @@ def test_accumulate_no_duplica_con_y_sin_reply_context(tmp_path):
     finally:
         m._BASE = orig
         _reset_dedup(eid, cp)
+
+
+# ── Tests de _iter_entry_hashes e invalidate_dedup ────────────────────────────
+
+def test_iter_entry_hashes_basico(tmp_path):
+    """Cada entrada del .md produce exactamente un hash; multi-línea cuenta como una."""
+    md = tmp_path / "chat.md"
+    md.write_text(textwrap.dedent("""\
+        ## 2026-05-13 10:00
+        **[text]** José: Hola
+        ---
+        ## 2026-05-13 10:01
+        **[text]** Andrés: Bien
+        segunda línea del mismo mensaje
+        ---
+        ## 2026-05-13 10:02
+        **[text]** José: último sin separador
+    """), encoding="utf-8")
+    hashes = list(_iter_entry_hashes(md))
+    assert len(hashes) == 3
+    assert len(set(hashes)) == 3, "mensajes distintos → hashes distintos"
+
+
+def test_iter_entry_hashes_archivo_vacio(tmp_path):
+    md = tmp_path / "chat.md"
+    md.write_text("", encoding="utf-8")
+    assert list(_iter_entry_hashes(md)) == []
+
+
+def test_invalidate_dedup_contacto_y_empresa():
+    _dedup[("emp_x", "c1")] = {"h1"}
+    _dedup_loaded.add(("emp_x", "c1"))
+    _dedup[("emp_x", "c2")] = {"h2"}
+    _dedup_loaded.add(("emp_x", "c2"))
+    _dedup[("emp_y", "c1")] = {"h3"}
+    _dedup_loaded.add(("emp_y", "c1"))
+
+    invalidate_dedup("emp_x", "c1")
+    assert ("emp_x", "c1") not in _dedup_loaded
+    assert ("emp_x", "c2") in _dedup_loaded, "otro contacto no se invalida"
+
+    invalidate_dedup("emp_x")  # toda la empresa
+    assert ("emp_x", "c2") not in _dedup_loaded
+    assert ("emp_y", "c1") in _dedup_loaded, "otra empresa no se invalida"
+
+    invalidate_dedup("emp_y", "c1")  # cleanup
 
 
 # ── Tests de _parse_messages ──────────────────────────────────────────────────

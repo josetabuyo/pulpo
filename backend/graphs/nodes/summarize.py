@@ -26,6 +26,19 @@ _BASE = Path(__file__).parent.parent.parent.parent / "data" / "summaries"
 _dedup: dict[tuple[str, str], set[str]] = {}
 _dedup_loaded: set[tuple[str, str]] = set()
 
+
+def invalidate_dedup(empresa_id: str, contact_phone: str | None = None) -> None:
+    """Invalida el caché de dedup: un contacto puntual, o toda la empresa si
+    contact_phone es None. Llamar siempre que el .md se modifique por fuera
+    de accumulate() (clear, trim, rewrite, migraciones)."""
+    if contact_phone is not None:
+        keys = [(empresa_id, contact_phone)]
+    else:
+        keys = [k for k in list(_dedup_loaded) if k[0] == empresa_id]
+    for key in keys:
+        _dedup_loaded.discard(key)
+        _dedup.pop(key, None)
+
 # ── Helpers para IDs jerárquicos ─────────────────────────────────────────────
 
 _HEADER_RE = re.compile(r'^## (\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)(?:\s+\[id:([\d.]+)\])?')
@@ -200,35 +213,40 @@ def _dedup_hash(ts: str, body: str) -> str:
     return _hash(key)
 
 
+def _iter_entry_hashes(p: Path):
+    """Recorre el .md y emite el hash de dedup de cada entrada (## ts / **[tipo]** body).
+    Soporta bodies multi-línea (continuaciones y citas > ↩) y el último bloque sin '---'."""
+    current_ts = ""
+    current_body: str | None = None
+    for line in p.read_text(encoding="utf-8").split("\n"):
+        if line.startswith("## "):
+            # Nuevo bloque: hashear el anterior si estaba pendiente
+            if current_body is not None:
+                yield _dedup_hash(current_ts, current_body)
+            current_ts = line[3:].strip()
+            current_body = None
+        elif line.startswith("**["):
+            idx = line.find("** ")
+            if idx != -1:
+                current_body = line[idx + 3:]
+        elif line.strip() == "---" and current_body is not None:
+            yield _dedup_hash(current_ts, current_body)
+            current_body = None
+        elif current_body is not None:
+            # línea de continuación: body multi-línea o cita > ↩
+            current_body += "\n" + line
+    # Último bloque sin "---"
+    if current_body is not None:
+        yield _dedup_hash(current_ts, current_body)
+
+
 def _ensure_loaded(empresa_id: str, contact_phone: str) -> set[str]:
+    """Devuelve el set de hashes del contacto, cargándolo del .md la primera vez."""
     key = (empresa_id, contact_phone)
     if key not in _dedup_loaded:
         _dedup_loaded.add(key)
-        _dedup[key] = set()
         p = _path(empresa_id, contact_phone)
-        if p.exists():
-            current_ts = ""
-            current_body: str | None = None
-            for line in p.read_text(encoding="utf-8").split("\n"):
-                if line.startswith("## "):
-                    # Nuevo bloque: hashear el anterior si estaba pendiente
-                    if current_body is not None:
-                        _dedup[key].add(_dedup_hash(current_ts, current_body))
-                    current_ts = line[3:].strip()
-                    current_body = None
-                elif line.startswith("**["):
-                    idx = line.find("** ")
-                    if idx != -1:
-                        current_body = line[idx + 3:]
-                elif line.strip() == "---" and current_body is not None:
-                    _dedup[key].add(_dedup_hash(current_ts, current_body))
-                    current_body = None
-                elif current_body is not None:
-                    # línea de continuación: body multi-línea o cita > ↩
-                    current_body += "\n" + line
-            # Último bloque sin "---"
-            if current_body is not None:
-                _dedup[key].add(_dedup_hash(current_ts, current_body))
+        _dedup[key] = set(_iter_entry_hashes(p)) if p.exists() else set()
     return _dedup[key]
 
 
@@ -357,10 +375,7 @@ def clear_empresa(empresa_id: str) -> None:
     shutil.copytree(d, bak)
     for f in d.glob("*.md"):
         f.unlink()
-    keys = [k for k in _dedup_loaded if k[0] == empresa_id]
-    for k in keys:
-        _dedup_loaded.discard(k)
-        _dedup.pop(k, None)
+    invalidate_dedup(empresa_id)
 
 
 def clear_contact(empresa_id: str, contact_phone: str) -> None:
@@ -369,9 +384,7 @@ def clear_contact(empresa_id: str, contact_phone: str) -> None:
         bak = src.with_suffix(".bak.md")
         shutil.copy2(src, bak)
         src.unlink()
-    key = (empresa_id, contact_phone)
-    _dedup_loaded.discard(key)
-    _dedup.pop(key, None)
+    invalidate_dedup(empresa_id, contact_phone)
 
 
 def trim_contact_from_date(empresa_id: str, contact_phone: str, cutoff_dt: datetime) -> None:
@@ -404,9 +417,7 @@ def trim_contact_from_date(empresa_id: str, contact_phone: str, cutoff_dt: datet
             kept.append(block_stripped)
 
     p.write_text("\n---\n".join(kept) + ("\n---\n" if kept else ""), encoding="utf-8")
-    key = (empresa_id, contact_phone)
-    _dedup_loaded.discard(key)
-    _dedup.pop(key, None)
+    invalidate_dedup(empresa_id, contact_phone)
 
 
 def clear_contact_full(empresa_id: str, contact_phone: str) -> None:
@@ -421,9 +432,7 @@ def clear_contact_full(empresa_id: str, contact_phone: str) -> None:
     att_dir = _BASE / empresa_id / contact_phone
     if att_dir.exists():
         _shutil.rmtree(att_dir)
-    key = (empresa_id, contact_phone)
-    _dedup_loaded.discard(key)
-    _dedup.pop(key, None)
+    invalidate_dedup(empresa_id, contact_phone)
 
 
 def _newest_message_ts(empresa_id: str, contact_phone: str) -> "datetime | None":
@@ -448,6 +457,64 @@ def _newest_message_ts(empresa_id: str, contact_phone: str) -> "datetime | None"
     return newest
 
 
+def _migrate_chat_md(md_file: Path, target: Path, empresa_id: str, slug: str) -> None:
+    """Copia el .md viejo a {slug}/chat.md. Si el destino ya acumuló contenido
+    (backend reiniciado con código nuevo), prepende el historial viejo."""
+    if target.exists():
+        old_content = md_file.read_text(encoding="utf-8")
+        new_content = target.read_text(encoding="utf-8")
+        target.write_text(old_content + new_content, encoding="utf-8")
+        invalidate_dedup(empresa_id, slug)  # re-leer el archivo combinado
+    else:
+        shutil.copy2(md_file, target)
+
+
+def _migrate_attachments(old_att_dir: Path, slug_dir: Path) -> None:
+    """Copia adjuntos de la carpeta vieja al slug_dir (sin pisar existentes)."""
+    if (old_att_dir.exists()
+            and old_att_dir.is_dir()
+            and old_att_dir.resolve() != slug_dir.resolve()):
+        for f in old_att_dir.iterdir():
+            dest = slug_dir / f.name
+            if not dest.exists():
+                shutil.copy2(f, dest)
+
+
+def _cleanup_old_files(md_file: Path, bak_src: Path, old_att_dir: Path, slug_dir: Path) -> None:
+    """Borra los archivos viejos una vez verificada la copia."""
+    md_file.unlink()
+    if bak_src.exists():
+        bak_src.unlink()
+    if (old_att_dir.exists()
+            and old_att_dir.is_dir()
+            and old_att_dir.resolve() != slug_dir.resolve()):
+        shutil.rmtree(old_att_dir)
+
+
+def _migrate_one_contact(d: Path, md_file: Path, empresa_id: str) -> None:
+    """Migra un contacto de la estructura plana a {slug}/chat.md. Lanza si falla."""
+    contact_id = md_file.stem
+    slug = slugify(contact_id)
+    slug_dir = d / slug
+    target = slug_dir / "chat.md"
+    bak_src = md_file.with_suffix(".bak.md")
+    old_att_dir = d / contact_id
+
+    slug_dir.mkdir(parents=True, exist_ok=True)
+    (slug_dir / "name.txt").write_text(contact_id, encoding="utf-8")
+
+    _migrate_chat_md(md_file, target, empresa_id, slug)
+    if bak_src.exists():
+        shutil.copy2(bak_src, slug_dir / "chat.bak.md")
+    _migrate_attachments(old_att_dir, slug_dir)
+
+    # Verificar que la copia fue exitosa antes de borrar lo viejo
+    if target.exists():
+        _cleanup_old_files(md_file, bak_src, old_att_dir, slug_dir)
+
+    invalidate_dedup(empresa_id, contact_id)
+
+
 def migrate_empresa_to_slugs(empresa_id: str) -> dict:
     """
     Migra la estructura vieja ({nombre}.md + {nombre}/) a la nueva ({slug}/chat.md).
@@ -462,73 +529,19 @@ def migrate_empresa_to_slugs(empresa_id: str) -> dict:
         return {"migrated": 0, "skipped": 0, "errors": []}
 
     migrated = 0
-    skipped = 0
     errors = []
 
     for md_file in sorted(d.glob("*.md")):
         if md_file.name.endswith(".bak.md"):
             continue
-
-        contact_id = md_file.stem
-        slug = slugify(contact_id)
-        slug_dir = d / slug
-        target = slug_dir / "chat.md"
-
         try:
-            slug_dir.mkdir(parents=True, exist_ok=True)
-
-            # Guardar nombre original para display
-            (slug_dir / "name.txt").write_text(contact_id, encoding="utf-8")
-
-            if target.exists():
-                # El slug dir ya empezó a acumular (backend reiniciado con nuevo código).
-                # Prepender historial viejo al contenido nuevo para no perder mensajes.
-                old_content = md_file.read_text(encoding="utf-8")
-                new_content = target.read_text(encoding="utf-8")
-                target.write_text(old_content + new_content, encoding="utf-8")
-                # Invalidar dedup del slug para que re-lea el archivo combinado
-                slug_key = (empresa_id, slug)
-                _dedup_loaded.discard(slug_key)
-                _dedup.pop(slug_key, None)
-            else:
-                # Copiar chat.md
-                shutil.copy2(md_file, target)
-
-            # Copiar bak si existe
-            bak_src = md_file.with_suffix(".bak.md")
-            if bak_src.exists():
-                shutil.copy2(bak_src, slug_dir / "chat.bak.md")
-
-            # Mover adjuntos de la carpeta vieja (si es distinta del slug_dir)
-            old_att_dir = d / contact_id
-            if (old_att_dir.exists()
-                    and old_att_dir.is_dir()
-                    and old_att_dir.resolve() != slug_dir.resolve()):
-                for f in old_att_dir.iterdir():
-                    dest = slug_dir / f.name
-                    if not dest.exists():
-                        shutil.copy2(f, dest)
-
-            # Verificar que la copia fue exitosa antes de borrar
-            if target.exists():
-                md_file.unlink()
-                if bak_src.exists():
-                    bak_src.unlink()
-                if (old_att_dir.exists()
-                        and old_att_dir.is_dir()
-                        and old_att_dir.resolve() != slug_dir.resolve()):
-                    shutil.rmtree(old_att_dir)
-
-            # Invalidar caché dedup
-            key = (empresa_id, contact_id)
-            _dedup_loaded.discard(key)
-            _dedup.pop(key, None)
-
+            _migrate_one_contact(d, md_file, empresa_id)
             migrated += 1
         except Exception as e:
-            errors.append(f"{contact_id}: {e}")
+            logger.exception("[summarize] migración de %s falló", md_file.stem)
+            errors.append(f"{md_file.stem}: {e}")
 
-    return {"empresa_id": empresa_id, "migrated": migrated, "skipped": skipped, "errors": errors}
+    return {"empresa_id": empresa_id, "migrated": migrated, "skipped": 0, "errors": errors}
 
 
 def delete_message_by_id(empresa_id: str, contact_phone: str, msg_id: str) -> bool:
@@ -554,9 +567,7 @@ def delete_message_by_id(empresa_id: str, contact_phone: str, msg_id: str) -> bo
     if not found:
         return False
     p.write_text("\n---\n".join(new_blocks) + ("\n---\n" if new_blocks else ""), encoding="utf-8")
-    key = (empresa_id, contact_phone)
-    _dedup_loaded.discard(key)
-    _dedup.pop(key, None)
+    invalidate_dedup(empresa_id, contact_phone)
     return True
 
 

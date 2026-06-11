@@ -1,4 +1,5 @@
 import json
+import logging
 import uuid
 
 from fastapi import APIRouter, HTTPException, Depends, Request, Header
@@ -9,6 +10,8 @@ from config import load_config, save_config, get_connection_default_filter, set_
 from middleware_auth import get_empresa_id_from_token
 from state import clients
 import db
+
+logger = logging.getLogger(__name__)
 
 _ADMIN_SENTINEL = "__admin__"
 
@@ -94,8 +97,8 @@ def delete_connection(number: str):
             if session_id in clients:
                 try:
                     clients[session_id]["client"].destroy()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("[connections] destroy de %s falló: %s", session_id, e)
                 del clients[session_id]
             empresa["phones"].pop(idx)
             config["empresas"] = [e for e in config["empresas"] if e.get("phones")]

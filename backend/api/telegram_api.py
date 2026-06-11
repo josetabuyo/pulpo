@@ -1,6 +1,9 @@
+import logging
 import re
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 from api.deps import require_admin, require_client
 from config import load_config, save_config
@@ -54,8 +57,9 @@ def delete_telegram(token_id: str):
             if session_id in clients:
                 try:
                     clients[session_id]["client"].stop_polling()
-                except Exception:
-                    pass
+                except Exception as e:
+                    # Best-effort: el cliente puede estar ya muerto, pero hay que saberlo
+                    logger.warning("[telegram] stop_polling de %s falló: %s", session_id, e)
                 del clients[session_id]
             bot["telegram"].pop(idx)
             save_config(config)

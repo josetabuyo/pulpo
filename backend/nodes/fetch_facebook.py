@@ -252,8 +252,8 @@ async def _scrape_post_page(ctx, url: str) -> dict:
                 image_url = await meta.get_attribute("content") or ""
                 if image_url:
                     logger.info("[fetch_facebook] og:image: %s", image_url[:60])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("[fetch_facebook] sin og:image: %s", e)
 
         # Expandir texto truncado
         try:
@@ -417,8 +417,8 @@ async def _scrape_search_feed(page) -> tuple[str, list[str]]:
         feed = await page.query_selector("[role='feed']")
         if feed:
             raw = await feed.inner_text()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("[fetch_facebook] no se pudo leer el feed: %s", e)
 
     if not raw.strip():
         return "", []
