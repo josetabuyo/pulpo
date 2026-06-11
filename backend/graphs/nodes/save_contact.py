@@ -7,8 +7,12 @@ y llama a db.create_contact / db.update_contact.
 Flujo típico:
   set_state(field=contact_notes, value=herrería) → save_contact
 """
+import logging
+
 from .base import BaseNode
 from .state import FlowState
+
+logger = logging.getLogger(__name__)
 
 
 class SaveContactNode(BaseNode):
@@ -41,8 +45,10 @@ class SaveContactNode(BaseNode):
             if phone:
                 try:
                     await db.add_channel(contact_id, "telegram", phone)
-                except Exception:
-                    pass
+                except Exception as e:
+                    # El contacto ya quedó creado; el canal duplicado no es fatal,
+                    # pero tiene que dejar rastro.
+                    logger.warning("[SaveContact] add_channel falló para %s: %s", phone, e)
         return state
 
     @classmethod

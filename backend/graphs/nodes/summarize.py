@@ -680,7 +680,8 @@ def get_consolidation_meta(empresa_id: str, contact_phone: str) -> "dict | None"
         if meta_file.exists():
             try:
                 return _json.loads(meta_file.read_text(encoding="utf-8"))
-            except Exception:
+            except (OSError, _json.JSONDecodeError) as e:
+                logger.warning("[summarize] metadata.json corrupto en %s: %s — probando anterior", d, e)
                 continue
     return None
 

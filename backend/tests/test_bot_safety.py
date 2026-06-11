@@ -36,17 +36,17 @@ from unittest.mock import AsyncMock, patch
 from graphs.nodes.reply import SendMessageNode
 from graphs.nodes.state import FlowState
 from graphs.compiler import run_flows
-import graphs.compiler as _compiler
+from graphs.cooldown import flow_cooldown
 
 
 # ─── Fixture: aislamiento del cooldown entre tests ───────────────────────────
 
 @pytest.fixture(autouse=True)
 def reset_cooldown():
-    """Limpia el dict de cooldown antes de cada test para evitar contaminación."""
-    _compiler._flow_cooldown.clear()
+    """Limpia el registro de cooldown antes de cada test para evitar contaminación."""
+    flow_cooldown.clear()
     yield
-    _compiler._flow_cooldown.clear()
+    flow_cooldown.clear()
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -203,7 +203,7 @@ async def test_cooldown_tg_primer_mensaje_pasa():
     state = _tg_state(contact, bot_id)
 
     # Limpiar cooldown para que el test sea aislado
-    _compiler._flow_cooldown.clear()
+    flow_cooldown.clear()
 
     with patch.dict(os.environ, ENV_PATCHES), \
          patch("config.get_empresas_for_connection", return_value=["empresa_test"]), \
@@ -213,7 +213,7 @@ async def test_cooldown_tg_primer_mensaje_pasa():
         result = await run_flows(state, connection_id=bot_id)
 
     assert result.reply == "Hola desde TG", "Primer mensaje debe pasar"
-    assert ("test-tg-cooldown", contact) in _compiler._flow_cooldown, "Cooldown debe quedar registrado"
+    assert flow_cooldown.has("test-tg-cooldown", contact), "Cooldown debe quedar registrado"
 
 
 @pytest.mark.asyncio
@@ -225,7 +225,7 @@ async def test_cooldown_tg_segundo_mensaje_bloqueado():
     flow = _tg_flow_with_cooldown(bot_id, cooldown_hours=4.0)
 
     # Simular que ya respondimos hace 30 segundos (dentro del cooldown de 4h)
-    _compiler._flow_cooldown[("test-tg-cooldown", contact)] = time.time() - 30
+    flow_cooldown.mark("test-tg-cooldown", contact, when=time.time() - 30)
 
     state = _tg_state(contact, bot_id)
 
@@ -249,8 +249,8 @@ async def test_cooldown_tg_otro_contacto_no_afectado():
     flow = _tg_flow_with_cooldown(bot_id, cooldown_hours=4.0)
 
     # Solo contact_a tiene cooldown activo
-    _compiler._flow_cooldown[("test-tg-cooldown", contact_a)] = time.time() - 30
-    _compiler._flow_cooldown.pop(("test-tg-cooldown", contact_b), None)
+    flow_cooldown.mark("test-tg-cooldown", contact_a, when=time.time() - 30)
+    flow_cooldown.pop("test-tg-cooldown", contact_b)
 
     state_b = _tg_state(contact_b, bot_id)
 
@@ -278,7 +278,7 @@ async def test_cooldown_tg_sin_campo_usa_default_schema():
     flow = _tg_flow_with_cooldown(bot_id, cooldown_hours=0, include_cooldown_key=False)
 
     # Simular cooldown activo (respuesta enviada hace 30 segundos, dentro del default 4h)
-    _compiler._flow_cooldown[("test-tg-cooldown", contact)] = time.time() - 30
+    flow_cooldown.mark("test-tg-cooldown", contact, when=time.time() - 30)
 
     state = _tg_state(contact, bot_id)
 

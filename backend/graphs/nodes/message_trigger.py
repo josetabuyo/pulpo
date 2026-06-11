@@ -1,56 +1,13 @@
 """
-MessageTriggerNode — trigger específico para mensajes de texto.
+MessageTriggerNode — trigger genérico: aplica a cualquier canal.
 
-Config:
-  connection_id: str   — ID de la conexión (bot_id) que debe coincidir
-  contact_phone: str   — número de teléfono del contacto (opcional, "" = wildcard)
-  message_pattern: str — regex opcional para filtrar por contenido del mensaje
-
-Este nodo no modifica el estado — solo sirve como guard que el engine verifica
-antes de ejecutar el flow. Es el primer nodo trigger específico del nuevo
-sistema data-driven.
+Retrocompatibilidad con flows creados antes de los triggers por canal
+(telegram_trigger, whatsapp_trigger). Para flows nuevos conviene usar
+el trigger específico del canal.
 """
-from .base import BaseNode
-from .state import FlowState
+from .base_trigger import BaseTriggerNode
 
 
-class MessageTriggerNode(BaseNode):
-    async def run(self, state: FlowState) -> FlowState:
-        """
-        MessageTriggerNode no modifica el estado.
-        Su propósito es ser un guard que el engine verifica antes de ejecutar el flow.
-        """
-        return state
-
-    @classmethod
-    def config_schema(cls) -> dict:
-        return {
-            "connection_id": {
-                "type": "connection_select",
-                "label": "Conexión",
-                "default": "",
-                "required": True,
-            },
-            "contact_filter": {
-                "type": "contact_filter",
-                "label": "Filtro de contactos",
-                "default": {
-                    "include_all_known": False,
-                    "include_unknown": False,
-                    "included": [],
-                    "excluded": [],
-                },
-            },
-            "message_pattern": {
-                "type": "string",
-                "label": "Patrón regex (opcional)",
-                "default": "",
-                "hint": "Deja vacío para cualquier mensaje. Ej: .*urgente.*",
-            },
-            "cooldown_hours": {
-                "type": "number",
-                "label": "Cooldown entre respuestas (horas)",
-                "default": 4,
-                "hint": "Tiempo mínimo entre respuestas al mismo contacto. 0 = sin límite.",
-            },
-        }
+class MessageTriggerNode(BaseTriggerNode):
+    channel = None
+    connection_label = "Conexión"

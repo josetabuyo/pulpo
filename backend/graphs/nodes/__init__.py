@@ -8,7 +8,11 @@ Para agregar un nodo nuevo:
   1. Crear su módulo en graphs/nodes/
   2. Importarlo aquí
   3. Agregarlo al registro
+
+TRIGGER_TYPES se deriva del registro: todo nodo que subclasee BaseTriggerNode
+es un trigger — no hace falta tocar el engine para agregar uno nuevo.
 """
+from .base_trigger import BaseTriggerNode
 from .message_trigger import MessageTriggerNode
 from .reply import SendMessageNode
 from .summarize import SummarizeNode
@@ -49,8 +53,14 @@ NODE_REGISTRY: dict[str, type] = {
     "search_sheet":     SearchSheetNode,
 }
 
+# Tipos de nodo que actúan como entrada de un flow.
+TRIGGER_TYPES: frozenset[str] = frozenset(
+    type_id for type_id, cls in NODE_REGISTRY.items()
+    if issubclass(cls, BaseTriggerNode)
+)
+
 __all__ = [
-    "NODE_REGISTRY",
+    "NODE_REGISTRY", "TRIGGER_TYPES", "BaseTriggerNode",
     "MessageTriggerNode", "RouterNode", "LLMNode", "SendMessageNode",
     "FetchNode", "VectorSearchNode", "SummarizeNode",
     "SetStateNode", "SaveContactNode",

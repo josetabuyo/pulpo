@@ -54,8 +54,8 @@ class SaveAttachmentNode(BaseNode):
                 dest.unlink()
                 state.attachment_path = None
                 logger.debug("[SaveAttachmentNode] Audio eliminado tras transcripción")
-            except Exception:
-                pass
+            except OSError as e:
+                logger.warning("[SaveAttachmentNode] No se pudo eliminar audio %s: %s", dest, e)
 
         return state
 

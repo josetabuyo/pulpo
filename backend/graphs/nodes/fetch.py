@@ -7,7 +7,9 @@ Config:
   url:        str — URL para HTTP GET (solo si source="http")
   extract:    str — "text" | "json" | "html" (para source="http")
 """
+import asyncio
 import logging
+
 from .base import BaseNode
 from .state import FlowState
 
@@ -39,7 +41,7 @@ class FetchNode(BaseNode):
             queries = [state.message]
 
         try:
-            import asyncio
+            # Import lazy: fetch_facebook arrastra Playwright — solo si se usa
             from nodes import fetch_facebook
 
             results = await asyncio.gather(*[

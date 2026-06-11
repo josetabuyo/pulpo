@@ -2,86 +2,42 @@
 Flow Engine — el motor que ejecuta flows.
 
 Responsabilidades:
-  - resolve_flows(): encuentra los flows activos para un (bot_id, contact, empresa)
-  - execute_flow(): corre los nodos de un flow en secuencia
+  - resolve_flows(): encuentra los flows activos de una empresa
+  - execute_flow(): corre los nodos de un flow en BFS desde su trigger
   - run_flows(): orquesta ambos y devuelve el FlowState con reply
 
-Los adapters (Telegram, Sim) normalizan el mensaje a FlowState
+Colaboradores:
+  - trigger_match.select_trigger(): decide si un trigger aplica al mensaje
+  - cooldown.flow_cooldown: rate limit de replies por (flow, contacto)
+
+Los adapters (Telegram, Wavi, Sim) normalizan el mensaje a FlowState
 y llaman a run_flows(). El engine no sabe nada de protocolos.
 """
 import logging
 import os
-import time as _time
 from datetime import datetime
+
+from .cooldown import cooldown_hours, flow_cooldown
+from .nodes import NODE_REGISTRY, TRIGGER_TYPES
 from .nodes.state import FlowState
-from .nodes import NODE_REGISTRY
+from .trigger_match import select_trigger
 
 logger = logging.getLogger(__name__)
 
-# Tipos de nodo que actúan como entrada de un flow.
-# message_trigger = backward-compat (cualquier canal)
-# telegram_trigger = específico de Telegram
-# whatsapp_trigger = específico de WhatsApp via Wavi
-TRIGGER_TYPES: frozenset[str] = frozenset({"message_trigger", "telegram_trigger", "whatsapp_trigger"})
 
-# Cooldown por flow: (flow_id, contact_phone) → timestamp del último reply enviado.
-# Persiste en memoria mientras el backend esté corriendo.
-_flow_cooldown: dict[tuple[str, str], float] = {}
-
-
-def _cooldown_hours(trigger_config: dict, trigger_type: str) -> float:
+def _build_graph(edges: list[dict]) -> dict[str, list[tuple[str, str | None]]]:
     """
-    Lee cooldown_hours del config del trigger.
-    Si la clave no está (flow creado antes de que existiera el campo),
-    usa el default del schema del nodo en lugar de 0.
-    Esto evita que flows viejos queden sin cooldown silenciosamente.
+    Grafo de adyacencia: source → [(target, label)].
+    label=None → seguir siempre; label="noticias" → solo si state.route == "noticias".
     """
-    val = trigger_config.get("cooldown_hours")
-    if val is None:
-        node_cls = NODE_REGISTRY.get(trigger_type)
-        if node_cls and hasattr(node_cls, "config_schema"):
-            val = node_cls.config_schema().get("cooldown_hours", {}).get("default", 0)
-        else:
-            val = 0
-    return float(val or 0)
-
-
-async def _is_known_contact(contact_phone: str, empresa_id: str) -> bool:
-    """True si contact_phone está registrado en contact_channels de esta empresa."""
-    from db import AsyncSessionLocal, text as _text
-    async with AsyncSessionLocal() as session:
-        row = (await session.execute(
-            _text("""
-                SELECT cc.id FROM contact_channels cc
-                JOIN contacts c ON cc.contact_id = c.id
-                WHERE cc.value = :phone
-                  AND c.connection_id = :empresa_id
-                LIMIT 1
-            """),
-            {"phone": contact_phone, "empresa_id": empresa_id},
-        )).fetchone()
-    return row is not None
-
-
-async def _resolve_filter_value(value: str, empresa_id: str) -> set[str]:
-    """
-    Dado un valor del filtro (nombre o número/chat_id), devuelve el set de valores que representa.
-    - Si parece número (solo dígitos, 7-15 chars): devuelve {value}
-    - Si parece nombre: busca los contactos con ese nombre y devuelve sus chat_ids de Telegram
-    """
-    import re
-    if re.match(r'^\d{7,15}$', value.strip()):
-        return {value.strip()}
-    # Es un nombre — buscar sus canales Telegram
-    from db import get_contacts
-    contacts = await get_contacts(empresa_id)
-    ids: set[str] = set()
-    for c in contacts:
-        if c["name"] == value:
-            for ch in c.get("channels", []):
-                if ch["type"] == "telegram":
-                    ids.add(ch["value"])
-    return ids
+    graph: dict[str, list[tuple[str, str | None]]] = {}
+    for edge in edges:
+        source = edge.get("source")
+        target = edge.get("target")
+        if source and target:
+            label = edge.get("label") or None
+            graph.setdefault(source, []).append((target, label))
+    return graph
 
 
 def _enqueue_neighbors(
@@ -103,196 +59,19 @@ def _enqueue_neighbors(
             queue.append(target)
 
 
-async def execute_flow(flow: dict, state: FlowState) -> FlowState:
+async def _run_bfs(
+    entry_id: str,
+    node_by_id: dict[str, dict],
+    graph: dict,
+    state: FlowState,
+) -> FlowState:
     """
-    Ejecuta el flow siguiendo edges en BFS desde el nodo de entrada.
-
-    Punto de entrada:
-      - message_trigger: verifica connection_id, contact_phone y message_pattern
-      - __start__: legacy (connection_id ya verificado por DB)
-
-    Los nodos __start__ y __end__ son marcadores visuales — no se ejecutan.
+    Ejecuta los nodos en BFS desde entry_id. Cada nodo se visita una sola vez
+    (los ciclos no re-ejecutan). Un nodo que falla no aborta el flow: el error
+    se loguea con stack trace y queda en state.vars["_node_errors"].
     """
-    definition = flow.get("definition", {})
-    nodes = definition.get("nodes", [])
-    edges = definition.get("edges", [])
-
-    # Construir mapeo id → nodo
-    node_by_id = {node["id"]: node for node in nodes}
-
-    # Construir grafo de adyacencia: source → [(target, label)]
-    # label=None → seguir siempre; label="noticias" → solo si state.route == "noticias"
-    graph: dict[str, list[tuple[str, str | None]]] = {}
-    for edge in edges:
-        source = edge.get("source")
-        target = edge.get("target")
-        if source and target:
-            label = edge.get("label") or None
-            graph.setdefault(source, []).append((target, label))
-
-    # Encontrar nodo de entrada: iterar todos los triggers y usar el primero que aplique
-    trigger_candidates = [n for n in nodes if n.get("type", "") in TRIGGER_TYPES]
-
-    entry_node = None
-    entry_type = ""
-    entry_config = {}
-
-    if trigger_candidates:
-        for candidate in trigger_candidates:
-            ctype = candidate.get("type", "")
-            cconfig = candidate.get("config", {})
-
-            # Filtro por canal
-            if ctype == "telegram_trigger" and state.canal != "telegram":
-                logger.debug("[engine] telegram_trigger no aplica: canal '%s' != 'telegram'", state.canal)
-                continue
-            if ctype == "whatsapp_trigger" and state.canal != "wavi":
-                logger.debug("[engine] whatsapp_trigger no aplica: canal '%s' != 'wavi'", state.canal)
-                continue
-
-            # Filtro por connection_id
-            required_connection = cconfig.get("connection_id", "")
-            if not required_connection:
-                logger.debug("[engine] trigger sin connection_id configurado — skip")
-                continue
-            if required_connection != state.connection_id:
-                logger.debug("[engine] Flow no aplica: connection_id %s != %s",
-                            required_connection, state.connection_id)
-                continue
-
-            # Filtro de contactos
-            contact_filter = cconfig.get("contact_filter")
-            if contact_filter is None:
-                from config import get_connection_default_filter
-                default_cf = get_connection_default_filter(cconfig.get("connection_id", ""), state.empresa_id)
-                if default_cf:
-                    contact_filter = default_cf
-            if contact_filter:
-                excluded  = contact_filter.get("excluded", [])
-                included  = contact_filter.get("included", [])
-                inc_all   = contact_filter.get("include_all_known", False)
-                inc_unk   = contact_filter.get("include_unknown", False)
-                empresa   = state.empresa_id or ""
-
-                # Backend enforcement: inc_all / inc_unk son opciones masivas.
-                # Si la conexión no tiene allow_mass, las ignoramos aunque estén en el filtro
-                # (defensa en profundidad — la UI ya las oculta, pero alguien puede editar el DB).
-                if inc_all or inc_unk:
-                    from config import load_config as _lc
-                    _conn_id = cconfig.get("connection_id", "")
-                    _mass_allowed = False
-                    for _emp in _lc().get("empresas", []):
-                        if empresa and _emp["id"] != empresa:
-                            continue
-                        for _ph in _emp.get("phones", []):
-                            if _ph.get("number") == _conn_id and _ph.get("allow_mass", False):
-                                _mass_allowed = True
-                        for _tg in _emp.get("telegram", []):
-                            _tok_id = _tg.get("token", "").split(":")[0]
-                            if f"{_emp['id']}-tg-{_tok_id}" == _conn_id and _tg.get("allow_mass", False):
-                                _mass_allowed = True
-                    if not _mass_allowed:
-                        inc_all = False
-                        inc_unk = False
-                        logger.warning(
-                            "[engine] inc_all/inc_unk ignorados: allow_mass=false para conexión %s",
-                            _conn_id,
-                        )
-
-                excluded_phones: set[str] = set()
-                for v in excluded:
-                    excluded_phones |= await _resolve_filter_value(v, empresa)
-
-                included_phones: set[str] = set()
-                for v in included:
-                    included_phones |= await _resolve_filter_value(v, empresa)
-
-                if state.contact_phone in excluded_phones or state.contact_phone in excluded:
-                    logger.debug("[engine] Trigger no aplica: contacto %s excluido", state.contact_phone)
-                    continue
-
-                is_allowed = False
-                logger.debug("[engine] filter check: contact=%r included=%r included_phones=%r",
-                             state.contact_phone, included, included_phones)
-                if state.contact_phone in included_phones or state.contact_phone in included:
-                    is_allowed = True
-                elif inc_all or inc_unk:
-                    is_known = await _is_known_contact(state.contact_phone, state.empresa_id or "")
-                    if inc_all and is_known:
-                        is_allowed = True
-                    elif inc_unk and not is_known:
-                        is_allowed = True
-
-                if not is_allowed:
-                    logger.debug("[engine] Trigger no aplica: contacto %s no en ninguna lista de inclusión", state.contact_phone)
-                    continue
-            else:
-                # Legacy: contact_phone exacto
-                required_contact = cconfig.get("contact_phone", "")
-                if required_contact and required_contact != state.contact_phone:
-                    logger.debug("[engine] Trigger no aplica: contact_phone %s != %s",
-                                required_contact, state.contact_phone)
-                    continue
-
-            # Verificar message_pattern (regex opcional)
-            pattern = cconfig.get("message_pattern", "")
-            if pattern and state.message:
-                import re
-                try:
-                    if not re.search(pattern, state.message, re.IGNORECASE):
-                        logger.debug("[engine] Trigger no aplica: mensaje no matchea pattern '%s'", pattern)
-                        continue
-                except re.error:
-                    logger.warning("[engine] Regex inválido en message_pattern: '%s'", pattern)
-
-            # Este trigger aplica
-            entry_node = candidate
-            entry_type = ctype
-            entry_config = cconfig
-            break
-
-    else:
-        # Compatibilidad hacia atrás: sin triggers → usar __start__
-        for node in nodes:
-            if node.get("id") == "__start__":
-                entry_node = node
-                entry_type = ""
-                entry_config = {}
-                break
-
-    if not entry_node:
-        logger.debug("[engine] Flow sin trigger aplicable (canal=%s, connection=%s) — skip",
-                     state.canal, state.connection_id)
-        return state
-
-    # __start__: verificar contact_phone desde DB
-    if not entry_type:
-        db_contact = flow.get("contact_phone")
-        if db_contact and db_contact != state.contact_phone:
-            logger.debug("[engine] Flow (__start__) no aplica: contact_phone DB %s != %s",
-                        db_contact, state.contact_phone)
-            return state
-
-    # Cooldown: si el trigger tiene cooldown_hours configurado, verificar.
-    # Si el campo no está en el config (flow viejo), usa el default del schema.
-    if entry_type in TRIGGER_TYPES:
-        cooldown_hours = _cooldown_hours(entry_config, entry_type)
-        if cooldown_hours > 0:
-            flow_id = flow.get("id", "")
-            ck = (str(flow_id), state.contact_phone or "")
-            last_sent = _flow_cooldown.get(ck, 0)
-            elapsed_h = (_time.time() - last_sent) / 3600
-            if elapsed_h < cooldown_hours:
-                remaining = cooldown_hours - elapsed_h
-                logger.debug(
-                    "[engine] Cooldown activo para flow '%s' / contacto '%s' — restan %.1fh",
-                    flow.get("name", flow_id), state.contact_phone, remaining,
-                )
-                return state
-
-    # Ejecutar BFS desde el nodo de entrada
-    visited = set()
-    queue = [entry_node["id"]]
+    visited: set[str] = set()
+    queue = [entry_id]
 
     while queue:
         current_id = queue.pop(0)
@@ -300,7 +79,6 @@ async def execute_flow(flow: dict, state: FlowState) -> FlowState:
             continue
         visited.add(current_id)
 
-        # Obtener definición del nodo actual
         node_def = node_by_id.get(current_id)
         if not node_def:
             continue
@@ -313,7 +91,6 @@ async def execute_flow(flow: dict, state: FlowState) -> FlowState:
             _enqueue_neighbors(graph, current_id, visited, queue, state.route)
             continue
 
-        # Ejecutar nodo si tiene implementación
         node_cls = NODE_REGISTRY.get(node_type)
         if not node_cls:
             logger.debug("[engine] tipo '%s' no tiene implementación — skip", node_type)
@@ -326,22 +103,70 @@ async def execute_flow(flow: dict, state: FlowState) -> FlowState:
             state = await node.run(state)
             logger.debug("[engine] nodo '%s' (%s) ejecutado", node_id, node_type)
         except Exception as e:
-            logger.error("[engine] Error en nodo '%s' (%s): %s", node_id, node_type, e)
+            logger.exception("[engine] Error en nodo '%s' (%s)", node_id, node_type)
+            state.vars.setdefault("_node_errors", []).append(
+                {"node": node_id, "type": node_type, "error": str(e)}
+            )
 
         _enqueue_neighbors(graph, current_id, visited, queue, state.route)
 
     return state
 
 
+async def execute_flow(flow: dict, state: FlowState) -> FlowState:
+    """
+    Ejecuta el flow si su trigger aplica al mensaje.
+
+    Punto de entrada:
+      - triggers (TRIGGER_TYPES): canal, connection_id, contactos y regex
+        se verifican en trigger_match.select_trigger()
+      - __start__: legacy, sin triggers — contact_phone se verifica desde DB
+
+    Los nodos __start__ y __end__ son marcadores visuales — no se ejecutan.
+    """
+    definition = flow.get("definition", {})
+    nodes = definition.get("nodes", [])
+    node_by_id = {node["id"]: node for node in nodes}
+    graph = _build_graph(definition.get("edges", []))
+
+    has_triggers = any(n.get("type", "") in TRIGGER_TYPES for n in nodes)
+
+    if has_triggers:
+        match = await select_trigger(nodes, state)
+        if match is None:
+            logger.debug("[engine] Flow sin trigger aplicable (canal=%s, connection=%s) — skip",
+                         state.canal, state.connection_id)
+            return state
+
+        hours = cooldown_hours(match.config, match.type)
+        if flow_cooldown.is_active(flow.get("id", ""), state.contact_phone or "", hours):
+            logger.debug("[engine] Cooldown activo para flow '%s' / contacto '%s' — skip",
+                         flow.get("name", flow.get("id", "")), state.contact_phone)
+            return state
+
+        entry_id = match.node["id"]
+    else:
+        # Compatibilidad hacia atrás: sin triggers → usar __start__
+        if "__start__" not in node_by_id:
+            logger.debug("[engine] Flow sin trigger ni __start__ — skip")
+            return state
+        db_contact = flow.get("contact_phone")
+        if db_contact and db_contact != state.contact_phone:
+            logger.debug("[engine] Flow (__start__) no aplica: contact_phone DB %s != %s",
+                         db_contact, state.contact_phone)
+            return state
+        entry_id = "__start__"
+
+    return await _run_bfs(entry_id, node_by_id, graph, state)
+
+
 async def resolve_flows(empresa_id: str) -> list[dict]:
     """
     Retorna todos los flows activos de la empresa.
-    El filtrado por connection_id y contact_phone ahora lo hace execute_flow().
+    El filtrado por connection_id y contact_phone lo hace execute_flow().
     """
     import db
-    from db import AsyncSessionLocal, text
-    # Obtener TODOS los flows activos de la empresa, sin filtrar por connection_id
-    # El filtrado se hace en execute_flow() usando la configuración del message_trigger
+    from db import AsyncSessionLocal
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(
             db.text("""
@@ -354,6 +179,34 @@ async def resolve_flows(empresa_id: str) -> list[dict]:
             {"empresa_id": empresa_id},
         )).fetchall()
     return [db._flow_row_to_dict(r, include_definition=True) for r in rows]
+
+
+def _reply_disabled(connection_id: str) -> bool:
+    """
+    Kill switch global o por conexión.
+    DISABLE_AUTO_REPLY=true → nadie manda nada.
+    DISABLE_AUTO_REPLY_PHONES=num1,num2 → esas conexiones no mandan nada.
+    Solo se chequea connection_id (el bot que envía), nunca contact_phone:
+    un teléfono puede ser conexión en una empresa y contacto en otra —
+    no se deben mezclar roles.
+    """
+    global_off = os.getenv("DISABLE_AUTO_REPLY", "false").lower() == "true"
+    blocked = {n.strip() for n in os.getenv("DISABLE_AUTO_REPLY_PHONES", "").split(",") if n.strip()}
+    return global_off or (connection_id in blocked)
+
+
+def _message_predates_flow(state: FlowState, flow: dict) -> bool:
+    """
+    Guard: no responder mensajes anteriores a la creación del flow
+    (equivalente al activated_at del sistema de herramientas).
+    """
+    if not state.timestamp:
+        return False
+    try:
+        flow_created = datetime.strptime(flow["created_at"], "%Y-%m-%d %H:%M:%S")
+        return state.timestamp < flow_created
+    except (ValueError, KeyError):
+        return False  # sin created_at o formato raro: ejecutar igual (safe default)
 
 
 async def run_flows(
@@ -370,6 +223,7 @@ async def run_flows(
     Retorna el FlowState con reply si algún nodo lo produjo.
     """
     from config import get_empresas_for_connection, load_config
+    from paused import is_paused
 
     empresa_ids = get_empresas_for_connection(connection_id)
     logger.debug("[engine] run_flows: connection=%s contact=%s empresas=%s",
@@ -381,38 +235,11 @@ async def run_flows(
     if not state.connection_id:
         state.connection_id = connection_id
 
-    # Kill switch global o por número.
-    # DISABLE_AUTO_REPLY=true → nadie manda nada.
-    # DISABLE_AUTO_REPLY_PHONES=num1,num2 → esas conexiones no mandan nada.
-    # Solo se chequea connection_id (el bot que envía), nunca contact_phone.
-    # Un teléfono puede ser conexión en una empresa y contacto en otra — no se deben mezclar roles.
-    _global_off   = os.getenv("DISABLE_AUTO_REPLY", "false").lower() == "true"
-    _blocked_nums = {n.strip() for n in os.getenv("DISABLE_AUTO_REPLY_PHONES", "").split(",") if n.strip()}
-    disable_reply = _global_off or (connection_id in _blocked_nums)
-
-    from paused import is_paused
+    disable_reply = _reply_disabled(connection_id)
 
     for empresa_id in empresa_ids:
         state.empresa_id = empresa_id
 
-        # Bot pausado — la conexión sigue viva pero no genera replies
-        if is_paused(empresa_id):
-            logger.info("[engine] Bot pausado: %s — flows ejecutados sin reply", empresa_id)
-            state_copy = FlowState(**{f: getattr(state, f) for f in state.__dataclass_fields__})
-            state_copy.from_delta_sync = True  # bloquea replies en todos los nodos
-            # Ejecutar de todas formas para que summarize y otros efectos de lado sigan funcionando
-            config = load_config()
-            empresa_entry = next((e for e in config.get("empresas", []) if e["id"] == empresa_id), {})
-            if not state.bot_name:
-                state.bot_name = empresa_entry.get("name", empresa_id)
-            flows = await resolve_flows(empresa_id)
-            for flow in flows:
-                state_copy.empresa_id = empresa_id
-                state_copy.bot_name = state.bot_name
-                await execute_flow(flow, state_copy)
-            continue
-
-        # Obtener nombre de la empresa para contexto del LLM
         config = load_config()
         empresa_entry = next((e for e in config.get("empresas", []) if e["id"] == empresa_id), {})
         if not state.bot_name:
@@ -420,37 +247,42 @@ async def run_flows(
 
         flows = await resolve_flows(empresa_id)
 
+        # Bot pausado — la conexión sigue viva pero no genera replies.
+        # Se ejecuta igual sobre una copia para que summarize y otros
+        # efectos de lado sigan funcionando.
+        if is_paused(empresa_id):
+            logger.info("[engine] Bot pausado: %s — flows ejecutados sin reply", empresa_id)
+            state_copy = FlowState(**{f: getattr(state, f) for f in state.__dataclass_fields__})
+            state_copy.from_delta_sync = True  # bloquea replies en todos los nodos
+            for flow in flows:
+                state_copy.empresa_id = empresa_id
+                state_copy.bot_name = state.bot_name
+                await execute_flow(flow, state_copy)
+            continue
+
         for flow in flows:
-            # Guard: no responder mensajes anteriores a la creación del flow
-            # (equivalente al activated_at del sistema de herramientas)
-            if state.timestamp:
-                try:
-                    flow_created = datetime.strptime(flow["created_at"], "%Y-%m-%d %H:%M:%S")
-                    if state.timestamp < flow_created:
-                        logger.debug(
-                            "[engine] Mensaje anterior a flow '%s' (msg:%s < flow:%s) — skip",
-                            flow["name"], state.timestamp, flow_created,
-                        )
-                        continue
-                except (ValueError, KeyError):
-                    pass  # sin created_at o formato raro: ejecutar igual (safe default)
+            if _message_predates_flow(state, flow):
+                logger.debug("[engine] Mensaje anterior a flow '%s' (msg:%s) — skip",
+                             flow["name"], state.timestamp)
+                continue
 
             prev_reply = state.reply
             state = await execute_flow(flow, state)
             # Si este flow generó un reply nuevo, registrar timestamp para cooldown
             if state.reply and state.reply != prev_reply:
                 entry = next(
-                    (n for n in flow.get("definition", {}).get("nodes", []) if n.get("type") in TRIGGER_TYPES),
+                    (n for n in flow.get("definition", {}).get("nodes", [])
+                     if n.get("type") in TRIGGER_TYPES),
                     None,
                 )
                 if entry:
-                    ch = _cooldown_hours(entry.get("config") or {}, entry.get("type", ""))
+                    ch = cooldown_hours(entry.get("config") or {}, entry.get("type", ""))
                     if ch > 0:
-                        _flow_cooldown[(str(flow["id"]), state.contact_phone or "")] = _time.time()
+                        flow_cooldown.mark(flow["id"], state.contact_phone or "")
 
     if disable_reply and state.reply is not None:
-        logger.info("[engine] Kill switch activado — reply descartado (global_off=%s, connection_id=%s bloqueado=%s)",
-                    _global_off, connection_id, connection_id in _blocked_nums)
+        logger.info("[engine] Kill switch activado — reply descartado (connection_id=%s)",
+                    connection_id)
         state.reply = None
 
     return state

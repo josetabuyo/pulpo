@@ -23,18 +23,18 @@ from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 from graphs.compiler import run_flows
+from graphs.cooldown import flow_cooldown
 from graphs.nodes.state import FlowState
-import graphs.compiler as _compiler_mod
 
 
 # ─── Fixture: limpiar estado global entre tests ─────────────────────────────
 
 @pytest.fixture(autouse=True)
 def reset_flow_cooldown():
-    """_flow_cooldown es estado global del módulo; limpiarlo evita contaminación entre tests."""
-    _compiler_mod._flow_cooldown.clear()
+    """El cooldown es estado global del proceso; limpiarlo evita contaminación entre tests."""
+    flow_cooldown.clear()
     yield
-    _compiler_mod._flow_cooldown.clear()
+    flow_cooldown.clear()
 
 
 # ─── Fixture: flow con ReplyNode ────────────────────────────────────────────
@@ -826,7 +826,7 @@ async def test_allow_mass_false_bloquea_inc_all():
     )
 
     with patch("config.load_config", return_value=_cfg_with_allow_mass(conn_id, allow_mass=False)), \
-         patch("graphs.compiler._is_known_contact", new_callable=AsyncMock, return_value=True):
+         patch("graphs.trigger_match._is_known_contact", new_callable=AsyncMock, return_value=True):
         result = await execute_flow(flow, state)
 
     assert result.reply is None, "inc_all con allow_mass=False no debe producir reply"
@@ -851,7 +851,7 @@ async def test_allow_mass_true_permite_inc_all():
     )
 
     with patch("config.load_config", return_value=_cfg_with_allow_mass(conn_id, allow_mass=True)), \
-         patch("graphs.compiler._is_known_contact", new_callable=AsyncMock, return_value=True):
+         patch("graphs.trigger_match._is_known_contact", new_callable=AsyncMock, return_value=True):
         result = await execute_flow(flow, state)
 
     assert result.reply == "Respuesta masiva", "inc_all con allow_mass=True debe producir reply"
@@ -876,7 +876,7 @@ async def test_allow_mass_false_bloquea_inc_unk():
     )
 
     with patch("config.load_config", return_value=_cfg_with_allow_mass(conn_id, allow_mass=False)), \
-         patch("graphs.compiler._is_known_contact", new_callable=AsyncMock, return_value=False):
+         patch("graphs.trigger_match._is_known_contact", new_callable=AsyncMock, return_value=False):
         result = await execute_flow(flow, state)
 
     assert result.reply is None, "inc_unk con allow_mass=False no debe producir reply"
