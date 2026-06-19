@@ -64,7 +64,7 @@ async def list_summaries(bot_id: str, _: str = Depends(_check_auth)):
             text(
                 "SELECT cc.value, c.name FROM contact_channels cc "
                 "JOIN contacts c ON cc.contact_id = c.id "
-                "WHERE c.connection_id = :eid AND cc.type = 'telegram'"
+                "WHERE c.bot_id = :eid AND cc.type = 'telegram'"
             ),
             {"eid": bot_id},
         )).fetchall()
@@ -447,7 +447,7 @@ async def sync_all_contacts(
             text(
                 "SELECT DISTINCT cc.value FROM contact_channels cc "
                 "JOIN contacts c ON c.id = cc.contact_id "
-                "WHERE c.connection_id = :eid AND cc.type = 'telegram'"
+                "WHERE c.bot_id = :eid AND cc.type = 'telegram'"
             ),
             {"eid": bot_id},
         )).fetchall()

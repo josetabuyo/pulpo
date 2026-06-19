@@ -63,21 +63,25 @@ async def init_db():
 
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS contacts (
-                id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                connection_id TEXT NOT NULL,
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                bot_id     TEXT NOT NULL,
                 name       TEXT NOT NULL,
                 notes      TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """))
-        await conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS idx_contacts_connection_id ON contacts(connection_id)"
-        ))
-        # Migración: agregar notes si la tabla ya existía sin esa columna
+        # Migraciones sobre contacts (antes de crear índices)
         try:
             await conn.execute(text("ALTER TABLE contacts ADD COLUMN notes TEXT"))
         except Exception:
             pass  # Ya existe
+        try:
+            await conn.execute(text("ALTER TABLE contacts RENAME COLUMN connection_id TO bot_id"))
+        except Exception:
+            pass  # Ya renombrada o columna nueva
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_contacts_bot_id ON contacts(bot_id)"
+        ))
 
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS contact_channels (
@@ -128,20 +132,8 @@ async def init_db():
         except Exception:
             pass  # Ya existe
 
-        await conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS contact_suggestions (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                bot_id TEXT NOT NULL,
-                name       TEXT,
-                phone      TEXT,
-                source     TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(bot_id, name, phone)
-            )
-        """))
-        await conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS idx_contact_suggestions_bot ON contact_suggestions(bot_id)"
-        ))
+        # Eliminar tabla legacy contact_suggestions (scraper WA removido)
+        await conn.execute(text("DROP TABLE IF EXISTS contact_suggestions"))
 
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS jobs (
@@ -420,28 +412,28 @@ async def _get_channels_for(conn, contact_ids: list[int]) -> dict[int, list]:
     return result
 
 
-async def create_contact(connection_id: str, name: str, notes: str | None = None) -> int:
+async def create_contact(bot_id: str, name: str, notes: str | None = None) -> int:
     async with AsyncSessionLocal() as session:
         result = await session.execute(
-            text("INSERT INTO contacts (connection_id, name, notes) VALUES (:connection_id, :name, :notes)"),
-            {"connection_id": connection_id, "name": name, "notes": notes},
+            text("INSERT INTO contacts (bot_id, name, notes) VALUES (:bot_id, :name, :notes)"),
+            {"bot_id": bot_id, "name": name, "notes": notes},
         )
         await session.commit()
         return result.lastrowid
 
 
-async def get_contacts(connection_id: str) -> list[dict]:
+async def get_contacts(bot_id: str) -> list[dict]:
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(
-            text("SELECT id, connection_id, name, notes, created_at FROM contacts WHERE connection_id = :connection_id ORDER BY id"),
-            {"connection_id": connection_id},
+            text("SELECT id, bot_id, name, notes, created_at FROM contacts WHERE bot_id = :bot_id ORDER BY id"),
+            {"bot_id": bot_id},
         )).fetchall()
         if not rows:
             return []
         contact_ids = [r[0] for r in rows]
         channels_map = await _get_channels_for(session, contact_ids)
         return [
-            {"id": r[0], "connection_id": r[1], "name": r[2], "notes": r[3], "created_at": str(r[4]),
+            {"id": r[0], "bot_id": r[1], "name": r[2], "notes": r[3], "created_at": str(r[4]),
              "channels": channels_map.get(r[0], [])}
             for r in rows
         ]
@@ -450,13 +442,13 @@ async def get_contacts(connection_id: str) -> list[dict]:
 async def get_contact(contact_id: int) -> dict | None:
     async with AsyncSessionLocal() as session:
         row = (await session.execute(
-            text("SELECT id, connection_id, name, notes, created_at FROM contacts WHERE id = :id"),
+            text("SELECT id, bot_id, name, notes, created_at FROM contacts WHERE id = :id"),
             {"id": contact_id},
         )).fetchone()
         if not row:
             return None
         channels_map = await _get_channels_for(session, [row[0]])
-        return {"id": row[0], "connection_id": row[1], "name": row[2], "notes": row[3], "created_at": str(row[4]),
+        return {"id": row[0], "bot_id": row[1], "name": row[2], "notes": row[3], "created_at": str(row[4]),
                 "channels": channels_map.get(row[0], [])}
 
 
@@ -528,7 +520,7 @@ async def find_contact_by_channel(type: str, value: str) -> dict | None:
             # Fallback: WA a veces solo provee el nombre, no el número.
             # Buscar en contacts por nombre exacto o aproximado.
             contact_row = (await session.execute(
-                text("SELECT id, connection_id, name, created_at FROM contacts WHERE name = :name"),
+                text("SELECT id, bot_id, name, created_at FROM contacts WHERE name = :name"),
                 {"name": value},
             )).fetchone()
             if not contact_row:
@@ -537,14 +529,14 @@ async def find_contact_by_channel(type: str, value: str) -> dict | None:
         else:
             contact_id = row[0]
             contact_row = (await session.execute(
-                text("SELECT id, connection_id, name, created_at FROM contacts WHERE id = :id"),
+                text("SELECT id, bot_id, name, created_at FROM contacts WHERE id = :id"),
                 {"id": contact_id},
             )).fetchone()
             if not contact_row:
                 return None
 
         channels_map = await _get_channels_for(session, [contact_id])
-        return {"id": contact_row[0], "connection_id": contact_row[1], "name": contact_row[2],
+        return {"id": contact_row[0], "bot_id": contact_row[1], "name": contact_row[2],
                 "created_at": str(contact_row[3]), "channels": channels_map.get(contact_id, [])}
 
 

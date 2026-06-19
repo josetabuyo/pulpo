@@ -165,7 +165,7 @@ async def bot_messages(bot_id: str, number: str, bot: dict = Depends(_require_bo
     ]
 
 
-@router.get("/bot/{bot_id}/chat/{number}/{contact}")
+@router.get("/bot/{bot_id}/history/{number}/{contact}")
 async def bot_chat_get(bot_id: str, number: str, contact: str, bot: dict = Depends(_require_bot)):
     if not _owns_session(bot, number):
         raise HTTPException(status_code=404, detail="Número no pertenece a esta bot")
@@ -190,7 +190,7 @@ class BotSendBody(BaseModel):
     text: str
 
 
-@router.post("/bot/{bot_id}/chat/{number}/{contact}")
+@router.post("/bot/{bot_id}/history/{number}/{contact}")
 async def bot_chat_send(bot_id: str, number: str, contact: str,
                             body: BotSendBody, bot: dict = Depends(_require_bot)):
     if not _owns_session(bot, number):
@@ -364,20 +364,6 @@ def bot_remove_telegram(bot_id: str, token_id: str, _: dict = Depends(_require_b
     return {"ok": True}
 
 
-@router.delete("/bot/{bot_id}/suggested-contacts")
-async def bot_clear_suggested_contacts(
-    bot_id: str,
-    _: dict = Depends(_require_bot),
-):
-    """Limpia todas las contact_suggestions de esta bot."""
-    async with AsyncSessionLocal() as db_session:
-        result = await db_session.execute(
-            text("DELETE FROM contact_suggestions WHERE bot_id = :bid"),
-            {"bid": bot_id},
-        )
-        await db_session.commit()
-    return {"deleted": result.rowcount}
-
 
 @router.put("/bot/{bot_id}/paused")
 async def set_bot_paused(
@@ -409,17 +395,3 @@ async def get_bot_paused(
     return {"paused": _paused_mod.is_paused(bot_id), "bot_id": bot_id}
 
 
-@router.delete("/bot/{bot_id}/suggested-contacts/{name}")
-async def bot_delete_one_suggestion(
-    bot_id: str,
-    name: str,
-    _: dict = Depends(_require_bot),
-):
-    """Elimina una sugerencia específica por nombre."""
-    async with AsyncSessionLocal() as db_session:
-        await db_session.execute(
-            text("DELETE FROM contact_suggestions WHERE bot_id = :bid AND name = :name"),
-            {"bid": bot_id, "name": name},
-        )
-        await db_session.commit()
-    return {"ok": True}

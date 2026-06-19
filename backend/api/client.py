@@ -66,7 +66,7 @@ async def get_client_messages(number: str):
     ]
 
 
-@router.get("/client/{number}/chat/{contact}", dependencies=[Depends(require_client)])
+@router.get("/client/{number}/history/{contact}", dependencies=[Depends(require_client)])
 async def get_chat(number: str, contact: str):
     """Historial de mensajes entre el bot y un contacto específico."""
     async with AsyncSessionLocal() as session:
@@ -97,7 +97,7 @@ class SendMessageBody(BaseModel):
     text: str
 
 
-@router.post("/client/{number}/chat/{contact}", dependencies=[Depends(require_client)])
+@router.post("/client/{number}/history/{contact}", dependencies=[Depends(require_client)])
 async def send_chat_message(number: str, contact: str, body: SendMessageBody):
     """Envía un mensaje manual desde el bot hacia un contacto."""
     if not body.text.strip():

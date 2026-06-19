@@ -286,7 +286,6 @@ export function Field({ field, config, onChange }) {
           value={value}
           onChange={cf => set(cf)}
           contacts={field._contacts || []}
-          suggested={field._suggested || []}
           allowMass={field._allow_mass ?? false}
         />
       </div>

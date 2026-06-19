@@ -26,7 +26,6 @@ export default function ConfigForm({ node, schema, botId, flowId, connections, a
   const setSelectedNodeId = useFlowStore(s => s.setSelectedNodeId)
   const { nodeType, config, label, color } = node.data
   const [contacts, setContacts]         = useState([])
-  const [suggested, setSuggested]       = useState([])
   const [googleAccounts, setGoogleAccounts] = useState([])
   const [cloning, setCloning]           = useState(false)
   const [cloneMsg, setCloneMsg]     = useState('')
@@ -44,11 +43,9 @@ export default function ConfigForm({ node, schema, botId, flowId, connections, a
     if (!botId || !apiCall) return
     Promise.all([
       apiCall('GET', `/bots/${botId}/contacts`, null).catch(() => []),
-      apiCall('GET', `/bots/${botId}/contacts/suggested`, null).catch(() => []),
       apiCall('GET', `/bots/${botId}/google-accounts`, null).catch(() => []),
-    ]).then(([c, s, ga]) => {
+    ]).then(([c, ga]) => {
       if (Array.isArray(c))  setContacts(c)
-      if (Array.isArray(s))  setSuggested(s)
       if (Array.isArray(ga)) setGoogleAccounts(ga)
     })
   }, [botId])
@@ -139,7 +136,7 @@ export default function ConfigForm({ node, schema, botId, flowId, connections, a
     if (f.type === 'contact_filter') {
       const connId = config.connection_id || ''
       const connObj = (connections || []).find(c => c.id === connId)
-      return { ...f, _contacts: contacts, _suggested: suggested, _allow_mass: connObj?.allowMass ?? false }
+      return { ...f, _contacts: contacts, _allow_mass: connObj?.allowMass ?? false }
     }
     if (f.type === 'google_account_select')  return { ...f, _google_accounts: googleAccounts }
     return f

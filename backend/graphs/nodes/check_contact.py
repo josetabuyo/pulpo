@@ -26,7 +26,7 @@ class CheckContactNode(BaseNode):
                     SELECT cc.id FROM contact_channels cc
                     JOIN contacts c ON cc.contact_id = c.id
                     WHERE cc.value = :phone
-                      AND c.connection_id = :bot_id
+                      AND c.bot_id = :bot_id
                     LIMIT 1
                 """),
                 {"phone": state.contact_phone, "bot_id": state.bot_id},

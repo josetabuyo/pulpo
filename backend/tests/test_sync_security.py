@@ -28,7 +28,7 @@ async def setup_and_teardown():
     async with AsyncSessionLocal() as s:
         # Contacto registrado
         await s.execute(
-            text("INSERT INTO contacts (connection_id, name) VALUES (:cid, :name)"),
+            text("INSERT INTO contacts (bot_id, name) VALUES (:cid, :name)"),
             {"cid": BOT_ID_TEST, "name": "Contacto Registrado"},
         )
         contact_id = (await s.execute(
@@ -62,7 +62,7 @@ async def setup_and_teardown():
         # Limpiar en orden (FK)
         await s.execute(text("DELETE FROM contact_channels WHERE value IN (:r, :u)"),
                         {"r": REGISTERED, "u": UNREGISTERED})
-        await s.execute(text("DELETE FROM contacts WHERE connection_id = :eid"),
+        await s.execute(text("DELETE FROM contacts WHERE bot_id = :eid"),
                         {"eid": BOT_ID_TEST})
         await s.execute(text("DELETE FROM messages WHERE connection_id = :eid"),
                         {"eid": BOT_ID_TEST})
@@ -80,7 +80,7 @@ async def test_sync_all_query_solo_devuelve_contactos_registrados():
             text(
                 "SELECT DISTINCT cc.value FROM contact_channels cc "
                 "JOIN contacts c ON c.id = cc.contact_id "
-                "WHERE c.connection_id = :eid AND cc.type = 'telegram'"
+                "WHERE c.bot_id = :eid AND cc.type = 'telegram'"
             ),
             {"eid": BOT_ID_TEST},
         )).fetchall()

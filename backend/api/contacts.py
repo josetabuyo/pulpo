@@ -1,10 +1,7 @@
 import re
 from fastapi import APIRouter, HTTPException, Depends, Request, Header
 from pydantic import BaseModel
-from sqlalchemy import text
-
 import db
-from db import AsyncSessionLocal
 from middleware_auth import get_bot_id_from_token
 from api.deps import ADMIN_PASSWORD
 
@@ -95,7 +92,7 @@ async def get_contact(contact_id: int, token_bot_id: str = Depends(_require_bot_
     contact = await db.get_contact(contact_id)
     if not contact:
         raise HTTPException(404, "Contacto no encontrado")
-    _check_auth(contact["connection_id"], token_bot_id)
+    _check_auth(contact["bot_id"], token_bot_id)
     return contact
 
 
@@ -104,7 +101,7 @@ async def update_contact(contact_id: int, body: ContactUpdate, token_bot_id: str
     contact = await db.get_contact(contact_id)
     if not contact:
         raise HTTPException(404, "Contacto no encontrado")
-    _check_auth(contact["connection_id"], token_bot_id)
+    _check_auth(contact["bot_id"], token_bot_id)
     name = body.name.strip()
     if not name:
         raise HTTPException(400, "El nombre es obligatorio")
@@ -117,7 +114,7 @@ async def delete_contact(contact_id: int, token_bot_id: str = Depends(_require_b
     contact = await db.get_contact(contact_id)
     if not contact:
         raise HTTPException(404, "Contacto no encontrado")
-    _check_auth(contact["connection_id"], token_bot_id)
+    _check_auth(contact["bot_id"], token_bot_id)
     await db.delete_contact(contact_id)
 
 
@@ -126,7 +123,7 @@ async def add_channel(contact_id: int, body: ChannelIn, token_bot_id: str = Depe
     contact = await db.get_contact(contact_id)
     if not contact:
         raise HTTPException(404, "Contacto no encontrado")
-    _check_auth(contact["connection_id"], token_bot_id)
+    _check_auth(contact["bot_id"], token_bot_id)
     if body.type not in ("telegram",):
         raise HTTPException(400, f"Tipo de canal inválido: {body.type}")
     err = _validate_channel_value(body.type, body.value.strip(), body.is_group)
@@ -146,52 +143,3 @@ async def delete_channel(channel_id: int, token_bot_id: str = Depends(_require_b
         raise HTTPException(404, "Canal no encontrado")
 
 
-@router.get("/bots/{bot_id}/contacts/suggested")
-async def suggested_contacts(bot_id: str, token_bot_id: str = Depends(_require_bot_or_admin)):
-    _check_auth(bot_id, token_bot_id)
-    """Contactos disponibles para filtrar, combinando dos fuentes:
-      1. contact_suggestions (importados desde WA)
-      2. Contactos con mensajes en la DB que no están en contact_suggestions
-         (grupos, negocios o contactos que el scraper no capturó)
-    Se ordenan: primero los que tienen mensajes, luego los sin historial.
-    """
-    async with AsyncSessionLocal() as session:
-        rows = (await session.execute(text("""
-            SELECT name, phone, has_messages FROM (
-                -- Fuente 1: contact_suggestions
-                SELECT
-                    cs.name,
-                    cs.phone,
-                    CASE WHEN EXISTS (
-                        SELECT 1 FROM messages m
-                        WHERE m.connection_id = :bot_id
-                          AND (
-                            (cs.phone IS NOT NULL AND REPLACE(REPLACE(REPLACE(m.phone, '+', ''), ' ', ''), '-', '') = cs.phone)
-                            OR m.phone = cs.name
-                            OR m.name = cs.name
-                          )
-                    ) THEN 1 ELSE 0 END AS has_messages
-                FROM contact_suggestions cs
-                WHERE cs.bot_id = :bot_id
-
-                UNION
-
-                -- Fuente 2: contactos con mensajes que no están en contact_suggestions
-                SELECT
-                    m.name AS name,
-                    NULL   AS phone,
-                    1      AS has_messages
-                FROM messages m
-                WHERE m.connection_id = :bot_id
-                  AND m.name IS NOT NULL
-                  AND m.name != ''
-                  AND NOT EXISTS (
-                      SELECT 1 FROM contact_suggestions cs2
-                      WHERE cs2.bot_id = :bot_id
-                        AND (cs2.name = m.name OR cs2.phone = m.phone)
-                  )
-                GROUP BY m.name
-            )
-            ORDER BY has_messages DESC, LOWER(COALESCE(name, phone)) ASC
-        """), {"bot_id": bot_id})).fetchall()
-    return [{"name": r[0], "phone": r[1], "has_messages": bool(r[2])} for r in rows]
