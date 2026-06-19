@@ -26,7 +26,7 @@ export function normalizeBot(bot) {
     connections: [
       ...(bot.telegram ?? []).map(t => ({
         id: `${bot.id}-tg-${t.tokenId}`, type: 'telegram', number: t.tokenId, status: t.status,
-        username: t.username || '', botName: t.botName || '',
+        username: t.username || '', botName: t.botName || '', allowMass: t.allowMass ?? false,
       })),
       ...(bot.phones ?? []).map(p => ({
         id: p.sessionId, type: 'wavi', number: p.number, status: p.status,
@@ -111,6 +111,11 @@ export default function BotCard({
     if (!res?.ok) { setTgErr(res?.detail || 'Error al agregar'); return }
     if (res.requires_restart) setTgErr('Agregado. Requiere reinicio del servidor para activarse.')
     setTgInput(''); onRefresh?.()
+  }
+
+  async function handleToggleMass(conn) {
+    await apiCall('PATCH', `/bots/${botId}/telegram/${conn.number}/settings`, { allow_mass: !conn.allowMass }).catch(() => null)
+    onRefresh?.()
   }
 
   async function handleRemoveConn(conn) {
@@ -219,6 +224,7 @@ export default function BotCard({
                     botId={botId} apiCall={apiCall}
                     onDelete={mode === 'admin' ? conn => onDeleteTelegram?.(conn) : conn => handleRemoveConn(conn)}
                     onReconnect={conn => onReconnectTg?.(conn)}
+                    onToggleMass={handleToggleMass}
                   />
                 ))}
               </div>

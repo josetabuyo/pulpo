@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { StatusPill } from './widgets.jsx'
 
-export default function ConnectionRow({ conn, mode, simMode, botId, apiCall, onDelete, onReconnect }) {
+export default function ConnectionRow({ conn, mode, simMode, botId, apiCall, onDelete, onReconnect, onToggleMass }) {
   const [localStatus, setLocalStatus] = useState(conn.status)
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0, openUp: false })
@@ -81,6 +81,9 @@ export default function ConnectionRow({ conn, mode, simMode, botId, apiCall, onD
                 )}
                 {mode === 'admin' && (
                   <>
+                    <button className="conn-menu-item" onClick={() => { onToggleMass?.(conn); setMenuOpen(false) }}>
+                      {conn.allowMass ? '🔇 Desactivar masivo' : '📣 Activar masivo'}
+                    </button>
                     <div style={{ margin: '4px 0', borderTop: '1px solid #334155' }} />
                     <button className="conn-menu-item conn-menu-item--danger" onClick={() => { onDelete?.(conn); setMenuOpen(false) }}>
                       🗑 Eliminar conexión

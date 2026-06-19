@@ -61,6 +61,7 @@ def get_bots():
                 "status": tg_client.get("status", "stopped"),
                 "username": tg_client.get("bot_username", ""),
                 "botName": tg_client.get("bot_name", ""),
+                "allowMass": tg.get("allow_mass", False),
             })
         result.append({
             "id": bot["id"],
@@ -69,6 +70,24 @@ def get_bots():
             "telegram": telegram,
         })
     return result
+
+
+class TelegramSettingsPatch(BaseModel):
+    allow_mass: bool
+
+
+@router.patch("/bots/{bot_id}/telegram/{token_id}/settings", dependencies=[Depends(require_admin)])
+def patch_telegram_settings(bot_id: str, token_id: str, body: TelegramSettingsPatch):
+    config = load_config()
+    bot = next((b for b in config.get("bots", []) if b["id"] == bot_id), None)
+    if not bot:
+        raise HTTPException(status_code=404, detail="Bot no encontrado")
+    for tg in bot.get("telegram", []):
+        if tg["token"].split(":")[0] == token_id:
+            tg["allow_mass"] = body.allow_mass
+            save_config(config)
+            return {"ok": True, "allow_mass": body.allow_mass}
+    raise HTTPException(status_code=404, detail="Conexión Telegram no encontrada")
 
 
 class BotUpdate(BaseModel):
