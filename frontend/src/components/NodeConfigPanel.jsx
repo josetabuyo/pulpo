@@ -14,7 +14,7 @@
 import { useFlowStore } from '../store/flowStore.js'
 import ConfigForm from './nodeconfig/ConfigForm.jsx'
 
-export default function NodeConfigPanel({ empresaId, flowId, connections, apiCall, onGoToUIs }) {
+export default function NodeConfigPanel({ botId, flowId, connections, apiCall, onGoToUIs }) {
   const nodes             = useFlowStore(s => s.nodes)
   const typeMap           = useFlowStore(s => s.typeMap)
   const selectedNodeId    = useFlowStore(s => s.selectedNodeId)
@@ -49,7 +49,7 @@ export default function NodeConfigPanel({ empresaId, flowId, connections, apiCal
         <ConfigForm
           node={selectedNode}
           schema={schema}
-          empresaId={empresaId}
+          botId={botId}
           flowId={flowId}
           connections={connections}
           apiCall={apiCall}

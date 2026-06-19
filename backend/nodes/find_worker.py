@@ -3,7 +3,7 @@ Node: find_worker
 
 Dado un mensaje de un vecino:
 1. Usa el LLM para identificar el oficio específico que busca.
-2. Carga la lista de trabajadores de backend/config/oficios/{empresa_id}.json.
+2. Carga la lista de trabajadores de backend/config/oficios/{bot_id}.json.
 3. Devuelve el primer trabajador activo disponible para ese oficio.
 
 Retorna: (oficio_str, worker_dict | None)
@@ -27,13 +27,13 @@ Si no reconocés un oficio específico, respondé "otro".
 Respondé SOLO la palabra del oficio. Sin explicaciones."""
 
 
-async def find(message: str, empresa_id: str) -> tuple[str, dict | None]:
+async def find(message: str, bot_id: str) -> tuple[str, dict | None]:
     """
     Identifica el oficio del mensaje y busca un trabajador disponible.
     Retorna (oficio, worker) — worker puede ser None si no hay disponibles.
     """
     oficio = await _identify_oficio(message)
-    worker = _lookup_worker(empresa_id, oficio)
+    worker = _lookup_worker(bot_id, oficio)
     logger.info("[find_worker] oficio='%s' worker=%s", oficio, worker["nombre"] if worker else None)
     return oficio, worker
 
@@ -59,17 +59,17 @@ async def _identify_oficio(message: str) -> str:
         return "otro"
 
 
-def _lookup_worker(empresa_id: str, oficio: str) -> dict | None:
-    config_path = _CONFIG_DIR / f"{empresa_id}.json"
+def _lookup_worker(bot_id: str, oficio: str) -> dict | None:
+    config_path = _CONFIG_DIR / f"{bot_id}.json"
     if not config_path.exists():
-        logger.debug("[find_worker] Sin config de oficios para empresa '%s'", empresa_id)
+        logger.debug("[find_worker] Sin config de oficios para bot '%s'", bot_id)
         return None
 
     try:
         with open(config_path, encoding="utf-8") as f:
             data = json.load(f)
     except Exception as e:
-        logger.error("[find_worker] Error leyendo config '%s': %s", empresa_id, e)
+        logger.error("[find_worker] Error leyendo config '%s': %s", bot_id, e)
         return None
 
     lista = data.get("oficios", {}).get(oficio, [])

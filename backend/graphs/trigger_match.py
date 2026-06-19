@@ -26,8 +26,8 @@ class TriggerMatch:
     config: dict
 
 
-async def _is_known_contact(contact_phone: str, empresa_id: str) -> bool:
-    """True si contact_phone está registrado en contact_channels de esta empresa."""
+async def _is_known_contact(contact_phone: str, bot_id: str) -> bool:
+    """True si contact_phone está registrado en contact_channels de esta bot."""
     from db import AsyncSessionLocal, text as _text
     async with AsyncSessionLocal() as session:
         row = (await session.execute(
@@ -35,15 +35,15 @@ async def _is_known_contact(contact_phone: str, empresa_id: str) -> bool:
                 SELECT cc.id FROM contact_channels cc
                 JOIN contacts c ON cc.contact_id = c.id
                 WHERE cc.value = :phone
-                  AND c.connection_id = :empresa_id
+                  AND c.connection_id = :bot_id
                 LIMIT 1
             """),
-            {"phone": contact_phone, "empresa_id": empresa_id},
+            {"phone": contact_phone, "bot_id": bot_id},
         )).fetchone()
     return row is not None
 
 
-async def _resolve_filter_value(value: str, empresa_id: str) -> set[str]:
+async def _resolve_filter_value(value: str, bot_id: str) -> set[str]:
     """
     Dado un valor del filtro (nombre o número/chat_id), devuelve el set de valores que representa.
     - Si parece número (solo dígitos, 7-15 chars): devuelve {value}
@@ -53,7 +53,7 @@ async def _resolve_filter_value(value: str, empresa_id: str) -> set[str]:
         return {value.strip()}
     # Es un nombre — buscar sus canales Telegram
     from db import get_contacts
-    contacts = await get_contacts(empresa_id)
+    contacts = await get_contacts(bot_id)
     ids: set[str] = set()
     for c in contacts:
         if c["name"] == value:
@@ -73,7 +73,7 @@ def _matches_channel(trigger_type: str, state: FlowState) -> bool:
     return True
 
 
-def _mass_send_allowed(connection_id: str, empresa_id: str) -> bool:
+def _mass_send_allowed(connection_id: str, bot_id: str) -> bool:
     """
     True si la conexión tiene allow_mass en connections.json.
     Backend enforcement: include_all_known / include_unknown son opciones masivas;
@@ -81,8 +81,8 @@ def _mass_send_allowed(connection_id: str, empresa_id: str) -> bool:
     (alguien puede editar la DB a mano).
     """
     from config import load_config
-    for emp in load_config().get("empresas", []):
-        if empresa_id and emp["id"] != empresa_id:
+    for emp in load_config().get("bots", []):
+        if bot_id and emp["id"] != bot_id:
             continue
         for ph in emp.get("phones", []):
             if ph.get("number") == connection_id and ph.get("allow_mass", False):
@@ -102,7 +102,7 @@ async def _passes_contact_filter(cconfig: dict, state: FlowState) -> bool:
     contact_filter = cconfig.get("contact_filter")
     if contact_filter is None:
         from config import get_connection_default_filter
-        default_cf = get_connection_default_filter(cconfig.get("connection_id", ""), state.empresa_id)
+        default_cf = get_connection_default_filter(cconfig.get("connection_id", ""), state.bot_id)
         if default_cf:
             contact_filter = default_cf
 
@@ -119,9 +119,9 @@ async def _passes_contact_filter(cconfig: dict, state: FlowState) -> bool:
     included = contact_filter.get("included", [])
     inc_all  = contact_filter.get("include_all_known", False)
     inc_unk  = contact_filter.get("include_unknown", False)
-    empresa  = state.empresa_id or ""
+    bot  = state.bot_id or ""
 
-    if (inc_all or inc_unk) and not _mass_send_allowed(cconfig.get("connection_id", ""), empresa):
+    if (inc_all or inc_unk) and not _mass_send_allowed(cconfig.get("connection_id", ""), bot):
         inc_all = False
         inc_unk = False
         logger.warning(
@@ -131,11 +131,11 @@ async def _passes_contact_filter(cconfig: dict, state: FlowState) -> bool:
 
     excluded_phones: set[str] = set()
     for v in excluded:
-        excluded_phones |= await _resolve_filter_value(v, empresa)
+        excluded_phones |= await _resolve_filter_value(v, bot)
 
     included_phones: set[str] = set()
     for v in included:
-        included_phones |= await _resolve_filter_value(v, empresa)
+        included_phones |= await _resolve_filter_value(v, bot)
 
     if state.contact_phone in excluded_phones or state.contact_phone in excluded:
         logger.debug("[engine] Trigger no aplica: contacto %s excluido", state.contact_phone)
@@ -146,7 +146,7 @@ async def _passes_contact_filter(cconfig: dict, state: FlowState) -> bool:
     if state.contact_phone in included_phones or state.contact_phone in included:
         return True
     if inc_all or inc_unk:
-        is_known = await _is_known_contact(state.contact_phone, state.empresa_id or "")
+        is_known = await _is_known_contact(state.contact_phone, state.bot_id or "")
         if inc_all and is_known:
             return True
         if inc_unk and not is_known:

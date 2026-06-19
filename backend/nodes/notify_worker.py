@@ -12,7 +12,7 @@ import os
 logger = logging.getLogger(__name__)
 
 
-async def notify(worker: dict, mensaje_vecino: str, empresa_id: str) -> bool:
+async def notify(worker: dict, mensaje_vecino: str, bot_id: str) -> bool:
     """
     Envía una notificación al trabajador.
     Retorna True si el mensaje fue enviado, False si solo fue logueado.
@@ -30,7 +30,7 @@ async def notify(worker: dict, mensaje_vecino: str, empresa_id: str) -> bool:
     # Intentar Telegram primero
     telegram_id = worker.get("telegram_id")
     if telegram_id:
-        sent = await _send_telegram(telegram_id, texto, empresa_id)
+        sent = await _send_telegram(telegram_id, texto, bot_id)
         if sent:
             logger.info("[notify_worker] Mensaje enviado por Telegram a %s (%s)", nombre, telegram_id)
             return True
@@ -48,7 +48,7 @@ async def notify(worker: dict, mensaje_vecino: str, empresa_id: str) -> bool:
     return False
 
 
-async def _send_telegram(telegram_id: str, texto: str, empresa_id: str) -> bool:
+async def _send_telegram(telegram_id: str, texto: str, bot_id: str) -> bool:
     if os.getenv("ENABLE_BOTS", "false").lower() != "true":
         logger.info("[notify_worker] Modo simulador — mensaje Telegram NO enviado (logueado)")
         return False
@@ -57,11 +57,11 @@ async def _send_telegram(telegram_id: str, texto: str, empresa_id: str) -> bool:
         from state import clients
         tg_session = next(
             (k for k, v in clients.items()
-             if v.get("connection_id") == empresa_id and v.get("type") == "telegram" and v.get("client")),
+             if v.get("connection_id") == bot_id and v.get("type") == "telegram" and v.get("client")),
             None,
         )
         if not tg_session:
-            logger.warning("[notify_worker] Sin bot Telegram activo para empresa '%s'", empresa_id)
+            logger.warning("[notify_worker] Sin bot Telegram activo para bot '%s'", bot_id)
             return False
 
         tg_app = clients[tg_session]["client"]

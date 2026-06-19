@@ -25,23 +25,23 @@ def _minimal_png() -> bytes:
     )
 
 
-EMPRESA = "test-tuning-empresa"
+BOT_ID = "test-tuning-bot"
 PHONE = "test-tuning-contact"
-BASE = f"/api/summarizer/{EMPRESA}/{PHONE}"
+BASE = f"/api/summarizer/{BOT_ID}/{PHONE}"
 
-_CONTACT_DIR = _ROOT / "data" / "summaries" / EMPRESA / PHONE
+_CONTACT_DIR = _ROOT / "data" / "summaries" / BOT_ID / PHONE
 _CONSOL_DIR  = _CONTACT_DIR / "consolidated"
 
 # Contacto aislado solo para tests de consolidación (no usa autouse)
 PHONE_CONSOL = "test-consol-contact"
-BASE_CONSOL  = f"/api/summarizer/{EMPRESA}/{PHONE_CONSOL}"
-_CONSOL_CONTACT_DIR = _ROOT / "data" / "summaries" / EMPRESA / PHONE_CONSOL
+BASE_CONSOL  = f"/api/summarizer/{BOT_ID}/{PHONE_CONSOL}"
+_CONSOL_CONTACT_DIR = _ROOT / "data" / "summaries" / BOT_ID / PHONE_CONSOL
 
 
 @pytest.fixture(autouse=True)
 def clean_contact(client):
     """Limpia el contacto antes de cada test: chat.md + consolidated/."""
-    client.post(f"/api/summarizer/{EMPRESA}/{PHONE}/sync", headers=ADMIN)
+    client.post(f"/api/summarizer/{BOT_ID}/{PHONE}/sync", headers=ADMIN)
     shutil.rmtree(_CONSOL_DIR, ignore_errors=True)
     yield
 
@@ -174,7 +174,7 @@ def test_get_consolidation(client):
 
 def test_get_consolidation_not_found(client):
     # Contacto que nunca fue consolidado en esta sesión de tests
-    r = client.get(f"/api/summarizer/{EMPRESA}/never-consolidated/consolidation", headers=ADMIN)
+    r = client.get(f"/api/summarizer/{BOT_ID}/never-consolidated/consolidation", headers=ADMIN)
     assert r.status_code == 404
 
 
@@ -353,7 +353,7 @@ def test_image_message_without_caption(client):
 
 def test_list_consolidations_empty(client):
     """Sin consolidar → lista vacía."""
-    r = client.get(f"/api/summarizer/{EMPRESA}/consolidations", headers=ADMIN)
+    r = client.get(f"/api/summarizer/{BOT_ID}/consolidations", headers=ADMIN)
     assert r.status_code == 200
     data = r.json()
     assert "consolidations" in data
@@ -366,7 +366,7 @@ def test_list_consolidations_after_consolidate(client):
     _seed(client, ["Para listar"])
     client.post(f"{BASE}/consolidate", headers=ADMIN)
 
-    r = client.get(f"/api/summarizer/{EMPRESA}/consolidations", headers=ADMIN)
+    r = client.get(f"/api/summarizer/{BOT_ID}/consolidations", headers=ADMIN)
     assert r.status_code == 200
     consolidations = r.json()["consolidations"]
 
@@ -385,7 +385,7 @@ def test_consolidations_path_points_to_chat_md(client):
     _seed(client, ["Check path"])
     client.post(f"{BASE}/consolidate", headers=ADMIN)
 
-    r = client.get(f"/api/summarizer/{EMPRESA}/consolidations", headers=ADMIN)
+    r = client.get(f"/api/summarizer/{BOT_ID}/consolidations", headers=ADMIN)
     found = next((c for c in r.json()["consolidations"] if c["phone"] == PHONE), None)
     assert found is not None
     assert "/consolidated/" in found["path"]
@@ -400,7 +400,7 @@ def test_consolidated_file_survives_sync(client):
     client.post(f"{BASE}/consolidate", headers=ADMIN)
 
     # Verificar que el path existe antes
-    r = client.get(f"/api/summarizer/{EMPRESA}/consolidations", headers=ADMIN)
+    r = client.get(f"/api/summarizer/{BOT_ID}/consolidations", headers=ADMIN)
     found = next(c for c in r.json()["consolidations"] if c["phone"] == PHONE)
     consolidated_path = Path(found["path"])
     assert consolidated_path.exists(), "El archivo no existe antes del sync"
@@ -417,7 +417,7 @@ def test_consolidated_file_survives_rewrite(client):
     _seed(client, ["Sobrevivir rewrite"])
     client.post(f"{BASE}/consolidate", headers=ADMIN)
 
-    r = client.get(f"/api/summarizer/{EMPRESA}/consolidations", headers=ADMIN)
+    r = client.get(f"/api/summarizer/{BOT_ID}/consolidations", headers=ADMIN)
     found = next(c for c in r.json()["consolidations"] if c["phone"] == PHONE)
     consolidated_path = Path(found["path"])
 
@@ -445,7 +445,7 @@ def test_consolidation_metadata_has_all_fields(client):
 def clean_consol(client):
     """Fixture para tests de consolidación: contacto aislado, limpia antes y después.
     Llama a sync para vaciar el caché de dedup del servidor antes de borrar el dir."""
-    client.post(f"/api/summarizer/{EMPRESA}/{PHONE_CONSOL}/sync", headers=ADMIN)
+    client.post(f"/api/summarizer/{BOT_ID}/{PHONE_CONSOL}/sync", headers=ADMIN)
     shutil.rmtree(_CONSOL_CONTACT_DIR, ignore_errors=True)
     yield
     shutil.rmtree(_CONSOL_CONTACT_DIR, ignore_errors=True)

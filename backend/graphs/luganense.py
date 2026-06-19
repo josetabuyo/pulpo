@@ -86,7 +86,7 @@ class LuganenseState(TypedDict):
     message: str
     prompt: str
     bot_name: str
-    empresa_id: str
+    bot_id: str
     cliente_phone: str
     canal: str
 
@@ -164,11 +164,11 @@ async def buscar_posts_fb(state: LuganenseState) -> dict:
     """Scrapea Facebook en paralelo para cada query. Devuelve posts con texto e imagen."""
     from nodes import fetch_facebook
 
-    empresa_id = state.get("empresa_id", "luganense")
+    bot_id = state.get("bot_id", "luganense")
     queries = state.get("queries") or [state["message"]]
 
     results = await asyncio.gather(*[
-        fetch_facebook.fetch_posts(empresa_id, q) for q in queries
+        fetch_facebook.fetch_posts(bot_id, q) for q in queries
     ])
 
     # Deduplicar por texto
@@ -241,7 +241,7 @@ async def responder_noticias(state: LuganenseState) -> dict:
 async def buscar_oficio(state: LuganenseState) -> dict:
     """Identifica el oficio pedido y busca un trabajador disponible en la lista interna."""
     from nodes import find_worker
-    oficio, worker = await find_worker.find(state["message"], state["empresa_id"])
+    oficio, worker = await find_worker.find(state["message"], state["bot_id"])
     logger.info("[luganense] buscar_oficio: oficio='%s' worker=%s", oficio, worker["nombre"] if worker else None)
     return {"oficio": oficio, "worker": worker}
 
@@ -255,9 +255,9 @@ async def notificar_oficio(state: LuganenseState) -> dict:
     worker = state.get("worker")
 
     if worker:
-        await notify_worker.notify(worker, state["message"], state["empresa_id"])
+        await notify_worker.notify(worker, state["message"], state["bot_id"])
         await create_job(
-            empresa_id=state["empresa_id"],
+            bot_id=state["bot_id"],
             cliente_phone=state.get("cliente_phone", ""),
             canal=state.get("canal", "telegram"),
             oficio=oficio,
@@ -273,7 +273,7 @@ async def notificar_oficio(state: LuganenseState) -> dict:
             reply += f"\n📞 También podés contactarlo directo: {worker['whatsapp']}"
     else:
         await create_job(
-            empresa_id=state["empresa_id"],
+            bot_id=state["bot_id"],
             cliente_phone=state.get("cliente_phone", ""),
             canal=state.get("canal", "telegram"),
             oficio=oficio,
@@ -292,7 +292,7 @@ async def notificar_oficio(state: LuganenseState) -> dict:
 async def buscar_auspiciante(state: LuganenseState) -> dict:
     """Busca el auspiciante más relevante para la consulta del vecino (match por tags)."""
     from graphs import auspiciantes as auspiciantes_mod
-    nombre, mensaje = auspiciantes_mod.get_relevant(state["empresa_id"], state["message"])
+    nombre, mensaje = auspiciantes_mod.get_relevant(state["bot_id"], state["message"])
 
     if nombre:
         logger.info("[luganense] buscar_auspiciante: match → %s", nombre)
@@ -388,7 +388,7 @@ async def invoke(
     message: str,
     prompt: str,
     bot_name: str = "el asistente",
-    empresa_id: str = "",
+    bot_id: str = "",
     cliente_phone: str = "",
     canal: str = "telegram",
 ) -> dict:
@@ -400,7 +400,7 @@ async def invoke(
         "message": message,
         "prompt": prompt,
         "bot_name": bot_name,
-        "empresa_id": empresa_id,
+        "bot_id": bot_id,
         "cliente_phone": cliente_phone,
         "canal": canal,
         "scope": "",

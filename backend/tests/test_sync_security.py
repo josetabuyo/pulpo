@@ -16,7 +16,7 @@ from sqlalchemy import text
 from db import AsyncSessionLocal
 
 
-EMPRESA_TEST = "__sync_security_test__"
+BOT_ID_TEST = "__sync_security_test__"
 CONN_TEST    = "__conn_test__"
 REGISTERED   = "5491100000001"   # contacto registrado en contact_channels
 UNREGISTERED = "5491100000002"   # número que mandó mensajes pero NO está registrado
@@ -29,7 +29,7 @@ async def setup_and_teardown():
         # Contacto registrado
         await s.execute(
             text("INSERT INTO contacts (connection_id, name) VALUES (:cid, :name)"),
-            {"cid": EMPRESA_TEST, "name": "Contacto Registrado"},
+            {"cid": BOT_ID_TEST, "name": "Contacto Registrado"},
         )
         contact_id = (await s.execute(
             text("SELECT last_insert_rowid()")
@@ -43,7 +43,7 @@ async def setup_and_teardown():
         await s.execute(
             text("INSERT INTO messages (connection_id, connection_phone, phone, name, body, outbound) "
                  "VALUES (:eid, :conn, :phone, :name, :body, 0)"),
-            {"eid": EMPRESA_TEST, "conn": CONN_TEST, "phone": REGISTERED,
+            {"eid": BOT_ID_TEST, "conn": CONN_TEST, "phone": REGISTERED,
              "name": "Contacto Registrado", "body": "Mensaje del registrado"},
         )
 
@@ -51,7 +51,7 @@ async def setup_and_teardown():
         await s.execute(
             text("INSERT INTO messages (connection_id, connection_phone, phone, name, body, outbound) "
                  "VALUES (:eid, :conn, :phone, :name, :body, 0)"),
-            {"eid": EMPRESA_TEST, "conn": CONN_TEST, "phone": UNREGISTERED,
+            {"eid": BOT_ID_TEST, "conn": CONN_TEST, "phone": UNREGISTERED,
              "name": UNREGISTERED, "body": "Mensaje del no registrado"},
         )
         await s.commit()
@@ -63,9 +63,9 @@ async def setup_and_teardown():
         await s.execute(text("DELETE FROM contact_channels WHERE value IN (:r, :u)"),
                         {"r": REGISTERED, "u": UNREGISTERED})
         await s.execute(text("DELETE FROM contacts WHERE connection_id = :eid"),
-                        {"eid": EMPRESA_TEST})
+                        {"eid": BOT_ID_TEST})
         await s.execute(text("DELETE FROM messages WHERE connection_id = :eid"),
-                        {"eid": EMPRESA_TEST})
+                        {"eid": BOT_ID_TEST})
         await s.commit()
 
 
@@ -82,7 +82,7 @@ async def test_sync_all_query_solo_devuelve_contactos_registrados():
                 "JOIN contacts c ON c.id = cc.contact_id "
                 "WHERE c.connection_id = :eid AND cc.type = 'telegram'"
             ),
-            {"eid": EMPRESA_TEST},
+            {"eid": BOT_ID_TEST},
         )).fetchall()
 
     phones = [r[0] for r in rows]
@@ -102,7 +102,7 @@ async def test_messages_query_vieja_devuelve_ambos():
     async with AsyncSessionLocal() as s:
         rows = (await s.execute(
             text("SELECT DISTINCT phone FROM messages WHERE connection_id = :eid AND outbound = 0"),
-            {"eid": EMPRESA_TEST},
+            {"eid": BOT_ID_TEST},
         )).fetchall()
 
     phones = [r[0] for r in rows]

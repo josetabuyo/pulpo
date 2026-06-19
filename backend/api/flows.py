@@ -2,11 +2,11 @@
 API REST de flows (grafos de agente).
 
 GET    /api/flow/node-types                      → catálogo de tipos de nodo (público)
-GET    /api/empresas/{id}/flows                  → lista de flows de la empresa (auth)
-POST   /api/empresas/{id}/flows                  → crear flow (auth)
-GET    /api/empresas/{id}/flows/{flow_id}        → detalle con definition (auth)
-PUT    /api/empresas/{id}/flows/{flow_id}        → actualizar (auth)
-DELETE /api/empresas/{id}/flows/{flow_id}        → eliminar (auth)
+GET    /api/bots/{id}/flows                  → lista de flows de la bot (auth)
+POST   /api/bots/{id}/flows                  → crear flow (auth)
+GET    /api/bots/{id}/flows/{flow_id}        → detalle con definition (auth)
+PUT    /api/bots/{id}/flows/{flow_id}        → actualizar (auth)
+DELETE /api/bots/{id}/flows/{flow_id}        → eliminar (auth)
 """
 import os
 import logging
@@ -19,7 +19,7 @@ _log = logging.getLogger(__name__)
 
 import db
 from config import load_config
-from middleware_auth import get_empresa_id_from_token
+from middleware_auth import get_bot_id_from_token
 from graphs.node_types import NODE_TYPES
 from graphs.nodes import NODE_REGISTRY
 
@@ -29,18 +29,18 @@ _ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin")
 
 # ─── Auth helpers ─────────────────────────────────────────────────────────────
 
-def _require_empresa(empresa_id: str, request: Request, x_password: Optional[str]) -> dict:
+def _require_bot(bot_id: str, request: Request, x_password: Optional[str]) -> dict:
     config = load_config()
-    bot = next((b for b in config.get("empresas", []) if b["id"] == empresa_id), None)
+    bot = next((b for b in config.get("bots", []) if b["id"] == bot_id), None)
     if not bot:
-        raise HTTPException(status_code=404, detail="Empresa no encontrada")
+        raise HTTPException(status_code=404, detail="Bot no encontrada")
     if x_password and x_password == _ADMIN_PASSWORD:
         return bot
-    token_empresa_id = get_empresa_id_from_token(request)
-    if not token_empresa_id:
+    token_bot_id = get_bot_id_from_token(request)
+    if not token_bot_id:
         raise HTTPException(status_code=401, detail="Token requerido o inválido")
-    if token_empresa_id != empresa_id:
-        raise HTTPException(status_code=403, detail="No autorizado para esta empresa")
+    if token_bot_id != bot_id:
+        raise HTTPException(status_code=403, detail="No autorizado para esta bot")
     return bot
 
 
@@ -133,27 +133,27 @@ def clear_sheet_cache():
 
 # ─── Endpoints de flows CRUD ──────────────────────────────────────────────────
 
-@router.get("/empresas/{empresa_id}/flows")
+@router.get("/bots/{bot_id}/flows")
 async def list_flows(
-    empresa_id: str,
+    bot_id: str,
     request: Request,
     x_password: Optional[str] = Header(None),
 ):
-    _require_empresa(empresa_id, request, x_password)
-    return await db.get_flows(empresa_id)
+    _require_bot(bot_id, request, x_password)
+    return await db.get_flows(bot_id)
 
 
-@router.post("/empresas/{empresa_id}/flows", status_code=201)
+@router.post("/bots/{bot_id}/flows", status_code=201)
 async def create_flow(
-    empresa_id: str,
+    bot_id: str,
     body: FlowIn,
     request: Request,
     x_password: Optional[str] = Header(None),
 ):
-    _require_empresa(empresa_id, request, x_password)
+    _require_bot(bot_id, request, x_password)
     try:
         flow_id = await db.create_flow(
-            empresa_id=empresa_id,
+            bot_id=bot_id,
             name=body.name,
             definition=body.definition,
             connection_id=body.connection_id,
@@ -164,31 +164,31 @@ async def create_flow(
     return await db.get_flow(flow_id)
 
 
-@router.get("/empresas/{empresa_id}/flows/{flow_id}")
+@router.get("/bots/{bot_id}/flows/{flow_id}")
 async def get_flow(
-    empresa_id: str,
+    bot_id: str,
     flow_id: str,
     request: Request,
     x_password: Optional[str] = Header(None),
 ):
-    _require_empresa(empresa_id, request, x_password)
+    _require_bot(bot_id, request, x_password)
     flow = await db.get_flow(flow_id)
-    if not flow or flow["empresa_id"] != empresa_id:
+    if not flow or flow["bot_id"] != bot_id:
         raise HTTPException(status_code=404, detail="Flow no encontrado")
     return flow
 
 
-@router.put("/empresas/{empresa_id}/flows/{flow_id}")
+@router.put("/bots/{bot_id}/flows/{flow_id}")
 async def update_flow(
-    empresa_id: str,
+    bot_id: str,
     flow_id: str,
     body: FlowUpdate,
     request: Request,
     x_password: Optional[str] = Header(None),
 ):
-    _require_empresa(empresa_id, request, x_password)
+    _require_bot(bot_id, request, x_password)
     flow = await db.get_flow(flow_id)
-    if not flow or flow["empresa_id"] != empresa_id:
+    if not flow or flow["bot_id"] != bot_id:
         raise HTTPException(status_code=404, detail="Flow no encontrado")
     updates = body.model_dump(exclude_none=True)
 
@@ -212,22 +212,22 @@ async def update_flow(
     return await db.get_flow(flow_id)
 
 
-@router.get("/empresas/{empresa_id}/flows/has-node/{node_type}")
+@router.get("/bots/{bot_id}/flows/has-node/{node_type}")
 async def has_node_type(
-    empresa_id: str,
+    bot_id: str,
     node_type: str,
     request: Request,
     x_password: Optional[str] = Header(None),
 ):
-    """Devuelve {found: bool} indicando si algún flow de la empresa contiene el tipo de nodo."""
-    _require_empresa(empresa_id, request, x_password)
-    found = await db.empresa_has_node_type(empresa_id, node_type)
+    """Devuelve {found: bool} indicando si algún flow de la bot contiene el tipo de nodo."""
+    _require_bot(bot_id, request, x_password)
+    found = await db.bot_has_node_type(bot_id, node_type)
     return {"found": found}
 
 
-@router.post("/empresas/{empresa_id}/flows/{flow_id}/replay")
+@router.post("/bots/{bot_id}/flows/{flow_id}/replay")
 async def replay_flow(
-    empresa_id: str,
+    bot_id: str,
     flow_id: str,
     request: Request,
     x_password: Optional[str] = Header(None),
@@ -240,9 +240,9 @@ async def replay_flow(
     from_date (YYYY-MM-DD): si se pasa, solo procesa mensajes desde esa fecha.
     Solo aplica a flows con trigger whatsapp_trigger o telegram_trigger.
     """
-    _require_empresa(empresa_id, request, x_password)
+    _require_bot(bot_id, request, x_password)
     flow = await db.get_flow(flow_id)
-    if not flow or flow["empresa_id"] != empresa_id:
+    if not flow or flow["bot_id"] != bot_id:
         raise HTTPException(status_code=404, detail="Flow no encontrado")
 
     # Encontrar el nodo trigger y su connection_id
@@ -287,7 +287,7 @@ async def replay_flow(
                     f"WHERE connection_id = :eid AND outbound = 0{date_filter} "
                     f"ORDER BY timestamp ASC"
                 ),
-                {"eid": empresa_id, **date_params},
+                {"eid": bot_id, **date_params},
             )).fetchall()
 
     if not rows:
@@ -316,7 +316,7 @@ async def replay_flow(
             message_type="text",
             connection_id=connection_id,
             canal=canal,
-            empresa_id=empresa_id,
+            bot_id=bot_id,
             contact_phone=phone,
             contact_name=name or phone,
             from_delta_sync=True,
@@ -328,30 +328,30 @@ async def replay_flow(
     return {"processed": processed, "skipped": skipped}
 
 
-@router.delete("/empresas/{empresa_id}/flows/{flow_id}", status_code=204)
+@router.delete("/bots/{bot_id}/flows/{flow_id}", status_code=204)
 async def delete_flow(
-    empresa_id: str,
+    bot_id: str,
     flow_id: str,
     request: Request,
     x_password: Optional[str] = Header(None),
 ):
-    _require_empresa(empresa_id, request, x_password)
+    _require_bot(bot_id, request, x_password)
     flow = await db.get_flow(flow_id)
-    if not flow or flow["empresa_id"] != empresa_id:
+    if not flow or flow["bot_id"] != bot_id:
         raise HTTPException(status_code=404, detail="Flow no encontrado")
     await db.delete_flow(flow_id)
     return Response(status_code=204)
 
 
-@router.get("/empresas/{empresa_id}/google-accounts")
+@router.get("/bots/{bot_id}/google-accounts")
 async def list_google_accounts(
-    empresa_id: str,
+    bot_id: str,
     request: Request,
     x_password: Optional[str] = Header(None),
 ):
-    """Lista las cuentas Google disponibles para la empresa (propias + pulpo-default)."""
-    _require_empresa(empresa_id, request, x_password)
-    conns = await db.get_google_connections(empresa_id)
+    """Lista las cuentas Google disponibles para la bot (propias + pulpo-default)."""
+    _require_bot(bot_id, request, x_password)
+    conns = await db.get_google_connections(bot_id)
     return [{"id": c["id"], "email": c["email"], "label": c["label"]} for c in conns]
 
 

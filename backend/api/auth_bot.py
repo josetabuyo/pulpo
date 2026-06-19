@@ -1,4 +1,4 @@
-"""Endpoints JWT para el portal de empresa."""
+"""Endpoints JWT para el portal de bot."""
 import os
 from datetime import timedelta
 
@@ -26,10 +26,10 @@ COOKIE_MAX_AGE = REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600  # segundos
 
 
 def _find_bot_by_id(config: dict, bot_id: str):
-    return next((b for b in config.get("empresas", []) if b["id"] == bot_id), None)
+    return next((b for b in config.get("bots", []) if b["id"] == bot_id), None)
 
 
-class EmpresaLoginBody(BaseModel):
+class BotLoginBody(BaseModel):
     bot_id: str
     password: str
 
@@ -37,9 +37,9 @@ class EmpresaLoginBody(BaseModel):
 _LOGIN_RATE = os.environ.get("LOGIN_RATE_LIMIT", "10/hour")
 
 
-@router.post("/empresa/login")
+@router.post("/bot/login")
 @limiter.limit(_LOGIN_RATE)
-async def empresa_login(request: Request, response: Response, body: EmpresaLoginBody):
+async def bot_login(request: Request, response: Response, body: BotLoginBody):
     config = load_config()
     bot = _find_bot_by_id(config, body.bot_id)
     if not bot or not check_password(body.password, bot.get("password", "")):
@@ -61,8 +61,8 @@ async def empresa_login(request: Request, response: Response, body: EmpresaLogin
     return {"access_token": access_token, "token_type": "bearer", "bot_id": body.bot_id}
 
 
-@router.post("/empresa/refresh")
-async def empresa_refresh(request: Request, response: Response):
+@router.post("/bot/refresh")
+async def bot_refresh(request: Request, response: Response):
     token = request.cookies.get(COOKIE_NAME)
     if not token:
         raise HTTPException(status_code=401, detail="Sin refresh token")
@@ -75,8 +75,8 @@ async def empresa_refresh(request: Request, response: Response):
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@router.post("/empresa/logout")
-async def empresa_logout(request: Request, response: Response):
+@router.post("/bot/logout")
+async def bot_logout(request: Request, response: Response):
     token = request.cookies.get(COOKIE_NAME)
     if token:
         await revoke_session(token)
@@ -85,16 +85,16 @@ async def empresa_logout(request: Request, response: Response):
     return {"ok": True}
 
 
-@router.get("/empresa/me")
-async def empresa_me(request: Request):
-    from middleware_auth import get_empresa_id_from_token
-    empresa_id = get_empresa_id_from_token(request)
-    if not empresa_id:
+@router.get("/bot/me")
+async def bot_me(request: Request):
+    from middleware_auth import get_bot_id_from_token
+    bot_id = get_bot_id_from_token(request)
+    if not bot_id:
         raise HTTPException(status_code=401, detail="Token requerido")
 
     config = load_config()
-    bot = _find_bot_by_id(config, empresa_id)
+    bot = _find_bot_by_id(config, bot_id)
     if not bot:
-        raise HTTPException(status_code=404, detail="Empresa no encontrada")
+        raise HTTPException(status_code=404, detail="Bot no encontrada")
 
     return {"bot_id": bot["id"], "nombre": bot["name"]}

@@ -11,7 +11,7 @@
 ## Estructura de archivos objetivo
 
 ```
-data/summaries/{empresa_id}/
+data/summaries/{bot_id}/
   {contact-slug}/          ← una carpeta por contacto
     chat.md                ← historial completo en texto
     fabian-miranda.jpg     ← imágenes descargadas
@@ -56,10 +56,10 @@ Los pasos 1-5 no cambian.
 
 ### Backend — `graphs/nodes/summarize.py`
 - [ ] `slugify(name: str) -> str`
-- [ ] `_path(empresa_id, contact_slug)` → apunta a `{slug}/chat.md`
+- [ ] `_path(bot_id, contact_slug)` → apunta a `{slug}/chat.md`
 - [ ] `get_attachments_dir` → devuelve `{slug}/` (misma carpeta que el md)
 - [ ] `_newest_message_ts` → lee de `chat.md`
-- [ ] `trim_contact_to_date(empresa_id, slug, cutoff_dt)`:
+- [ ] `trim_contact_to_date(bot_id, slug, cutoff_dt)`:
       - Backup de `chat.md` → `chat.bak.md`
       - Reescribe `chat.md` conservando solo entradas con `ts < cutoff_dt`
       - DELETE en DB: `timestamp >= cutoff_dt` para ese contacto
@@ -71,10 +71,10 @@ Los pasos 1-5 no cambian.
 - [ ] Retry en captura de blob de audio (3 intentos antes de marcar sin blob)
 
 ### Backend — `api/summarizer.py`
-- [ ] `POST /summarizer/{empresa_id}/{contact_slug}/full-resync?from_date=YYYY-MM-DD`
+- [ ] `POST /summarizer/{bot_id}/{contact_slug}/full-resync?from_date=YYYY-MM-DD`
       → trim → delta sync v2
 - [ ] Endpoints existentes adaptar a slug en vez de contact_phone
-- [ ] `GET /summarizer/{empresa_id}` → lista carpetas (slugs + nombre real)
+- [ ] `GET /summarizer/{bot_id}` → lista carpetas (slugs + nombre real)
 
 ### Backend — `api/whatsapp.py`
 - [ ] Delta sync periódico: integrar en el polling loop del trigger

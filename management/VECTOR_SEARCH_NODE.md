@@ -73,7 +73,7 @@ Igual a `text` si `output_field` es "context"
 El nodo:
 1. Lee el mensaje del usuario (`state.message`)
 2. Interpola placeholders si existen
-3. Llama al handler `luganense_oficios(query, 3, empresa_id)`
+3. Llama al handler `luganense_oficios(query, 3, bot_id)`
 4. Escribe en `state.vars`: `oficio`, `worker`, `nombre`, `telefono`, `text`
 5. Escribe en `state.context` el JSON serializado
 
@@ -125,7 +125,7 @@ context: JSON con oficio="electricista", worker={...}
 from . import register_collection
 
 @register_collection("tu_coleccion")
-async def handler_tu_coleccion(query: str, top_k: int, empresa_id: str) -> dict:
+async def handler_tu_coleccion(query: str, top_k: int, bot_id: str) -> dict:
     """
     Busca en tu colección.
 
@@ -134,7 +134,7 @@ async def handler_tu_coleccion(query: str, top_k: int, empresa_id: str) -> dict:
         Una de ellas será "text" (el texto principal a mostrar).
     """
     # Tu lógica de búsqueda
-    resultado = buscar(query, empresa_id)
+    resultado = buscar(query, bot_id)
     return {
         "nombre": resultado.nombre,
         "score": resultado.score,
@@ -150,7 +150,7 @@ register_handlers_tu_coleccion()
 
 1. El nodo `vector_search` recibe configuración con `collection: "tu_coleccion"`
 2. Llama a `get_handler("tu_coleccion")` que busca en `COLLECTION_REGISTRY`
-3. Si existe, la llama con `(query, top_k, empresa_id)`
+3. Si existe, la llama con `(query, top_k, bot_id)`
 4. El handler retorna un `dict`
 5. El nodo escribe todas las keys en `state.vars`
 6. El nodo escribe `dict.get("text")` o serializa el dict en `state.context` o `state.query`
@@ -173,7 +173,7 @@ El nodo interpola placeholders en el query usando `interpolate()`:
 {{contact_name}}  — nombre del contacto
 {{contact_phone}} — teléfono del contacto
 {{bot_name}}      — nombre del bot
-{{empresa_id}}    — ID de la empresa
+{{bot_id}}    — ID de la bot
 {{canal}}         — "whatsapp" | "telegram"
 ```
 

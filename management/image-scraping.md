@@ -119,7 +119,7 @@ elif _is_image:
     img_path = await self._download_image_blob(page, name, session_id)
     if img_path:
         summarizer_mod.accumulate(
-            empresa_id=s_tool["empresa_id"],
+            bot_id=s_tool["bot_id"],
             contact_phone=sender,
             contact_name=name,
             msg_type="image",
@@ -128,7 +128,7 @@ elif _is_image:
         )
     else:
         summarizer_mod.accumulate(
-            empresa_id=s_tool["empresa_id"],
+            bot_id=s_tool["bot_id"],
             contact_phone=sender,
             contact_name=name,
             msg_type="image",
@@ -234,7 +234,7 @@ raw_msgs = raw_msgs_text + raw_msgs_audio + raw_msgs_docs + raw_msgs_images
 
 ## Almacenamiento de imágenes
 
-Las imágenes descargadas van a `data/summaries/{empresa_id}/attachments/{phone}/img_{ts}.jpg`.
+Las imágenes descargadas van a `data/summaries/{bot_id}/attachments/{phone}/img_{ts}.jpg`.
 
 `summarizer.py` ya tiene `get_attachments_dir()` — confirmar que funciona para imágenes también.
 

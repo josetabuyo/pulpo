@@ -3,7 +3,7 @@ Tests de la API de contactos y lógica de canales.
 Requiere servidor corriendo (BACKEND_PORT en .env).
 """
 import time
-from conftest import get_empresa_token
+from conftest import get_bot_token
 
 BOT_ID  = "bot_test"
 BOT_PWD = "bot_test"
@@ -17,14 +17,14 @@ def _uniq_phone(base="549100"):
 # ─── CRUD contactos ───────────────────────────────────────────────
 
 def test_list_contacts_empty(client):
-    auth = get_empresa_token(BOT_ID, BOT_PWD, client)
+    auth = get_bot_token(BOT_ID, BOT_PWD, client)
     r = client.get(f"/api/bots/{BOT_ID}/contacts", headers=auth)
     assert r.status_code == 200
     assert isinstance(r.json(), list)
 
 
 def test_create_contact(client):
-    auth = get_empresa_token(BOT_ID, BOT_PWD, client)
+    auth = get_bot_token(BOT_ID, BOT_PWD, client)
     r = client.post(f"/api/bots/{BOT_ID}/contacts",
                     json={"name": "Test Contact", "channels": []},
                     headers=auth)
@@ -38,7 +38,7 @@ def test_create_contact(client):
 
 
 def test_create_contact_with_channels(client):
-    auth = get_empresa_token(BOT_ID, BOT_PWD, client)
+    auth = get_bot_token(BOT_ID, BOT_PWD, client)
     r = client.post(f"/api/bots/{BOT_ID}/contacts", json={
         "name": "Con Canales",
         "channels": [{"type": "telegram", "value": "@testcanal"}],
@@ -52,7 +52,7 @@ def test_create_contact_with_channels(client):
 
 
 def test_get_contact(client):
-    auth = get_empresa_token(BOT_ID, BOT_PWD, client)
+    auth = get_bot_token(BOT_ID, BOT_PWD, client)
     create = client.post(f"/api/bots/{BOT_ID}/contacts", json={"name": "Get Test"}, headers=auth).json()
     r = client.get(f"/api/contacts/{create['id']}", headers=auth)
     assert r.status_code == 200
@@ -61,7 +61,7 @@ def test_get_contact(client):
 
 
 def test_update_contact(client):
-    auth = get_empresa_token(BOT_ID, BOT_PWD, client)
+    auth = get_bot_token(BOT_ID, BOT_PWD, client)
     create = client.post(f"/api/bots/{BOT_ID}/contacts", json={"name": "Old Name"}, headers=auth).json()
     r = client.put(f"/api/contacts/{create['id']}", json={"name": "New Name"}, headers=auth)
     assert r.status_code == 200
@@ -70,7 +70,7 @@ def test_update_contact(client):
 
 
 def test_delete_contact(client):
-    auth = get_empresa_token(BOT_ID, BOT_PWD, client)
+    auth = get_bot_token(BOT_ID, BOT_PWD, client)
     create = client.post(f"/api/bots/{BOT_ID}/contacts", json={"name": "Delete Me"}, headers=auth).json()
     r = client.delete(f"/api/contacts/{create['id']}", headers=auth)
     assert r.status_code == 204
@@ -79,7 +79,7 @@ def test_delete_contact(client):
 
 
 def test_contact_not_found(client):
-    auth = get_empresa_token(BOT_ID, BOT_PWD, client)
+    auth = get_bot_token(BOT_ID, BOT_PWD, client)
     r = client.get("/api/contacts/999999", headers=auth)
     assert r.status_code == 404
 
@@ -87,7 +87,7 @@ def test_contact_not_found(client):
 # ─── Canales ──────────────────────────────────────────────────────
 
 def test_add_and_delete_channel(client):
-    auth = get_empresa_token(BOT_ID, BOT_PWD, client)
+    auth = get_bot_token(BOT_ID, BOT_PWD, client)
     c = client.post(f"/api/bots/{BOT_ID}/contacts", json={"name": "Channel Test"}, headers=auth).json()
     # Agregar canal
     r = client.post(f"/api/contacts/{c['id']}/channels",
@@ -107,7 +107,7 @@ def test_add_and_delete_channel(client):
 
 def test_channel_uniqueness(client):
     """Un mismo (type, value) no puede estar en dos contactos."""
-    auth = get_empresa_token(BOT_ID, BOT_PWD, client)
+    auth = get_bot_token(BOT_ID, BOT_PWD, client)
     import time as _time
     tg_value = f"@user{int(_time.time() * 1000) % 10_000_000}"
     c1 = client.post(f"/api/bots/{BOT_ID}/contacts", json={"name": "C1"}, headers=auth).json()
@@ -125,7 +125,7 @@ def test_channel_uniqueness(client):
 
 def test_channel_validation_telegram(client):
     """Telegram rechaza valores que no sean @username ni ID numérico."""
-    auth = get_empresa_token(BOT_ID, BOT_PWD, client)
+    auth = get_bot_token(BOT_ID, BOT_PWD, client)
     c = client.post(f"/api/bots/{BOT_ID}/contacts", json={"name": "Val Test"}, headers=auth).json()
     r = client.post(f"/api/contacts/{c['id']}/channels",
                     json={"type": "telegram", "value": "nombre invalido"}, headers=auth)
@@ -136,7 +136,7 @@ def test_channel_validation_telegram(client):
 # ─── find_contact_by_channel (vía list) ─────────────────────────
 
 def test_list_contacts_includes_channels(client):
-    auth = get_empresa_token(BOT_ID, BOT_PWD, client)
+    auth = get_bot_token(BOT_ID, BOT_PWD, client)
     c = client.post(f"/api/bots/{BOT_ID}/contacts", json={
         "name": "Lista Test",
         "channels": [{"type": "telegram", "value": "@listatest"}],

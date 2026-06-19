@@ -15,10 +15,10 @@ Tests de seguridad anti-spam — nuevas protecciones.
      - Config sin cooldown_hours (flow viejo, campo no guardado) → usa default 0 → sin cooldown
        (el fix real está en el frontend: dbNodeToRF mezcla DEFAULT_CONFIGS)
 
-  3. Pausa por empresa (paused.py)
+  3. Pausa por bot (paused.py)
      - pause() → is_paused() True
      - resume() → is_paused() False
-     - run_flows con empresa pausada → reply None, flow se ejecutó igual
+     - run_flows con bot pausada → reply None, flow se ejecutó igual
 
 Tests unitarios puros — no requieren servidor corriendo.
 """
@@ -189,7 +189,7 @@ ENV_PATCHES = {
     "DISABLE_AUTO_REPLY_PHONES": "",
 }
 
-CONFIG_MOCK = {"empresas": [{"id": "empresa_test", "name": "Test"}]}
+CONFIG_MOCK = {"bots": [{"id": "bot_test", "name": "Test"}]}
 
 
 # ─── 2. Cooldown (telegram_trigger) ──────────────────────────────────────────
@@ -197,7 +197,7 @@ CONFIG_MOCK = {"empresas": [{"id": "empresa_test", "name": "Test"}]}
 @pytest.mark.asyncio
 async def test_cooldown_tg_primer_mensaje_pasa():
     """Primer mensaje de un contacto → reply pasa y cooldown se registra."""
-    bot_id = "empresa_test-tg-12345"
+    bot_id = "bot_test-tg-12345"
     contact = "9876543"
     flow = _tg_flow_with_cooldown(bot_id, cooldown_hours=4.0)
     state = _tg_state(contact, bot_id)
@@ -206,7 +206,7 @@ async def test_cooldown_tg_primer_mensaje_pasa():
     flow_cooldown.clear()
 
     with patch.dict(os.environ, ENV_PATCHES), \
-         patch("config.get_empresas_for_connection", return_value=["empresa_test"]), \
+         patch("config.get_bots_for_connection", return_value=["bot_test"]), \
          patch("config.load_config", return_value=CONFIG_MOCK), \
          patch("graphs.compiler.resolve_flows", new_callable=AsyncMock, return_value=[flow]), \
          patch("paused.is_paused", return_value=False):
@@ -220,7 +220,7 @@ async def test_cooldown_tg_primer_mensaje_pasa():
 async def test_cooldown_tg_segundo_mensaje_bloqueado():
     """Segundo mensaje dentro del cooldown → reply bloqueado."""
     import time
-    bot_id = "empresa_test-tg-12345"
+    bot_id = "bot_test-tg-12345"
     contact = "9876543"
     flow = _tg_flow_with_cooldown(bot_id, cooldown_hours=4.0)
 
@@ -230,7 +230,7 @@ async def test_cooldown_tg_segundo_mensaje_bloqueado():
     state = _tg_state(contact, bot_id)
 
     with patch.dict(os.environ, ENV_PATCHES), \
-         patch("config.get_empresas_for_connection", return_value=["empresa_test"]), \
+         patch("config.get_bots_for_connection", return_value=["bot_test"]), \
          patch("config.load_config", return_value=CONFIG_MOCK), \
          patch("graphs.compiler.resolve_flows", new_callable=AsyncMock, return_value=[flow]), \
          patch("paused.is_paused", return_value=False):
@@ -243,7 +243,7 @@ async def test_cooldown_tg_segundo_mensaje_bloqueado():
 async def test_cooldown_tg_otro_contacto_no_afectado():
     """Cooldown de un contacto no bloquea a otro contacto distinto."""
     import time
-    bot_id = "empresa_test-tg-12345"
+    bot_id = "bot_test-tg-12345"
     contact_a = "111111"
     contact_b = "222222"
     flow = _tg_flow_with_cooldown(bot_id, cooldown_hours=4.0)
@@ -255,7 +255,7 @@ async def test_cooldown_tg_otro_contacto_no_afectado():
     state_b = _tg_state(contact_b, bot_id)
 
     with patch.dict(os.environ, ENV_PATCHES), \
-         patch("config.get_empresas_for_connection", return_value=["empresa_test"]), \
+         patch("config.get_bots_for_connection", return_value=["bot_test"]), \
          patch("config.load_config", return_value=CONFIG_MOCK), \
          patch("graphs.compiler.resolve_flows", new_callable=AsyncMock, return_value=[flow]), \
          patch("paused.is_paused", return_value=False):
@@ -272,7 +272,7 @@ async def test_cooldown_tg_sin_campo_usa_default_schema():
     Esto evita que flows viejos queden sin cooldown silenciosamente.
     """
     import time
-    bot_id = "empresa_test-tg-12345"
+    bot_id = "bot_test-tg-12345"
     contact = "9876543"
     # Flow sin cooldown_hours en el trigger config (simula flow creado antes del campo)
     flow = _tg_flow_with_cooldown(bot_id, cooldown_hours=0, include_cooldown_key=False)
@@ -283,7 +283,7 @@ async def test_cooldown_tg_sin_campo_usa_default_schema():
     state = _tg_state(contact, bot_id)
 
     with patch.dict(os.environ, ENV_PATCHES), \
-         patch("config.get_empresas_for_connection", return_value=["empresa_test"]), \
+         patch("config.get_bots_for_connection", return_value=["bot_test"]), \
          patch("config.load_config", return_value=CONFIG_MOCK), \
          patch("graphs.compiler.resolve_flows", new_callable=AsyncMock, return_value=[flow]), \
          patch("paused.is_paused", return_value=False):
@@ -302,8 +302,8 @@ async def test_run_flows_bloquea_mensaje_viejo():
     state = _state_with_ts(hours_old=3.0, connection_id=bot_id)
 
     with patch.dict(os.environ, {"DISABLE_AUTO_REPLY": "false", "DISABLE_AUTO_REPLY_PHONES": ""}), \
-         patch("config.get_empresas_for_connection", return_value=["empresa_test"]), \
-         patch("config.load_config", return_value={"empresas": [{"id": "empresa_test", "name": "Test"}]}), \
+         patch("config.get_bots_for_connection", return_value=["bot_test"]), \
+         patch("config.load_config", return_value={"bots": [{"id": "bot_test", "name": "Test"}]}), \
          patch("graphs.compiler.resolve_flows", new_callable=AsyncMock, return_value=[flow]), \
          patch("paused.is_paused", return_value=False):
         result = await run_flows(state, connection_id=bot_id)
@@ -319,8 +319,8 @@ async def test_run_flows_permite_mensaje_reciente():
     state = _state_with_ts(hours_old=0.1, connection_id=bot_id)
 
     with patch.dict(os.environ, {"DISABLE_AUTO_REPLY": "false", "DISABLE_AUTO_REPLY_PHONES": ""}), \
-         patch("config.get_empresas_for_connection", return_value=["empresa_test"]), \
-         patch("config.load_config", return_value={"empresas": [{"id": "empresa_test", "name": "Test"}]}), \
+         patch("config.get_bots_for_connection", return_value=["bot_test"]), \
+         patch("config.load_config", return_value={"bots": [{"id": "bot_test", "name": "Test"}]}), \
          patch("graphs.compiler.resolve_flows", new_callable=AsyncMock, return_value=[flow]), \
          patch("paused.is_paused", return_value=False):
         result = await run_flows(state, connection_id=bot_id)
@@ -328,7 +328,7 @@ async def test_run_flows_permite_mensaje_reciente():
     assert result.reply == "Respuesta automática", "Mensaje reciente debe pasar en run_flows"
 
 
-# ─── 3. Pausa por empresa ─────────────────────────────────────────────────────
+# ─── 3. Pausa por bot ─────────────────────────────────────────────────────
 
 def test_pause_sets_is_paused(tmp_path):
     """pause() hace que is_paused() retorne True."""
@@ -337,9 +337,9 @@ def test_pause_sets_is_paused(tmp_path):
     paused._FILE = tmp_path / "paused_bots.json"
     paused._paused = set()
     try:
-        assert not paused.is_paused("empresa_x")
-        paused.pause("empresa_x")
-        assert paused.is_paused("empresa_x")
+        assert not paused.is_paused("bot_x")
+        paused.pause("bot_x")
+        assert paused.is_paused("bot_x")
     finally:
         paused._FILE = original_file
         paused._paused = set()
@@ -350,11 +350,11 @@ def test_resume_clears_is_paused(tmp_path):
     import paused
     original_file = paused._FILE
     paused._FILE = tmp_path / "paused_bots.json"
-    paused._paused = {"empresa_x"}
+    paused._paused = {"bot_x"}
     try:
-        assert paused.is_paused("empresa_x")
-        paused.resume("empresa_x")
-        assert not paused.is_paused("empresa_x")
+        assert paused.is_paused("bot_x")
+        paused.resume("bot_x")
+        assert not paused.is_paused("bot_x")
     finally:
         paused._FILE = original_file
         paused._paused = set()
@@ -365,49 +365,49 @@ def test_pause_persiste_en_disco(tmp_path):
     import paused, json
     paused._FILE = tmp_path / "paused_bots.json"
     paused._paused = set()
-    paused.pause("empresa_y")
+    paused.pause("bot_y")
 
     data = json.loads(paused._FILE.read_text())
-    assert "empresa_y" in data["paused"]
+    assert "bot_y" in data["paused"]
 
     # Simular reinicio
     paused._paused = set()
     paused._load()
-    assert paused.is_paused("empresa_y")
+    assert paused.is_paused("bot_y")
 
     # Cleanup
     paused._paused = set()
 
 
 @pytest.mark.asyncio
-async def test_run_flows_empresa_pausada_no_responde():
-    """Empresa pausada → run_flows retorna reply=None."""
+async def test_run_flows_bot_pausada_no_responde():
+    """Bot pausada → run_flows retorna reply=None."""
     bot_id = "5491171876959"
     flow = _flow_with_send(bot_id, max_age=0)  # sin límite de edad
     state = _state_with_ts(hours_old=None, connection_id=bot_id)
 
     with patch.dict(os.environ, {"DISABLE_AUTO_REPLY": "false", "DISABLE_AUTO_REPLY_PHONES": ""}), \
-         patch("config.get_empresas_for_connection", return_value=["empresa_test"]), \
-         patch("config.load_config", return_value={"empresas": [{"id": "empresa_test", "name": "Test"}]}), \
+         patch("config.get_bots_for_connection", return_value=["bot_test"]), \
+         patch("config.load_config", return_value={"bots": [{"id": "bot_test", "name": "Test"}]}), \
          patch("graphs.compiler.resolve_flows", new_callable=AsyncMock, return_value=[flow]), \
          patch("paused.is_paused", return_value=True):
         result = await run_flows(state, connection_id=bot_id)
 
-    assert result.reply is None, "Empresa pausada debe retornar reply=None"
+    assert result.reply is None, "Bot pausada debe retornar reply=None"
 
 
 @pytest.mark.asyncio
-async def test_run_flows_empresa_reanudada_responde():
-    """Empresa NO pausada → reply pasa normalmente."""
+async def test_run_flows_bot_reanudada_responde():
+    """Bot NO pausada → reply pasa normalmente."""
     bot_id = "5491171876959"
     flow = _flow_with_send(bot_id, max_age=0)
     state = _state_with_ts(hours_old=None, connection_id=bot_id)
 
     with patch.dict(os.environ, {"DISABLE_AUTO_REPLY": "false", "DISABLE_AUTO_REPLY_PHONES": ""}), \
-         patch("config.get_empresas_for_connection", return_value=["empresa_test"]), \
-         patch("config.load_config", return_value={"empresas": [{"id": "empresa_test", "name": "Test"}]}), \
+         patch("config.get_bots_for_connection", return_value=["bot_test"]), \
+         patch("config.load_config", return_value={"bots": [{"id": "bot_test", "name": "Test"}]}), \
          patch("graphs.compiler.resolve_flows", new_callable=AsyncMock, return_value=[flow]), \
          patch("paused.is_paused", return_value=False):
         result = await run_flows(state, connection_id=bot_id)
 
-    assert result.reply == "Respuesta automática", "Empresa activa debe responder"
+    assert result.reply == "Respuesta automática", "Bot activa debe responder"

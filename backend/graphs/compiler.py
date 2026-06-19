@@ -2,7 +2,7 @@
 Flow Engine — el motor que ejecuta flows.
 
 Responsabilidades:
-  - resolve_flows(): encuentra los flows activos de una empresa
+  - resolve_flows(): encuentra los flows activos de una bot
   - execute_flow(): corre los nodos de un flow en BFS desde su trigger
   - run_flows(): orquesta ambos y devuelve el FlowState con reply
 
@@ -160,9 +160,9 @@ async def execute_flow(flow: dict, state: FlowState) -> FlowState:
     return await _run_bfs(entry_id, node_by_id, graph, state)
 
 
-async def resolve_flows(empresa_id: str) -> list[dict]:
+async def resolve_flows(bot_id: str) -> list[dict]:
     """
-    Retorna todos los flows activos de la empresa.
+    Retorna todos los flows activos de la bot.
     El filtrado por connection_id y contact_phone lo hace execute_flow().
     """
     import db
@@ -170,13 +170,13 @@ async def resolve_flows(empresa_id: str) -> list[dict]:
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(
             db.text("""
-                SELECT id, empresa_id, name, definition, connection_id, contact_phone, active, created_at, updated_at, contact_filter
+                SELECT id, bot_id, name, definition, connection_id, contact_phone, active, created_at, updated_at, contact_filter
                 FROM flows
-                WHERE empresa_id = :empresa_id
+                WHERE bot_id = :bot_id
                   AND active = 1
                 ORDER BY created_at
             """),
-            {"empresa_id": empresa_id},
+            {"bot_id": bot_id},
         )).fetchall()
     return [db._flow_row_to_dict(r, include_definition=True) for r in rows]
 
@@ -187,7 +187,7 @@ def _reply_disabled(connection_id: str) -> bool:
     DISABLE_AUTO_REPLY=true → nadie manda nada.
     DISABLE_AUTO_REPLY_PHONES=num1,num2 → esas conexiones no mandan nada.
     Solo se chequea connection_id (el bot que envía), nunca contact_phone:
-    un teléfono puede ser conexión en una empresa y contacto en otra —
+    un teléfono puede ser conexión en una bot y contacto en otra —
     no se deben mezclar roles.
     """
     global_off = os.getenv("DISABLE_AUTO_REPLY", "false").lower() == "true"
@@ -216,19 +216,19 @@ async def run_flows(
     """
     Punto de entrada principal para los adapters.
 
-    1. Encuentra las empresas dueñas de este connection_id
-    2. Para cada empresa: resuelve sus flows activos y los ejecuta
+    1. Encuentra las bots dueñas de este connection_id
+    2. Para cada bot: resuelve sus flows activos y los ejecuta
     3. Primer reply no-None gana; todos los nodos sin reply (ej: SummarizeNode) corren igual
 
     Retorna el FlowState con reply si algún nodo lo produjo.
     """
-    from config import get_empresas_for_connection, load_config
+    from config import get_bots_for_connection, load_config
     from paused import is_paused
 
-    empresa_ids = get_empresas_for_connection(connection_id)
-    logger.debug("[engine] run_flows: connection=%s contact=%s empresas=%s",
-                 connection_id, state.contact_phone, empresa_ids)
-    if not empresa_ids:
+    bot_ids = get_bots_for_connection(connection_id)
+    logger.debug("[engine] run_flows: connection=%s contact=%s bots=%s",
+                 connection_id, state.contact_phone, bot_ids)
+    if not bot_ids:
         return state
 
     # Asegurar que state.connection_id esté seteado para que execute_flow pueda filtrar
@@ -237,25 +237,25 @@ async def run_flows(
 
     disable_reply = _reply_disabled(connection_id)
 
-    for empresa_id in empresa_ids:
-        state.empresa_id = empresa_id
+    for bot_id in bot_ids:
+        state.bot_id = bot_id
 
         config = load_config()
-        empresa_entry = next((e for e in config.get("empresas", []) if e["id"] == empresa_id), {})
+        bot_entry = next((e for e in config.get("bots", []) if e["id"] == bot_id), {})
         if not state.bot_name:
-            state.bot_name = empresa_entry.get("name", empresa_id)
+            state.bot_name = bot_entry.get("name", bot_id)
 
-        flows = await resolve_flows(empresa_id)
+        flows = await resolve_flows(bot_id)
 
         # Bot pausado — la conexión sigue viva pero no genera replies.
         # Se ejecuta igual sobre una copia para que summarize y otros
         # efectos de lado sigan funcionando.
-        if is_paused(empresa_id):
-            logger.info("[engine] Bot pausado: %s — flows ejecutados sin reply", empresa_id)
+        if is_paused(bot_id):
+            logger.info("[engine] Bot pausado: %s — flows ejecutados sin reply", bot_id)
             state_copy = FlowState(**{f: getattr(state, f) for f in state.__dataclass_fields__})
             state_copy.from_delta_sync = True  # bloquea replies en todos los nodos
             for flow in flows:
-                state_copy.empresa_id = empresa_id
+                state_copy.bot_id = bot_id
                 state_copy.bot_name = state.bot_name
                 await execute_flow(flow, state_copy)
             continue

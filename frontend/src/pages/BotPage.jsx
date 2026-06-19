@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import { authFetch, setAccessToken, clearAccessToken, getAccessToken } from '../lib/auth.js'
-import EmpresaCard from '../components/EmpresaCard.jsx'
+import BotCard from '../components/BotCard.jsx'
 
-// ─── Helpers de API empresa ──────────────────────────────────────
+// ─── Helpers de API bot ──────────────────────────────────────
 
-async function empresaApi(method, path, body) {
+async function botApi(method, path, body) {
   if (method === 'GET_BLOB') {
     const res = await authFetch('/api' + path, { method: 'GET' })
     return res.blob()
@@ -32,14 +32,14 @@ async function empresaApi(method, path, body) {
   return res.json()
 }
 
-// ─── EmpresaDashboard ────────────────────────────────────────────
+// ─── BotDashboard ────────────────────────────────────────────
 
-function EmpresaDashboard({ botId, botName: initialBotName, onLogout }) {
+function BotDashboard({ botId, botName: initialBotName, onLogout }) {
   const [botName, setBotName] = useState(initialBotName)
   const [data, setData]       = useState(null)
 
   const load = useCallback(async () => {
-    const res = await empresaApi('GET', `/empresa/${botId}`, null).catch(() => null)
+    const res = await botApi('GET', `/bot/${botId}`, null).catch(() => null)
     if (!res || res.detail) return
     setData(res)
     setBotName(res.bot_name)
@@ -71,10 +71,10 @@ function EmpresaDashboard({ botId, botName: initialBotName, onLogout }) {
         </div>
       </header>
       <main className="portal-main" style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 16px' }}>
-        <EmpresaCard
-          mode="empresa"
+        <BotCard
+          mode="bot"
           bot={bot}
-          apiCall={empresaApi}
+          apiCall={botApi}
           onRefresh={load}
         />
       </main>
@@ -82,16 +82,16 @@ function EmpresaDashboard({ botId, botName: initialBotName, onLogout }) {
   )
 }
 
-// ─── EmpresaLogin ────────────────────────────────────────────────
+// ─── BotLogin ────────────────────────────────────────────────
 
-function EmpresaLogin({ onLogin, prefillBotId = '' }) {
+function BotLogin({ onLogin, prefillBotId = '' }) {
   const [botId, setBotId] = useState(prefillBotId)
   const [pwd, setPwd]     = useState('')
   const [error, setError] = useState('')
 
   async function handleSubmit(e) {
     e.preventDefault(); setError('')
-    const res = await fetch('/api/empresa/login', {
+    const res = await fetch('/api/bot/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -101,10 +101,10 @@ function EmpresaLogin({ onLogin, prefillBotId = '' }) {
     if (!res?.access_token) { setError('Credenciales incorrectas.'); return }
 
     setAccessToken(res.access_token)
-    sessionStorage.setItem('empresa_bot_id', res.bot_id)
+    sessionStorage.setItem('bot_bot_id', res.bot_id)
 
-    // Obtener nombre de la empresa
-    const me = await fetch('/api/empresa/me', {
+    // Obtener nombre de la bot
+    const me = await fetch('/api/bot/me', {
       headers: { 'Authorization': `Bearer ${res.access_token}` },
       credentials: 'include',
     }).then(r => r.json()).catch(() => null)
@@ -116,19 +116,19 @@ function EmpresaLogin({ onLogin, prefillBotId = '' }) {
     <div className="connect-screen">
       <div className="connect-box">
         <div className="logo">🐙</div>
-        <h1>Portal de empresa</h1>
+        <h1>Portal de bot</h1>
         <p className="subtitle">Ingresá tus credenciales</p>
         <div className="error">{error}</div>
         <form onSubmit={handleSubmit}>
-          <input placeholder="ID de empresa (ej: bot_test)" value={botId}
+          <input placeholder="ID de bot (ej: bot_test)" value={botId}
             onChange={e => setBotId(e.target.value)} autoFocus />
           <input type="password" placeholder="Contraseña" value={pwd}
             onChange={e => setPwd(e.target.value)} />
           <button type="submit" className="btn-connect">Entrar</button>
         </form>
         <div className="connect-divider">¿Primera vez?</div>
-        <Link to="/empresa/nueva" className="btn-ghost btn-sm" style={{ textAlign: 'center', display: 'block' }}>
-          Crear empresa nueva →
+        <Link to="/bot/nueva" className="btn-ghost btn-sm" style={{ textAlign: 'center', display: 'block' }}>
+          Crear bot nueva →
         </Link>
       </div>
     </div>
@@ -137,53 +137,53 @@ function EmpresaLogin({ onLogin, prefillBotId = '' }) {
 
 // ─── Página principal ────────────────────────────────────────────
 
-export default function EmpresaPage() {
+export default function BotPage() {
   const { botId: botIdFromUrl } = useParams()
   const navigate = useNavigate()
   const [session, setSession] = useState(null)
 
   useEffect(() => {
     const token = getAccessToken()
-    const botId = sessionStorage.getItem('empresa_bot_id')
+    const botId = sessionStorage.getItem('bot_bot_id')
     if (!token || !botId) {
       // Intento silencioso de recovery: si la URL tiene un botId, intentar refresh
       if (botIdFromUrl) {
-        fetch('/api/empresa/refresh', { method: 'POST', credentials: 'include' })
+        fetch('/api/bot/refresh', { method: 'POST', credentials: 'include' })
           .then(r => r.ok ? r.json() : null)
           .then(async data => {
             if (!data?.access_token) return
             // Verificar que el refresh corresponde al bot correcto
-            const me = await fetch('/api/empresa/me', {
+            const me = await fetch('/api/bot/me', {
               headers: { 'Authorization': `Bearer ${data.access_token}` },
               credentials: 'include',
             }).then(r => r.ok ? r.json() : null)
             if (me?.bot_id === botIdFromUrl) {
               setAccessToken(data.access_token)
-              sessionStorage.setItem('empresa_bot_id', me.bot_id)
+              sessionStorage.setItem('bot_bot_id', me.bot_id)
               setSession({ botId: me.bot_id, botName: me.nombre })
             }
           })
           // El recovery es opcional: si falla, el usuario ve el login normal
-          .catch(e => console.warn('[EmpresaPage] recovery silencioso falló', e))
+          .catch(e => console.warn('[BotPage] recovery silencioso falló', e))
       }
       return
     }
 
     // Verificar que el token sigue siendo válido
-    fetch('/api/empresa/me', {
+    fetch('/api/bot/me', {
       headers: { 'Authorization': `Bearer ${token}` },
       credentials: 'include',
     }).then(r => {
       if (r.ok) return r.json()
       // Intentar refresh
-      return fetch('/api/empresa/refresh', { method: 'POST', credentials: 'include' })
+      return fetch('/api/bot/refresh', { method: 'POST', credentials: 'include' })
         .then(r2 => {
           if (!r2.ok) throw new Error('refresh failed')
           return r2.json()
         })
         .then(data => {
           setAccessToken(data.access_token)
-          return fetch('/api/empresa/me', {
+          return fetch('/api/bot/me', {
             headers: { 'Authorization': `Bearer ${data.access_token}` },
           }).then(r3 => r3.ok ? r3.json() : null)
         })
@@ -191,29 +191,29 @@ export default function EmpresaPage() {
       if (me?.bot_id) setSession({ botId: me.bot_id, botName: me.nombre })
       else {
         clearAccessToken()
-        sessionStorage.removeItem('empresa_bot_id')
+        sessionStorage.removeItem('bot_bot_id')
       }
     }).catch(() => {
       clearAccessToken()
-      sessionStorage.removeItem('empresa_bot_id')
+      sessionStorage.removeItem('bot_bot_id')
     })
   }, [])
 
   function handleLogin({ botId, botName }) {
     setSession({ botId, botName })
-    navigate(`/empresa/${botId}`, { replace: true })
+    navigate(`/bot/${botId}`, { replace: true })
   }
 
   async function handleLogout() {
-    await fetch('/api/empresa/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
+    await fetch('/api/bot/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
     clearAccessToken()
-    sessionStorage.removeItem('empresa_bot_id')
+    sessionStorage.removeItem('bot_bot_id')
     setSession(null)
   }
 
   if (session) {
     return (
-      <EmpresaDashboard
+      <BotDashboard
         botId={session.botId}
         botName={session.botName}
         onLogout={handleLogout}
@@ -221,5 +221,5 @@ export default function EmpresaPage() {
     )
   }
 
-  return <EmpresaLogin onLogin={handleLogin} prefillBotId={botIdFromUrl || ''} />
+  return <BotLogin onLogin={handleLogin} prefillBotId={botIdFromUrl || ''} />
 }

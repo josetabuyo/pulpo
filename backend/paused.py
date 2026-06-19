@@ -1,7 +1,7 @@
 """
-Registro en memoria de empresas con bot pausado.
+Registro en memoria de bots con bot pausado.
 
-Una empresa pausada sigue conectada (WA/TG vivo) pero no genera replies.
+Una bot pausada sigue conectada (WA/TG vivo) pero no genera replies.
 El estado se persiste en data/paused_bots.json para sobrevivir reinicios.
 """
 import json
@@ -21,7 +21,7 @@ def _load() -> None:
             data = json.loads(_FILE.read_text())
             _paused = set(data.get("paused", []))
             if _paused:
-                logger.info("[paused] Cargadas %d empresas pausadas: %s", len(_paused), _paused)
+                logger.info("[paused] Cargadas %d bots pausadas: %s", len(_paused), _paused)
     except Exception as e:
         logger.error("[paused] Error al cargar %s: %s", _FILE, e)
 
@@ -34,20 +34,20 @@ def _save() -> None:
         logger.error("[paused] Error al guardar %s: %s", _FILE, e)
 
 
-def is_paused(empresa_id: str) -> bool:
-    return empresa_id in _paused
+def is_paused(bot_id: str) -> bool:
+    return bot_id in _paused
 
 
-def pause(empresa_id: str) -> None:
-    _paused.add(empresa_id)
+def pause(bot_id: str) -> None:
+    _paused.add(bot_id)
     _save()
-    logger.warning("[paused] Bot pausado: %s", empresa_id)
+    logger.warning("[paused] Bot pausado: %s", bot_id)
 
 
-def resume(empresa_id: str) -> None:
-    _paused.discard(empresa_id)
+def resume(bot_id: str) -> None:
+    _paused.discard(bot_id)
     _save()
-    logger.info("[paused] Bot reanudado: %s", empresa_id)
+    logger.info("[paused] Bot reanudado: %s", bot_id)
 
 
 def all_paused() -> list[str]:

@@ -21,7 +21,7 @@ from graphs.trigger_match import _matches_channel, _matches_pattern, select_trig
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-CONN = "empresa_test-tg-12345"
+CONN = "bot_test-tg-12345"
 
 
 def _trigger(ttype="telegram_trigger", **config):
@@ -35,7 +35,7 @@ def _state(canal="telegram", contact="5491199990000", message="Hola"):
         contact_phone=contact,
         canal=canal,
         connection_id=CONN,
-        empresa_id="empresa_test",
+        bot_id="bot_test",
     )
 
 
@@ -146,9 +146,9 @@ async def test_contacto_no_incluido_no_aplica():
 
 def _config_with_mass(allow: bool):
     return {
-        "empresas": [{
-            "id": "empresa_test",
-            "name": "Empresa Test",
+        "bots": [{
+            "id": "bot_test",
+            "name": "Bot Test",
             "phones": [],
             "telegram": [{"token": "12345:AAA", "allow_mass": allow}],
         }],

@@ -38,7 +38,7 @@ def test_architecture_shape(client):
     ch = body["channels"]
     assert isinstance(ch["telegram_bots"], int)
     assert isinstance(ch["wavi_sessions"], int)
-    assert isinstance(ch["empresas"], int)
+    assert isinstance(ch["bots"], int)
     assert ch["wa_poll_interval_seconds"] > 0
 
     # tests.* puede ser null (sin reporte) o un dict con el shape común

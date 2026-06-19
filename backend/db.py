@@ -109,7 +109,7 @@ async def init_db():
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS flows (
                 id            TEXT PRIMARY KEY,
-                empresa_id    TEXT NOT NULL,
+                bot_id    TEXT NOT NULL,
                 name          TEXT NOT NULL,
                 definition    TEXT NOT NULL DEFAULT '{}',
                 connection_id TEXT DEFAULT NULL,
@@ -120,7 +120,7 @@ async def init_db():
             )
         """))
         await conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS idx_flows_empresa_id ON flows(empresa_id)"
+            "CREATE INDEX IF NOT EXISTS idx_flows_bot_id ON flows(bot_id)"
         ))
         # Migración: agregar contact_filter si la tabla ya existía sin esa columna
         try:
@@ -131,22 +131,22 @@ async def init_db():
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS contact_suggestions (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                empresa_id TEXT NOT NULL,
+                bot_id TEXT NOT NULL,
                 name       TEXT,
                 phone      TEXT,
                 source     TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(empresa_id, name, phone)
+                UNIQUE(bot_id, name, phone)
             )
         """))
         await conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS idx_contact_suggestions_empresa ON contact_suggestions(empresa_id)"
+            "CREATE INDEX IF NOT EXISTS idx_contact_suggestions_bot ON contact_suggestions(bot_id)"
         ))
 
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS jobs (
                 id                INTEGER PRIMARY KEY AUTOINCREMENT,
-                empresa_id        TEXT NOT NULL,
+                bot_id        TEXT NOT NULL,
                 cliente_phone     TEXT NOT NULL,
                 cliente_name      TEXT,
                 canal             TEXT NOT NULL,
@@ -159,7 +159,7 @@ async def init_db():
             )
         """))
         await conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS idx_jobs_empresa_id ON jobs(empresa_id)"
+            "CREATE INDEX IF NOT EXISTS idx_jobs_bot_id ON jobs(bot_id)"
         ))
         await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)"
@@ -169,7 +169,7 @@ async def init_db():
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS google_connections (
                 id               TEXT PRIMARY KEY,
-                empresa_id       TEXT,
+                bot_id       TEXT,
                 credentials_json TEXT NOT NULL,
                 email            TEXT NOT NULL,
                 label            TEXT NOT NULL,
@@ -177,7 +177,7 @@ async def init_db():
             )
         """))
         await conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS idx_google_connections_empresa ON google_connections(empresa_id)"
+            "CREATE INDEX IF NOT EXISTS idx_google_connections_bot ON google_connections(bot_id)"
         ))
 
         # ─── Wavi: dedup persistente del poller ──────────────────────
@@ -194,7 +194,7 @@ async def init_db():
         """))
 
 async def create_job(
-    empresa_id: str,
+    bot_id: str,
     cliente_phone: str,
     canal: str,
     oficio: str,
@@ -205,11 +205,11 @@ async def create_job(
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             text("""
-                INSERT INTO jobs (empresa_id, cliente_phone, cliente_name, canal, oficio, trabajador_id, trabajador_nombre)
-                VALUES (:empresa_id, :cliente_phone, :cliente_name, :canal, :oficio, :trabajador_id, :trabajador_nombre)
+                INSERT INTO jobs (bot_id, cliente_phone, cliente_name, canal, oficio, trabajador_id, trabajador_nombre)
+                VALUES (:bot_id, :cliente_phone, :cliente_name, :canal, :oficio, :trabajador_id, :trabajador_nombre)
             """),
             {
-                "empresa_id": empresa_id,
+                "bot_id": bot_id,
                 "cliente_phone": cliente_phone,
                 "cliente_name": cliente_name,
                 "canal": canal,
@@ -470,13 +470,13 @@ async def update_contact(contact_id: int, name: str, notes: str | None = None) -
         return result.rowcount > 0
 
 
-async def delete_contact_messages(empresa_id: str, contact_name: str) -> int:
-    """Borra todos los mensajes de un contacto en una empresa. Retorna filas eliminadas.
+async def delete_contact_messages(bot_id: str, contact_name: str) -> int:
+    """Borra todos los mensajes de un contacto en una bot. Retorna filas eliminadas.
     contact_name es el valor almacenado en la columna phone de la tabla messages."""
     async with AsyncSessionLocal() as session:
         result = await session.execute(
-            text("DELETE FROM messages WHERE connection_id = :empresa_id AND phone = :name"),
-            {"empresa_id": empresa_id, "name": contact_name},
+            text("DELETE FROM messages WHERE connection_id = :bot_id AND phone = :name"),
+            {"bot_id": bot_id, "name": contact_name},
         )
         await session.commit()
         return result.rowcount
@@ -555,7 +555,7 @@ import uuid as _uuid
 
 
 def _flow_row_to_dict(row, include_definition: bool = False) -> dict:
-    # columns: id, empresa_id, name, definition, connection_id, contact_phone, active, created_at, updated_at, contact_filter
+    # columns: id, bot_id, name, definition, connection_id, contact_phone, active, created_at, updated_at, contact_filter
     raw_cf = row[9] if len(row) > 9 else None
     contact_filter = None
     if raw_cf:
@@ -565,7 +565,7 @@ def _flow_row_to_dict(row, include_definition: bool = False) -> dict:
             logger.warning("contact_filter corrupto en flow %s — ignorado: %s", row[0], e)
     d = {
         "id":             row[0],
-        "empresa_id":     row[1],
+        "bot_id":     row[1],
         "name":           row[2],
         "connection_id":  row[4],
         "contact_phone":  row[5],
@@ -594,7 +594,7 @@ def _flow_row_to_dict(row, include_definition: bool = False) -> dict:
 
 
 async def create_flow(
-    empresa_id: str,
+    bot_id: str,
     name: str,
     definition: dict | None = None,
     connection_id: str | None = None,
@@ -605,12 +605,12 @@ async def create_flow(
     async with AsyncSessionLocal() as session:
         await session.execute(
             text("""
-                INSERT INTO flows (id, empresa_id, name, definition, connection_id, contact_phone, contact_filter)
-                VALUES (:id, :empresa_id, :name, :definition, :connection_id, :contact_phone, :contact_filter)
+                INSERT INTO flows (id, bot_id, name, definition, connection_id, contact_phone, contact_filter)
+                VALUES (:id, :bot_id, :name, :definition, :connection_id, :contact_phone, :contact_filter)
             """),
             {
                 "id": flow_id,
-                "empresa_id": empresa_id,
+                "bot_id": bot_id,
                 "name": name,
                 "definition": _json.dumps(definition or {"nodes": [], "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1}}),
                 "connection_id": connection_id,
@@ -622,27 +622,27 @@ async def create_flow(
     return flow_id
 
 
-async def get_flows(empresa_id: str) -> list[dict]:
+async def get_flows(bot_id: str) -> list[dict]:
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(
             text("""
-                SELECT id, empresa_id, name, definition, connection_id, contact_phone, active, created_at, updated_at, contact_filter
-                FROM flows WHERE empresa_id = :e ORDER BY created_at
+                SELECT id, bot_id, name, definition, connection_id, contact_phone, active, created_at, updated_at, contact_filter
+                FROM flows WHERE bot_id = :e ORDER BY created_at
             """),
-            {"e": empresa_id},
+            {"e": bot_id},
         )).fetchall()
     return [_flow_row_to_dict(r) for r in rows]
 
 
-async def empresa_has_node_type(empresa_id: str, node_type: str) -> bool:
-    """Devuelve True si algún flow de la empresa contiene un nodo del tipo dado."""
+async def bot_has_node_type(bot_id: str, node_type: str) -> bool:
+    """Devuelve True si algún flow de la bot contiene un nodo del tipo dado."""
     async with AsyncSessionLocal() as session:
         row = (await session.execute(
             text(
                 "SELECT 1 FROM flows "
-                "WHERE empresa_id = :e AND definition LIKE :pattern LIMIT 1"
+                "WHERE bot_id = :e AND definition LIKE :pattern LIMIT 1"
             ),
-            {"e": empresa_id, "pattern": f'%"type": "{node_type}"%'},
+            {"e": bot_id, "pattern": f'%"type": "{node_type}"%'},
         )).fetchone()
     return row is not None
 
@@ -651,7 +651,7 @@ async def get_flow(flow_id: str) -> dict | None:
     async with AsyncSessionLocal() as session:
         row = (await session.execute(
             text("""
-                SELECT id, empresa_id, name, definition, connection_id, contact_phone, active, created_at, updated_at, contact_filter
+                SELECT id, bot_id, name, definition, connection_id, contact_phone, active, created_at, updated_at, contact_filter
                 FROM flows WHERE id = :id
             """),
             {"id": flow_id},
@@ -698,11 +698,11 @@ async def delete_flow(flow_id: str) -> bool:
     return result.rowcount > 0
 
 
-async def flow_exists_for_empresa(empresa_id: str) -> bool:
+async def flow_exists_for_bot(bot_id: str) -> bool:
     async with AsyncSessionLocal() as session:
         row = (await session.execute(
-            text("SELECT id FROM flows WHERE empresa_id = :e LIMIT 1"),
-            {"e": empresa_id},
+            text("SELECT id FROM flows WHERE bot_id = :e LIMIT 1"),
+            {"e": bot_id},
         )).fetchone()
     return row is not None
 
@@ -718,9 +718,9 @@ async def get_last_message_body(connection_id: str, phone: str) -> str | None:
         return row[0] if row else None
 
 
-async def get_active_flows_for_bot(connection_id: str, contact_phone: str, empresa_id: str) -> list[dict]:
+async def get_active_flows_for_bot(connection_id: str, contact_phone: str, bot_id: str) -> list[dict]:
     """
-    Flows activos para este (connection_id, contact_phone, empresa_id).
+    Flows activos para este (connection_id, contact_phone, bot_id).
 
     Regla de seguridad: connection_id es OBLIGATORIO.
     Un flow sin connection_id asignado no dispara para nadie — NULL no es wildcard.
@@ -731,9 +731,9 @@ async def get_active_flows_for_bot(connection_id: str, contact_phone: str, empre
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(
             text("""
-                SELECT id, empresa_id, name, definition, connection_id, contact_phone, active, created_at, updated_at, contact_filter
+                SELECT id, bot_id, name, definition, connection_id, contact_phone, active, created_at, updated_at, contact_filter
                 FROM flows
-                WHERE empresa_id = :empresa_id
+                WHERE bot_id = :bot_id
                   AND active = 1
                   AND connection_id = :connection_id
                   AND (contact_phone = :contact_phone OR contact_phone IS NULL)
@@ -741,7 +741,7 @@ async def get_active_flows_for_bot(connection_id: str, contact_phone: str, empre
                   CASE WHEN contact_phone IS NOT NULL THEN 1
                        ELSE 2 END
             """),
-            {"empresa_id": empresa_id, "connection_id": connection_id, "contact_phone": contact_phone},
+            {"bot_id": bot_id, "connection_id": connection_id, "contact_phone": contact_phone},
         )).fetchall()
     return [_flow_row_to_dict(r, include_definition=True) for r in rows]
 
@@ -751,33 +751,33 @@ async def get_active_flows_for_bot(connection_id: str, contact_phone: str, empre
 def _google_conn_row(row) -> dict:
     return {
         "id":         row[0],
-        "empresa_id": row[1],
+        "bot_id": row[1],
         "email":      row[3],
         "label":      row[4],
         "created_at": str(row[5]),
     }
 
 
-async def get_google_connections(empresa_id: str | None = None) -> list[dict]:
+async def get_google_connections(bot_id: str | None = None) -> list[dict]:
     """
-    Retorna conexiones Google disponibles para una empresa:
-    las propias + la pulpo-default (empresa_id IS NULL).
-    Si empresa_id es None devuelve todas (uso admin).
+    Retorna conexiones Google disponibles para una bot:
+    las propias + la pulpo-default (bot_id IS NULL).
+    Si bot_id es None devuelve todas (uso admin).
     """
     async with AsyncSessionLocal() as session:
-        if empresa_id is None:
+        if bot_id is None:
             rows = (await session.execute(
-                text("SELECT id, empresa_id, credentials_json, email, label, created_at FROM google_connections ORDER BY created_at")
+                text("SELECT id, bot_id, credentials_json, email, label, created_at FROM google_connections ORDER BY created_at")
             )).fetchall()
         else:
             rows = (await session.execute(
                 text("""
-                    SELECT id, empresa_id, credentials_json, email, label, created_at
+                    SELECT id, bot_id, credentials_json, email, label, created_at
                     FROM google_connections
-                    WHERE empresa_id = :e OR empresa_id IS NULL
-                    ORDER BY empresa_id IS NOT NULL DESC, created_at
+                    WHERE bot_id = :e OR bot_id IS NULL
+                    ORDER BY bot_id IS NOT NULL DESC, created_at
                 """),
-                {"e": empresa_id},
+                {"e": bot_id},
             )).fetchall()
     return [_google_conn_row(r) for r in rows]
 
@@ -794,7 +794,7 @@ async def get_google_connection_credentials(conn_id: str) -> str | None:
 
 async def create_google_connection(
     id: str,
-    empresa_id: str | None,
+    bot_id: str | None,
     credentials_json: str,
     email: str,
     label: str,
@@ -802,10 +802,10 @@ async def create_google_connection(
     async with AsyncSessionLocal() as session:
         await session.execute(
             text("""
-                INSERT INTO google_connections (id, empresa_id, credentials_json, email, label)
-                VALUES (:id, :empresa_id, :credentials_json, :email, :label)
+                INSERT INTO google_connections (id, bot_id, credentials_json, email, label)
+                VALUES (:id, :bot_id, :credentials_json, :email, :label)
             """),
-            {"id": id, "empresa_id": empresa_id, "credentials_json": credentials_json,
+            {"id": id, "bot_id": bot_id, "credentials_json": credentials_json,
              "email": email, "label": label},
         )
         await session.commit()

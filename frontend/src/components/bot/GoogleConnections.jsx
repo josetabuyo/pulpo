@@ -1,5 +1,5 @@
 /**
- * Conexiones Google Sheets de una empresa: listado + modal de alta
+ * Conexiones Google Sheets de una bot: listado + modal de alta
  * (cuenta Pulpo compartida o cuenta de servicio propia).
  */
 import { useState, useEffect } from 'react'
@@ -16,7 +16,7 @@ export function GoogleSetupModal({ botId, apiCall, onClose, onSaved }) {
   async function handleSavePulpo() {
     setSaving(true)
     try {
-      await apiCall('POST', `/empresas/${botId}/google-connections`, {
+      await apiCall('POST', `/bots/${botId}/google-connections`, {
         credentials_json: '__pulpo_default__',
         label: 'Cuenta Pulpo',
       }).catch(() => null)
@@ -38,7 +38,7 @@ export function GoogleSetupModal({ botId, apiCall, onClose, onSaved }) {
       return
     }
     setSaving(true)
-    const res = await apiCall('POST', `/empresas/${botId}/google-connections`, {
+    const res = await apiCall('POST', `/bots/${botId}/google-connections`, {
       credentials_json: jsonText,
       label: label || parsed.client_email.split('@')[0],
     }).catch(() => null)
@@ -138,7 +138,7 @@ export function GoogleConnectionsSection({ botId, apiCall, mode, hideAddButton =
 
   async function load() {
     setLoading(true)
-    const data = await apiCall('GET', `/empresas/${botId}/google-connections`, null).catch(() => [])
+    const data = await apiCall('GET', `/bots/${botId}/google-connections`, null).catch(() => [])
     setConns(Array.isArray(data) ? data : [])
     setLoading(false)
   }
@@ -147,12 +147,12 @@ export function GoogleConnectionsSection({ botId, apiCall, mode, hideAddButton =
 
   async function handleDelete(conn) {
     if (!confirm(`¿Eliminar conexión "${conn.label}"?`)) return
-    await apiCall('DELETE', `/empresas/${botId}/google-connections/${conn.id}`, null).catch(() => null)
+    await apiCall('DELETE', `/bots/${botId}/google-connections/${conn.id}`, null).catch(() => null)
     load()
   }
 
   if (loading) return null
-  // En modo empresa sin google connections: no mostrar nada (el botón está en la sección "Agregar canal")
+  // En modo bot sin google connections: no mostrar nada (el botón está en la sección "Agregar canal")
   if (conns.length === 0 && mode !== 'admin') return null
 
   return (

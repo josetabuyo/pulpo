@@ -8,12 +8,12 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import PlainTextResponse, FileResponse
 from sqlalchemy import text
 from db import AsyncSessionLocal
-from middleware_auth import get_empresa_id_from_token
+from middleware_auth import get_bot_id_from_token
 from api.deps import ADMIN_PASSWORD
 from graphs.nodes.summarize import (
-    get_summary, list_contacts, clear_empresa, clear_contact, accumulate,
+    get_summary, list_contacts, clear_bot, clear_contact, accumulate,
     clear_contact_full, _newest_message_ts, trim_contact_from_date,
-    migrate_empresa_to_slugs, get_contact_display_name,
+    migrate_bot_to_slugs, get_contact_display_name,
     delete_message_by_id, rewrite_chat, consolidate_contact, get_consolidation_meta,
     get_consolidation_dir,
     _path as _summary_path,
@@ -23,7 +23,7 @@ from graphs.nodes.summarize import (
 class summarizer:
     get_summary = staticmethod(get_summary)
     list_contacts = staticmethod(list_contacts)
-    clear_empresa = staticmethod(clear_empresa)
+    clear_bot = staticmethod(clear_bot)
     clear_contact = staticmethod(clear_contact)
     accumulate = staticmethod(accumulate)
 from fastapi import Request, Header
@@ -33,32 +33,32 @@ router = APIRouter()
 _ADMIN_SENTINEL = "__admin__"
 
 
-def _db_phone(empresa_id: str, contact_id: str) -> str:
+def _db_phone(bot_id: str, contact_id: str) -> str:
     """Para contactos migrados a slug, resuelve el phone real para queries a DB.
     Lee name.txt del slug dir. Si no existe, devuelve contact_id tal cual.
     """
-    return get_contact_display_name(empresa_id, contact_id) or contact_id
+    return get_contact_display_name(bot_id, contact_id) or contact_id
 
 
-def _require_empresa_or_admin(request: Request, x_password: str = Header(default=None)) -> str:
+def _require_bot_or_admin(request: Request, x_password: str = Header(default=None)) -> str:
     if x_password == ADMIN_PASSWORD:
         return _ADMIN_SENTINEL
-    empresa_id = get_empresa_id_from_token(request)
-    if not empresa_id:
+    bot_id = get_bot_id_from_token(request)
+    if not bot_id:
         raise HTTPException(status_code=401, detail="Token requerido o inválido")
-    return empresa_id
+    return bot_id
 
 
-def _check_auth(empresa_id: str, token_bot_id: str = Depends(_require_empresa_or_admin)) -> str:
-    if token_bot_id != _ADMIN_SENTINEL and token_bot_id != empresa_id:
-        raise HTTPException(status_code=403, detail="No autorizado para esta empresa")
+def _check_auth(bot_id: str, token_bot_id: str = Depends(_require_bot_or_admin)) -> str:
+    if token_bot_id != _ADMIN_SENTINEL and token_bot_id != bot_id:
+        raise HTTPException(status_code=403, detail="No autorizado para esta bot")
     return token_bot_id
 
 
-@router.get("/summarizer/{empresa_id}")
-async def list_summaries(empresa_id: str, _: str = Depends(_check_auth)):
+@router.get("/summarizer/{bot_id}")
+async def list_summaries(bot_id: str, _: str = Depends(_check_auth)):
     """Lista los contactos que tienen resumen acumulado, con nombre si está en la agenda."""
-    phones = summarizer.list_contacts(empresa_id)
+    phones = summarizer.list_contacts(bot_id)
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(
             text(
@@ -66,33 +66,33 @@ async def list_summaries(empresa_id: str, _: str = Depends(_check_auth)):
                 "JOIN contacts c ON cc.contact_id = c.id "
                 "WHERE c.connection_id = :eid AND cc.type = 'telegram'"
             ),
-            {"eid": empresa_id},
+            {"eid": bot_id},
         )).fetchall()
     phone_to_name = {r[0]: r[1] for r in rows}
     from graphs.nodes.summarize import _BASE
     contacts = []
     for p in phones:
         # Prioridad: DB por phone > name.txt (nombre original pre-slug) > slug mismo
-        name = phone_to_name.get(p) or get_contact_display_name(empresa_id, p) or p
+        name = phone_to_name.get(p) or get_contact_display_name(bot_id, p) or p
         contacts.append({"phone": p, "name": name})
     return {
         "contacts": contacts,
-        "path": str(_BASE / empresa_id),
+        "path": str(_BASE / bot_id),
     }
 
 
-@router.get("/summarizer/{empresa_id}/consolidations")
-async def list_consolidations(empresa_id: str, _: str = Depends(_check_auth)):
-    """Metadata de consolidaciones de todos los contactos de la empresa."""
-    contacts_list = summarizer.list_contacts(empresa_id)
+@router.get("/summarizer/{bot_id}/consolidations")
+async def list_consolidations(bot_id: str, _: str = Depends(_check_auth)):
+    """Metadata de consolidaciones de todos los contactos de la bot."""
+    contacts_list = summarizer.list_contacts(bot_id)
     result = []
     for phone in contacts_list:
-        meta = get_consolidation_meta(empresa_id, phone)
+        meta = get_consolidation_meta(bot_id, phone)
         if meta:
-            cdir = get_consolidation_dir(empresa_id, phone)
+            cdir = get_consolidation_dir(bot_id, phone)
             result.append({
                 "phone": phone,
-                "name": get_contact_display_name(empresa_id, phone) or phone,
+                "name": get_contact_display_name(bot_id, phone) or phone,
                 "consolidated_at": meta.get("consolidated_at"),
                 "last_message_ts": meta.get("last_message_ts"),
                 "message_count": meta.get("message_count", 0),
@@ -101,10 +101,10 @@ async def list_consolidations(empresa_id: str, _: str = Depends(_check_auth)):
     return {"consolidations": result}
 
 
-@router.get("/summarizer/{empresa_id}/{contact_phone}", response_class=PlainTextResponse)
-async def get_summary(empresa_id: str, contact_phone: str, _: str = Depends(_check_auth)):
+@router.get("/summarizer/{bot_id}/{contact_phone}", response_class=PlainTextResponse)
+async def get_summary(bot_id: str, contact_phone: str, _: str = Depends(_check_auth)):
     """Devuelve el resumen acumulado de un contacto como texto plano (Markdown)."""
-    content = summarizer.get_summary(empresa_id, contact_phone)
+    content = summarizer.get_summary(bot_id, contact_phone)
     if content is None:
         raise HTTPException(status_code=404, detail="Sin resumen para este contacto")
     return content
@@ -112,7 +112,7 @@ async def get_summary(empresa_id: str, contact_phone: str, _: str = Depends(_che
 
 # ─── Helpers de parseo ──────────────────────────────────────────────────────
 
-def _parse_messages(md_content: str, empresa_id: str, contact_phone: str, owner_names: set[str] | None = None, keep_ids: bool = False) -> list[dict]:
+def _parse_messages(md_content: str, bot_id: str, contact_phone: str, owner_names: set[str] | None = None, keep_ids: bool = False) -> list[dict]:
     """Convierte el .md acumulado en lista de mensajes estructurados."""
     messages = []
     blocks = re.split(r'\n---\n', md_content)
@@ -263,7 +263,7 @@ def _parse_messages(md_content: str, empresa_id: str, contact_phone: str, owner_
                 "timestamp": ts_iso,
                 "filename": filename,
                 "size": size,
-                "download_url": f"/api/summarizer/{empresa_id}/{contact_phone}/docs/{filename}",
+                "download_url": f"/api/summarizer/{bot_id}/{contact_phone}/docs/{filename}",
                 "reply_to": reply_to,
             })
         else:
@@ -314,22 +314,22 @@ def _parse_messages(md_content: str, empresa_id: str, contact_phone: str, owner_
 
 # ─── Endpoints de mensajes y adjuntos ───────────────────────────────────────
 
-@router.get("/summarizer/{empresa_id}/{contact_phone}/messages")
+@router.get("/summarizer/{bot_id}/{contact_phone}/messages")
 async def get_messages(
-    empresa_id: str,
+    bot_id: str,
     contact_phone: str,
     include_ids: bool = Query(default=False),
     _: str = Depends(_check_auth),
 ):
     """Devuelve los mensajes del resumen en el orden del archivo (incluye reordenamientos manuales)."""
-    content = summarizer.get_summary(empresa_id, contact_phone)
+    content = summarizer.get_summary(bot_id, contact_phone)
     if content is None:
         raise HTTPException(status_code=404, detail="Sin resumen para este contacto")
 
     owner_names: set[str] = {"Tú"}
 
-    messages = _parse_messages(content, empresa_id, contact_phone, owner_names, keep_ids=include_ids)
-    p = _summary_path(empresa_id, contact_phone)
+    messages = _parse_messages(content, bot_id, contact_phone, owner_names, keep_ids=include_ids)
+    p = _summary_path(bot_id, contact_phone)
     version = int(p.stat().st_mtime * 1000) if p.exists() else 0
     return {"messages": messages, "version": version}
 
@@ -360,16 +360,16 @@ def _is_useful(body: str) -> bool:
     return not any(p.lower() in b.lower() for p in _SKIP_CONTAINS)
 
 
-@router.post("/summarizer/{empresa_id}/{contact_phone}/sync")
-async def sync_contact(empresa_id: str, contact_phone: str, _: str = Depends(_check_auth)):
+@router.post("/summarizer/{bot_id}/{contact_phone}/sync")
+async def sync_contact(bot_id: str, contact_phone: str, _: str = Depends(_check_auth)):
     """
     FUENTE: DB (no WA Web).
     Reconstruye el .md de un contacto a partir de los mensajes ya guardados en base de datos.
     Solo incluye mensajes entrantes (outbound=0). Para scrape desde WA Web usar /full-resync.
     """
-    summarizer.clear_contact(empresa_id, contact_phone)
+    summarizer.clear_contact(bot_id, contact_phone)
 
-    phone_for_db = _db_phone(empresa_id, contact_phone)
+    phone_for_db = _db_phone(bot_id, contact_phone)
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(
             text(
@@ -377,7 +377,7 @@ async def sync_contact(empresa_id: str, contact_phone: str, _: str = Depends(_ch
                 "WHERE connection_id = :eid AND outbound = 0 AND phone = :phone "
                 "ORDER BY timestamp ASC"
             ),
-            {"eid": empresa_id, "phone": phone_for_db},
+            {"eid": bot_id, "phone": phone_for_db},
         )).fetchall()
 
     synced = 0
@@ -393,7 +393,7 @@ async def sync_contact(empresa_id: str, contact_phone: str, _: str = Depends(_ch
         except ValueError:
             pass
         summarizer.accumulate(
-            empresa_id=empresa_id,
+            bot_id=bot_id,
             contact_phone=contact_phone,
             contact_name=phone_for_db,
             msg_type="text",
@@ -405,28 +405,28 @@ async def sync_contact(empresa_id: str, contact_phone: str, _: str = Depends(_ch
     return {"synced": synced}
 
 
-@router.post("/summarizer/{empresa_id}/migrate-to-slugs")
-async def migrate_to_slugs(empresa_id: str, _: str = Depends(_check_auth)):
+@router.post("/summarizer/{bot_id}/migrate-to-slugs")
+async def migrate_to_slugs(bot_id: str, _: str = Depends(_check_auth)):
     """Migra la estructura vieja ({nombre}.md) a la nueva ({slug}/chat.md). Idempotente."""
-    result = migrate_empresa_to_slugs(empresa_id)
+    result = migrate_bot_to_slugs(bot_id)
     return result
 
 
-@router.post("/summarizer/{empresa_id}/sync-all")
+@router.post("/summarizer/{bot_id}/sync-all")
 async def sync_all_contacts(
-    empresa_id: str,
+    bot_id: str,
     from_date: str = Query(default=None),
     _: str = Depends(_check_auth),
 ):
     """
     FUENTE: DB (no WA Web).
-    Reconstruye el .md de los contactos registrados de una empresa a partir de la base de datos.
+    Reconstruye el .md de los contactos registrados de una bot a partir de la base de datos.
     Solo incluye mensajes entrantes (outbound=0). Para scrape desde WA Web usar /full-resync.
 
     Si from_date (YYYY-MM-DD): trim del .md desde esa fecha + re-procesa solo esos mensajes.
     Sin from_date: rebuild completo desde cero.
 
-    SEGURIDAD: solo procesa phones que están en contact_channels para la empresa.
+    SEGURIDAD: solo procesa phones que están en contact_channels para la bot.
     Nunca procesa el universo completo de la tabla messages, que incluye grupos,
     números desconocidos y cualquier cosa que haya mandado un mensaje alguna vez.
     """
@@ -440,7 +440,7 @@ async def sync_all_contacts(
     results = []
 
     async with AsyncSessionLocal() as session:
-        # Fuente de verdad: solo contactos registrados en contact_channels para esta empresa.
+        # Fuente de verdad: solo contactos registrados en contact_channels para esta bot.
         # Esto garantiza que sync-all solo opera sobre contactos explícitamente creados,
         # nunca sobre el universo abierto de mensajes recibidos.
         channel_rows = (await session.execute(
@@ -449,34 +449,34 @@ async def sync_all_contacts(
                 "JOIN contacts c ON c.id = cc.contact_id "
                 "WHERE c.connection_id = :eid AND cc.type = 'telegram'"
             ),
-            {"eid": empresa_id},
+            {"eid": bot_id},
         )).fetchall()
 
         phones = [r[0] for r in channel_rows if r[0]]
 
         for phone in phones:
             if cutoff_dt:
-                trim_contact_from_date(empresa_id, phone, cutoff_dt)
+                trim_contact_from_date(bot_id, phone, cutoff_dt)
                 rows = (await session.execute(
                     text(
                         "SELECT body, timestamp FROM messages "
                         "WHERE connection_id = :eid AND outbound = 0 AND phone = :phone "
                         "AND timestamp >= :cutoff ORDER BY timestamp ASC"
                     ),
-                    {"eid": empresa_id, "phone": phone, "cutoff": from_date},
+                    {"eid": bot_id, "phone": phone, "cutoff": from_date},
                 )).fetchall()
             else:
-                summarizer.clear_contact(empresa_id, phone)
+                summarizer.clear_contact(bot_id, phone)
                 rows = (await session.execute(
                     text(
                         "SELECT body, timestamp FROM messages "
                         "WHERE connection_id = :eid AND outbound = 0 AND phone = :phone "
                         "ORDER BY timestamp ASC"
                     ),
-                    {"eid": empresa_id, "phone": phone},
+                    {"eid": bot_id, "phone": phone},
                 )).fetchall()
 
-            contact_display = _db_phone(empresa_id, phone)
+            contact_display = _db_phone(bot_id, phone)
             synced = 0
             for body, ts_raw in rows:
                 if not _is_useful(body):
@@ -489,7 +489,7 @@ async def sync_all_contacts(
                 except ValueError:
                     pass
                 summarizer.accumulate(
-                    empresa_id=empresa_id,
+                    bot_id=bot_id,
                     contact_phone=phone,
                     contact_name=contact_display,
                     msg_type="text",
@@ -502,14 +502,14 @@ async def sync_all_contacts(
     return {"contacts": len(phones), "details": results}
 
 
-@router.get("/summarizer/{empresa_id}/{contact_phone}/docs/{filename}")
+@router.get("/summarizer/{bot_id}/{contact_phone}/docs/{filename}")
 async def download_attachment(
-    empresa_id: str, contact_phone: str, filename: str,
+    bot_id: str, contact_phone: str, filename: str,
     _: str = Depends(_check_auth),
 ):
     """Descarga un adjunto del contacto."""
     from graphs.nodes.summarize import get_attachments_dir
-    attachments_dir = get_attachments_dir(empresa_id, contact_phone)
+    attachments_dir = get_attachments_dir(bot_id, contact_phone)
     file_path = attachments_dir / filename
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(status_code=404, detail="Adjunto no encontrado")
@@ -520,47 +520,47 @@ async def download_attachment(
     )
 
 
-@router.post("/summarizer/{empresa_id}/backup-and-clean")
-async def backup_and_clean(empresa_id: str, _: str = Depends(_check_auth)):
+@router.post("/summarizer/{bot_id}/backup-and-clean")
+async def backup_and_clean(bot_id: str, _: str = Depends(_check_auth)):
     """
-    Hace backup de todos los chat.md de la empresa (→ chat.bak.md) y los borra.
+    Hace backup de todos los chat.md de la bot (→ chat.bak.md) y los borra.
     El summarize sigue acumulando desde cero a partir del próximo mensaje.
     """
     import shutil as _shutil
     from graphs.nodes.summarize import _BASE, slugify
-    empresa_dir = _BASE / empresa_id
+    bot_dir = _BASE / bot_id
     backed_up = 0
-    if empresa_dir.exists():
-        for md_file in empresa_dir.rglob("chat.md"):
+    if bot_dir.exists():
+        for md_file in bot_dir.rglob("chat.md"):
             bak = md_file.with_name("chat.bak.md")
             _shutil.copy2(md_file, bak)
             md_file.unlink()
             backed_up += 1
     # Invalidar dedup en memoria
     from graphs.nodes.summarize import invalidate_dedup
-    invalidate_dedup(empresa_id)
-    return {"backed_up": backed_up, "path": str(empresa_dir)}
+    invalidate_dedup(bot_id)
+    return {"backed_up": backed_up, "path": str(bot_dir)}
 
 
-@router.get("/summarizer/{empresa_id}/download")
-async def download_summaries(empresa_id: str, _: str = Depends(_check_auth)):
-    """Descarga todos los resúmenes de la empresa como un archivo ZIP."""
+@router.get("/summarizer/{bot_id}/download")
+async def download_summaries(bot_id: str, _: str = Depends(_check_auth)):
+    """Descarga todos los resúmenes de la bot como un archivo ZIP."""
     import io
     import zipfile
     from fastapi.responses import StreamingResponse
     from graphs.nodes.summarize import _BASE
-    empresa_dir = _BASE / empresa_id
-    if not empresa_dir.exists():
-        raise HTTPException(status_code=404, detail="No hay resúmenes para esta empresa")
+    bot_dir = _BASE / bot_id
+    if not bot_dir.exists():
+        raise HTTPException(status_code=404, detail="No hay resúmenes para esta bot")
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for md_file in empresa_dir.rglob("*.md"):
-            zf.write(md_file, md_file.relative_to(empresa_dir))
+        for md_file in bot_dir.rglob("*.md"):
+            zf.write(md_file, md_file.relative_to(bot_dir))
     buf.seek(0)
     return StreamingResponse(
         buf,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="summaries_{empresa_id}.zip"'},
+        headers={"Content-Disposition": f'attachment; filename="summaries_{bot_id}.zip"'},
     )
 
 
@@ -571,16 +571,16 @@ import uuid as _uuid
 from pydantic import BaseModel
 
 
-@router.post("/summarizer/{empresa_id}/{contact_phone}/upload-image")
+@router.post("/summarizer/{bot_id}/{contact_phone}/upload-image")
 async def upload_image(
-    empresa_id: str,
+    bot_id: str,
     contact_phone: str,
     file: UploadFile = FastAPIFile(...),
     _: str = Depends(_check_auth),
 ):
     """Sube una imagen al directorio de adjuntos del contacto. Devuelve {filename}."""
     from graphs.nodes.summarize import get_attachments_dir
-    attachments_dir = get_attachments_dir(empresa_id, contact_phone)
+    attachments_dir = get_attachments_dir(bot_id, contact_phone)
     raw_ext = Path(file.filename).suffix.lower() if file.filename and "." in file.filename else ".png"
     ext = raw_ext if raw_ext in {".jpg", ".jpeg", ".png", ".gif", ".webp"} else ".png"
     filename = f"img_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{_uuid.uuid4().hex[:6]}{ext}"
@@ -601,9 +601,9 @@ class RewriteMessagesBody(BaseModel):
     version: int | None = None
 
 
-@router.post("/summarizer/{empresa_id}/{contact_phone}/message")
+@router.post("/summarizer/{bot_id}/{contact_phone}/message")
 async def insert_message(
-    empresa_id: str,
+    bot_id: str,
     contact_phone: str,
     body: InsertMessageBody,
     _: str = Depends(_check_auth),
@@ -620,9 +620,9 @@ async def insert_message(
     if body.sender:
         content_str = f"{body.sender}: {body.content}"
 
-    contact_name = get_contact_display_name(empresa_id, contact_phone) or contact_phone
+    contact_name = get_contact_display_name(bot_id, contact_phone) or contact_phone
     accumulate(
-        empresa_id=empresa_id,
+        bot_id=bot_id,
         contact_phone=contact_phone,
         contact_name=contact_name,
         msg_type=body.type,
@@ -631,42 +631,42 @@ async def insert_message(
     )
 
     from graphs.nodes.summarize import _path as _p, _read_entries_meta
-    p = _p(empresa_id, contact_phone)
+    p = _p(bot_id, contact_phone)
     count = 0
     if p.exists():
         count = sum(1 for b in p.read_text(encoding="utf-8").split("\n---\n") if b.strip().startswith("## "))
     return {"ok": True, "message_count": count}
 
 
-@router.delete("/summarizer/{empresa_id}/{contact_phone}/message/{msg_id}")
+@router.delete("/summarizer/{bot_id}/{contact_phone}/message/{msg_id}")
 async def delete_message(
-    empresa_id: str,
+    bot_id: str,
     contact_phone: str,
     msg_id: str,
     _: str = Depends(_check_auth),
 ):
     """Elimina un mensaje del chat.md por su ID."""
-    found = delete_message_by_id(empresa_id, contact_phone, msg_id)
+    found = delete_message_by_id(bot_id, contact_phone, msg_id)
     if not found:
         raise HTTPException(status_code=404, detail=f"Mensaje {msg_id} no encontrado")
     return {"ok": True}
 
 
-@router.put("/summarizer/{empresa_id}/{contact_phone}/messages")
+@router.put("/summarizer/{bot_id}/{contact_phone}/messages")
 async def rewrite_messages(
-    empresa_id: str,
+    bot_id: str,
     contact_phone: str,
     body: RewriteMessagesBody,
     _: str = Depends(_check_auth),
 ):
     """Reescribe el chat.md completo con la lista de mensajes ordenada."""
     if body.version is not None:
-        p_check = _summary_path(empresa_id, contact_phone)
+        p_check = _summary_path(bot_id, contact_phone)
         current_v = int(p_check.stat().st_mtime * 1000) if p_check.exists() else 0
         if current_v != body.version:
             raise HTTPException(status_code=409, detail="Conflicto: el resumen fue modificado por otro proceso")
-    rewrite_chat(empresa_id, contact_phone, body.messages)
-    p = _summary_path(empresa_id, contact_phone)
+    rewrite_chat(bot_id, contact_phone, body.messages)
+    p = _summary_path(bot_id, contact_phone)
     count = 0
     version = 0
     if p.exists():
@@ -675,25 +675,25 @@ async def rewrite_messages(
     return {"ok": True, "message_count": count, "version": version}
 
 
-@router.post("/summarizer/{empresa_id}/{contact_phone}/consolidate")
+@router.post("/summarizer/{bot_id}/{contact_phone}/consolidate")
 async def consolidate(
-    empresa_id: str,
+    bot_id: str,
     contact_phone: str,
     _: str = Depends(_check_auth),
 ):
     """Consolida el historial actual: copia chat.md a consolidated/ y guarda metadata."""
-    meta = consolidate_contact(empresa_id, contact_phone)
+    meta = consolidate_contact(bot_id, contact_phone)
     return {"ok": True, **meta}
 
 
-@router.get("/summarizer/{empresa_id}/{contact_phone}/consolidation")
+@router.get("/summarizer/{bot_id}/{contact_phone}/consolidation")
 async def get_consolidation(
-    empresa_id: str,
+    bot_id: str,
     contact_phone: str,
     _: str = Depends(_check_auth),
 ):
     """Retorna metadata de la última consolidación, o 404 si no hay ninguna."""
-    meta = get_consolidation_meta(empresa_id, contact_phone)
+    meta = get_consolidation_meta(bot_id, contact_phone)
     if meta is None:
         raise HTTPException(status_code=404, detail="Sin consolidación para este contacto")
     return meta

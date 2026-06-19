@@ -28,7 +28,7 @@ def make_audio_state(message="", attachment_path=None):
     return FlowState(
         message=message,
         message_type="audio",
-        empresa_id="test_empresa",
+        bot_id="test_bot",
         contact_phone="5491100000",
         contact_name="Test User",
     )
@@ -39,7 +39,7 @@ def make_audio_state(message="", attachment_path=None):
 @pytest.mark.asyncio
 async def test_transcribe_audio_node_skip_if_no_audio_type():
     """Si message_type != audio, el nodo pasa sin tocar nada."""
-    state = FlowState(message="hola", message_type="text", empresa_id="e", contact_phone="1")
+    state = FlowState(message="hola", message_type="text", bot_id="e", contact_phone="1")
     result = await TranscribeAudioNode({}).run(state)
     assert result.message == "hola"
 
@@ -157,14 +157,14 @@ async def test_summarize_node_saves_real_transcription():
     state = FlowState(
         message="esto es una transcripción real del audio",
         message_type="audio",
-        empresa_id="test_empresa",
+        bot_id="test_bot",
         contact_phone="5491100000",
         contact_name="Test User",
         timestamp=datetime(2026, 4, 17, 18, 15),
         from_delta_sync=True,
     )
     await SummarizeNode({}).run(state)
-    content = get_summary("test_empresa", "5491100000")
+    content = get_summary("test_bot", "5491100000")
     assert content is not None
     assert "esto es una transcripción real del audio" in content
     assert "**[audio]**" in content
@@ -176,13 +176,13 @@ async def test_summarize_node_saves_audio_placeholder():
     state = FlowState(
         message="[audio — no disponible]",
         message_type="audio",
-        empresa_id="test_empresa",
+        bot_id="test_bot",
         contact_phone="5491100000",
         contact_name="Test User",
         from_delta_sync=True,
     )
     await SummarizeNode({}).run(state)
-    content = get_summary("test_empresa", "5491100000")
+    content = get_summary("test_bot", "5491100000")
     # El registro debe existir para no perder información de que llegó un audio
     assert content is not None
     assert "[audio — no disponible]" in content
@@ -194,12 +194,12 @@ async def test_summarize_node_skips_empty_message():
     state = FlowState(
         message="",
         message_type="audio",
-        empresa_id="test_empresa",
+        bot_id="test_bot",
         contact_phone="5491100000",
         contact_name="Test User",
     )
     await SummarizeNode({}).run(state)
-    content = get_summary("test_empresa", "5491100000")
+    content = get_summary("test_bot", "5491100000")
     assert content is None
 
 

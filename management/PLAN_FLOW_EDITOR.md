@@ -15,14 +15,14 @@ El operador arrastra nodos al canvas, los conecta, los configura con doble clic,
 el comportamiento completo del bot. Un flow de 1 nodo es un reply fijo. Un flow de N nodos
 con routers condicionales es Luganense. El modelo escala.
 
-**Modelo de negocio:** el admin habilita/deshabilita tipos de nodo por empresa.
+**Modelo de negocio:** el admin habilita/deshabilita tipos de nodo por bot.
 Los clientes pagan por los nodos que usan.
 
 ---
 
 ## Modelo de datos: Conexiones, Contactos, Flows
 
-### Pestañas del componente empresa (nombres definitivos)
+### Pestañas del componente bot (nombres definitivos)
 
 ```
 Conexiones | Contactos | Flows
@@ -114,7 +114,7 @@ class NodeDef:
 ```sql
 CREATE TABLE flows (
   id            TEXT PRIMARY KEY,    -- UUID generado
-  empresa_id    TEXT NOT NULL,
+  bot_id    TEXT NOT NULL,
   name          TEXT NOT NULL,
   definition    TEXT NOT NULL,       -- JSON serializado: { nodes, edges, viewport }
   connection_id TEXT DEFAULT NULL,   -- NULL = todas las conexiones
@@ -129,10 +129,10 @@ CREATE TABLE flows (
 
 ```sql
 CREATE TABLE node_permissions (
-  empresa_id TEXT NOT NULL,
+  bot_id TEXT NOT NULL,
   node_type  TEXT NOT NULL,
   enabled    BOOLEAN DEFAULT TRUE,
-  PRIMARY KEY (empresa_id, node_type)
+  PRIMARY KEY (bot_id, node_type)
 );
 ```
 
@@ -185,9 +185,9 @@ tailwindcss     → UI del panel de config
 ### Componentes
 
 ```
-EmpresaCard.jsx
+BotCard.jsx
   └── Tab "Flows"
-        ├── FlowList.jsx          → lista de flows de la empresa (con filtros por conexión/contacto)
+        ├── FlowList.jsx          → lista de flows de la bot (con filtros por conexión/contacto)
         └── FlowEditor.jsx        → el editor visual
               ├── NodePalette.jsx  → sidebar izquierdo con tipos de nodo arrastrables
               ├── FlowCanvas.jsx   → canvas React Flow (actualizar el existente)
@@ -277,15 +277,15 @@ El constructor recibe la config del DB. El `__call__` es la función del nodo La
 ## Endpoints API (nuevos)
 
 ```
-GET  /api/empresas/{id}/flows               → lista de flows
-POST /api/empresas/{id}/flows               → crear flow
-GET  /api/empresas/{id}/flows/{flow_id}     → detalle + definition
-PUT  /api/empresas/{id}/flows/{flow_id}     → guardar definition (topología + config)
-DELETE /api/empresas/{id}/flows/{flow_id}   → eliminar flow
+GET  /api/bots/{id}/flows               → lista de flows
+POST /api/bots/{id}/flows               → crear flow
+GET  /api/bots/{id}/flows/{flow_id}     → detalle + definition
+PUT  /api/bots/{id}/flows/{flow_id}     → guardar definition (topología + config)
+DELETE /api/bots/{id}/flows/{flow_id}   → eliminar flow
 
 GET  /api/flow/node-types                   → catálogo (ya existe)
-GET  /api/empresas/{id}/node-permissions    → nodos habilitados para esta empresa (admin)
-PUT  /api/empresas/{id}/node-permissions    → habilitar/deshabilitar nodo (admin only)
+GET  /api/bots/{id}/node-permissions    → nodos habilitados para esta bot (admin)
+PUT  /api/bots/{id}/node-permissions    → habilitar/deshabilitar nodo (admin only)
 ```
 
 ---
@@ -295,12 +295,12 @@ PUT  /api/empresas/{id}/node-permissions    → habilitar/deshabilitar nodo (adm
 ### Regla: hacer backward-compatible durante la migración
 
 1. Mantener la lógica de `tools` en el auto-reply hasta que todos los flows estén migrados
-2. Al leer la intención de la empresa: primero buscar en `flows` (nuevo), fallback a `tools` (viejo)
-3. Una vez que todas las empresas tienen flows, borrar la tabla `tools` y el router de fallback
+2. Al leer la intención de la bot: primero buscar en `flows` (nuevo), fallback a `tools` (viejo)
+3. Una vez que todas las bots tienen flows, borrar la tabla `tools` y el router de fallback
 
-### Migrations por empresa
+### Migrations por bot
 
-| Empresa | Tool actual | Flow equivalente |
+| Bot | Tool actual | Flow equivalente |
 |---------|-------------|-----------------|
 | La Piquitería | summarizer | flow([summarize]) con contact_phone requerido |
 | GM Herrería | fixed_message | flow([reply]) con text hardcodeado |
@@ -312,7 +312,7 @@ PUT  /api/empresas/{id}/node-permissions    → habilitar/deshabilitar nodo (adm
 ## Hoja de ruta por fases
 
 ### ✅ Fase 0 — Vista read-only del grafo (COMPLETA)
-- Tab "Flow" en EmpresaCard
+- Tab "Flow" en BotCard
 - Grafo de Luganense desde LangGraph real
 - Grafos sintéticos para fixed_message/summarizer/assistant
 - Labels con nombre de nodo (no tipo genérico)
@@ -351,7 +351,7 @@ PUT  /api/empresas/{id}/node-permissions    → habilitar/deshabilitar nodo (adm
 - `backend/graphs/compiler.py` — NODE_REGISTRY + `compile_graph(definition)`
 - Cada nodo Python tiene `__init__(config)` + `__call__(state)`
 - Auto-reply lee flows de DB (con fallback a tools durante migración)
-- Migrar todas las empresas existentes a flows
+- Migrar todas las bots existentes a flows
 - Eliminar tabla `tools` y el fallback
 - Eliminar campo `tipo` de la UI y del router backend
 - Tests de integración: definición JSON → ejecución real
@@ -360,16 +360,16 @@ PUT  /api/empresas/{id}/node-permissions    → habilitar/deshabilitar nodo (adm
 
 **Scope:**
 - Tabla `node_permissions` en DB
-- Endpoint PUT /api/empresas/{id}/node-permissions (admin only)
+- Endpoint PUT /api/bots/{id}/node-permissions (admin only)
 - Frontend: nodos no habilitados aparecen en paleta con badge "Pro" y disabled
-- Backend: al ejecutar flow, verificar que todos los nodos estén habilitados para la empresa
+- Backend: al ejecutar flow, verificar que todos los nodos estén habilitados para la bot
 
-### 📋 Fase 5 — Portal empresa (cliente ve y edita su propio flow)
+### 📋 Fase 5 — Portal bot (cliente ve y edita su propio flow)
 
 **Scope:**
 - ConnectPage incluye el editor (sin paleta completa — solo ver + config de nodos existentes)
 - El cliente puede editar la config de sus nodos (ej: cambiar texto de reply fijo)
-- El admin puede habilitar/deshabilitar la edición por empresa
+- El admin puede habilitar/deshabilitar la edición por bot
 
 ---
 
@@ -383,7 +383,7 @@ PUT  /api/empresas/{id}/node-permissions    → habilitar/deshabilitar nodo (adm
 | Drag & drop paleta | HTML5 nativo + screenToFlowPosition | Patrón oficial React Flow |
 | Compilación LangGraph | Runtime desde JSON | No hay soporte oficial para DSL declarativo |
 | Auto-layout | dagre (ya instalado) | Suficiente para nuestro caso, elk solo si dagre no escala |
-| Tab name | "Flows" (plural) | Puede haber múltiples flows por empresa |
+| Tab name | "Flows" (plural) | Puede haber múltiples flows por bot |
 
 ---
 
@@ -391,7 +391,7 @@ PUT  /api/empresas/{id}/node-permissions    → habilitar/deshabilitar nodo (adm
 
 - No hay versionado de flows (v1, v2, etc.) — es YAGNI para ahora
 - No hay simulación paso-a-paso en el canvas — es Fase 6+ si se necesita
-- No hay export/import de flows entre empresas — luego si surge el caso
+- No hay export/import de flows entre bots — luego si surge el caso
 - No hay undo/redo en el editor — el botón "Guardar" es el checkpoint
 - No hay grafos Python arbitrarios fuera del NODE_REGISTRY — todo nodo nuevo requiere implementación
 
@@ -411,7 +411,7 @@ PUT  /api/empresas/{id}/node-permissions    → habilitar/deshabilitar nodo (adm
 | Tabla `flows` en DB | ✅ Con migration |
 | Tabla `tools` y relacionadas | ✅ Eliminadas |
 | `frontend/src/components/FlowCanvas.jsx` | ✅ Read-only, dagre layout |
-| `frontend/src/components/EmpresaCard.jsx` | ✅ Tab "Flow" activa |
+| `frontend/src/components/BotCard.jsx` | ✅ Tab "Flow" activa |
 | `backend/tests/test_flows.py` | ✅ 106 tests totales pasando |
 | Editor drag & drop (Fase 2) | ❌ pendiente |
 | NodeConfigPanel (Fase 2) | ❌ pendiente |

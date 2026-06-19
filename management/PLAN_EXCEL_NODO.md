@@ -59,7 +59,7 @@ Descarga o lee una planilla y vuelca su contenido en `state.context` (para que e
 - Soporta `.xlsx`, `.csv`
 
 ### Archivo local (Fase 2)
-- Subida desde el panel de empresa → guardado en `data/sheets/{empresa_id}/{nombre}.xlsx`
+- Subida desde el panel de bot → guardado en `data/sheets/{bot_id}/{nombre}.xlsx`
 - El nodo referencia el archivo por nombre
 
 ---
@@ -102,8 +102,8 @@ En el futuro, `check_contact` podría comparar el contacto contra la lista de la
 - Registro en NODE_REGISTRY + paleta frontend
 
 ### Fase 2 — Excel upload + hojas privadas
-- Endpoint de subida de archivos Excel por empresa
-- Panel en EmpresaCard para gestionar planillas subidas
+- Endpoint de subida de archivos Excel por bot
+- Panel en BotCard para gestionar planillas subidas
 - Auth Google (Service Account) para hojas privadas
 
 ### Fase 3 — Nodo de búsqueda en planilla

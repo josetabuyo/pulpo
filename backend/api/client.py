@@ -14,7 +14,7 @@ router = APIRouter()
 
 def _find_session(config: dict, session_id: str):
     """Returns (bot, item, canonical_id, type). Finds Telegram sessions by tokenId short form."""
-    for bot in config.get("empresas", []):
+    for bot in config.get("bots", []):
         for tg in bot.get("telegram", []):
             token_id = tg["token"].split(":")[0]
             canonical = f"{bot['id']}-tg-{token_id}"
@@ -108,9 +108,9 @@ async def send_chat_message(number: str, contact: str, body: SendMessageBody):
     if not bot:
         raise HTTPException(status_code=404, detail="Número no encontrado")
 
-    def _accumulate_outbound(empresa_id: str, contact: str, msg_text: str) -> None:
+    def _accumulate_outbound(bot_id: str, contact: str, msg_text: str) -> None:
         from graphs.nodes.summarize import accumulate as _acc
-        _acc(empresa_id=empresa_id, contact_phone=contact, contact_name=contact,
+        _acc(bot_id=bot_id, contact_phone=contact, contact_name=contact,
              msg_type="text", content=f"Tú: {msg_text}")
 
     if sim_engine.SIM_MODE:

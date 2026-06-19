@@ -19,7 +19,7 @@ const TRIGGER_TYPES = new Set(['telegram_trigger', 'message_trigger', 'whatsapp_
 const FB_POLL_MS = 3_000        // intervalo de chequeo del login FB
 const FB_MAX_WAIT_MS = 130_000  // corte del polling si el login nunca llega
 
-export default function ConfigForm({ node, schema, empresaId, flowId, connections, apiCall, onGoToUIs }) {
+export default function ConfigForm({ node, schema, botId, flowId, connections, apiCall, onGoToUIs }) {
   const updateNodeConfig  = useFlowStore(s => s.updateNodeConfig)
   const updateNodeLabel   = useFlowStore(s => s.updateNodeLabel)
   const deleteNode        = useFlowStore(s => s.deleteNode)
@@ -41,23 +41,23 @@ export default function ConfigForm({ node, schema, empresaId, flowId, connection
   const isFbFetch = nodeType === 'fetch' && config.source === 'facebook'
 
   useEffect(() => {
-    if (!empresaId || !apiCall) return
+    if (!botId || !apiCall) return
     Promise.all([
-      apiCall('GET', `/bots/${empresaId}/contacts`, null).catch(() => []),
-      apiCall('GET', `/bots/${empresaId}/contacts/suggested`, null).catch(() => []),
-      apiCall('GET', `/empresas/${empresaId}/google-accounts`, null).catch(() => []),
+      apiCall('GET', `/bots/${botId}/contacts`, null).catch(() => []),
+      apiCall('GET', `/bots/${botId}/contacts/suggested`, null).catch(() => []),
+      apiCall('GET', `/bots/${botId}/google-accounts`, null).catch(() => []),
     ]).then(([c, s, ga]) => {
       if (Array.isArray(c))  setContacts(c)
       if (Array.isArray(s))  setSuggested(s)
       if (Array.isArray(ga)) setGoogleAccounts(ga)
     })
-  }, [empresaId])
+  }, [botId])
 
   function handleChange(newConfig) { updateNodeConfig(node.id, newConfig) }
   function handleDelete() { if (!isFixed) deleteNode(node.id) }
 
   async function handleFbRefresh() {
-    const pageId = config.fb_page_id || empresaId || 'luganense'
+    const pageId = config.fb_page_id || botId || 'luganense'
     setFbRefreshing(true)
     setFbRefreshMsg('Abriendo browser…')
     try {
@@ -94,7 +94,7 @@ export default function ConfigForm({ node, schema, empresaId, flowId, connection
     setBackupMsg('')
     setShowBackupConfirm(false)
     try {
-      const result = await apiCall('POST', `/summarizer/${empresaId}/backup-and-clean`, {})
+      const result = await apiCall('POST', `/summarizer/${botId}/backup-and-clean`, {})
       setBackupMsg(`✓ Backup de ${result.backed_up} archivos. Los nuevos mensajes acumulan desde cero.`)
     } catch {
       setBackupMsg('Error al hacer backup')
@@ -106,11 +106,11 @@ export default function ConfigForm({ node, schema, empresaId, flowId, connection
 
   async function handleDownloadSummaries() {
     try {
-      const blob = await apiCall('GET_BLOB', `/summarizer/${empresaId}/download`, null)
+      const blob = await apiCall('GET_BLOB', `/summarizer/${botId}/download`, null)
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `summaries_${empresaId}.zip`
+      a.download = `summaries_${botId}.zip`
       a.click()
       URL.revokeObjectURL(url)
     } catch (e) {
@@ -185,7 +185,7 @@ export default function ConfigForm({ node, schema, empresaId, flowId, connection
 
       <div style={{ borderTop: '1px solid #1e293b', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 12, flex: 1, overflowY: 'auto' }}>
 
-        {nodeType === 'summarize' && <SummarizeInfo empresaId={empresaId} apiCall={apiCall} onGoToUIs={onGoToUIs} />}
+        {nodeType === 'summarize' && <SummarizeInfo botId={botId} apiCall={apiCall} onGoToUIs={onGoToUIs} />}
 
         {nodeType === 'summarize' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

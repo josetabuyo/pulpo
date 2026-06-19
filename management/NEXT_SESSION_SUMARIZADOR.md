@@ -41,7 +41,7 @@ Hay **dos bugs visibles en la UI** después del import:
 `AudioBubble` muestra `🎵 audio` sin botón "Transcripción". El `.md` tiene la entrada de audio pero sin texto transcripto.
 
 ### Posible causa
-El scraper descargó el audio como archivo temporal durante el import, pero el pipeline de transcripción no lo procesó. Los audios se guardan en `data/summaries/{empresa}/{contact}/docs/` pero la transcripción (que normalmente corre durante el real-time scrape) puede haberse saltado en el batch import.
+El scraper descargó el audio como archivo temporal durante el import, pero el pipeline de transcripción no lo procesó. Los audios se guardan en `data/summaries/{bot}/{contact}/docs/` pero la transcripción (que normalmente corre durante el real-time scrape) puede haberse saltado en el batch import.
 
 ### Dónde investigar
 - `backend/automation/whatsapp.py` — `_download_audio_from_page()` y cómo el resultado se pasa al pipeline
@@ -130,7 +130,7 @@ desde WA Web (Caminos 3 o 4).
 | `backend/api/flows.py` | `_do_import`, `import_wa_history` |
 | `backend/graphs/nodes/summarize.py` | `accumulate`, `_dedup_hash`, `_newest_message_ts` |
 | `frontend/src/components/SummaryView.jsx` | UI de mensajes (burbujas, audio, imagen) |
-| `frontend/src/components/EmpresaCard.jsx` | `BrowserPanel` (siempre visible), `ConnectionRow` |
+| `frontend/src/components/BotCard.jsx` | `BrowserPanel` (siempre visible), `ConnectionRow` |
 
 ---
 
@@ -146,7 +146,7 @@ backend/.venv/bin/python -m pytest backend/tests/test_auth.py backend/tests/test
 
 # Todos los que pasan (requieren server en :8000)
 backend/.venv/bin/python -m pytest backend/tests/ -v --tb=short
-# → 66 passed, ~43 failed (test_contacts, test_empresa, test_flows — problemas pre-existentes de configuración)
+# → 66 passed, ~43 failed (test_contacts, test_bot, test_flows — problemas pre-existentes de configuración)
 ```
 
 **Sin tests todavía:**

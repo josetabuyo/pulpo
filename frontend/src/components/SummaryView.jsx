@@ -124,7 +124,7 @@ function AudioBubble({ msg, highlight, dimmed }) {
   )
 }
 
-function ImageBubble({ msg, apiCall, empresaId, contactPhone, dimmed }) {
+function ImageBubble({ msg, apiCall, botId, contactPhone, dimmed }) {
   const isOut = msg.direction === 'out'
   const [blobUrl, setBlobUrl] = useState(null)
   const [modalUrl, setModalUrl] = useState(null)
@@ -133,7 +133,7 @@ function ImageBubble({ msg, apiCall, empresaId, contactPhone, dimmed }) {
     if (!msg.filename) return
     let objectUrl = null
     let cancelled = false
-    const path = `/summarizer/${empresaId}/${contactPhone}/docs/${encodeURIComponent(msg.filename)}`
+    const path = `/summarizer/${botId}/${contactPhone}/docs/${encodeURIComponent(msg.filename)}`
     apiCall('GET_BLOB', path, null)
       .then(blob => {
         if (cancelled || !blob || blob.size === 0) return
@@ -146,7 +146,7 @@ function ImageBubble({ msg, apiCall, empresaId, contactPhone, dimmed }) {
       if (objectUrl) URL.revokeObjectURL(objectUrl)
       setBlobUrl(null)
     }
-  }, [msg.filename, empresaId, contactPhone]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [msg.filename, botId, contactPhone]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleOpen() {
     if (!msg.filename) return
@@ -155,7 +155,7 @@ function ImageBubble({ msg, apiCall, empresaId, contactPhone, dimmed }) {
       return
     }
     // Blob no cargó aún — fetch on-demand
-    const path = `/summarizer/${empresaId}/${contactPhone}/docs/${encodeURIComponent(msg.filename)}`
+    const path = `/summarizer/${botId}/${contactPhone}/docs/${encodeURIComponent(msg.filename)}`
     apiCall('GET_BLOB', path, null)
       .then(blob => {
         if (!blob || blob.size === 0) return
@@ -209,10 +209,10 @@ function ImageBubble({ msg, apiCall, empresaId, contactPhone, dimmed }) {
   )
 }
 
-function DocumentBubble({ msg, apiCall, empresaId, contactPhone, dimmed }) {
+function DocumentBubble({ msg, apiCall, botId, contactPhone, dimmed }) {
   function handleDownload(e) {
     e.preventDefault()
-    const url = `/summarizer/${empresaId}/${contactPhone}/docs/${encodeURIComponent(msg.filename)}`
+    const url = `/summarizer/${botId}/${contactPhone}/docs/${encodeURIComponent(msg.filename)}`
     apiCall('GET_BLOB', url, null).then(blob => {
       if (!blob) return
       const a = document.createElement('a')
@@ -272,7 +272,7 @@ function statsText(messages) {
 
 // ─── Sortable bubble (tuning mode) ───────────────────────────────────────────
 
-function SortableBubble({ msg, onDelete, apiCall, empresaId, contactPhone, highlight, dimmed }) {
+function SortableBubble({ msg, onDelete, apiCall, botId, contactPhone, highlight, dimmed }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: msg._id || msg._localId })
 
@@ -284,8 +284,8 @@ function SortableBubble({ msg, onDelete, apiCall, empresaId, contactPhone, highl
 
   function renderContent() {
     if (msg.type === 'audio') return <AudioBubble msg={msg} highlight={highlight} dimmed={dimmed} />
-    if (msg.type === 'image') return <ImageBubble msg={msg} apiCall={apiCall} empresaId={empresaId} contactPhone={contactPhone} dimmed={dimmed} />
-    if (msg.type === 'document') return <DocumentBubble msg={msg} apiCall={apiCall} empresaId={empresaId} contactPhone={contactPhone} dimmed={dimmed} />
+    if (msg.type === 'image') return <ImageBubble msg={msg} apiCall={apiCall} botId={botId} contactPhone={contactPhone} dimmed={dimmed} />
+    if (msg.type === 'document') return <DocumentBubble msg={msg} apiCall={apiCall} botId={botId} contactPhone={contactPhone} dimmed={dimmed} />
     return <TextBubble msg={msg} highlight={highlight} dimmed={dimmed} />
   }
 
@@ -304,7 +304,7 @@ function SortableBubble({ msg, onDelete, apiCall, empresaId, contactPhone, highl
 
 // ─── Insert form ──────────────────────────────────────────────────────────────
 
-function InsertForm({ senders, onConfirm, onCancel, apiCall, empresaId, contactPhone }) {
+function InsertForm({ senders, onConfirm, onCancel, apiCall, botId, contactPhone }) {
   const [sender, setSender] = useState('')
   const [content, setContent] = useState('')
   const [pastedImage, setPastedImage] = useState(null)  // { file, previewUrl }
@@ -340,7 +340,7 @@ function InsertForm({ senders, onConfirm, onCancel, apiCall, empresaId, contactP
       try {
         const formData = new FormData()
         formData.append('file', pastedImage.file, pastedImage.file.name || 'image.png')
-        const res = await apiCall('POST_FORM', `/summarizer/${empresaId}/${contactPhone}/upload-image`, formData)
+        const res = await apiCall('POST_FORM', `/summarizer/${botId}/${contactPhone}/upload-image`, formData)
         if (!res?.filename) throw new Error('upload failed')
         onConfirm({ type: 'image', sender: sender || null, filename: res.filename, caption: content.trim() || '', timestamp: null })
       } catch {
@@ -401,7 +401,7 @@ function InsertForm({ senders, onConfirm, onCancel, apiCall, empresaId, contactP
 
 // ─── SummaryView ──────────────────────────────────────────────────────────────
 
-export default function SummaryView({ empresaId, contactPhone, contactName, apiCall, onBack }) {
+export default function SummaryView({ botId, contactPhone, contactName, apiCall, onBack }) {
   const [messages, setMessages]     = useState(null)
   const [error, setError]           = useState(null)
   const [syncing, setSyncing]       = useState(false)
@@ -443,7 +443,7 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
   function loadMessages() {
     setMessages(null)
     setError(null)
-    apiCall('GET', `/summarizer/${empresaId}/${contactPhone}/messages`, null)
+    apiCall('GET', `/summarizer/${botId}/${contactPhone}/messages`, null)
       .then(data => {
         if (data?.messages) setMessages(data.messages)
         else setError('Sin mensajes')
@@ -453,7 +453,7 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
 
   // carga mensajes con IDs para el tuning
   function loadEditMessages() {
-    return apiCall('GET', `/summarizer/${empresaId}/${contactPhone}/messages?include_ids=true`, null)
+    return apiCall('GET', `/summarizer/${botId}/${contactPhone}/messages?include_ids=true`, null)
       .then(data => {
         if (data?.version != null) currentVersion.current = data.version
         return data?.messages || []
@@ -463,10 +463,10 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
   useEffect(() => {
     loadMessages()
     // Cargar consolidación en paralelo para mostrar badge y bloquear tuning
-    apiCall('GET', `/summarizer/${empresaId}/${contactPhone}/consolidation`, null)
+    apiCall('GET', `/summarizer/${botId}/${contactPhone}/consolidation`, null)
       .then(meta => setConsolidation(meta?.consolidated_at ? meta : null))
       .catch(() => setConsolidation(null))
-  }, [empresaId, contactPhone])
+  }, [botId, contactPhone])
 
   useEffect(() => {
     if (messages && messagesRef.current) {
@@ -496,7 +496,7 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
     try {
       const payload = { messages: msgs }
       if (currentVersion.current != null) payload.version = currentVersion.current
-      const res = await apiCall('PUT', `/summarizer/${empresaId}/${contactPhone}/messages`, payload)
+      const res = await apiCall('PUT', `/summarizer/${botId}/${contactPhone}/messages`, payload)
       if (res?._status === 409) {
         log('PUT /messages ← 409 Conflict — recargando')
         notifySave('error')
@@ -542,9 +542,9 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
     setHistoryIdx(0)
     setTuningMode(true)
     if (contactName) {
-      apiCall('POST', `/summarizer/${empresaId}/wa-open-chat`, { contact_name: contactName }).catch(() => {})
+      apiCall('POST', `/summarizer/${botId}/wa-open-chat`, { contact_name: contactName }).catch(() => {})
     }
-    apiCall('GET', `/summarizer/${empresaId}/${contactPhone}/consolidation`, null)
+    apiCall('GET', `/summarizer/${botId}/${contactPhone}/consolidation`, null)
       .then(meta => setConsolidation(meta?.consolidated_at ? meta : null))
       .catch(() => setConsolidation(null))
   }
@@ -661,7 +661,7 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
       ? formatDate(editMessages[editMessages.length - 1].timestamp)
       : '?'
     if (!window.confirm(`Consolidar resumen hasta ${lastDate}. ¿Continuar?`)) return
-    const meta = await apiCall('POST', `/summarizer/${empresaId}/${contactPhone}/consolidate`, {})
+    const meta = await apiCall('POST', `/summarizer/${botId}/${contactPhone}/consolidate`, {})
     setConsolidation(meta)
   }
 
@@ -670,7 +670,7 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
   async function handleSync() {
     setSyncing(true)
     try {
-      await apiCall('POST', `/summarizer/${empresaId}/${contactPhone}/sync`, {})
+      await apiCall('POST', `/summarizer/${botId}/${contactPhone}/sync`, {})
       loadMessages()
     } catch {
       setError('Error al sincronizar')
@@ -691,7 +691,7 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
       ? { from_date: consolidation.last_message_ts }
       : {}
     try {
-      await apiCall('POST', `/summarizer/${empresaId}/${contactPhone}/full-resync`, body)
+      await apiCall('POST', `/summarizer/${botId}/${contactPhone}/full-resync`, body)
       loadMessages()
     } catch {
       setError('Error en full re-sync')
@@ -701,7 +701,7 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
   }
 
   function handleDownloadMd() {
-    apiCall('GET_TEXT', `/summarizer/${empresaId}/${contactPhone}`, null).then(text => {
+    apiCall('GET_TEXT', `/summarizer/${botId}/${contactPhone}`, null).then(text => {
       if (!text) return
       const blob = new Blob([text], { type: 'text/markdown' })
       const a = document.createElement('a')
@@ -919,7 +919,7 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
                         msg={msg}
                         onDelete={handleDelete}
                         apiCall={apiCall}
-                        empresaId={empresaId}
+                        botId={botId}
                         contactPhone={contactPhone}
                         highlight={searchQuery}
                         dimmed={!matches}
@@ -937,7 +937,7 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
                   onConfirm={handleInsertConfirm}
                   onCancel={() => setInsertForm(null)}
                   apiCall={apiCall}
-                  empresaId={empresaId}
+                  botId={botId}
                   contactPhone={contactPhone}
                 />
               ) : (
@@ -975,8 +975,8 @@ export default function SummaryView({ empresaId, contactPhone, contactName, apiC
             const isCurrent = searchQuery && matchingIndices[matchIdx] === msgIdx
             let bubble
             if (msg.type === 'audio') bubble = <AudioBubble msg={msg} highlight={searchQuery} dimmed={dimmed} />
-            else if (msg.type === 'image') bubble = <ImageBubble msg={msg} apiCall={apiCall} empresaId={empresaId} contactPhone={contactPhone} dimmed={dimmed} />
-            else if (msg.type === 'document') bubble = <DocumentBubble msg={msg} apiCall={apiCall} empresaId={empresaId} contactPhone={contactPhone} dimmed={dimmed} />
+            else if (msg.type === 'image') bubble = <ImageBubble msg={msg} apiCall={apiCall} botId={botId} contactPhone={contactPhone} dimmed={dimmed} />
+            else if (msg.type === 'document') bubble = <DocumentBubble msg={msg} apiCall={apiCall} botId={botId} contactPhone={contactPhone} dimmed={dimmed} />
             else bubble = <TextBubble msg={msg} highlight={searchQuery} dimmed={dimmed} />
             return (
               <div

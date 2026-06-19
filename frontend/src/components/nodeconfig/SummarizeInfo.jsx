@@ -66,21 +66,21 @@ function ConsolidationCard({ c }) {
   )
 }
 
-export default function SummarizeInfo({ empresaId, apiCall, onGoToUIs }) {
+export default function SummarizeInfo({ botId, apiCall, onGoToUIs }) {
   const [absPath, setAbsPath] = useState(null)
   const [consolidations, setConsolidations] = useState([])
 
   useEffect(() => {
-    if (!empresaId || !apiCall) return
-    apiCall('GET', `/summarizer/${empresaId}`, null)
+    if (!botId || !apiCall) return
+    apiCall('GET', `/summarizer/${botId}`, null)
       .then(data => { if (data?.path) setAbsPath(data.path) })
       .catch(e => console.warn('[SummarizeInfo] path', e))
-    apiCall('GET', `/summarizer/${empresaId}/consolidations`, null)
+    apiCall('GET', `/summarizer/${botId}/consolidations`, null)
       .then(data => { if (Array.isArray(data?.consolidations)) setConsolidations(data.consolidations) })
       .catch(e => console.warn('[SummarizeInfo] consolidations', e))
-  }, [empresaId, apiCall])
+  }, [botId, apiCall])
 
-  const displayPath = absPath || `data/summaries/${empresaId || '<empresa_id>'}/`
+  const displayPath = absPath || `data/summaries/${botId || '<bot_id>'}/`
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -102,7 +102,7 @@ export default function SummarizeInfo({ empresaId, apiCall, onGoToUIs }) {
         </div>
       )}
 
-      {empresaId && onGoToUIs && (
+      {botId && onGoToUIs && (
         <button
           onClick={onGoToUIs}
           style={{ fontSize: 12, color: '#818cf8', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0 }}

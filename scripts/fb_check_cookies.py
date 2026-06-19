@@ -28,7 +28,7 @@ DAYS_WARNING = 14   # avisar con N días de antelación
 def _get_tg_token() -> str:
     try:
         connections = json.loads((ROOT / "connections.json").read_text())
-        luganense = next(b for b in connections["empresas"] if b.get("name") == "Luganense")
+        luganense = next(b for b in connections["bots"] if b.get("name") == "Luganense")
         tg = luganense.get("telegram", [])
         if isinstance(tg, list) and tg:
             return tg[0].get("token", "")

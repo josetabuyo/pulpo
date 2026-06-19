@@ -44,7 +44,7 @@ Revisar primero cómo están modeladas las conexiones WA/TG para seguir el mismo
 
 Una conexión `gsheet` guarda:
 - `type = "gsheet"`
-- `empresa_id` — null si es la cuenta compartida de Pulpo
+- `bot_id` — null si es la cuenta compartida de Pulpo
 - `credentials_json` — el JSON del Service Account (texto plano por ahora, cifrar en el futuro)
 - `email` — extraído de `client_email` del JSON (para mostrar en UI sin exponer las credenciales)
 - `label` — nombre amigable (ej: "Cuenta principal Pulpo")
@@ -53,26 +53,26 @@ Una conexión `gsheet` guarda:
 
 En `backend/main.py` (lifespan), si `GOOGLE_SERVICE_ACCOUNT_JSON` está en `.env`:
 - Si no existe una conexión con `id="pulpo-default"`, crearla.
-- Esto hace que la cuenta de Pulpo esté disponible para todas las empresas sin configurar nada.
+- Esto hace que la cuenta de Pulpo esté disponible para todas las bots sin configurar nada.
 
-### 1c. Listar conexiones Google de una empresa
+### 1c. Listar conexiones Google de una bot
 
 Modificar el endpoint que lista conexiones para incluir las de tipo `gsheet`:
-- Las conexiones propias de la empresa (con su `empresa_id`).
-- La conexión `pulpo-default` (compartida, sin empresa_id).
+- Las conexiones propias de la bot (con su `bot_id`).
+- La conexión `pulpo-default` (compartida, sin bot_id).
 
 ### 1d. Reemplazar `/api/flow/google-accounts`
 
-Reemplazar (o hacer que internamente use) las conexiones de tipo `gsheet` de la empresa.
+Reemplazar (o hacer que internamente use) las conexiones de tipo `gsheet` de la bot.
 El campo `google_account_select` en los nodos pasa a listar estas conexiones.
 
 ---
 
-## Fase 2 — Frontend: UI en EmpresaCard
+## Fase 2 — Frontend: UI en BotCard
 
 ### 2a. Botón "+ Google Sheets" en la pestaña Conexiones
 
-En `frontend/src/components/EmpresaCard.jsx`, agregar botón junto a "+ WhatsApp" y "+ Telegram".
+En `frontend/src/components/BotCard.jsx`, agregar botón junto a "+ WhatsApp" y "+ Telegram".
 
 ### 2b. Modal de setup
 
@@ -91,7 +91,7 @@ Dos opciones dentro del modal:
   2. Credenciales → + Crear credenciales → Cuenta de servicio → nombre cualquiera → Crear
   3. Clic en la cuenta → pestaña Claves → Agregar clave → JSON → se descarga el archivo
   4. Pegar el contenido del archivo acá
-- Al guardar: `POST /api/empresas/{id}/connections` con `{type: "gsheet", credentials_json: "..."}`.
+- Al guardar: `POST /api/bots/{id}/connections` con `{type: "gsheet", credentials_json: "..."}`.
 
 ### 2c. Tarjeta de conexión Google
 
@@ -111,7 +111,7 @@ Los campos `google_account` en `gsheet.py`, `search_sheet.py`, `fetch_sheet.py` 
 en lugar del endpoint separado `/api/flow/google-accounts`.
 
 En `NodeConfigPanel.jsx`, el `useEffect` que carga `googleAccounts` pasa a llamar
-a las conexiones de tipo `gsheet` de la empresa.
+a las conexiones de tipo `gsheet` de la bot.
 
 ---
 
@@ -121,7 +121,7 @@ a las conexiones de tipo `gsheet` de la empresa.
 - `backend/db.py` — esquema de conexiones
 - `backend/api/connections.py` — CRUD de conexiones (si existe; buscar dónde están)
 - `backend/api/flows.py` — endpoint `GET /api/flow/google-accounts` (a reemplazar)
-- `frontend/src/components/EmpresaCard.jsx` — UI de conexiones
+- `frontend/src/components/BotCard.jsx` — UI de conexiones
 - `frontend/src/components/NodeConfigPanel.jsx` — campo `google_account_select` ya implementado
 
 ---

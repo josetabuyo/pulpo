@@ -13,7 +13,7 @@ El nuevo modelo:
 - **Flows** son el motor central — todo comportamiento vive en flows compuestos de nodos pequeños
 - **Nodos al estilo Unix** — composables, minimalistas, una sola responsabilidad cada uno
 - **Conexiones** tienen una configuración default de filtro que los triggers heredan y pueden pisar
-- **UIs** son vistas personalizadas por empresa, conectadas a datos generados por flows
+- **UIs** son vistas personalizadas por bot, conectadas a datos generados por flows
 - **Contactos** es la primera UI — su lógica de guardado vive en un flow propio
 
 ---
@@ -81,7 +81,7 @@ Esto evita que cada flow nuevo tenga que configurar desde cero los mismos filtro
 
 ### 3. Flow piloto gm_herreria — clasificar consultas de trabajo
 
-El flow "Contactos — GM Herrería" detecta si el mensaje indica una consulta de trabajo en alguno de los oficios de la empresa. Al arrancar: herrería y electricidad. La arquitectura permite agregar más oficios editando el flow.
+El flow "Contactos — GM Herrería" detecta si el mensaje indica una consulta de trabajo en alguno de los oficios de la bot. Al arrancar: herrería y electricidad. La arquitectura permite agregar más oficios editando el flow.
 
 ```
 message_trigger (5491124778975 — bot de gm_herreria)
@@ -103,16 +103,16 @@ Router LLM — clasifica el mensaje:
 - name: `state.contact_name` (nombre WA si disponible)
 - notes: `state.trade` (el oficio detectado)
 
-### 4. Solapas EmpresaCard — resultado final
+### 4. Solapas BotCard — resultado final
 
 ```
 [Conexiones] [Flow] [UIs] [Configurar]
 ```
 
 - **Conexiones**: gestión técnica (agregar/quitar bots, QR, status) + sección de configuración default de filtro por conexión (los mismos campos del trigger)
-- **Flow**: lista de flows de la empresa (sin cambios)
+- **Flow**: lista de flows de la bot (sin cambios)
 - **UIs**: lista de UIs personalizadas. Primera: "Contactos" (lista de contactos + sugeridos con excluir)
-- **Configurar**: configuración de la empresa (nombre, password, etc.)
+- **Configurar**: configuración de la bot (nombre, password, etc.)
 
 La solapa "Contactos" actual **desaparece** — pasa a vivir dentro de "UIs".
 
@@ -139,8 +139,8 @@ La solapa "Contactos" actual **desaparece** — pasa a vivir dentro de "UIs".
 ### Fase 2 — Configuración default de Conexión
 
 **Backend:**
-- [ ] Nuevo endpoint: `GET /empresas/{id}/connections/{conn_id}/filter-config`
-- [ ] Nuevo endpoint: `PUT /empresas/{id}/connections/{conn_id}/filter-config`
+- [ ] Nuevo endpoint: `GET /bots/{id}/connections/{conn_id}/filter-config`
+- [ ] Nuevo endpoint: `PUT /bots/{id}/connections/{conn_id}/filter-config`
 - [ ] Guardar la config en `phones.json` bajo cada conexión (campo `default_filter`)
 - [ ] El engine en `compiler.py`: si un trigger NO tiene `contact_filter` configurado, leer el default de la conexión
 
@@ -152,15 +152,15 @@ La solapa "Contactos" actual **desaparece** — pasa a vivir dentro de "UIs".
 
 ---
 
-### Fase 3 — Refactor EmpresaCard: solapa UIs
+### Fase 3 — Refactor BotCard: solapa UIs
 
 **Frontend:**
 - [ ] Extraer el contenido de la solapa "Contactos" a `ContactsUI.jsx` (componente standalone)
-- [ ] Crear `UIsList.jsx` — lista de UIs de la empresa
-- [ ] En EmpresaCard: reemplazar solapa "Contactos" por solapa "UIs" que renderiza `UIsList`
+- [ ] Crear `UIsList.jsx` — lista de UIs de la bot
+- [ ] En BotCard: reemplazar solapa "Contactos" por solapa "UIs" que renderiza `UIsList`
 - [ ] Por ahora, `UIsList` muestra solo la UI de contactos hardcodeada (sin tabla DB todavía)
 
-**Nota:** La tabla `empresa_uis` en DB se puede agregar después — por ahora la UI de Contactos se muestra siempre (como hoy). La tabla se agrega cuando haya más de un tipo de UI.
+**Nota:** La tabla `bot_uis` en DB se puede agregar después — por ahora la UI de Contactos se muestra siempre (como hoy). La tabla se agrega cuando haya más de un tipo de UI.
 
 ---
 
@@ -208,4 +208,4 @@ Los riesgos son bajos:
 - **`set_state` vs. salida del router**: el router puede setear la ruta, pero para datos arbitrarios como el oficio detectado conviene un nodo `set_state` explícito. Alternativamente, el Router LLM puede extenderse para escribir en campos del state además de la ruta — a definir en la implementación.
 - **`notes` en contactos**: campo de texto libre. El flow de gm_herreria pondrá "herrería" o "electricidad", pero podría ser cualquier texto. No es un enum.
 - **Herencia de filter-config**: si el trigger tiene `contact_filter: null` (vacío, sin configurar), hereda el default de la conexión. Si tiene algún valor (aunque sea vacío `{}`), usa ese valor y no hereda. Esto permite que un trigger opte por "sin filtro" explícitamente.
-- **Sugeridos en la conexión**: los sugeridos se filtran por `connection_id` de esa conexión, no por empresa completa. Excluir desde aquí modifica el `default_filter.excluded` de la conexión en `phones.json`.
+- **Sugeridos en la conexión**: los sugeridos se filtran por `connection_id` de esa conexión, no por bot completa. Excluir desde aquí modifica el `default_filter.excluded` de la conexión en `phones.json`.

@@ -1,5 +1,5 @@
 /**
- * Widgets chicos compartidos por las piezas de EmpresaCard.
+ * Widgets chicos compartidos por las piezas de BotCard.
  */
 import { useState } from 'react'
 
@@ -20,7 +20,7 @@ export function CopyLinkBtn({ botId }) {
 
   function getUrl() {
     const base = import.meta.env.VITE_PUBLIC_URL || window.location.origin
-    return `${base}/empresa/${botId}`
+    return `${base}/bot/${botId}`
   }
 
   function handleClick(e) {

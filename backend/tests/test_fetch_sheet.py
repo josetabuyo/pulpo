@@ -18,7 +18,7 @@ CSV_SAMPLE = "nombre,oficio,precio\nGregorio,herrero,500\nAna,abogada,800\n"
 def make_state() -> FlowState:
     return FlowState(
         message="quiero un herrero",
-        empresa_id="test",
+        bot_id="test",
         connection_id="test",
         canal="telegram",
     )

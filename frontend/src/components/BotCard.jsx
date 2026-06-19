@@ -1,24 +1,24 @@
 /**
- * EmpresaCard — card de una empresa con sus conexiones, flows y UIs.
- * Funciona en dos modos: 'admin' (dashboard) y 'empresa' (portal del cliente).
+ * BotCard — card de una bot con sus conexiones, flows y UIs.
+ * Funciona en dos modos: 'admin' (dashboard) y 'bot' (portal del cliente).
  *
- * Las piezas viven en components/empresa/:
+ * Las piezas viven en components/bot/:
  *   widgets.jsx           — StatusPill, CopyLinkBtn, dotColor, STATUS_LABELS
  *   ConnectionRow.jsx     — fila Telegram con menú contextual
  *   WaviConnections.jsx   — listado WhatsApp + picker de sesiones wavi
  *   GoogleConnections.jsx — listado Google Sheets + modal de alta
- *   EmpresaConfigTab.jsx  — tab Configurar (nombre/contraseña)
+ *   BotConfigTab.jsx  — tab Configurar (nombre/contraseña)
  */
 import { useState, useEffect } from 'react'
 import FlowList from './FlowList.jsx'
 import UIsList from './UIsList.jsx'
-import { STATUS_LABELS, dotColor, CopyLinkBtn } from './empresa/widgets.jsx'
-import ConnectionRow from './empresa/ConnectionRow.jsx'
-import EmpresaConfigTab from './empresa/EmpresaConfigTab.jsx'
-import { GoogleSetupModal, GoogleConnectionsSection } from './empresa/GoogleConnections.jsx'
-import { WaviConnectionsList, WaviSessionPicker } from './empresa/WaviConnections.jsx'
+import { STATUS_LABELS, dotColor, CopyLinkBtn } from './bot/widgets.jsx'
+import ConnectionRow from './bot/ConnectionRow.jsx'
+import BotConfigTab from './bot/BotConfigTab.jsx'
+import { GoogleSetupModal, GoogleConnectionsSection } from './bot/GoogleConnections.jsx'
+import { WaviConnectionsList, WaviSessionPicker } from './bot/WaviConnections.jsx'
 
-// Normaliza un bot del formato admin (/bots) al formato canónico de EmpresaCard
+// Normaliza un bot del formato admin (/bots) al formato canónico de BotCard
 export function normalizeBot(bot) {
   return {
     id: bot.id,
@@ -35,8 +35,8 @@ export function normalizeBot(bot) {
   }
 }
 
-export default function EmpresaCard({
-  mode,         // 'admin' | 'empresa'
+export default function BotCard({
+  mode,         // 'admin' | 'bot'
   bot,          // { id, name, connections: [{id, type, number, status}] }
   simMode = false,
   apiCall,      // (method, path, body) => Promise — auth-agnostic
@@ -59,29 +59,29 @@ export default function EmpresaCard({
   const botId = bot.id
 
   useEffect(() => {
-    apiCall('GET', `/empresa/${bot.id}/paused`, null)
+    apiCall('GET', `/bot/${bot.id}/paused`, null)
       .then(r => { if (r?.paused !== undefined) setPaused(r.paused) })
-      .catch(e => console.warn('[EmpresaCard] paused', e))
+      .catch(e => console.warn('[BotCard] paused', e))
   }, [bot.id])
 
   useEffect(() => {
     setHasSummarizer(false)
-    apiCall('GET', `/empresas/${bot.id}/flows/has-node/summarize`, null)
+    apiCall('GET', `/bots/${bot.id}/flows/has-node/summarize`, null)
       .then(data => { if (data?.found) setHasSummarizer(true) })
-      .catch(e => console.warn('[EmpresaCard] has-node', e))
+      .catch(e => console.warn('[BotCard] has-node', e))
   }, [bot.id])
 
   async function togglePause() {
     setPauseLoading(true)
     try {
-      const res = await apiCall('PUT', `/empresa/${bot.id}/paused`, { paused: !paused })
+      const res = await apiCall('PUT', `/bot/${bot.id}/paused`, { paused: !paused })
       if (res?.ok) setPaused(!paused)
     } finally {
       setPauseLoading(false)
     }
   }
 
-  // Empresa mode: inline add forms for connections
+  // Bot mode: inline add forms for connections
   const [tgInput, setTgInput] = useState('')
   const [showGoogleModal, setShowGoogleModal] = useState(false)
   const [tgErr, setTgErr] = useState('')
@@ -92,12 +92,12 @@ export default function EmpresaCard({
 
   async function handleAddWavi(sessionName) {
     setShowWaviPicker(false)
-    await apiCall('POST', '/connections', { empresaId: botId, number: sessionName }).catch(() => null)
+    await apiCall('POST', '/connections', { botId: botId, number: sessionName }).catch(() => null)
     onRefresh?.()
   }
 
   async function handleDeleteWavi(number) {
-    if (!confirm(`¿Desconectar WhatsApp ${number} de esta empresa?`)) return
+    if (!confirm(`¿Desconectar WhatsApp ${number} de esta bot?`)) return
     await apiCall('DELETE', `/connections/${number}`, null).catch(() => null)
     onRefresh?.()
   }
@@ -106,7 +106,7 @@ export default function EmpresaCard({
     e.preventDefault(); setTgErr('')
     const token = tgInput.trim(); if (!token) return
     setAddingConn(true)
-    const res = await apiCall('POST', `/empresa/${botId}/telegram`, { token }).catch(() => null)
+    const res = await apiCall('POST', `/bot/${botId}/telegram`, { token }).catch(() => null)
     setAddingConn(false)
     if (!res?.ok) { setTgErr(res?.detail || 'Error al agregar'); return }
     if (res.requires_restart) setTgErr('Agregado. Requiere reinicio del servidor para activarse.')
@@ -116,7 +116,7 @@ export default function EmpresaCard({
   async function handleRemoveConn(conn) {
     if (!confirm(`¿Eliminar ${conn.number}?`)) return
     const tokenId = conn.id.split('-tg-')[1]
-    await apiCall('DELETE', `/empresa/${botId}/telegram/${tokenId}`, null).catch(() => null)
+    await apiCall('DELETE', `/bot/${botId}/telegram/${tokenId}`, null).catch(() => null)
     onRefresh?.()
   }
 
@@ -129,7 +129,7 @@ export default function EmpresaCard({
     { id: 'connections', label: 'Conexiones', count: conns.length },
     ...(hasSummarizer ? [{ id: 'uis', label: 'UIs', count: null }] : []),
     { id: 'flow', label: 'Flow', count: null },
-    ...(mode === 'empresa' ? [{ id: 'config', label: 'Configurar', count: null }] : []),
+    ...(mode === 'bot' ? [{ id: 'config', label: 'Configurar', count: null }] : []),
   ]
 
   return (
@@ -180,7 +180,7 @@ export default function EmpresaCard({
                   <button
                     className="btn-danger btn-sm"
                     onClick={() => onDeleteBot?.(bot.id)}
-                    title="Eliminar empresa (pedirá confirmación)"
+                    title="Eliminar bot (pedirá confirmación)"
                     style={{ padding: '4px 7px', fontSize: 14 }}
                   >🗑</button>
                 </>
@@ -226,7 +226,7 @@ export default function EmpresaCard({
 
             <WaviConnectionsList conns={waviConns} mode={mode} onDelete={handleDeleteWavi} />
 
-            {conns.length === 0 && mode === 'empresa' && (
+            {conns.length === 0 && mode === 'bot' && (
               <div className="empty" style={{ padding: '20px 0 8px' }}>Sin canales configurados</div>
             )}
 
@@ -250,7 +250,7 @@ export default function EmpresaCard({
               />
             )}
 
-            {mode === 'empresa' && (
+            {mode === 'bot' && (
               <div className="ec-add-forms">
                 <div className="ec-section-label" style={{ background: '#f8fafc', color: '#64748b', borderTop: '1px solid #e8e8f0' }}>Agregar canal</div>
                 <div className="ec-add-form-row">
@@ -286,12 +286,12 @@ export default function EmpresaCard({
 
         {/* ── Flow ── */}
         {activeTab === 'flow' && (
-          <FlowList empresaId={botId} apiCall={apiCall} connections={conns} onGoToUIs={() => setActiveTab('uis')} />
+          <FlowList botId={botId} apiCall={apiCall} connections={conns} onGoToUIs={() => setActiveTab('uis')} />
         )}
 
-        {/* ── Config (empresa only) ── */}
-        {activeTab === 'config' && mode === 'empresa' && (
-          <EmpresaConfigTab
+        {/* ── Config (bot only) ── */}
+        {activeTab === 'config' && mode === 'bot' && (
+          <BotConfigTab
             botId={botId}
             botName={bot.name}
             apiCall={apiCall}

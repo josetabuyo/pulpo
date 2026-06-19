@@ -3,7 +3,7 @@ FetchNode — obtiene contenido externo y lo guarda en state.context.
 
 Config:
   source:     str — "facebook" | "http"
-  empresa_id: str — empresa para credenciales de Facebook (si vacío, usa state.empresa_id)
+  bot_id: str — bot para credenciales de Facebook (si vacío, usa state.bot_id)
   url:        str — URL para HTTP GET (solo si source="http")
   extract:    str — "text" | "json" | "html" (para source="http")
 """
@@ -30,8 +30,8 @@ class FetchNode(BaseNode):
         return state
 
     async def _fetch_facebook(self, state: FlowState) -> None:
-        # page_id: config explícito tiene precedencia, luego empresa_id del state
-        page_id    = self.config.get("fb_page_id") or state.empresa_id
+        # page_id: config explícito tiene precedencia, luego bot_id del state
+        page_id    = self.config.get("fb_page_id") or state.bot_id
         numeric_id = self.config.get("fb_numeric_id", "")
 
         # Queries: usa state.query (multi-línea) o el mensaje directo

@@ -106,13 +106,13 @@ def register_trigger(trigger_type: str, node_class: type):
 ## Ventajas
 
 ### 1. Data-Driven
-- Cada empresa puede componer flows con diferentes triggers
+- Cada bot puede componer flows con diferentes triggers
 - Nuevos tipos de triggers se agregan como plugins
 - Configuración declarativa en JSON
 
 ### 2. Reutilización
 - Features como "notificar por Telegram cuando temperatura > 30°C" son flows reutilizables
-- Se pueden exportar/importar flows completos entre empresas
+- Se pueden exportar/importar flows completos entre bots
 - Biblioteca de flows templates
 
 ### 3. Escalabilidad

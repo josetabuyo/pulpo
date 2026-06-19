@@ -8,7 +8,7 @@ export default function UIsList({ botId, apiCall }) {
   if (selectedContact) {
     return (
       <SummaryView
-        empresaId={botId}
+        botId={botId}
         contactPhone={selectedContact.phone}
         contactName={selectedContact.name}
         apiCall={apiCall}

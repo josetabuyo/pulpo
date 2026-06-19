@@ -7,9 +7,9 @@ El sistema tiene dos tipos de acceso, ambos con autenticación básica por contr
 | Acceso | Endpoint | Mecanismo actual | Problema |
 |--------|----------|-----------------|----------|
 | Admin  | `POST /api/auth/login` | contraseña en `.env` | Sin rate limiting, sin expiración |
-| Empresa | `POST /api/empresa/auth` | contraseña en `phones.json` | Igual, + se envía en cada request vía header |
+| Bot | `POST /api/bot/auth` | contraseña en `phones.json` | Igual, + se envía en cada request vía header |
 
-La contraseña de empresa viaja en cada request como `x-empresa-pwd`. No hay tokens, no hay sesiones del lado del servidor, no hay expiración.
+La contraseña de bot viaja en cada request como `x-bot-pwd`. No hay tokens, no hay sesiones del lado del servidor, no hay expiración.
 
 ---
 
@@ -29,14 +29,14 @@ La contraseña de empresa viaja en cada request como `x-empresa-pwd`. No hay tok
 **Contras**:
 - Hay que implementar la lógica de refresh
 - Hay que almacenar refresh tokens (SQLite, tabla simple)
-- No hay "olvídé mi contraseña" (pero para B2B con pocas empresas no es crítico)
+- No hay "olvídé mi contraseña" (pero para B2B con pocas bots no es crítico)
 
 **Complejidad**: baja-media. 1-2 días.
 
 **Lo que cambia**:
-- `POST /api/empresa/auth` devuelve `{ access_token, refresh_token }` en vez de solo `ok`
-- Cada request lleva `Authorization: Bearer <token>` en vez de `x-empresa-pwd`
-- Nuevo endpoint `POST /api/empresa/refresh`
+- `POST /api/bot/auth` devuelve `{ access_token, refresh_token }` en vez de solo `ok`
+- Cada request lleva `Authorization: Bearer <token>` en vez de `x-bot-pwd`
+- Nuevo endpoint `POST /api/bot/refresh`
 - Rate limiting en el endpoint de auth (max 5 intentos / 15 min por IP)
 
 ---
@@ -94,7 +94,7 @@ La contraseña de empresa viaja en cada request como `x-empresa-pwd`. No hay tok
 **Contras**:
 - Requiere servidor de email (Resend, SendGrid — gratis en free tier)
 - Latencia: el usuario espera el email
-- Para empresas B2B con pocas cuentas, agrega fricción sin mucho beneficio extra sobre JWT bien hecho
+- Para bots B2B con pocas cuentas, agrega fricción sin mucho beneficio extra sobre JWT bien hecho
 
 ---
 
@@ -107,10 +107,10 @@ La contraseña de empresa viaja en cada request como `x-empresa-pwd`. No hay tok
 **Qué implementar**:
 1. `python-jose[cryptography]` en el backend
 2. Tabla `sessions` en SQLite: `(id, bot_id, refresh_token_hash, expires_at, created_at)`
-3. `POST /api/empresa/auth` → devuelve `access_token` (JWT, 30 min) + `refresh_token` (opaco, 30 días)
-4. `POST /api/empresa/refresh` → valida refresh token, devuelve nuevo access token
-5. `POST /api/empresa/logout` → invalida el refresh token
-6. Middleware que valida `Authorization: Bearer` en todos los endpoints `/empresa/{bot_id}/*`
+3. `POST /api/bot/auth` → devuelve `access_token` (JWT, 30 min) + `refresh_token` (opaco, 30 días)
+4. `POST /api/bot/refresh` → valida refresh token, devuelve nuevo access token
+5. `POST /api/bot/logout` → invalida el refresh token
+6. Middleware que valida `Authorization: Bearer` en todos los endpoints `/bot/{bot_id}/*`
 7. Rate limiting: `slowapi` (3 líneas) — max 10 intentos / hora por IP en endpoints de auth
 8. Frontend: guardar tokens en `localStorage` (access) + cookie HttpOnly vía backend (refresh)
 
@@ -119,7 +119,7 @@ La contraseña de empresa viaja en cada request como `x-empresa-pwd`. No hay tok
 ### Fase 2 — Google OAuth (cuando haya dominio propio, Etapa 2 del plan de producción)
 
 Una vez que tengamos `pulpo.io` o similar:
-1. Agregar "Iniciar sesión con Google" como opción adicional en el portal de empresa
+1. Agregar "Iniciar sesión con Google" como opción adicional en el portal de bot
 2. Mapear el email de Google al `bot_id` correspondiente en `phones.json`
 3. El cliente deja de necesitar recordar la contraseña — entra con su cuenta de Google de trabajo
 
@@ -146,9 +146,9 @@ Estas cosas van independientemente del sistema de auth elegido:
 
 - [x] Fase 1: JWT + refresh tokens + rate limiting — **completado 2026-03-18**, mergeado a master
   - Tabla `sessions` en SQLite
-  - `POST /api/empresa/login` → JWT 30min + refresh cookie HttpOnly 30d
-  - `POST /api/empresa/refresh` + `POST /api/empresa/logout`
-  - Middleware Bearer en `/empresa/{bot_id}/*`
+  - `POST /api/bot/login` → JWT 30min + refresh cookie HttpOnly 30d
+  - `POST /api/bot/refresh` + `POST /api/bot/logout`
+  - Middleware Bearer en `/bot/{bot_id}/*`
   - Rate limiting 10 intentos/hora por IP (`slowapi`)
   - Frontend: `authFetch` wrapper con auto-refresh en 401
 - [ ] Fase 2: Google OAuth (post-dominio propio)

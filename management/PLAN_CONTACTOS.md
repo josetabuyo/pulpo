@@ -1,4 +1,4 @@
-# Plan: Contactos por empresa
+# Plan: Contactos por bot
 
 ## Objetivo
 
@@ -7,7 +7,7 @@ Reemplazar el `allowedContacts[]` (array de strings en `phones.json`) por una li
 ## Por qué
 
 - Hoy los contactos son strings sueltos en el JSON — frágil y sin estructura
-- No hay forma de ver con quién habló cada empresa
+- No hay forma de ver con quién habló cada bot
 - Si el mismo contacto escribe por WA y por Telegram, son registros separados sin relación
 
 ---
@@ -17,7 +17,7 @@ Reemplazar el `allowedContacts[]` (array de strings en `phones.json`) por una li
 ```
 Contacto
   ├── id
-  ├── empresa_id (bot_id)
+  ├── bot_id (bot_id)
   ├── nombre
   └── canales[]
         ├── type: "whatsapp" | "telegram" | "email"
@@ -25,7 +25,7 @@ Contacto
 
 Conversación
   ├── id
-  ├── empresa_id
+  ├── bot_id
   ├── contacto_id
   └── mensajes[]
         ├── channel
@@ -70,7 +70,7 @@ Cada herramienta tiene:
 | Campo | Descripción |
 |-------|-------------|
 | `tipo` | `fixed_message` \| (futuro: `ai_agent`, `webhook`, ...) |
-| `conexiones` | Lista de bot_ids a los que aplica. Si está vacío = todas las conexiones de la empresa |
+| `conexiones` | Lista de bot_ids a los que aplica. Si está vacío = todas las conexiones de la bot |
 | `contactos_incluidos` | Lista de contact_ids. Solo estos contactos activan la herramienta |
 | `contactos_excluidos` | Lista de contact_ids que nunca activan esta herramienta |
 | `incluir_desconocidos` | `bool` — si aplica a contactos que no están en la DB |
@@ -87,37 +87,37 @@ Cuando llega un mensaje de un contacto a un bot, el sistema evalúa **en orden**
 4. Si `contactos_incluidos` está vacío y `incluir_desconocidos = true` → activar para todos
 5. En cualquier otro caso → no aplica
 
-### Conexiones compartidas entre empresas
+### Conexiones compartidas entre bots
 
-Una misma conexión (número de teléfono / bot) puede pertenecer a **más de una empresa**. Por ejemplo, el número personal de un operador puede estar asignado a Empresa A para un grupo de contactos, y a Empresa B para otro grupo diferente.
+Una misma conexión (número de teléfono / bot) puede pertenecer a **más de una bot**. Por ejemplo, el número personal de un operador puede estar asignado a Bot A para un grupo de contactos, y a Bot B para otro grupo diferente.
 
 Esto implica que:
 
-- La relación entre conexiones y empresas es **muchos a muchos**
-- La tabla `tool_connections` referencia `bot_id` sin restricción de empresa
-- Los contactos de Empresa A y los de Empresa B son listas separadas, aunque compartan conexión
+- La relación entre conexiones y bots es **muchos a muchos**
+- La tabla `tool_connections` referencia `bot_id` sin restricción de bot
+- Los contactos de Bot A y los de Bot B son listas separadas, aunque compartan conexión
 
-### Validación de exclusividad — alcance GLOBAL (cross-empresa)
+### Validación de exclusividad — alcance GLOBAL (cross-bot)
 
-La validación de herramientas exclusivas opera sobre el par `(conexión, contacto)` **sin importar a qué empresa pertenece cada herramienta**.
+La validación de herramientas exclusivas opera sobre el par `(conexión, contacto)` **sin importar a qué bot pertenece cada herramienta**.
 
 Antes de guardar/activar una herramienta con `exclusiva = true`, el sistema debe verificar **en toda la DB**:
 
-> Para cada bot_id en `conexiones` y cada contacto resuelto por esta herramienta (incluidos + desconocidos si aplica): ¿existe ya otra herramienta exclusiva activa en **cualquier empresa** que cubra ese mismo par `(bot_id, contacto)`?
+> Para cada bot_id en `conexiones` y cada contacto resuelto por esta herramienta (incluidos + desconocidos si aplica): ¿existe ya otra herramienta exclusiva activa en **cualquier bot** que cubra ese mismo par `(bot_id, contacto)`?
 
-Si existe → **error de validación**: mostrar al usuario la herramienta en conflicto y de qué empresa es.
+Si existe → **error de validación**: mostrar al usuario la herramienta en conflicto y de qué bot es.
 
 **Lo que SÍ está permitido:**
-- Misma conexión en Empresa A con contactos {c1, c2} + misma conexión en Empresa B con contactos {c3, c4} → OK, los pares no se solapan
-- Misma conexión en dos empresas, cada una con `incluir_desconocidos = false` y listas de contactos disjuntas → OK
+- Misma conexión en Bot A con contactos {c1, c2} + misma conexión en Bot B con contactos {c3, c4} → OK, los pares no se solapan
+- Misma conexión en dos bots, cada una con `incluir_desconocidos = false` y listas de contactos disjuntas → OK
 
 **Lo que NO está permitido:**
-- Misma conexión + mismo contacto cubierto por dos herramientas exclusivas, aunque sean de empresas distintas → CONFLICTO
+- Misma conexión + mismo contacto cubierto por dos herramientas exclusivas, aunque sean de bots distintas → CONFLICTO
 
-### Ejemplo de configuración — misma empresa
+### Ejemplo de configuración — misma bot
 
 ```
-Empresa "Acme" — bots: WA-1, WA-2, TG-1
+Bot "Acme" — bots: WA-1, WA-2, TG-1
 
 Herramienta A — "Bienvenida VIP"
   tipo: fixed_message
@@ -131,7 +131,7 @@ Herramienta A — "Bienvenida VIP"
 Herramienta B — "Respuesta general"
   tipo: fixed_message
   mensaje: "Gracias por escribir, pronto te respondemos."
-  conexiones: []                     ← todas las conexiones de la empresa
+  conexiones: []                     ← todas las conexiones de la bot
   contactos_incluidos: []
   contactos_excluidos: [c1, c2, c3]
   incluir_desconocidos: true
@@ -140,19 +140,19 @@ Herramienta B — "Respuesta general"
 → Validación OK: c1/c2/c3 → solo A; desconocidos/resto → solo B. Sin conflicto.
 ```
 
-### Ejemplo de configuración — conexión compartida entre empresas
+### Ejemplo de configuración — conexión compartida entre bots
 
 ```
 WA-personal (mismo número de teléfono)
 
-Empresa "Acme"
+Bot "Acme"
   Herramienta A — "Soporte Acme"
     conexiones: [WA-personal]
     contactos_incluidos: [cliente1, cliente2]   ← contactos de Acme
     incluir_desconocidos: false
     exclusiva: true ✅
 
-Empresa "Beta"
+Bot "Beta"
   Herramienta B — "Soporte Beta"
     conexiones: [WA-personal]
     contactos_incluidos: [proveedor1, proveedor2]  ← contactos de Beta
@@ -163,7 +163,7 @@ Empresa "Beta"
 
 ❌ Caso inválido:
   Si Beta intenta agregar cliente1 a su herramienta exclusiva
-  → ERROR: "WA-personal + cliente1 ya está cubierto por 'Soporte Acme' (Empresa Acme)"
+  → ERROR: "WA-personal + cliente1 ya está cubierto por 'Soporte Acme' (Bot Acme)"
 ```
 
 ### Modelo de datos — tablas adicionales
@@ -171,7 +171,7 @@ Empresa "Beta"
 ```sql
 CREATE TABLE tools (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  empresa_id TEXT NOT NULL,
+  bot_id TEXT NOT NULL,
   nombre TEXT NOT NULL,
   tipo TEXT NOT NULL CHECK(tipo IN ('fixed_message')),
   config JSON NOT NULL,          -- { "message": "..." } según tipo
@@ -185,7 +185,7 @@ CREATE TABLE tool_connections (
   tool_id INTEGER NOT NULL REFERENCES tools(id) ON DELETE CASCADE,
   bot_id TEXT NOT NULL,
   PRIMARY KEY (tool_id, bot_id)
-  -- vacío = aplica a todas las conexiones de la empresa
+  -- vacío = aplica a todas las conexiones de la bot
 );
 
 CREATE TABLE tool_contacts_included (
@@ -203,15 +203,15 @@ CREATE TABLE tool_contacts_excluded (
 
 ### UI — gestión de herramientas
 
-Por empresa, sección **Herramientas**:
+Por bot, sección **Herramientas**:
 
 - Lista de herramientas con nombre, tipo, estado (activa/inactiva), badge "Exclusiva"
 - Botón "+ Nueva herramienta" → formulario:
   - Nombre libre
   - Tipo (por ahora solo "Mensaje fijo")
   - Contenido según tipo (textarea para mensaje fijo)
-  - Selector de conexiones: checkboxes de los bots de la empresa + opción "Todas"
-  - Contactos incluidos: multi-select de la lista de contactos de la empresa
+  - Selector de conexiones: checkboxes de los bots de la bot + opción "Todas"
+  - Contactos incluidos: multi-select de la lista de contactos de la bot
   - Contactos excluidos: multi-select
   - Toggle "Incluir desconocidos"
   - Toggle "Exclusiva"
@@ -244,14 +244,14 @@ DELETE /api/contact-channels/:id          → quitar canal
 
 ### Fase 3 — UI Admin
 
-Sección nueva por empresa: **Contactos**
+Sección nueva por bot: **Contactos**
 - Lista de contactos con sus canales (WA / TG)
 - Botón "+ Agregar contacto" → modal con nombre + canales
 - Editar / eliminar contacto
 - **Contactos sugeridos**: números que escribieron pero no están en la lista → aparecen como sugerencia con botón "Agregar"
 
 Vinculación con bots:
-- Al editar un teléfono/bot, en "Contactos permitidos" se muestra la lista de contactos de la empresa
+- Al editar un teléfono/bot, en "Contactos permitidos" se muestra la lista de contactos de la bot
 - Doble clic para agregar/quitar (reemplaza el input de texto actual)
 
 ### Fase 4 — Lógica del bot
@@ -265,8 +265,8 @@ Elimina la dependencia de `allowedContacts` en `phones.json`.
 
 ### Fase 5 — Conversaciones unificadas (post-MVP)
 
-- Vista de conversaciones por empresa
-- Un hilo = empresa + contacto (sin importar canal)
+- Vista de conversaciones por bot
+- Un hilo = bot + contacto (sin importar canal)
 - Si el mismo contacto escribe por WA y por Telegram, se ve como una sola conversación
 - Extiende o reemplaza la tabla `messages` actual
 
@@ -287,7 +287,7 @@ Elimina la dependencia de `allowedContacts` en `phones.json`.
 8. ~~Fase 8 — Motor de resolución: reemplazar lógica de respuesta automática por evaluación de herramientas activas~~
 
 ### Bloque C — Conversaciones unificadas (post-MVP)
-9. Fase 9 — Vista de conversaciones por empresa (sesión aparte)
+9. Fase 9 — Vista de conversaciones por bot (sesión aparte)
 
 ---
 

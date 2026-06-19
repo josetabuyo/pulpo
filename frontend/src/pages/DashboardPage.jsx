@@ -4,7 +4,7 @@ import { api, apiQuiet } from '../api.js'
 import { useFbSession } from '../hooks/useFbSession.js'
 import MonitorPanel from '../components/MonitorPanel.jsx'
 import ArchitectureSection from '../components/ArchitectureSection.jsx'
-import EmpresaCard, { normalizeBot } from '../components/EmpresaCard.jsx'
+import BotCard, { normalizeBot } from '../components/BotCard.jsx'
 
 // ─── WaviModal ────────────────────────────────────────────────────────────────
 
@@ -98,7 +98,7 @@ function BotModal({ open, onClose, editBot, onSave }) {
 
   return (
     <Modal open={open} onClose={onClose} title="">
-      <h3>{isEdit ? 'Editar empresa' : 'Nueva empresa'}</h3>
+      <h3>{isEdit ? 'Editar bot' : 'Nueva bot'}</h3>
       {!isEdit && (
         <div className="fg">
           <label>ID (sin espacios, ej: bot_guardia)</label>
@@ -106,7 +106,7 @@ function BotModal({ open, onClose, editBot, onSave }) {
         </div>
       )}
       <div className="fg">
-        <label>Nombre de la empresa</label>
+        <label>Nombre de la bot</label>
         <input value={name} onChange={e => setName(e.target.value)} placeholder="Herrería García" />
       </div>
       <div className="modal-actions">
@@ -201,9 +201,9 @@ export default function DashboardPage() {
   }, [loadBots, pwd])
 
   useEffect(() => {
-    const empresaId = searchParams.get('empresa')
-    if (!empresaId || !bots.length || expandedBot) return
-    const bot = bots.find(b => b.id === empresaId)
+    const botId = searchParams.get('bot')
+    if (!botId || !bots.length || expandedBot) return
+    const bot = bots.find(b => b.id === botId)
     if (bot) setExpandedBot({ bot, normalized: normalizeBot(bot) })
   }, [bots, searchParams, expandedBot])
 
@@ -230,12 +230,12 @@ export default function DashboardPage() {
     }, { replace: true })
   }
 
-  function openEmpresaModal(botData) {
+  function openBotModal(botData) {
     setExpandedBot(botData)
     setSearchParams(prev => {
       const p = new URLSearchParams(prev)
-      if (botData) p.set('empresa', botData.bot.id)
-      else p.delete('empresa')
+      if (botData) p.set('bot', botData.bot.id)
+      else p.delete('bot')
       return p
     }, { replace: true })
   }
@@ -253,7 +253,7 @@ export default function DashboardPage() {
 
   async function handleDeleteBot(botId) {
     const bot = bots.find(b => b.id === botId)
-    if (!confirm(`¿Eliminar la empresa "${bot?.name || botId}"?`)) return
+    if (!confirm(`¿Eliminar la bot "${bot?.name || botId}"?`)) return
     const res = await call('DELETE', `/bots/${botId}`)
     if (res.error) return alert('Error: ' + res.error)
     loadBots()
@@ -377,34 +377,34 @@ export default function DashboardPage() {
 
         {/* ── Links para clientes ── */}
         <div className="card">
-          <div className="card-title">Links para empresas</div>
+          <div className="card-title">Links para bots</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div>
-              <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>Portal de empresa (acceso con contraseña)</div>
+              <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>Portal de bot (acceso con contraseña)</div>
               <div className="share-row">
-                <input className="share-url" readOnly value={(import.meta.env.VITE_PUBLIC_URL || window.location.origin) + '/empresa'} />
-                <button className="btn-blue" onClick={() => navigator.clipboard.writeText((import.meta.env.VITE_PUBLIC_URL || window.location.origin) + '/empresa')}>Copiar</button>
-                <button className="btn-ghost" onClick={() => window.open((import.meta.env.VITE_PUBLIC_URL || window.location.origin) + '/empresa')}>Abrir</button>
+                <input className="share-url" readOnly value={(import.meta.env.VITE_PUBLIC_URL || window.location.origin) + '/bot'} />
+                <button className="btn-blue" onClick={() => navigator.clipboard.writeText((import.meta.env.VITE_PUBLIC_URL || window.location.origin) + '/bot')}>Copiar</button>
+                <button className="btn-ghost" onClick={() => window.open((import.meta.env.VITE_PUBLIC_URL || window.location.origin) + '/bot')}>Abrir</button>
               </div>
             </div>
             <div>
-              <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>Alta nueva empresa (link en blanco)</div>
+              <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>Alta nueva bot (link en blanco)</div>
               <div className="share-row">
-                <input className="share-url" readOnly value={(import.meta.env.VITE_PUBLIC_URL || window.location.origin) + '/empresa/nueva'} />
-                <button className="btn-blue" onClick={() => navigator.clipboard.writeText((import.meta.env.VITE_PUBLIC_URL || window.location.origin) + '/empresa/nueva')}>Copiar</button>
-                <button className="btn-ghost" onClick={() => window.open((import.meta.env.VITE_PUBLIC_URL || window.location.origin) + '/empresa/nueva')}>Abrir</button>
+                <input className="share-url" readOnly value={(import.meta.env.VITE_PUBLIC_URL || window.location.origin) + '/bot/nueva'} />
+                <button className="btn-blue" onClick={() => navigator.clipboard.writeText((import.meta.env.VITE_PUBLIC_URL || window.location.origin) + '/bot/nueva')}>Copiar</button>
+                <button className="btn-ghost" onClick={() => window.open((import.meta.env.VITE_PUBLIC_URL || window.location.origin) + '/bot/nueva')}>Abrir</button>
               </div>
             </div>
           </div>
         </div>
 
-        {/* ── Sección: Empresas ── */}
+        {/* ── Sección: Bots ── */}
         <div className="section-block">
           <div className="section-block-header" onClick={() => setCompaniesCollapsed(c => !c)}>
-            <div className="section-block-title">🏢 Empresas</div>
+            <div className="section-block-title">🏢 Bots</div>
             <div className="section-block-actions" onClick={e => e.stopPropagation()}>
               <button className="btn-primary btn-sm" onClick={() => setBotModal({ open: true, editBot: null })}>
-                + Nueva empresa
+                + Nueva bot
               </button>
               <button
                 className="btn-ghost btn-sm"
@@ -417,15 +417,15 @@ export default function DashboardPage() {
 
           {loading && <div className="empty">Cargando...</div>}
           {!loading && bots.length === 0 && (
-            <div className="empty">No hay empresas configuradas. Creá una con el botón de arriba.</div>
+            <div className="empty">No hay bots configuradas. Creá una con el botón de arriba.</div>
           )}
 
           {bots.map(bot => (
-            <EmpresaCard
+            <BotCard
               key={bot.id}
               mode="admin"
               bot={normalizeBot(bot)}
-              onExpand={b => openEmpresaModal({ bot, normalized: b })}
+              onExpand={b => openBotModal({ bot, normalized: b })}
               simMode={simMode}
               apiCall={call}
               onRefresh={loadBots}
@@ -466,22 +466,22 @@ export default function DashboardPage() {
         pwd={pwd}
       />
 
-      {/* Modal fullscreen de empresa expandida */}
+      {/* Modal fullscreen de bot expandida */}
       {expandedBot && (
         <div
           className="overlay open"
-          onClick={e => e.target === e.currentTarget && openEmpresaModal(null)}
+          onClick={e => e.target === e.currentTarget && openBotModal(null)}
         >
           <div className="modal" style={{ width: '92vw', maxWidth: '1200px', height: '90vh', overflowY: 'auto', padding: 0, paddingTop: 40 }}>
-            <button className="modal-close" onClick={() => openEmpresaModal(null)}>✕</button>
-            <EmpresaCard
+            <button className="modal-close" onClick={() => openBotModal(null)}>✕</button>
+            <BotCard
               mode="admin"
               bot={expandedBot.normalized}
               simMode={simMode}
               apiCall={call}
               onRefresh={loadBots}
-              onEditBot={b => { openEmpresaModal(null); setBotModal({ open: true, editBot: b }) }}
-              onDeleteBot={botId => { openEmpresaModal(null); handleDeleteBot(botId) }}
+              onEditBot={b => { openBotModal(null); setBotModal({ open: true, editBot: b }) }}
+              onDeleteBot={botId => { openBotModal(null); handleDeleteBot(botId) }}
               onAddTelegram={botId => setTgModal({ open: true, botId })}
               onDeleteTelegram={conn => handleDeleteTg(conn.number)}
               onReconnectTg={conn => handleReconnectTg(conn.number)}

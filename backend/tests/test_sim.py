@@ -35,12 +35,12 @@ def test_sim_send_message(client):
     number = bots[0]["phones"][0]["number"]
 
     # Desactivar flows por defecto para no interferir
-    default_flows = client.get(f"/api/empresas/{bot_id}/flows", headers=ADMIN).json()
+    default_flows = client.get(f"/api/bots/{bot_id}/flows", headers=ADMIN).json()
     for f in default_flows:
-        client.put(f"/api/empresas/{bot_id}/flows/{f['id']}", headers=ADMIN, json={"active": False})
+        client.put(f"/api/bots/{bot_id}/flows/{f['id']}", headers=ADMIN, json={"active": False})
 
     REPLY = "Respuesta automática de test"
-    flow = client.post(f"/api/empresas/{bot_id}/flows", headers=ADMIN, json={
+    flow = client.post(f"/api/bots/{bot_id}/flows", headers=ADMIN, json={
         "name": "_test_sim_send",
         "connection_id": number,
         "definition": {
@@ -69,9 +69,9 @@ def test_sim_send_message(client):
         assert body["ok"] is True
         assert body["reply"] == REPLY
     finally:
-        client.delete(f"/api/empresas/{bot_id}/flows/{flow_id}", headers=ADMIN)
+        client.delete(f"/api/bots/{bot_id}/flows/{flow_id}", headers=ADMIN)
         for f in default_flows:
-            client.put(f"/api/empresas/{bot_id}/flows/{f['id']}", headers=ADMIN, json={"active": True})
+            client.put(f"/api/bots/{bot_id}/flows/{f['id']}", headers=ADMIN, json={"active": True})
 
 
 @sim_only
@@ -98,11 +98,11 @@ def test_sim_reply_appears_in_log(client):
     bot_id = bots[0]["id"]
     number = bots[0]["phones"][0]["number"]
 
-    default_flows = client.get(f"/api/empresas/{bot_id}/flows", headers=ADMIN).json()
+    default_flows = client.get(f"/api/bots/{bot_id}/flows", headers=ADMIN).json()
     for f in default_flows:
-        client.put(f"/api/empresas/{bot_id}/flows/{f['id']}", headers=ADMIN, json={"active": False})
+        client.put(f"/api/bots/{bot_id}/flows/{f['id']}", headers=ADMIN, json={"active": False})
 
-    flow = client.post(f"/api/empresas/{bot_id}/flows", headers=ADMIN, json={
+    flow = client.post(f"/api/bots/{bot_id}/flows", headers=ADMIN, json={
         "name": "_test_sim_log",
         "connection_id": number,
         "definition": {
@@ -130,9 +130,9 @@ def test_sim_reply_appears_in_log(client):
         reply_lines = [l for l in logs["lines"] if "[sim] REPLY" in l and number in l]
         assert len(reply_lines) > 0, "El REPLY no apareció en el log del backend"
     finally:
-        client.delete(f"/api/empresas/{bot_id}/flows/{flow_id}", headers=ADMIN)
+        client.delete(f"/api/bots/{bot_id}/flows/{flow_id}", headers=ADMIN)
         for f in default_flows:
-            client.put(f"/api/empresas/{bot_id}/flows/{f['id']}", headers=ADMIN, json={"active": True})
+            client.put(f"/api/bots/{bot_id}/flows/{f['id']}", headers=ADMIN, json={"active": True})
 
 
 @sim_only
@@ -167,8 +167,8 @@ def test_sim_messages_endpoint(client):
 
 
 @sim_only
-def test_multi_empresa_dispatch(client):
-    """Mensaje en conexión compartida se loguea bajo todas las empresas."""
+def test_multi_bot_dispatch(client):
+    """Mensaje en conexión compartida se loguea bajo todas las bots."""
     import time
 
     bots = client.get("/api/bots", headers=ADMIN).json()
@@ -180,9 +180,9 @@ def test_multi_empresa_dispatch(client):
             phone_to_bots.setdefault(num, []).append(bot["id"])
 
     shared = {num: ids for num, ids in phone_to_bots.items() if len(ids) >= 2}
-    assert shared, "No hay números WA compartidos entre empresas en connections.json"
+    assert shared, "No hay números WA compartidos entre bots en connections.json"
 
-    number, empresa_ids = next(iter(shared.items()))
+    number, bot_ids = next(iter(shared.items()))
 
     unique_text = f"dispatch_test_{int(time.time() * 1000)}"
     r = client.post(
@@ -195,8 +195,8 @@ def test_multi_empresa_dispatch(client):
     messages = client.get("/api/messages", headers=ADMIN).json()
     bots_logged = {m["connection_id"] for m in messages if m.get("body") == unique_text}
 
-    for eid in empresa_ids:
+    for eid in bot_ids:
         assert eid in bots_logged, (
-            f"Empresa '{eid}' no recibió el mensaje (dispatch multi-empresa fallido).\n"
-            f"Empresas que sí lo tienen: {bots_logged}"
+            f"Bot '{eid}' no recibió el mensaje (dispatch multi-bot fallido).\n"
+            f"Bots que sí lo tienen: {bots_logged}"
         )

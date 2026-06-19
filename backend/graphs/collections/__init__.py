@@ -1,7 +1,7 @@
 """
 Registry de colecciones para búsqueda vectorial.
 
-Cada colección tiene un handler que recibe (query: str, top_k: int, empresa_id: str)
+Cada colección tiene un handler que recibe (query: str, top_k: int, bot_id: str)
 y retorna dict con los datos encontrados.
 
 Los handlers se registran usando @register_collection("nombre_colección")

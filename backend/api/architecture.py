@@ -33,7 +33,7 @@ _MONITOR = _ROOT / "monitor"
 _DESCRIPTION = (
     "Pulpo es un motor de workflows conversacionales (estilo n8n, casero): "
     "los mensajes entrantes de cada canal se normalizan a un FlowState y el engine "
-    "ejecuta los flows activos de la empresa en BFS desde el trigger que aplica. "
+    "ejecuta los flows activos de la bot en BFS desde el trigger que aplica. "
     "Backend FastAPI + SQLite; frontend React + Vite; canales: Telegram (polling) "
     "y WhatsApp via wavi (poller sobre el CLI). Los flows se editan visualmente "
     "y se persisten como JSON (nodes + edges) en la base."
@@ -162,7 +162,7 @@ async def get_architecture(request: Request) -> dict:
         "channels": {
             "telegram_bots": len(get_telegram_connections(config)),
             "wavi_sessions": len(wd.list_session_names()),
-            "empresas": len(config.get("empresas", [])),
+            "bots": len(config.get("bots", [])),
             "wa_poll_interval_seconds": get_wa_poll_interval(),
         },
         "tests": {

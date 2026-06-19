@@ -16,8 +16,8 @@ def interpolate(template: str, state: FlowState) -> str:
       {{query}}         — query expandida
       {{contact_name}}  — nombre del contacto
       {{contact_phone}} — teléfono del contacto
-      {{bot_name}}      — nombre del bot/empresa
-      {{empresa_id}}    — id de la empresa
+      {{bot_name}}      — nombre del bot/bot
+      {{bot_id}}    — id de la bot
       {{canal}}         — whatsapp | telegram
     """
     builtin = {
@@ -28,7 +28,7 @@ def interpolate(template: str, state: FlowState) -> str:
         "contact_name":  state.contact_name or "",
         "contact_phone": state.contact_phone or "",
         "bot_name":      state.bot_name or "",
-        "empresa_id":    state.empresa_id or "",
+        "bot_id":    state.bot_id or "",
         "canal":         state.canal or "",
     }
     # state.vars tiene prioridad — valores dinámicos escritos por nodos anteriores

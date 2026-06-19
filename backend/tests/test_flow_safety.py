@@ -84,7 +84,7 @@ async def test_create_flow_sin_connection_id_permitido():
     """
     import db as db_module
     flow_id = await db_module.create_flow(
-        empresa_id="bot_test",
+        bot_id="bot_test",
         name="__test_sin_connection_id__",
         definition={"nodes": [], "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1}},
         connection_id=None,
@@ -99,14 +99,14 @@ async def test_flow_con_connection_correcta_dispara():
     import db as db_module
     bot_id = "5491171876959"
     flow_id = await db_module.create_flow(
-        empresa_id="gm_herreria",
+        bot_id="gm_herreria",
         name="__test_connection_correcta__",
         definition={"nodes": [], "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1}},
         connection_id=bot_id,
     )
     try:
         flows = await db_module.get_active_flows_for_bot(
-            connection_id=bot_id, contact_phone="5491199990000", empresa_id="gm_herreria"
+            connection_id=bot_id, contact_phone="5491199990000", bot_id="gm_herreria"
         )
         assert flow_id in [f["id"] for f in flows], \
             "Flow con connection_id correcto debe ser retornado."
@@ -151,7 +151,7 @@ async def test_db_connection_correcta_retorna_flow():
 
     bot_id = "5491155612767"
     flow_id = await db_module.create_flow(
-        empresa_id="bot_test",
+        bot_id="bot_test",
         name="__safety_test_con_connection__",
         definition={"nodes": [], "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1}},
         connection_id=bot_id,
@@ -162,7 +162,7 @@ async def test_db_connection_correcta_retorna_flow():
         flows = await db_module.get_active_flows_for_bot(
             connection_id=bot_id,
             contact_phone="5491199990000",
-            empresa_id="bot_test",
+            bot_id="bot_test",
         )
         ids = [f["id"] for f in flows]
         assert flow_id in ids, "El flow con connection_id correcto debería ser retornado."
@@ -176,7 +176,7 @@ async def test_db_connection_distinta_no_retorna_flow():
     import db as db_module
 
     flow_id = await db_module.create_flow(
-        empresa_id="bot_test",
+        bot_id="bot_test",
         name="__safety_test_otro_numero__",
         definition={"nodes": [], "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1}},
         connection_id="5491171876959",   # número de GM herrería
@@ -188,7 +188,7 @@ async def test_db_connection_distinta_no_retorna_flow():
         flows = await db_module.get_active_flows_for_bot(
             connection_id="5491155612767",
             contact_phone="5491199990000",
-            empresa_id="bot_test",
+            bot_id="bot_test",
         )
         ids = [f["id"] for f in flows]
         assert flow_id not in ids, "Un flow de otro número no debe disparar para este número."
@@ -206,7 +206,7 @@ async def test_flow_con_message_trigger_y_connection_null_en_db():
 
     bot_id = "5491155612767"
     flow_id = await db_module.create_flow(
-        empresa_id="bot_test",
+        bot_id="bot_test",
         name="__test_message_trigger_con_connection__",
         definition={
             "nodes": [
@@ -227,7 +227,7 @@ async def test_flow_con_message_trigger_y_connection_null_en_db():
         flows = await db_module.get_active_flows_for_bot(
             connection_id=bot_id,
             contact_phone="5491199990000",
-            empresa_id="bot_test",
+            bot_id="bot_test",
         )
         ids = [f["id"] for f in flows]
         assert flow_id in ids, "Flow con connection_id explícito debe ser retornado por la DB"
@@ -260,7 +260,7 @@ async def test_flow_con_message_trigger_wrong_connection():
     wrong_bot_id = "5491171876959"  # GM herrería
     actual_bot_id = "5491155612767"  # Número personal
     flow_id = await db_module.create_flow(
-        empresa_id="bot_test",
+        bot_id="bot_test",
         name="__test_message_trigger_wrong_connection__",
         definition={
             "nodes": [
@@ -281,7 +281,7 @@ async def test_flow_con_message_trigger_wrong_connection():
         flows = await db_module.get_active_flows_for_bot(
             connection_id=actual_bot_id,
             contact_phone="5491199990000",
-            empresa_id="bot_test",
+            bot_id="bot_test",
         )
         ids = [f["id"] for f in flows]
 
@@ -302,7 +302,7 @@ async def test_message_trigger_filtra_por_contact_phone():
     wrong_contact = "5491199991111"
 
     flow_id = await db_module.create_flow(
-        empresa_id="bot_test",
+        bot_id="bot_test",
         name="__test_message_trigger_contact_phone__",
         definition={
             "nodes": [
@@ -323,7 +323,7 @@ async def test_message_trigger_filtra_por_contact_phone():
         flows = await db_module.get_active_flows_for_bot(
             connection_id=bot_id,
             contact_phone=correct_contact,
-            empresa_id="bot_test",
+            bot_id="bot_test",
         )
         ids = [f["id"] for f in flows]
         assert flow_id in ids, "Flow debe ser retornado por la DB"
@@ -366,7 +366,7 @@ async def test_message_trigger_sin_contact_phone_filtra_todos():
     contact2 = "5491199991111"
 
     flow_id = await db_module.create_flow(
-        empresa_id="bot_test",
+        bot_id="bot_test",
         name="__test_message_trigger_sin_contact__",
         definition={
             "nodes": [
@@ -387,7 +387,7 @@ async def test_message_trigger_sin_contact_phone_filtra_todos():
         flows = await db_module.get_active_flows_for_bot(
             connection_id=bot_id,
             contact_phone=contact1,
-            empresa_id="bot_test",
+            bot_id="bot_test",
         )
         ids = [f["id"] for f in flows]
         assert flow_id in ids, "Flow debe ser retornado por la DB"
@@ -437,7 +437,7 @@ async def test_migracion_start_a_message_trigger_explicito():
 
     # Flow legacy con __start__ (forma vieja)
     flow_legacy_id = await db_module.create_flow(
-        empresa_id="bot_test",
+        bot_id="bot_test",
         name="__test_migracion_legacy__",
         definition={
             "nodes": [
@@ -455,7 +455,7 @@ async def test_migracion_start_a_message_trigger_explicito():
 
     # Flow migrado con InputTextNode (forma nueva explícita)
     flow_migrado_id = await db_module.create_flow(
-        empresa_id="bot_test",
+        bot_id="bot_test",
         name="__test_migracion_nuevo__",
         definition={
             "nodes": [
@@ -476,7 +476,7 @@ async def test_migracion_start_a_message_trigger_explicito():
         flows = await db_module.get_active_flows_for_bot(
             connection_id=bot_id,
             contact_phone=contact_phone,
-            empresa_id="bot_test",
+            bot_id="bot_test",
         )
         ids = [f["id"] for f in flows]
         assert flow_legacy_id in ids, "Flow legacy debe ser retornado"
@@ -511,7 +511,7 @@ async def test_migracion_start_a_message_trigger_explicito():
         # Con InputTextNode podemos tener múltiples flows con diferentes contact_phones
         # sin necesidad de duplicar flows en la DB
         flow_migrado_otro_contacto_id = await db_module.create_flow(
-            empresa_id="bot_test",
+            bot_id="bot_test",
             name="__test_migracion_otro_contacto__",
             definition={
                 "nodes": [
@@ -531,7 +531,7 @@ async def test_migracion_start_a_message_trigger_explicito():
             flows2 = await db_module.get_active_flows_for_bot(
                 connection_id=bot_id,
                 contact_phone=contact_phone,  # contacto original
-                empresa_id="bot_test",
+                bot_id="bot_test",
             )
 
             flow_migrado_otro = next(f for f in flows2 if f["id"] == flow_migrado_otro_contacto_id)
@@ -559,7 +559,7 @@ async def test_migracion_start_a_message_trigger_explicito():
 
         # Test 4: La forma nueva permite flows sin contact_phone (wildcard)
         flow_migrado_wildcard_id = await db_module.create_flow(
-            empresa_id="bot_test",
+            bot_id="bot_test",
             name="__test_migracion_wildcard__",
             definition={
                 "nodes": [
@@ -580,7 +580,7 @@ async def test_migracion_start_a_message_trigger_explicito():
             flows3 = await db_module.get_active_flows_for_bot(
                 connection_id=bot_id,
                 contact_phone="5491199999999",  # contacto cualquiera
-                empresa_id="bot_test",
+                bot_id="bot_test",
             )
 
             flow_wildcard = next(f for f in flows3 if f["id"] == flow_migrado_wildcard_id)
@@ -610,7 +610,7 @@ async def test_flow_sin_nodo_entrada_no_se_ejecuta():
     contact_phone = "5491199990000"
 
     flow_id = await db_module.create_flow(
-        empresa_id="bot_test",
+        bot_id="bot_test",
         name="__test_sin_nodo_entrada__",
         definition={
             "nodes": [
@@ -628,7 +628,7 @@ async def test_flow_sin_nodo_entrada_no_se_ejecuta():
         flows = await db_module.get_active_flows_for_bot(
             connection_id=bot_id,
             contact_phone=contact_phone,
-            empresa_id="bot_test",
+            bot_id="bot_test",
         )
         ids = [f["id"] for f in flows]
         assert flow_id in ids, "Flow debe ser retornado por la DB"
@@ -660,8 +660,8 @@ async def test_kill_switch_global_descarta_reply():
     flow = _flow(connection_id=bot_id, message="Este mensaje NO debe llegar")
 
     with patch.dict(os.environ, {"DISABLE_AUTO_REPLY": "true", "DISABLE_AUTO_REPLY_PHONES": ""}), \
-         patch("config.get_empresas_for_connection", return_value=["gm_herreria"]), \
-         patch("config.load_config", return_value={"empresas": [{"id": "gm_herreria", "name": "GM"}]}), \
+         patch("config.get_bots_for_connection", return_value=["gm_herreria"]), \
+         patch("config.load_config", return_value={"bots": [{"id": "gm_herreria", "name": "GM"}]}), \
          patch("graphs.compiler.resolve_flows", new_callable=AsyncMock, return_value=[flow]):
 
         state = await run_flows(_state(bot_id), connection_id=bot_id)
@@ -676,8 +676,8 @@ async def test_kill_switch_global_false_permite_reply():
     flow = _flow(connection_id=bot_id, message="Bienvenido")
 
     with patch.dict(os.environ, {"DISABLE_AUTO_REPLY": "false", "DISABLE_AUTO_REPLY_PHONES": ""}), \
-         patch("config.get_empresas_for_connection", return_value=["gm_herreria"]), \
-         patch("config.load_config", return_value={"empresas": [{"id": "gm_herreria", "name": "GM"}]}), \
+         patch("config.get_bots_for_connection", return_value=["gm_herreria"]), \
+         patch("config.load_config", return_value={"bots": [{"id": "gm_herreria", "name": "GM"}]}), \
          patch("graphs.compiler.resolve_flows", new_callable=AsyncMock, return_value=[flow]):
 
         state = await run_flows(_state(bot_id), connection_id=bot_id)
@@ -694,8 +694,8 @@ async def test_kill_switch_por_numero_bloquea_ese_numero():
     flow = _flow(connection_id=blocked, message="Este NO debe llegar")
 
     with patch.dict(os.environ, {"DISABLE_AUTO_REPLY": "false", "DISABLE_AUTO_REPLY_PHONES": blocked}), \
-         patch("config.get_empresas_for_connection", return_value=["bot_test"]), \
-         patch("config.load_config", return_value={"empresas": [{"id": "bot_test", "name": "Test"}]}), \
+         patch("config.get_bots_for_connection", return_value=["bot_test"]), \
+         patch("config.load_config", return_value={"bots": [{"id": "bot_test", "name": "Test"}]}), \
          patch("graphs.compiler.resolve_flows", new_callable=AsyncMock, return_value=[flow]):
 
         state = await run_flows(_state(blocked), connection_id=blocked)
@@ -711,8 +711,8 @@ async def test_kill_switch_por_numero_no_afecta_otros():
     flow = _flow(connection_id=otro, message="Respuesta de GM")
 
     with patch.dict(os.environ, {"DISABLE_AUTO_REPLY": "false", "DISABLE_AUTO_REPLY_PHONES": blocked}), \
-         patch("config.get_empresas_for_connection", return_value=["gm_herreria"]), \
-         patch("config.load_config", return_value={"empresas": [{"id": "gm_herreria", "name": "GM"}]}), \
+         patch("config.get_bots_for_connection", return_value=["gm_herreria"]), \
+         patch("config.load_config", return_value={"bots": [{"id": "gm_herreria", "name": "GM"}]}), \
          patch("graphs.compiler.resolve_flows", new_callable=AsyncMock, return_value=[flow]):
 
         state = await run_flows(_state(otro), connection_id=otro)
@@ -733,8 +733,8 @@ async def test_guard_activatedat_bloquea_mensaje_viejo():
     state.timestamp = datetime(2026, 4, 3, 10, 0, 0)   # mensaje de ayer
 
     with patch.dict(os.environ, {"DISABLE_AUTO_REPLY": "false", "DISABLE_AUTO_REPLY_PHONES": ""}), \
-         patch("config.get_empresas_for_connection", return_value=["gm_herreria"]), \
-         patch("config.load_config", return_value={"empresas": [{"id": "gm_herreria", "name": "GM"}]}), \
+         patch("config.get_bots_for_connection", return_value=["gm_herreria"]), \
+         patch("config.load_config", return_value={"bots": [{"id": "gm_herreria", "name": "GM"}]}), \
          patch("graphs.compiler.resolve_flows", new_callable=AsyncMock, return_value=[flow]):
 
         state = await run_flows(state, connection_id=bot_id)
@@ -754,8 +754,8 @@ async def test_guard_activatedat_permite_mensaje_nuevo():
     state.timestamp = now  # mensaje reciente, posterior a la creación
 
     with patch.dict(os.environ, {"DISABLE_AUTO_REPLY": "false", "DISABLE_AUTO_REPLY_PHONES": ""}), \
-         patch("config.get_empresas_for_connection", return_value=["gm_herreria"]), \
-         patch("config.load_config", return_value={"empresas": [{"id": "gm_herreria", "name": "GM"}]}), \
+         patch("config.get_bots_for_connection", return_value=["gm_herreria"]), \
+         patch("config.load_config", return_value={"bots": [{"id": "gm_herreria", "name": "GM"}]}), \
          patch("graphs.compiler.resolve_flows", new_callable=AsyncMock, return_value=[flow]):
 
         state = await run_flows(state, connection_id=bot_id)
@@ -797,9 +797,9 @@ def _flow_with_filter(connection_id: str, include_all_known=False, include_unkno
 
 def _cfg_with_allow_mass(conn_id: str, allow_mass: bool):
     return {
-        "empresas": [
+        "bots": [
             {
-                "id": "test_empresa",
+                "id": "test_bot",
                 "name": "Test",
                 "phones": [{"number": conn_id, "allow_mass": allow_mass}],
             }
@@ -822,7 +822,7 @@ async def test_allow_mass_false_bloquea_inc_all():
         contact_phone="5491199990000",
         canal="telegram",
         connection_id=conn_id,
-        empresa_id="test_empresa",
+        bot_id="test_bot",
     )
 
     with patch("config.load_config", return_value=_cfg_with_allow_mass(conn_id, allow_mass=False)), \
@@ -847,7 +847,7 @@ async def test_allow_mass_true_permite_inc_all():
         contact_phone="5491199990000",
         canal="telegram",
         connection_id=conn_id,
-        empresa_id="test_empresa",
+        bot_id="test_bot",
     )
 
     with patch("config.load_config", return_value=_cfg_with_allow_mass(conn_id, allow_mass=True)), \
@@ -872,7 +872,7 @@ async def test_allow_mass_false_bloquea_inc_unk():
         contact_phone="5491100000000",
         canal="telegram",
         connection_id=conn_id,
-        empresa_id="test_empresa",
+        bot_id="test_bot",
     )
 
     with patch("config.load_config", return_value=_cfg_with_allow_mass(conn_id, allow_mass=False)), \
@@ -924,7 +924,7 @@ async def test_allow_mass_false_no_afecta_filtro_individual():
         contact_phone=contact,
         canal="telegram",
         connection_id=conn_id,
-        empresa_id="test_empresa",
+        bot_id="test_bot",
     )
 
     with patch("config.load_config", return_value=_cfg_with_allow_mass(conn_id, allow_mass=False)):

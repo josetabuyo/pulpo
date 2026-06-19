@@ -72,17 +72,17 @@ async def main():
     """Migra todos los flows de la base de datos."""
     print("=== Migración de flows legacy a message_trigger ===")
 
-    # Obtener todas las empresas
+    # Obtener todas las bots
     import config as cfg
     config = cfg.load_config()
-    empresas = [empresa["id"] for empresa in config.get("empresas", [])]
+    bots = [bot["id"] for bot in config.get("bots", [])]
 
     total_migrated = 0
 
-    for empresa_id in empresas:
-        print(f"\nProcesando empresa: {empresa_id}")
+    for bot_id in bots:
+        print(f"\nProcesando bot: {bot_id}")
 
-        flows = await db.get_flows(empresa_id)
+        flows = await db.get_flows(bot_id)
 
         for flow in flows:
             flow_id = flow["id"]

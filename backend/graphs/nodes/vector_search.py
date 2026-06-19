@@ -174,7 +174,7 @@ class VectorSearchNode(BaseNode):
                 logger.warning("[VectorSearchNode] Handler no registrado para '%s'", collection)
                 return state
 
-            result = await handler(query, top_k, state.empresa_id)
+            result = await handler(query, top_k, state.bot_id)
             if not result:
                 logger.info("[VectorSearchNode] Sin resultados para '%s'", collection)
                 return state

@@ -129,7 +129,7 @@ export default function ArchitectureSection({ pwd, collapsed }) {
           <span className="arch-badge">FastAPI <b>:8000</b></span>
           <span className="arch-badge">React + Vite <b>:5173</b></span>
           <span className="arch-badge">SQLite</span>
-          <span className="arch-badge"><b>{channels.empresas}</b> empresas</span>
+          <span className="arch-badge"><b>{channels.bots}</b> bots</span>
           <span className="arch-badge"><b>{channels.telegram_bots}</b> bots TG</span>
           <span className="arch-badge"><b>{channels.wavi_sessions}</b> sesiones wavi</span>
           <span className="arch-badge"><b>{apiInfo.total_routes}</b> rutas API</span>
@@ -153,7 +153,7 @@ export default function ArchitectureSection({ pwd, collapsed }) {
           <div className="arch-card">
             <h4>Frontend — React + Vite</h4>
             <p>Dashboard admin con secciones colapsables sincronizadas a la URL, editor
-              visual de flows (React Flow) y portal de empresa con JWT.</p>
+              visual de flows (React Flow) y portal de bot con JWT.</p>
           </div>
           <div className="arch-card">
             <h4>Datos</h4>

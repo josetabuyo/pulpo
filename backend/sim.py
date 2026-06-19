@@ -50,13 +50,13 @@ async def sim_receive(
 ) -> str | None:
     """
     Procesa un mensaje entrante simulado por el pipeline real:
-      1. Guarda en DB bajo TODAS las empresas que tienen esta conexión (dispatch multi-empresa).
-      2. Evalúa herramientas y auto_reply para la empresa dueña de la sesión.
+      1. Guarda en DB bajo TODAS las bots que tienen esta conexión (dispatch multi-bot).
+      2. Evalúa herramientas y auto_reply para la bot dueña de la sesión.
     Si se pasa audio_path, transcribe el audio y lo acumula con tipo "audio".
     Devuelve el texto de la respuesta, o None si no hay reply.
     """
     from db import log_message, mark_answered, log_outbound_message
-    from config import get_empresas_for_connection
+    from config import get_bots_for_connection
 
     cfg = _get_phone_config(session_id)
     if not cfg:
@@ -67,14 +67,14 @@ async def sim_receive(
 
     channel_type = "telegram"
 
-    # Dispatch multi-empresa: loguar bajo todos los bots que tienen esta conexión
-    empresa_ids = get_empresas_for_connection(session_id)
-    if not empresa_ids:
+    # Dispatch multi-bot: loguar bajo todos los bots que tienen esta conexión
+    bot_ids = get_bots_for_connection(session_id)
+    if not bot_ids:
         # Fallback: usar solo el bot dueño de la sesión
-        empresa_ids = [cfg["connection_id"]]
+        bot_ids = [cfg["connection_id"]]
 
     msg_ids = {}
-    for eid in empresa_ids:
+    for eid in bot_ids:
         mid = await log_message(eid, session_id, from_phone, from_name, text)
         msg_ids[eid] = mid
 
@@ -110,7 +110,7 @@ async def sim_receive(
         await log_outbound_message(cfg["connection_id"], session_id, from_phone, reply)
         from graphs.nodes.summarize import accumulate as _accumulate
         _accumulate(
-            empresa_id=cfg["connection_id"],
+            bot_id=cfg["connection_id"],
             contact_phone=from_phone,
             contact_name=from_name,
             msg_type="text",
@@ -129,7 +129,7 @@ def get_conversation(session_id: str) -> list:
 def _get_phone_config(session_id: str) -> dict | None:
     from config import load_config
     config = load_config()
-    for bot in config.get("empresas", []):
+    for bot in config.get("bots", []):
         # Telegram bots — session_id = "{connection_id}-tg-{token_id}"
         for tg in bot.get("telegram", []):
             token_id = tg["token"].split(":")[0]

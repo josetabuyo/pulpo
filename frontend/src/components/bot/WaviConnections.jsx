@@ -1,5 +1,5 @@
 /**
- * Conexiones WhatsApp (wavi) de una empresa: listado + picker de sesiones
+ * Conexiones WhatsApp (wavi) de una bot: listado + picker de sesiones
  * disponibles para asignar (admin).
  */
 import { useState, useEffect } from 'react'

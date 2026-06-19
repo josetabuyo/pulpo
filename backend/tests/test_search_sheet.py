@@ -24,7 +24,7 @@ CSV_ARTESANOS = (
 def make_state(message: str = "quiero un herrero") -> FlowState:
     return FlowState(
         message=message,
-        empresa_id="test",
+        bot_id="test",
         connection_id="test",
         canal="telegram",
     )

@@ -1,4 +1,4 @@
-"""Endpoints del portal de empresa — acceso con JWT Bearer token."""
+"""Endpoints del portal de bot — acceso con JWT Bearer token."""
 import re
 import logging
 from fastapi import APIRouter, HTTPException, Depends, Request
@@ -10,7 +10,7 @@ from sqlalchemy import text
 from config import load_config, save_config
 from state import clients
 from db import AsyncSessionLocal, log_outbound_message
-from middleware_auth import require_empresa_auth
+from middleware_auth import require_bot_auth
 import sim as sim_engine
 
 router = APIRouter()
@@ -25,41 +25,41 @@ def _db_phone(number: str) -> str:
 
 
 def _find_bot_by_password(config: dict, password: str):
-    for bot in config.get("empresas", []):
+    for bot in config.get("bots", []):
         if bot.get("password") == password:
             return bot
     return None
 
 
-def _require_empresa(bot_id: str, token_bot_id: str = Depends(require_empresa_auth)):
+def _require_bot(bot_id: str, token_bot_id: str = Depends(require_bot_auth)):
     """Verifica que el token JWT pertenezca al mismo bot_id del path."""
     if token_bot_id != bot_id:
-        raise HTTPException(status_code=403, detail="No autorizado para esta empresa")
+        raise HTTPException(status_code=403, detail="No autorizado para esta bot")
     config = load_config()
-    bot = next((b for b in config.get("empresas", []) if b["id"] == bot_id), None)
+    bot = next((b for b in config.get("bots", []) if b["id"] == bot_id), None)
     if not bot:
-        raise HTTPException(status_code=404, detail="Empresa no encontrada")
+        raise HTTPException(status_code=404, detail="Bot no encontrada")
     return bot
 
 
-async def _require_empresa_or_admin(bot_id: str, request: Request) -> dict:
+async def _require_bot_or_admin(bot_id: str, request: Request) -> dict:
     """
-    Dependencia dual: acepta JWT Bearer (empresa) o x-password admin.
-    Permite que tanto el portal de empresa como el dashboard admin
+    Dependencia dual: acepta JWT Bearer (bot) o x-password admin.
+    Permite que tanto el portal de bot como el dashboard admin
     accedan a los mismos endpoints.
     """
     import os
-    from middleware_auth import get_empresa_id_from_token
+    from middleware_auth import get_bot_id_from_token
 
-    # 1. Intentar JWT Bearer (empresa)
-    empresa_id = get_empresa_id_from_token(request)
-    if empresa_id is not None:
-        if empresa_id != bot_id:
-            raise HTTPException(status_code=403, detail="No autorizado para esta empresa")
+    # 1. Intentar JWT Bearer (bot)
+    bot_id = get_bot_id_from_token(request)
+    if bot_id is not None:
+        if bot_id != bot_id:
+            raise HTTPException(status_code=403, detail="No autorizado para esta bot")
         config = load_config()
-        bot = next((b for b in config.get("empresas", []) if b["id"] == bot_id), None)
+        bot = next((b for b in config.get("bots", []) if b["id"] == bot_id), None)
         if not bot:
-            raise HTTPException(status_code=404, detail="Empresa no encontrada")
+            raise HTTPException(status_code=404, detail="Bot no encontrada")
         return bot
 
     # 2. Fallback: x-password admin
@@ -67,17 +67,17 @@ async def _require_empresa_or_admin(bot_id: str, request: Request) -> dict:
     x_password = request.headers.get("x-password")
     if x_password and x_password == admin_pwd:
         config = load_config()
-        bot = next((b for b in config.get("empresas", []) if b["id"] == bot_id), None)
+        bot = next((b for b in config.get("bots", []) if b["id"] == bot_id), None)
         if not bot:
-            raise HTTPException(status_code=404, detail="Empresa no encontrada")
+            raise HTTPException(status_code=404, detail="Bot no encontrada")
         return bot
 
     raise HTTPException(status_code=401, detail="Token o contraseña requerida")
 
 
 def _generate_bot_id(name: str, config: dict) -> str:
-    existing = {b["id"] for b in config.get("empresas", [])}
-    base = re.sub(r"[^a-z0-9]+", "_", name.lower().strip()).strip("_") or "empresa"
+    existing = {b["id"] for b in config.get("bots", [])}
+    base = re.sub(r"[^a-z0-9]+", "_", name.lower().strip()).strip("_") or "bot"
     candidate = base
     i = 2
     while candidate in existing:
@@ -88,12 +88,12 @@ def _generate_bot_id(name: str, config: dict) -> str:
 
 # ─── Auth ────────────────────────────────────────────────────────
 
-class EmpresaAuthBody(BaseModel):
+class BotAuthBody(BaseModel):
     password: str
 
 
-@router.post("/empresa/auth")
-def empresa_auth(body: EmpresaAuthBody):
+@router.post("/bot/auth")
+def bot_auth(body: BotAuthBody):
     config = load_config()
     bot = _find_bot_by_password(config, body.password)
     if not bot:
@@ -103,8 +103,8 @@ def empresa_auth(body: EmpresaAuthBody):
 
 # ─── Dashboard ───────────────────────────────────────────────────
 
-@router.get("/empresa/{bot_id}")
-def empresa_get(bot_id: str, bot: dict = Depends(_require_empresa)):
+@router.get("/bot/{bot_id}")
+def bot_get(bot_id: str, bot: dict = Depends(_require_bot)):
 
     connections = []
 
@@ -138,10 +138,10 @@ def _owns_session(bot: dict, session_id: str) -> bool:
     return False
 
 
-@router.get("/empresa/{bot_id}/messages/{number}")
-async def empresa_messages(bot_id: str, number: str, bot: dict = Depends(_require_empresa)):
+@router.get("/bot/{bot_id}/messages/{number}")
+async def bot_messages(bot_id: str, number: str, bot: dict = Depends(_require_bot)):
     if not _owns_session(bot, number):
-        raise HTTPException(status_code=404, detail="Número no pertenece a esta empresa")
+        raise HTTPException(status_code=404, detail="Número no pertenece a esta bot")
 
     async with AsyncSessionLocal() as session:
         result = await session.execute(
@@ -165,10 +165,10 @@ async def empresa_messages(bot_id: str, number: str, bot: dict = Depends(_requir
     ]
 
 
-@router.get("/empresa/{bot_id}/chat/{number}/{contact}")
-async def empresa_chat_get(bot_id: str, number: str, contact: str, bot: dict = Depends(_require_empresa)):
+@router.get("/bot/{bot_id}/chat/{number}/{contact}")
+async def bot_chat_get(bot_id: str, number: str, contact: str, bot: dict = Depends(_require_bot)):
     if not _owns_session(bot, number):
-        raise HTTPException(status_code=404, detail="Número no pertenece a esta empresa")
+        raise HTTPException(status_code=404, detail="Número no pertenece a esta bot")
 
     async with AsyncSessionLocal() as session:
         result = await session.execute(
@@ -186,15 +186,15 @@ async def empresa_chat_get(bot_id: str, number: str, contact: str, bot: dict = D
             for r in rows]
 
 
-class EmpresaSendBody(BaseModel):
+class BotSendBody(BaseModel):
     text: str
 
 
-@router.post("/empresa/{bot_id}/chat/{number}/{contact}")
-async def empresa_chat_send(bot_id: str, number: str, contact: str,
-                            body: EmpresaSendBody, bot: dict = Depends(_require_empresa)):
+@router.post("/bot/{bot_id}/chat/{number}/{contact}")
+async def bot_chat_send(bot_id: str, number: str, contact: str,
+                            body: BotSendBody, bot: dict = Depends(_require_bot)):
     if not _owns_session(bot, number):
-        raise HTTPException(status_code=404, detail="Número no pertenece a esta empresa")
+        raise HTTPException(status_code=404, detail="Número no pertenece a esta bot")
     if not body.text.strip():
         raise HTTPException(status_code=400, detail="Texto vacío")
 
@@ -202,7 +202,7 @@ async def empresa_chat_send(bot_id: str, number: str, contact: str,
 
     def _accumulate_outbound(contact: str, msg_text: str) -> None:
         from graphs.nodes.summarize import accumulate as _acc
-        _acc(empresa_id=bot_id, contact_phone=contact, contact_name=contact,
+        _acc(bot_id=bot_id, contact_phone=contact, contact_name=contact,
              msg_type="text", content=f"Tú: {msg_text}")
 
     if sim_engine.SIM_MODE:
@@ -234,15 +234,15 @@ async def empresa_chat_send(bot_id: str, number: str, contact: str,
         await session.commit()
     return {"ok": True}
 
-# ─── Alta de empresa (sin auth) ──────────────────────────────────
+# ─── Alta de bot (sin auth) ──────────────────────────────────
 
-class NuevaEmpresaBody(BaseModel):
+class NewBotBody(BaseModel):
     name: str
     password: str
 
 
-@router.post("/empresa/nueva")
-def empresa_nueva(body: NuevaEmpresaBody):
+@router.post("/bot/nueva")
+def bot_new(body: NewBotBody):
     if not body.name.strip():
         raise HTTPException(status_code=400, detail="El nombre es requerido")
     if not body.password.strip():
@@ -260,23 +260,23 @@ def empresa_nueva(body: NuevaEmpresaBody):
         "phones": [],
         "telegram": [],
     }
-    config["empresas"].append(new_bot)
+    config["bots"].append(new_bot)
     save_config(config)
     return {"ok": True, "bot_id": bot_id, "bot_name": new_bot["name"]}
 
 
-# ─── Editar datos de la empresa ──────────────────────────────────
+# ─── Editar datos de la bot ──────────────────────────────────
 
-class EmpresaConfigBody(BaseModel):
+class BotConfigBody(BaseModel):
     name: str | None = None
     password: str | None = None
 
 
-@router.put("/empresa/{bot_id}/config")
-def empresa_put_config(bot_id: str, body: EmpresaConfigBody, _: dict = Depends(_require_empresa)):
+@router.put("/bot/{bot_id}/config")
+def bot_put_config(bot_id: str, body: BotConfigBody, _: dict = Depends(_require_bot)):
 
     config = load_config()
-    bot = next((b for b in config["empresas"] if b["id"] == bot_id), None)
+    bot = next((b for b in config["bots"] if b["id"] == bot_id), None)
     if not bot:
         raise HTTPException(status_code=404, detail="Bot no encontrado")
 
@@ -288,7 +288,7 @@ def empresa_put_config(bot_id: str, body: EmpresaConfigBody, _: dict = Depends(_
     if body.password is not None:
         if not body.password.strip():
             raise HTTPException(status_code=400, detail="Contraseña no puede ser vacía")
-        for b in config["empresas"]:
+        for b in config["bots"]:
             if b["id"] != bot_id and b.get("password") == body.password:
                 raise HTTPException(status_code=409, detail="Esa contraseña ya está en uso")
         bot["password"] = body.password
@@ -303,8 +303,8 @@ class AddTelegramBody(BaseModel):
     token: str
 
 
-@router.post("/empresa/{bot_id}/telegram")
-async def empresa_add_telegram(bot_id: str, body: AddTelegramBody, _: dict = Depends(_require_empresa)):
+@router.post("/bot/{bot_id}/telegram")
+async def bot_add_telegram(bot_id: str, body: AddTelegramBody, _: dict = Depends(_require_bot)):
     token = body.token.strip()
     if not token or ":" not in token:
         raise HTTPException(status_code=400, detail="Token inválido (formato: 123456789:ABC...)")
@@ -313,12 +313,12 @@ async def empresa_add_telegram(bot_id: str, body: AddTelegramBody, _: dict = Dep
     session_id = f"{bot_id}-tg-{token_id}"
 
     config = load_config()
-    for b in config["empresas"]:
+    for b in config["bots"]:
         for tg in b.get("telegram", []):
             if tg["token"].split(":")[0] == token_id:
                 raise HTTPException(status_code=409, detail="Ese token ya está configurado")
 
-    bot = next(b for b in config["empresas"] if b["id"] == bot_id)
+    bot = next(b for b in config["bots"] if b["id"] == bot_id)
     bot.setdefault("telegram", []).append({"token": token})
     save_config(config)
 
@@ -343,11 +343,11 @@ async def empresa_add_telegram(bot_id: str, body: AddTelegramBody, _: dict = Dep
     return {"ok": True, "session_id": session_id, "requires_restart": requires_restart}
 
 
-@router.delete("/empresa/{bot_id}/telegram/{token_id}")
-def empresa_remove_telegram(bot_id: str, token_id: str, _: dict = Depends(_require_empresa)):
+@router.delete("/bot/{bot_id}/telegram/{token_id}")
+def bot_remove_telegram(bot_id: str, token_id: str, _: dict = Depends(_require_bot)):
 
     config = load_config()
-    bot = next((b for b in config["empresas"] if b["id"] == bot_id), None)
+    bot = next((b for b in config["bots"] if b["id"] == bot_id), None)
     if not bot:
         raise HTTPException(status_code=404, detail="Bot no encontrado")
 
@@ -364,32 +364,32 @@ def empresa_remove_telegram(bot_id: str, token_id: str, _: dict = Depends(_requi
     return {"ok": True}
 
 
-@router.delete("/empresa/{bot_id}/suggested-contacts")
-async def empresa_clear_suggested_contacts(
+@router.delete("/bot/{bot_id}/suggested-contacts")
+async def bot_clear_suggested_contacts(
     bot_id: str,
-    _: dict = Depends(_require_empresa),
+    _: dict = Depends(_require_bot),
 ):
-    """Limpia todas las contact_suggestions de esta empresa."""
+    """Limpia todas las contact_suggestions de esta bot."""
     async with AsyncSessionLocal() as db_session:
         result = await db_session.execute(
-            text("DELETE FROM contact_suggestions WHERE empresa_id = :bid"),
+            text("DELETE FROM contact_suggestions WHERE bot_id = :bid"),
             {"bid": bot_id},
         )
         await db_session.commit()
     return {"deleted": result.rowcount}
 
 
-@router.put("/empresa/{bot_id}/paused")
-async def set_empresa_paused(
+@router.put("/bot/{bot_id}/paused")
+async def set_bot_paused(
     bot_id: str,
     body: dict,
-    _: dict = Depends(_require_empresa_or_admin),
+    _: dict = Depends(_require_bot_or_admin),
 ):
     """
-    Pausa o reanuda el bot de una empresa.
+    Pausa o reanuda el bot de una bot.
     body: { "paused": true | false }
     Bot pausado = conexión viva pero sin replies automáticos.
-    Acepta tanto JWT Bearer (empresa) como x-password (admin).
+    Acepta tanto JWT Bearer (bot) como x-password (admin).
     """
     import paused as _paused_mod
     should_pause = bool(body.get("paused", False))
@@ -397,28 +397,28 @@ async def set_empresa_paused(
         _paused_mod.pause(bot_id)
     else:
         _paused_mod.resume(bot_id)
-    return {"ok": True, "paused": should_pause, "empresa_id": bot_id}
+    return {"ok": True, "paused": should_pause, "bot_id": bot_id}
 
 
-@router.get("/empresa/{bot_id}/paused")
-async def get_empresa_paused(
+@router.get("/bot/{bot_id}/paused")
+async def get_bot_paused(
     bot_id: str,
-    _: dict = Depends(_require_empresa_or_admin),
+    _: dict = Depends(_require_bot_or_admin),
 ):
     import paused as _paused_mod
-    return {"paused": _paused_mod.is_paused(bot_id), "empresa_id": bot_id}
+    return {"paused": _paused_mod.is_paused(bot_id), "bot_id": bot_id}
 
 
-@router.delete("/empresa/{bot_id}/suggested-contacts/{name}")
-async def empresa_delete_one_suggestion(
+@router.delete("/bot/{bot_id}/suggested-contacts/{name}")
+async def bot_delete_one_suggestion(
     bot_id: str,
     name: str,
-    _: dict = Depends(_require_empresa),
+    _: dict = Depends(_require_bot),
 ):
     """Elimina una sugerencia específica por nombre."""
     async with AsyncSessionLocal() as db_session:
         await db_session.execute(
-            text("DELETE FROM contact_suggestions WHERE empresa_id = :bid AND name = :name"),
+            text("DELETE FROM contact_suggestions WHERE bot_id = :bid AND name = :name"),
             {"bid": bot_id, "name": name},
         )
         await db_session.commit()

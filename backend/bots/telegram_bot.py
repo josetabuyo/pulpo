@@ -13,11 +13,11 @@ def build_telegram_app(bot_config: dict):
     Construye una Application de python-telegram-bot para un bot dado.
     bot_config: { connection_id, token, reply_message }
     """
-    empresa_id = bot_config["connection_id"]
+    bot_id = bot_config["connection_id"]
     token = bot_config["token"]
     token_id = token.split(":")[0]
-    session_id = f"{empresa_id}-tg-{token_id}"
-    label = f"[{empresa_id}/tg-{token_id}]"
+    session_id = f"{bot_id}-tg-{token_id}"
+    label = f"[{bot_id}/tg-{token_id}]"
     start_time = time.time()
 
     async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -59,14 +59,14 @@ def build_telegram_app(bot_config: dict):
                 except Exception:
                     pass
 
-        # Dispatch multi-empresa: loguar bajo todos los bots que tienen este session_id
-        from config import get_empresas_for_connection
-        empresa_ids = get_empresas_for_connection(session_id)
-        if not empresa_ids:
-            empresa_ids = [empresa_id]
+        # Dispatch multi-bot: loguar bajo todos los bots que tienen este session_id
+        from config import get_bots_for_connection
+        bot_ids = get_bots_for_connection(session_id)
+        if not bot_ids:
+            bot_ids = [bot_id]
 
         msg_ids = {}
-        for eid in empresa_ids:
+        for eid in bot_ids:
             mid = await log_message(eid, token_id, sender_id, sender_name, text)
             msg_ids[eid] = mid
 

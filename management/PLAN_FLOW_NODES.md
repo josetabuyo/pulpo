@@ -249,7 +249,7 @@ Acumula el contexto de la conversación. Ya existe, sin cambios.
 **Alcance:** el filtrado de conexión pasa a vivir en el nodo `input_text`, la columna `connection_id` en `flows` queda como referencia de UI solamente (o se elimina).
 
 **Tareas:**
-- `get_active_flows_for_bot`: ya no filtra por `connection_id` en SQL — devuelve todos los flows activos de la empresa. El engine lee el nodo `input_text` para ver si aplica.
+- `get_active_flows_for_bot`: ya no filtra por `connection_id` en SQL — devuelve todos los flows activos de la bot. El engine lee el nodo `input_text` para ver si aplica.
 - Migración DB: columna `connection_id` pasa a ser `display_connection_id` (solo informativa para el editor) o se elimina.
 - El editor de flows actualiza `input_text.config.connection_id` cuando el usuario cambia la conexión en el header del flow.
 - `DISABLE_AUTO_REPLY_PHONES` sigue funcionando en el engine (check sobre `input_text.config.connection_id`).
@@ -296,7 +296,7 @@ Acumula el contexto de la conversación. Ya existe, sin cambios.
 - Edges: flechas de dirección, labels visibles, modo borrar con botón 🗑 (toggle).
 - Paleta actualizada con todos los nodos nuevos.
 
-### Conexiones multi-empresa
+### Conexiones multi-bot
 - El bot Telegram `8672986634` migrado de `bot_test` a `gm_herreria` en connections.json.
 - Flow de `gm_herreria` actualizado: `whatsapp_trigger` + `telegram_trigger` → `message_join` → `send_message`.
 

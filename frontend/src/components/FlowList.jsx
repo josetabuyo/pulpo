@@ -1,5 +1,5 @@
 /**
- * FlowList — lista de flows de una empresa con acciones CRUD.
+ * FlowList — lista de flows de una bot con acciones CRUD.
  *
  * Estados:
  *   - list: muestra la tabla de flows + botón "Nuevo flow"
@@ -15,7 +15,7 @@ function formatDate(iso) {
   return new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' })
 }
 
-export default function FlowList({ empresaId, apiCall, connections, onGoToUIs }) {
+export default function FlowList({ botId, apiCall, connections, onGoToUIs }) {
   const [flows,    setFlows]    = useState([])
   const [loading,  setLoading]  = useState(true)
   const [typeMap,  setTypeMap]  = useState({})
@@ -26,12 +26,12 @@ export default function FlowList({ empresaId, apiCall, connections, onGoToUIs })
   const loadFlows = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await apiCall('GET', `/empresas/${empresaId}/flows`, null)
+      const data = await apiCall('GET', `/bots/${botId}/flows`, null)
       if (Array.isArray(data)) setFlows(data)
     } finally {
       setLoading(false)
     }
-  }, [empresaId, apiCall])
+  }, [botId, apiCall])
 
   // Cargar tipos de nodo una vez (necesarios para el editor)
   useEffect(() => {
@@ -54,7 +54,7 @@ export default function FlowList({ empresaId, apiCall, connections, onGoToUIs })
         edges: [],
         viewport: { x: 0, y: 0, zoom: 1 },
       }
-      const newFlow = await apiCall('POST', `/empresas/${empresaId}/flows`, {
+      const newFlow = await apiCall('POST', `/bots/${botId}/flows`, {
         name: 'Nuevo flow',
         definition,
       })
@@ -69,19 +69,19 @@ export default function FlowList({ empresaId, apiCall, connections, onGoToUIs })
 
   async function handleEdit(flowSummary) {
     // Carga el detalle completo (con definition) antes de abrir el editor
-    const full = await apiCall('GET', `/empresas/${empresaId}/flows/${flowSummary.id}`, null)
+    const full = await apiCall('GET', `/bots/${botId}/flows/${flowSummary.id}`, null)
     if (full?.id) setEditing(full)
   }
 
   async function handleToggleActive(flow) {
-    await apiCall('PUT', `/empresas/${flow.empresa_id}/flows/${flow.id}`, { active: !flow.active })
+    await apiCall('PUT', `/bots/${flow.bot_id}/flows/${flow.id}`, { active: !flow.active })
     loadFlows()
   }
 
   async function handleDelete(flow) {
     if (!confirm(`¿Eliminar el flow "${flow.name}"? Esta acción no se puede deshacer.`)) return
     setDeleting(flow.id)
-    await apiCall('DELETE', `/empresas/${flow.empresa_id}/flows/${flow.id}`, null)
+    await apiCall('DELETE', `/bots/${flow.bot_id}/flows/${flow.id}`, null)
     setFlows(prev => prev.filter(f => f.id !== flow.id))
     setDeleting(null)
   }

@@ -72,7 +72,7 @@ Hoy están `luganense_oficios` y `luganense_auspiciantes`.
 
 1. Crear el handler en `backend/graphs/collections.py`:
 ```python
-async def _search_mi_coleccion(query: str, top_k: int, empresa_id: str) -> dict:
+async def _search_mi_coleccion(query: str, top_k: int, bot_id: str) -> dict:
     # Lógica de búsqueda — puede ser vector, SQL, hardcodeado, etc.
     # Retorna dict con las keys que quieras en state.vars
     return {

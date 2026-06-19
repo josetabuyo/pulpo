@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 class SaveContactNode(BaseNode):
     async def run(self, state: FlowState) -> FlowState:
-        empresa_id = state.empresa_id or ""
+        bot_id = state.bot_id or ""
         name_field  = self.config.get("name_field",  "contact_name")
         phone_field = self.config.get("phone_field", "contact_phone")
         notes_field = self.config.get("notes_field", "contact_notes")
@@ -33,7 +33,7 @@ class SaveContactNode(BaseNode):
         phone = _get(phone_field) or state.contact_phone
         notes = _get(notes_field)
 
-        if not name or not empresa_id:
+        if not name or not bot_id:
             return state
 
         import db
@@ -41,7 +41,7 @@ class SaveContactNode(BaseNode):
         if existing and update:
             await db.update_contact(existing["id"], name, notes=notes)
         elif not existing:
-            contact_id = await db.create_contact(empresa_id, name, notes=notes)
+            contact_id = await db.create_contact(bot_id, name, notes=notes)
             if phone:
                 try:
                     await db.add_channel(contact_id, "telegram", phone)

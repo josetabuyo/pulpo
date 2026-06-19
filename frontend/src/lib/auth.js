@@ -1,4 +1,4 @@
-const TOKEN_KEY = 'empresa_access_token'
+const TOKEN_KEY = 'bot_access_token'
 
 export function getAccessToken() {
   return sessionStorage.getItem(TOKEN_KEY)
@@ -13,7 +13,7 @@ export function clearAccessToken() {
 }
 
 async function refreshAccessToken() {
-  const res = await fetch('/api/empresa/refresh', { method: 'POST', credentials: 'include' })
+  const res = await fetch('/api/bot/refresh', { method: 'POST', credentials: 'include' })
   if (!res.ok) return null
   const data = await res.json()
   if (data.access_token) {

@@ -75,7 +75,7 @@ El simulador replica el pipeline completo (mensajes, auto_reply, DB) sin browser
 
 - `PLAN_IA_AGENTES.md` — integración de IA (LangGraph, Claude SDK)
 - `PLAN_PRODUCCION.md` — deploy en servidor, PostgreSQL, WhatsApp Business API
-- `PLAN_CONTACTOS.md` — contactos por empresa en DB
+- `PLAN_CONTACTOS.md` — contactos por bot en DB
 - `PLAN_WA_RECONNECT.md` — recuperar mensajes perdidos al reconectar
 
 ---

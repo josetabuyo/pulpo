@@ -3,7 +3,7 @@
 ## Objetivo
 
 Crear una interfaz visual para leer el output del nodo sumarizador. Debe lucir como una conversación de WhatsApp: mensajes burbuja, timestamps, adjuntos descargables. Accesible desde dos lugares:
-1. La lista de UIs del panel de empresa (al igual que otras UIs)
+1. La lista de UIs del panel de bot (al igual que otras UIs)
 2. Desde el panel de config del nodo `summarize` en el editor de flows (acceso directo)
 
 ---
@@ -53,7 +53,7 @@ Crear una interfaz visual para leer el output del nodo sumarizador. Debe lucir c
 
 ## Fuente de datos
 
-El sumarizador ya genera archivos `.md` en `data/summaries/{empresa_id}/{contact_phone}.md`. La UI necesita parsear ese MD o consumir un endpoint JSON.
+El sumarizador ya genera archivos `.md` en `data/summaries/{bot_id}/{contact_phone}.md`. La UI necesita parsear ese MD o consumir un endpoint JSON.
 
 ### Opción A — Parsear el MD en el frontend
 - El endpoint devuelve el MD crudo
@@ -93,14 +93,14 @@ El backend parsea el MD y devuelve un array de mensajes:
 
 Los archivos adjuntos descargados por el sumarizador viven en:
 ```
-data/summaries/{empresa_id}/docs/{contact_phone}/{filename}
+data/summaries/{bot_id}/docs/{contact_phone}/{filename}
 ```
 
 Endpoint de descarga:
 ```
-GET /api/summaries/{empresa_id}/{contact_phone}/docs/{filename}
+GET /api/summaries/{bot_id}/{contact_phone}/docs/{filename}
 ```
-- Auth: misma que el resto de endpoints de empresa
+- Auth: misma que el resto de endpoints de bot
 - Sirve el archivo con `Content-Disposition: attachment`
 - Misma UX que WhatsApp: click en el nombre del archivo → descarga inmediata
 
@@ -117,10 +117,10 @@ Para implementarlo: en `NodeConfigPanel`, cuando el tipo de nodo es `summarize`,
 ## Fases de implementación
 
 ### Fase 1 — Vista básica de texto (MVP)
-- Endpoint `GET /api/summaries/{empresa_id}/{contact_phone}` → devuelve JSON estructurado
+- Endpoint `GET /api/summaries/{bot_id}/{contact_phone}` → devuelve JSON estructurado
 - Componente `SummaryView.jsx` con burbujas de texto
 - Separadores de fecha
-- Accesible desde la lista de UIs del panel de empresa
+- Accesible desde la lista de UIs del panel de bot
 
 ### Fase 2 — Audios y documentos
 - Burbujas de audio con transcripción colapsable
@@ -143,7 +143,7 @@ Para implementarlo: en `NodeConfigPanel`, cuando el tipo de nodo es `summarize`,
 backend/api/summarizer.py              — agregar endpoint JSON + endpoint descarga
 frontend/src/components/SummaryView.jsx — componente nuevo (vista burbuja)
 frontend/src/components/NodeConfigPanel.jsx — botón "Ver conversación" en nodo summarize
-frontend/src/components/EmpresaCard.jsx — punto de entrada desde lista UIs (ya hay "Ver resúmenes")
+frontend/src/components/BotCard.jsx — punto de entrada desde lista UIs (ya hay "Ver resúmenes")
 ```
 
 ---
@@ -158,21 +158,21 @@ frontend/src/components/EmpresaCard.jsx — punto de entrada desde lista UIs (ya
 ## Implementado (sesión 2026-04-16/17)
 
 ### Backend (`backend/api/summarizer.py`)
-- `GET /summarizer/{empresa_id}` → devuelve `{contacts: [{phone, name}], path: "/abs/path/..."}`
-- `GET /summarizer/{empresa_id}/{contact_phone}/messages` → inbound (.md parseado) + outbound (DB), ordenados por timestamp. Parsea `"Nombre: contenido"` en grupo → campo `sender` separado.
-- `POST /summarizer/{empresa_id}/{contact_phone}/sync` → re-sync seguro por contacto con filtrado de ruido
-- `GET /summarizer/{empresa_id}/{contact_phone}/docs/{filename}` → descarga adjunto
+- `GET /summarizer/{bot_id}` → devuelve `{contacts: [{phone, name}], path: "/abs/path/..."}`
+- `GET /summarizer/{bot_id}/{contact_phone}/messages` → inbound (.md parseado) + outbound (DB), ordenados por timestamp. Parsea `"Nombre: contenido"` en grupo → campo `sender` separado.
+- `POST /summarizer/{bot_id}/{contact_phone}/sync` → re-sync seguro por contacto con filtrado de ruido
+- `GET /summarizer/{bot_id}/{contact_phone}/docs/{filename}` → descarga adjunto
 
 ### Frontend
 - `SummaryView.jsx` — burbujas in (izq) / out (der), separadores de día, AudioBubble, DocumentBubble, botón ↻ sync, botón ↓ MD
 - `SummaryContactList.jsx` — muestra nombre resuelto desde agenda, avatar con iniciales
 - `NodeConfigPanel.jsx` — nodo summarize muestra path absoluto (fetched del backend) + botón "Ver resúmenes" que cambia a tab UIs
-- `EmpresaCard → FlowList → FlowEditor → NodeConfigPanel` — cadena `onGoToUIs` prop
+- `BotCard → FlowList → FlowEditor → NodeConfigPanel` — cadena `onGoToUIs` prop
 
 ### Bugs corregidos
 - `group_sender` en FlowState: audios de grupo ya no saltean transcripción por el prefijo "Nombre: "
 - `list_contacts()` excluye archivos `.bak.md`
-- Re-trigger histórico (`POST /empresas/{id}/flows/{flow_id}/replay`) con `from_delta_sync=True`
+- Re-trigger histórico (`POST /bots/{id}/flows/{flow_id}/replay`) con `from_delta_sync=True`
 - `.md` de SIGIRH reordenado por fecha (tenía mensajes desordenados)
 
 ### Pendiente / conocido

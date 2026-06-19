@@ -15,7 +15,7 @@ async def sim_connect(number: str):
     from config import load_config
     config = load_config()
     connection_id = next(
-        (bot["id"] for bot in config.get("empresas", [])
+        (bot["id"] for bot in config.get("bots", [])
          if any(p["number"] == number for p in bot.get("phones", []))),
         None,
     )

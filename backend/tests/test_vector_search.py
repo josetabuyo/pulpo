@@ -45,7 +45,7 @@ async def test_vector_search_coleccion_no_existe():
     """Si la colección no existe, loguea warning y continúa sin romper."""
     config = {"collection": "coleccion_inexistente"}
     node = VectorSearchNode(config)
-    state = FlowState(message="Necesito un electricista", empresa_id="bot_test")
+    state = FlowState(message="Necesito un electricista", bot_id="bot_test")
     result = await node.run(state)
     assert result is state  # retorna sin modificar
 
@@ -81,7 +81,7 @@ async def test_vector_search_query_field_message():
 
     state = FlowState(
         message="Necesito un electricista",
-        empresa_id="bot_test"
+        bot_id="bot_test"
     )
     result = await node.run(state)
 
@@ -98,7 +98,7 @@ async def test_vector_search_output_field_context():
 
     state = FlowState(
         message="Necesito un electricista",
-        empresa_id="bot_test"
+        bot_id="bot_test"
     )
     result = await node.run(state)
 
@@ -119,7 +119,7 @@ async def test_vector_search_interpola_placeholders():
     # El mensaje tiene placeholders que deben interpolarse
     state = FlowState(
         message="Necesito {{message}}",  # placeholder
-        empresa_id="bot_test"
+        bot_id="bot_test"
     )
     # Nota: {{message}} es un placeholder self-referencial, debería quedar igual
     result = await node.run(state)
@@ -134,7 +134,7 @@ async def test_vector_search_vars_tienen_todas_las_keys():
 
     state = FlowState(
         message="Necesito un electricista",
-        empresa_id="bot_test"
+        bot_id="bot_test"
     )
     result = await node.run(state)
 

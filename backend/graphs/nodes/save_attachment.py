@@ -1,7 +1,7 @@
 """
 SaveAttachmentNode — mueve state.attachment_path a storage permanente.
 
-Destino: data/summaries/{empresa_id}/{contact_phone}/{filename}
+Destino: data/summaries/{bot_id}/{contact_phone}/{filename}
 (misma estructura que usa SummarizeNode)
 
 Si no hay adjunto, pasa sin hacer nada.
@@ -34,9 +34,9 @@ class SaveAttachmentNode(BaseNode):
         if not src.exists():
             return state
 
-        empresa_id    = state.empresa_id or "unknown"
+        bot_id    = state.bot_id or "unknown"
         contact_phone = state.contact_phone or state.contact_name or "unknown"
-        dest_dir = _BASE / empresa_id / _slugify(contact_phone)
+        dest_dir = _BASE / bot_id / _slugify(contact_phone)
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest = dest_dir / src.name
 

@@ -22,12 +22,12 @@ Tabla nueva `contact_suggestions`:
 ```sql
 CREATE TABLE contact_suggestions (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
-    empresa_id TEXT NOT NULL,
+    bot_id TEXT NOT NULL,
     name      TEXT,          -- nombre del contacto (puede ser nulo si solo se tiene teléfono)
     phone     TEXT,          -- teléfono (puede ser nulo si WA no lo expone para ese contacto)
     source    TEXT,          -- 'wa_import' | 'message_history'
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(empresa_id, name, phone)
+    UNIQUE(bot_id, name, phone)
 );
 ```
 
@@ -49,11 +49,11 @@ Regla: al menos uno de `name` o `phone` debe estar presente.
 
 5. **Actualizar `GET /bots/{bot_id}/contacts/suggested`** — leer de `contact_suggestions`. Responde `[{name, phone}]`.
 
-6. **Actualizar `DELETE /empresa/{bot_id}/suggested-contacts`** — borrar de `contact_suggestions`.
+6. **Actualizar `DELETE /bot/{bot_id}/suggested-contacts`** — borrar de `contact_suggestions`.
 
 7. **`_resolve_filter_value()` ya acepta nombre o teléfono indistintamente** — sin cambios.
 
-8. **`EmpresaCard.jsx`** — mostrar nombre si existe, teléfono como dato adicional. Sin cambios estructurales.
+8. **`BotCard.jsx`** — mostrar nombre si existe, teléfono como dato adicional. Sin cambios estructurales.
 
 ### Flujo esperado
 
@@ -63,7 +63,7 @@ Regla: al menos uno de `name` o `phone` debe estar presente.
 - Los contactos sin guardar (número visible) se guardan con `phone` y opcionalmente `name`
 - El historial de mensajes aporta `phone + name` para contactos que ya escribieron
 - En `ContactFilterPicker` el usuario ve el nombre reconocible; si solo hay teléfono, muestra el teléfono
-- Al ejecutar el flow, `_resolve_filter_value("María García", empresa_id)` busca en `contact_channels`
+- Al ejecutar el flow, `_resolve_filter_value("María García", bot_id)` busca en `contact_channels`
 - Si el nombre no está en `contact_channels` pero está como sugerido → se trata como desconocido (`include_unknown`)
 
 ## Estado
@@ -72,7 +72,7 @@ Regla: al menos uno de `name` o `phone` debe estar presente.
 - [ ] Refactorizar JS de scraping para recolectar nombres (no teléfonos)
 - [ ] Actualizar endpoints de sugeridos
 - [ ] Migrar datos existentes (limpiar [wa-contact-import] en messages)
-- [ ] Actualizar EmpresaCard si es necesario
+- [ ] Actualizar BotCard si es necesario
 
 ## Notas
 

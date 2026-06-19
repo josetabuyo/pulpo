@@ -14,7 +14,7 @@ import asyncio
 import logging
 
 import tools.wavi_driver as wd
-from config import get_wa_poll_interval, get_empresas_for_connection
+from config import get_wa_poll_interval, get_bots_for_connection
 from db import log_message, wavi_msg_hash, wavi_seen_add, wavi_seen_has, wavi_seen_prune
 from graphs.compiler import run_flows
 from graphs.nodes.state import FlowState
@@ -61,9 +61,9 @@ async def _poll_session(session: str):
         logger.debug("[wavi-poll] skip %s — no pid", session)
         return
 
-    empresa_ids = get_empresas_for_connection(session)
-    if not empresa_ids:
-        logger.debug("[wavi-poll] skip %s — no empresa registered", session)
+    bot_ids = get_bots_for_connection(session)
+    if not bot_ids:
+        logger.debug("[wavi-poll] skip %s — no bot registered", session)
         return
 
     result = await wd.check_updates(session)
@@ -81,9 +81,9 @@ async def _poll_session(session: str):
             continue
         await _mark_seen(session, name, text)
 
-        for empresa_id in empresa_ids:
+        for bot_id in bot_ids:
             try:
-                await log_message(empresa_id, session, name, name, text)
+                await log_message(bot_id, session, name, name, text)
             except Exception as e:
                 logger.warning("[wavi-poll] log_message error: %s", e)
 
@@ -105,8 +105,8 @@ async def _poll_session(session: str):
         if reply:
             try:
                 await wd.send(session, name, reply)
-                for empresa_id in empresa_ids:
-                    await log_message(empresa_id, session, name, "Bot", reply, outbound=True)
+                for bot_id in bot_ids:
+                    await log_message(bot_id, session, name, "Bot", reply, outbound=True)
                 await _mark_seen(session, name, reply)  # dedup the outbound too
             except Exception:
                 logger.exception("[wavi-poll] send error for %s/%s", session, name)

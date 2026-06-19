@@ -24,7 +24,7 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin")
 ADMIN          = {"x-password": ADMIN_PASSWORD}
 BAD            = {"x-password": "wrong"}
 
-# Empresa de prueba que usan los tests de integración (empresa, flows, contacts).
+# Bot de prueba que usan los tests de integración (bot, flows, contacts).
 TEST_BOT_ID  = "bot_test"
 TEST_BOT_PWD = "bot_test"
 
@@ -57,7 +57,7 @@ def _base_client():
 @pytest.fixture(scope="session", autouse=True)
 def ensure_bot_test(_base_client):
     """
-    Garantiza que exista la empresa de prueba `bot_test` (password `bot_test`).
+    Garantiza que exista la bot de prueba `bot_test` (password `bot_test`).
     En worktrees dev suele existir de forma permanente; en producción se crea
     al inicio de la suite y se elimina al final (junto con sus flows).
     """
@@ -75,23 +75,23 @@ def ensure_bot_test(_base_client):
     yield
     if created:
         try:
-            flows = _base_client.get(f"/api/empresas/{TEST_BOT_ID}/flows", headers=ADMIN)
+            flows = _base_client.get(f"/api/bots/{TEST_BOT_ID}/flows", headers=ADMIN)
             if flows.status_code == 200:
                 for f in flows.json():
-                    _base_client.delete(f"/api/empresas/{TEST_BOT_ID}/flows/{f['id']}", headers=ADMIN)
+                    _base_client.delete(f"/api/bots/{TEST_BOT_ID}/flows/{f['id']}", headers=ADMIN)
             _base_client.delete(f"/api/bots/{TEST_BOT_ID}", headers=ADMIN)
         except httpx.HTTPError as e:
             print(f"[conftest] cleanup de {TEST_BOT_ID} falló: {e}")
 
 
-def get_empresa_token(bot_id: str, password: str, base_client) -> dict:
+def get_bot_token(bot_id: str, password: str, base_client) -> dict:
     """
-    Obtiene (o reutiliza) un JWT Bearer token para una empresa.
-    Compartido entre todos los tests para no agotar el rate limit de /api/empresa/login.
+    Obtiene (o reutiliza) un JWT Bearer token para una bot.
+    Compartido entre todos los tests para no agotar el rate limit de /api/bot/login.
     """
     key = (bot_id, password)
     if key not in _token_cache:
-        r = base_client.post("/api/empresa/login", json={"bot_id": bot_id, "password": password})
+        r = base_client.post("/api/bot/login", json={"bot_id": bot_id, "password": password})
         assert r.status_code == 200, f"Login falló para {bot_id}: {r.text}"
         _token_cache[key] = r.json()["access_token"]
     return {"Authorization": f"Bearer {_token_cache[key]}"}

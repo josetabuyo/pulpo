@@ -30,7 +30,7 @@ class TestFileLogFilter:
         assert not self.f.filter(_record("Call to Bot API endpoint `getUpdates` finished"))
 
     def test_permite_mensaje_de_negocio(self):
-        assert self.f.filter(_record("[empresa/tg-123] Mensaje de usuario: hola"))
+        assert self.f.filter(_record("[bot/tg-123] Mensaje de usuario: hola"))
 
     def test_permite_delta_sync(self):
         assert self.f.filter(_record("[delta-sync] Completado."))
@@ -45,8 +45,8 @@ class TestUvicornPollingFilter:
     def test_excluye_logs_latest(self):
         assert not self.f.filter(_record('127.0.0.1 - "GET /api/logs/latest?source=backend HTTP/1.1" 200'))
 
-    def test_excluye_empresa_paused(self):
-        assert not self.f.filter(_record('127.0.0.1 - "GET /api/empresa/gm_herreria/paused HTTP/1.1" 200'))
+    def test_excluye_bot_paused(self):
+        assert not self.f.filter(_record('127.0.0.1 - "GET /api/bot/gm_herreria/paused HTTP/1.1" 200'))
 
     def test_permite_mensaje_real(self):
         assert self.f.filter(_record('127.0.0.1 - "POST /api/sim/send HTTP/1.1" 200'))

@@ -22,19 +22,19 @@ logger = logging.getLogger(__name__)
 
 _BASE = Path(__file__).parent.parent.parent.parent / "data" / "summaries"
 
-# (empresa_id, contact_phone) → set de sha256(body) ya escritos
+# (bot_id, contact_phone) → set de sha256(body) ya escritos
 _dedup: dict[tuple[str, str], set[str]] = {}
 _dedup_loaded: set[tuple[str, str]] = set()
 
 
-def invalidate_dedup(empresa_id: str, contact_phone: str | None = None) -> None:
-    """Invalida el caché de dedup: un contacto puntual, o toda la empresa si
+def invalidate_dedup(bot_id: str, contact_phone: str | None = None) -> None:
+    """Invalida el caché de dedup: un contacto puntual, o toda la bot si
     contact_phone es None. Llamar siempre que el .md se modifique por fuera
     de accumulate() (clear, trim, rewrite, migraciones)."""
     if contact_phone is not None:
-        keys = [(empresa_id, contact_phone)]
+        keys = [(bot_id, contact_phone)]
     else:
-        keys = [k for k in list(_dedup_loaded) if k[0] == empresa_id]
+        keys = [k for k in list(_dedup_loaded) if k[0] == bot_id]
     for key in keys:
         _dedup_loaded.discard(key)
         _dedup.pop(key, None)
@@ -134,27 +134,27 @@ def slugify(name: str) -> str:
     return result or "contacto"
 
 
-def get_contact_display_name(empresa_id: str, slug: str) -> str | None:
+def get_contact_display_name(bot_id: str, slug: str) -> str | None:
     """Lee el nombre original almacenado en {slug}/name.txt, si existe."""
-    name_file = _BASE / empresa_id / slug / "name.txt"
+    name_file = _BASE / bot_id / slug / "name.txt"
     if name_file.exists():
         return name_file.read_text(encoding="utf-8").strip()
     return None
 
 
-def _path(empresa_id: str, contact_id: str) -> Path:
+def _path(bot_id: str, contact_id: str) -> Path:
     """Retorna la ruta del chat.md del contacto.
-    Nueva estructura: {empresa_id}/{slug}/chat.md
-    Fallback (pre-migración): {empresa_id}/{contact_id}.md
+    Nueva estructura: {bot_id}/{slug}/chat.md
+    Fallback (pre-migración): {bot_id}/{contact_id}.md
     """
     slug = slugify(contact_id)
-    new_p = _BASE / empresa_id / slug / "chat.md"
+    new_p = _BASE / bot_id / slug / "chat.md"
     # Si ya existe la nueva estructura, usarla
     if new_p.parent.exists():
         new_p.parent.mkdir(parents=True, exist_ok=True)
         return new_p
     # Fallback: estructura vieja (plana)
-    old_p = _BASE / empresa_id / f"{contact_id}.md"
+    old_p = _BASE / bot_id / f"{contact_id}.md"
     if old_p.exists():
         return old_p
     # Default para escritura nueva: estructura nueva
@@ -240,18 +240,18 @@ def _iter_entry_hashes(p: Path):
         yield _dedup_hash(current_ts, current_body)
 
 
-def _ensure_loaded(empresa_id: str, contact_phone: str) -> set[str]:
+def _ensure_loaded(bot_id: str, contact_phone: str) -> set[str]:
     """Devuelve el set de hashes del contacto, cargándolo del .md la primera vez."""
-    key = (empresa_id, contact_phone)
+    key = (bot_id, contact_phone)
     if key not in _dedup_loaded:
         _dedup_loaded.add(key)
-        p = _path(empresa_id, contact_phone)
+        p = _path(bot_id, contact_phone)
         _dedup[key] = set(_iter_entry_hashes(p)) if p.exists() else set()
     return _dedup[key]
 
 
 def _try_enrich_entry(
-    empresa_id: str, contact_phone: str, ts: str,
+    bot_id: str, contact_phone: str, ts: str,
     msg_type: str, content: str, seen: "set[str]",
 ) -> bool:
     """
@@ -260,7 +260,7 @@ def _try_enrich_entry(
     nuevo content y actualiza el caché de dedup.
     Retorna True si reemplazó, False si no encontró placeholder reemplazable.
     """
-    p = _path(empresa_id, contact_phone)
+    p = _path(bot_id, contact_phone)
     if not p.exists():
         return False
     text = p.read_text(encoding="utf-8")
@@ -288,14 +288,14 @@ def _try_enrich_entry(
         seen.discard(old_h)
         logger.info(
             "[SummarizeNode] enriquecido %s/%s @ %s — placeholder → %d chars",
-            empresa_id, contact_phone, ts, len(content),
+            bot_id, contact_phone, ts, len(content),
         )
         return True
     return False
 
 
 def accumulate(
-    empresa_id: str,
+    bot_id: str,
     contact_phone: str,
     contact_name: str,
     msg_type: str,
@@ -307,16 +307,16 @@ def accumulate(
     de agregar una nueva.
     """
     ts = (timestamp or datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
-    seen = _ensure_loaded(empresa_id, contact_phone)
+    seen = _ensure_loaded(bot_id, contact_phone)
     h = _dedup_hash(ts, content)
     if h in seen:
         return
     # Para audio: si hay un placeholder fallido en esa ts, reemplazarlo (enriquecimiento)
-    if msg_type == "audio" and _try_enrich_entry(empresa_id, contact_phone, ts, msg_type, content, seen):
+    if msg_type == "audio" and _try_enrich_entry(bot_id, contact_phone, ts, msg_type, content, seen):
         seen.add(h)
         return
     seen.add(h)
-    p = _path(empresa_id, contact_phone)
+    p = _path(bot_id, contact_phone)
     entries_meta = _read_entries_meta(p)
     msg_id = _next_id(ts, entries_meta)
     entry = f"## {ts} [id:{msg_id}]\n**[{msg_type}]** {content}\n---\n"
@@ -325,20 +325,20 @@ def accumulate(
         name_file.write_text(contact_phone, encoding="utf-8")
     with open(p, "a", encoding="utf-8") as f:
         f.write(entry)
-    logger.debug("[SummarizeNode] %s/%s — %d chars acumulados", empresa_id, contact_phone, len(content))
+    logger.debug("[SummarizeNode] %s/%s — %d chars acumulados", bot_id, contact_phone, len(content))
 
 
-def get_summary(empresa_id: str, contact_phone: str) -> str | None:
-    p = _path(empresa_id, contact_phone)
+def get_summary(bot_id: str, contact_phone: str) -> str | None:
+    p = _path(bot_id, contact_phone)
     return p.read_text(encoding="utf-8") if p.exists() else None
 
 
-def list_contacts(empresa_id: str) -> list[str]:
+def list_contacts(bot_id: str) -> list[str]:
     """Retorna los identificadores de contactos.
     Nueva estructura: nombre de cada subdirectorio que contenga chat.md.
     Fallback: stem de .md planos (pre-migración).
     """
-    d = _BASE / empresa_id
+    d = _BASE / bot_id
     if not d.exists():
         return []
     result = []
@@ -357,39 +357,39 @@ def list_contacts(empresa_id: str) -> list[str]:
     return result
 
 
-def get_attachments_dir(empresa_id: str, contact_id: str) -> Path:
+def get_attachments_dir(bot_id: str, contact_id: str) -> Path:
     """Carpeta para adjuntos del contacto. Nueva estructura: {slug}/ (mismo dir que chat.md)."""
     slug = slugify(contact_id)
-    d = _BASE / empresa_id / slug
+    d = _BASE / bot_id / slug
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
-def clear_empresa(empresa_id: str) -> None:
-    d = _BASE / empresa_id
+def clear_bot(bot_id: str) -> None:
+    d = _BASE / bot_id
     if not d.exists():
         return
-    bak = _BASE / f"{empresa_id}.bak"
+    bak = _BASE / f"{bot_id}.bak"
     if bak.exists():
         shutil.rmtree(bak)
     shutil.copytree(d, bak)
     for f in d.glob("*.md"):
         f.unlink()
-    invalidate_dedup(empresa_id)
+    invalidate_dedup(bot_id)
 
 
-def clear_contact(empresa_id: str, contact_phone: str) -> None:
-    src = _path(empresa_id, contact_phone)
+def clear_contact(bot_id: str, contact_phone: str) -> None:
+    src = _path(bot_id, contact_phone)
     if src.exists():
         bak = src.with_suffix(".bak.md")
         shutil.copy2(src, bak)
         src.unlink()
-    invalidate_dedup(empresa_id, contact_phone)
+    invalidate_dedup(bot_id, contact_phone)
 
 
-def trim_contact_from_date(empresa_id: str, contact_phone: str, cutoff_dt: datetime) -> None:
+def trim_contact_from_date(bot_id: str, contact_phone: str, cutoff_dt: datetime) -> None:
     """Recorta el .md conservando solo entradas anteriores a cutoff_dt. Backup en .bak.md."""
-    p = _path(empresa_id, contact_phone)
+    p = _path(bot_id, contact_phone)
     if not p.exists():
         return
     content = p.read_text(encoding="utf-8")
@@ -417,28 +417,28 @@ def trim_contact_from_date(empresa_id: str, contact_phone: str, cutoff_dt: datet
             kept.append(block_stripped)
 
     p.write_text("\n---\n".join(kept) + ("\n---\n" if kept else ""), encoding="utf-8")
-    invalidate_dedup(empresa_id, contact_phone)
+    invalidate_dedup(bot_id, contact_phone)
 
 
-def clear_contact_full(empresa_id: str, contact_phone: str) -> None:
+def clear_contact_full(bot_id: str, contact_phone: str) -> None:
     """Full re-sync: borra el .md, el .bak.md y todos los adjuntos del contacto."""
     import shutil as _shutil
-    src = _path(empresa_id, contact_phone)
+    src = _path(bot_id, contact_phone)
     if src.exists():
         src.unlink()
     bak = src.with_suffix(".bak.md")
     if bak.exists():
         bak.unlink()
-    att_dir = _BASE / empresa_id / contact_phone
+    att_dir = _BASE / bot_id / contact_phone
     if att_dir.exists():
         _shutil.rmtree(att_dir)
-    invalidate_dedup(empresa_id, contact_phone)
+    invalidate_dedup(bot_id, contact_phone)
 
 
-def _newest_message_ts(empresa_id: str, contact_phone: str) -> "datetime | None":
+def _newest_message_ts(bot_id: str, contact_phone: str) -> "datetime | None":
     """Retorna el datetime del mensaje más reciente en el .md, o None si vacío."""
     import re as _re
-    p = _path(empresa_id, contact_phone)
+    p = _path(bot_id, contact_phone)
     if not p.exists():
         return None
     newest = None
@@ -457,14 +457,14 @@ def _newest_message_ts(empresa_id: str, contact_phone: str) -> "datetime | None"
     return newest
 
 
-def _migrate_chat_md(md_file: Path, target: Path, empresa_id: str, slug: str) -> None:
+def _migrate_chat_md(md_file: Path, target: Path, bot_id: str, slug: str) -> None:
     """Copia el .md viejo a {slug}/chat.md. Si el destino ya acumuló contenido
     (backend reiniciado con código nuevo), prepende el historial viejo."""
     if target.exists():
         old_content = md_file.read_text(encoding="utf-8")
         new_content = target.read_text(encoding="utf-8")
         target.write_text(old_content + new_content, encoding="utf-8")
-        invalidate_dedup(empresa_id, slug)  # re-leer el archivo combinado
+        invalidate_dedup(bot_id, slug)  # re-leer el archivo combinado
     else:
         shutil.copy2(md_file, target)
 
@@ -491,7 +491,7 @@ def _cleanup_old_files(md_file: Path, bak_src: Path, old_att_dir: Path, slug_dir
         shutil.rmtree(old_att_dir)
 
 
-def _migrate_one_contact(d: Path, md_file: Path, empresa_id: str) -> None:
+def _migrate_one_contact(d: Path, md_file: Path, bot_id: str) -> None:
     """Migra un contacto de la estructura plana a {slug}/chat.md. Lanza si falla."""
     contact_id = md_file.stem
     slug = slugify(contact_id)
@@ -503,7 +503,7 @@ def _migrate_one_contact(d: Path, md_file: Path, empresa_id: str) -> None:
     slug_dir.mkdir(parents=True, exist_ok=True)
     (slug_dir / "name.txt").write_text(contact_id, encoding="utf-8")
 
-    _migrate_chat_md(md_file, target, empresa_id, slug)
+    _migrate_chat_md(md_file, target, bot_id, slug)
     if bak_src.exists():
         shutil.copy2(bak_src, slug_dir / "chat.bak.md")
     _migrate_attachments(old_att_dir, slug_dir)
@@ -512,10 +512,10 @@ def _migrate_one_contact(d: Path, md_file: Path, empresa_id: str) -> None:
     if target.exists():
         _cleanup_old_files(md_file, bak_src, old_att_dir, slug_dir)
 
-    invalidate_dedup(empresa_id, contact_id)
+    invalidate_dedup(bot_id, contact_id)
 
 
-def migrate_empresa_to_slugs(empresa_id: str) -> dict:
+def migrate_bot_to_slugs(bot_id: str) -> dict:
     """
     Migra la estructura vieja ({nombre}.md + {nombre}/) a la nueva ({slug}/chat.md).
     - Crea {slug}/chat.md copiando el .md original
@@ -524,7 +524,7 @@ def migrate_empresa_to_slugs(empresa_id: str) -> dict:
     - Borra los archivos viejos si la copia fue exitosa
     Idempotente: skippea contactos ya migrados.
     """
-    d = _BASE / empresa_id
+    d = _BASE / bot_id
     if not d.exists():
         return {"migrated": 0, "skipped": 0, "errors": []}
 
@@ -535,18 +535,18 @@ def migrate_empresa_to_slugs(empresa_id: str) -> dict:
         if md_file.name.endswith(".bak.md"):
             continue
         try:
-            _migrate_one_contact(d, md_file, empresa_id)
+            _migrate_one_contact(d, md_file, bot_id)
             migrated += 1
         except Exception as e:
             logger.exception("[summarize] migración de %s falló", md_file.stem)
             errors.append(f"{md_file.stem}: {e}")
 
-    return {"empresa_id": empresa_id, "migrated": migrated, "skipped": 0, "errors": errors}
+    return {"bot_id": bot_id, "migrated": migrated, "skipped": 0, "errors": errors}
 
 
-def delete_message_by_id(empresa_id: str, contact_phone: str, msg_id: str) -> bool:
+def delete_message_by_id(bot_id: str, contact_phone: str, msg_id: str) -> bool:
     """Elimina el bloque con [id:{msg_id}] del chat.md. Retorna True si encontró y eliminó."""
-    p = _path(empresa_id, contact_phone)
+    p = _path(bot_id, contact_phone)
     if not p.exists():
         return False
     text = p.read_text(encoding="utf-8")
@@ -567,13 +567,13 @@ def delete_message_by_id(empresa_id: str, contact_phone: str, msg_id: str) -> bo
     if not found:
         return False
     p.write_text("\n---\n".join(new_blocks) + ("\n---\n" if new_blocks else ""), encoding="utf-8")
-    invalidate_dedup(empresa_id, contact_phone)
+    invalidate_dedup(bot_id, contact_phone)
     return True
 
 
-def rewrite_chat(empresa_id: str, contact_phone: str, messages: list[dict]) -> None:
+def rewrite_chat(bot_id: str, contact_phone: str, messages: list[dict]) -> None:
     """Reescribe chat.md con la lista de mensajes dada. Backup previo en chat.bak.md."""
-    p = _path(empresa_id, contact_phone)
+    p = _path(bot_id, contact_phone)
     if p.exists():
         bak = p.with_name("chat.bak.md")
         shutil.copy2(p, bak)
@@ -631,16 +631,16 @@ def rewrite_chat(empresa_id: str, contact_phone: str, messages: list[dict]) -> N
     tmp.write_text(content, encoding="utf-8")
     _os.replace(tmp, p)
 
-    key = (empresa_id, contact_phone)
+    key = (bot_id, contact_phone)
     _dedup_loaded.discard(key)
     _dedup.pop(key, None)
 
 
-def consolidate_contact(empresa_id: str, contact_phone: str) -> dict:
+def consolidate_contact(bot_id: str, contact_phone: str) -> dict:
     """Consolida el historial completo: copia todos los archivos del contacto a
     consolidated/YYYY-MM-DDTHH-MM-SS/ para preservar imágenes, documentos y audios."""
     import json as _json
-    p = _path(empresa_id, contact_phone)
+    p = _path(bot_id, contact_phone)
     slug_dir = p.parent
 
     now = datetime.now()
@@ -658,7 +658,7 @@ def consolidate_contact(empresa_id: str, contact_phone: str) -> dict:
             continue
         shutil.copy2(f, consolidated_dir / f.name)
 
-    last_ts = _newest_message_ts(empresa_id, contact_phone)
+    last_ts = _newest_message_ts(bot_id, contact_phone)
     message_count = 0
     if p.exists():
         content = p.read_text(encoding="utf-8")
@@ -673,10 +673,10 @@ def consolidate_contact(empresa_id: str, contact_phone: str) -> dict:
     return meta
 
 
-def get_consolidation_meta(empresa_id: str, contact_phone: str) -> "dict | None":
+def get_consolidation_meta(bot_id: str, contact_phone: str) -> "dict | None":
     """Retorna metadata de la última consolidación, o None si no existe."""
     import json as _json
-    p = _path(empresa_id, contact_phone)
+    p = _path(bot_id, contact_phone)
     base = p.parent / "consolidated"
     if not base.exists():
         return None
@@ -697,9 +697,9 @@ def get_consolidation_meta(empresa_id: str, contact_phone: str) -> "dict | None"
     return None
 
 
-def get_consolidation_dir(empresa_id: str, contact_phone: str) -> "Path | None":
+def get_consolidation_dir(bot_id: str, contact_phone: str) -> "Path | None":
     """Retorna el directorio de la consolidación más reciente, o None si no hay ninguna."""
-    p = _path(empresa_id, contact_phone)
+    p = _path(bot_id, contact_phone)
     base = p.parent / "consolidated"
     if not base.exists():
         return None
@@ -741,7 +741,7 @@ class SummarizeNode(BaseNode):
             content = f"{state.group_sender}: {content}"
 
         accumulate(
-            empresa_id=state.empresa_id,
+            bot_id=state.bot_id,
             contact_phone=state.contact_phone,
             contact_name=state.contact_name,
             msg_type=state.message_type,

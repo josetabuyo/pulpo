@@ -62,7 +62,7 @@ Flow
 - El endpoint `PUT /flows/{id}` inyecta `connection_id` y `contact_filter` en el nodo
 
 **Target:**
-- `resolve_flows()` devuelve todos los flows activos de la empresa (sin filtrar por `connection_id` en SQL)
+- `resolve_flows()` devuelve todos los flows activos de la bot (sin filtrar por `connection_id` en SQL)
 - `execute_flow()` lee `connection_id` y `contact_filter` **del nodo** `message_trigger`
 - El endpoint `PUT /flows/{id}` **no inyecta nada**: guarda la `definition` tal cual llega
 - La columna `connection_id` en `flows` queda como cache (populated desde el nodo al guardar), usada solo para queries de administración, no para filtrado de ejecución
@@ -153,7 +153,7 @@ El engine evalúa cada trigger independientemente. Si el mensaje matchea el trig
 **Cambios en `NodeConfigPanel.jsx`:**
 - Agregar render especial para tipo `message_trigger`
 - Panel con dos secciones:
-  - **Conexión**: `<select>` con las conexiones de la empresa + botón `→` para abrir modal con el UI completo de Conexiones
+  - **Conexión**: `<select>` con las conexiones de la bot + botón `→` para abrir modal con el UI completo de Conexiones
   - **Filtro de contactos**: `ContactFilterPicker` (mover desde FlowHeader) + botón `→` para abrir modal con el UI completo de Contactos
 
 **Cambios en el schema del nodo `message_trigger`:**

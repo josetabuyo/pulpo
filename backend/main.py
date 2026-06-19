@@ -14,7 +14,7 @@ from db import init_db, google_connection_exists, create_google_connection
 from bots.telegram_bot import build_telegram_app
 from state import clients
 from api.auth import router as auth_router
-from api.auth_empresa import router as auth_empresa_router, limiter as empresa_limiter
+from api.auth_bot import router as auth_bot_router, limiter as bot_limiter
 from api.bots import router as bots_router
 from api.connections import router as connections_router
 from api.telegram_api import router as telegram_router
@@ -22,7 +22,7 @@ from api.messages import router as messages_router
 from api.sim import router as sim_router
 from api.client import router as client_router
 from api.logs import router as logs_router
-from api.empresa import router as empresa_router
+from api.bot_portal import router as bot_portal_router
 from api.contacts import router as contacts_router
 from api.summarizer import router as summarizer_router
 from api.flows import router as flows_router, seed_default_flows
@@ -59,7 +59,7 @@ class _UvicornPollingFilter(logging.Filter):
     _POLLING = (
         '"GET /api/bots HTTP',
         '"GET /api/logs/latest',
-        '/paused HTTP',          # /api/empresa/{id}/paused
+        '/paused HTTP',          # /api/bot/{id}/paused
     )
 
     def filter(self, record):
@@ -118,7 +118,7 @@ async def _seed_pulpo_google_connection():
             return
         await create_google_connection(
             id="pulpo-default",
-            empresa_id=None,
+            bot_id=None,
             credentials_json=sa_json,
             email=email,
             label="Cuenta Pulpo",
@@ -139,12 +139,12 @@ async def lifespan(app: FastAPI):
     if sim_engine.SIM_MODE:
         logger.info("Modo SIMULADO — bots reales desactivados (ENABLE_BOTS != true).")
         config = load_config()
-        for empresa in config.get("empresas", []):
-            for tg in empresa.get("telegram", []):
+        for bot in config.get("bots", []):
+            for tg in bot.get("telegram", []):
                 token_id = tg["token"].split(":")[0]
-                session_id = f"{empresa['id']}-tg-{token_id}"
-                sim_engine.sim_connect(session_id, empresa["id"])
-                logger.info(f"[sim] Auto-conectado TG: {session_id} ({empresa['name']})")
+                session_id = f"{bot['id']}-tg-{token_id}"
+                sim_engine.sim_connect(session_id, bot["id"])
+                logger.info(f"[sim] Auto-conectado TG: {session_id} ({bot['name']})")
     else:
         config = load_config()
         tg_configs = get_telegram_connections(config)
@@ -189,7 +189,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 app = FastAPI(title="Pulpo API", lifespan=lifespan)
-app.state.limiter = empresa_limiter
+app.state.limiter = bot_limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 _frontend_port = os.environ.get("FRONTEND_PORT", "5173")
@@ -210,8 +210,8 @@ app.include_router(messages_router, prefix="/api")
 app.include_router(sim_router, prefix="/api")
 app.include_router(client_router, prefix="/api")
 app.include_router(logs_router, prefix="/api")
-app.include_router(auth_empresa_router, prefix="/api")
-app.include_router(empresa_router, prefix="/api")
+app.include_router(auth_bot_router, prefix="/api")
+app.include_router(bot_portal_router, prefix="/api")
 app.include_router(contacts_router, prefix="/api")
 app.include_router(summarizer_router, prefix="/api")
 app.include_router(flows_router, prefix="/api")

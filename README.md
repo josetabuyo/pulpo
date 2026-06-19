@@ -10,8 +10,8 @@ Pulpo conecta tus canales de mensajería a un sistema de bots inteligentes: resp
 
 - **Respuesta automática** — tu bot responde al instante cuando no estás disponible
 - **Multi-canal** — WhatsApp y Telegram desde un solo lugar
-- **Portal de empresa** — cada cliente gestiona sus canales, ve conversaciones y responde inline
-- **Panel admin** — control total: agregar empresas, ver estado de bots, monitorear en tiempo real
+- **Portal de bot** — cada cliente gestiona sus canales, ve conversaciones y responde inline
+- **Panel admin** — control total: agregar bots, ver estado de bots, monitorear en tiempo real
 
 ---
 
@@ -19,16 +19,16 @@ Pulpo conecta tus canales de mensajería a un sistema de bots inteligentes: resp
 
 Accedé al portal público:
 
-**[https://unbuoyant-surgeless-micheal.ngrok-free.dev/empresa](https://unbuoyant-surgeless-micheal.ngrok-free.dev/empresa)**
+**[https://unbuoyant-surgeless-micheal.ngrok-free.dev/bot](https://unbuoyant-surgeless-micheal.ngrok-free.dev/bot)**
 
-- ¿Ya tenés una cuenta? Ingresá con tu clave de empresa.
-- ¿Primera vez? → **[Crear empresa nueva](https://unbuoyant-surgeless-micheal.ngrok-free.dev/empresa/nueva)**
+- ¿Ya tenés una cuenta? Ingresá con tu clave de bot.
+- ¿Primera vez? → **[Crear bot nueva](https://unbuoyant-surgeless-micheal.ngrok-free.dev/bot/nueva)**
 
 ---
 
 ## 📲 Conectar Telegram paso a paso
 
-Para agregar un bot de Telegram a tu empresa en Pulpo:
+Para agregar un bot de Telegram a tu bot en Pulpo:
 
 ### 1. Crear el bot en Telegram
 
@@ -44,7 +44,7 @@ Para agregar un bot de Telegram a tu empresa en Pulpo:
 
 ### 2. Agregar el bot a Pulpo
 
-1. Entrá a tu portal: [https://unbuoyant-surgeless-micheal.ngrok-free.dev/empresa](https://unbuoyant-surgeless-micheal.ngrok-free.dev/empresa)
+1. Entrá a tu portal: [https://unbuoyant-surgeless-micheal.ngrok-free.dev/bot](https://unbuoyant-surgeless-micheal.ngrok-free.dev/bot)
 2. En la sección **Telegram**, pegá el token en el campo y hacé click en **+ Agregar**
 3. Listo — el bot ya está activo y respondiendo
 
@@ -128,7 +128,7 @@ _/
 │   ├── config.py            # lee phones.json
 │   ├── db.py                # SQLite async
 │   ├── api/                 # routers: auth, bots, phones, whatsapp,
-│   │                        #          telegram, messages, sim, empresa, logs
+│   │                        #          telegram, messages, sim, bot, logs
 │   ├── automation/
 │   │   └── whatsapp.py      # lógica WA Web con Playwright
 │   ├── bots/
@@ -138,8 +138,8 @@ _/
 │   ├── src/
 │   │   ├── pages/
 │   │   │   ├── DashboardPage.jsx    # panel admin
-│   │   │   ├── EmpresaPage.jsx      # portal de empresa (login + dashboard)
-│   │   │   └── NuevaEmpresaPage.jsx # onboarding nueva empresa
+│   │   │   ├── BotPage.jsx      # portal de bot (login + dashboard)
+│   │   │   └── NewBotPage.jsx # onboarding nueva bot
 │   │   └── components/
 │   │       ├── ChatWidget.jsx       # chat inline reutilizable
 │   │       └── MonitorPanel.jsx     # drawer de monitoring en tiempo real
@@ -170,9 +170,9 @@ Ver `CLAUDE.md` para el flujo completo de creación de worktrees, symlinks y set
 
 - [x] Bots de WhatsApp (Playwright headless)
 - [x] Bots de Telegram (python-telegram-bot)
-- [x] Respuesta automática configurable por empresa
-- [x] Portal de empresa — gestión de canales + chat inline
-- [x] Alta de empresa nueva (onboarding autogestionable)
+- [x] Respuesta automática configurable por bot
+- [x] Portal de bot — gestión de canales + chat inline
+- [x] Alta de bot nueva (onboarding autogestionable)
 - [x] Panel admin con monitoring en tiempo real
 - [x] Exposición pública via ngrok
 - [ ] Autenticación segura (OAuth / tokens)

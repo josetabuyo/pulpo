@@ -45,7 +45,7 @@ ngrok http --domain=pulpo-abc123.ngrok-free.app 5173
 
 ### Valor entregado
 
-Un cliente puede entrar a la URL, darse de alta como empresa, configurar su bot.
+Un cliente puede entrar a la URL, darse de alta como bot, configurar su bot.
 Pulpo está "en producción" sin gastar un peso.
 
 ---
@@ -72,7 +72,7 @@ Pulpo está "en producción" sin gastar un peso.
 
 ## Etapa 3 — VPS Linux (cuando la Mac no alcance o se quiera uptime garantizado)
 
-**Trigger:** más de 3-5 empresas activas con tráfico real, o el cliente pide SLA.
+**Trigger:** más de 3-5 bots activas con tráfico real, o el cliente pide SLA.
 
 ### Qué cambia
 
@@ -84,7 +84,7 @@ Pulpo está "en producción" sin gastar un peso.
 
 ### Lo que NO cambia
 
-- Stack: FastAPI + React + SQLite (suficiente para decenas de empresas)
+- Stack: FastAPI + React + SQLite (suficiente para decenas de bots)
 - Cloudflare Tunnel para HTTPS
 - `phones.json` como fuente de verdad (hasta que se necesite PostgreSQL)
 
@@ -92,7 +92,7 @@ Pulpo está "en producción" sin gastar un peso.
 
 ## Etapa 4 — PostgreSQL + infraestructura seria (futuro lejano)
 
-Solo si la escala lo exige. SQLite aguanta bien hasta cientos de empresas con tráfico moderado.
+Solo si la escala lo exige. SQLite aguanta bien hasta cientos de bots con tráfico moderado.
 No hay prisa.
 
 ---

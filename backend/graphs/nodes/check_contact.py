@@ -1,7 +1,7 @@
 """
 CheckContactNode — decide si el contacto está registrado en la DB.
 
-Consulta contact_channels para el empresa_id y contact_phone actuales.
+Consulta contact_channels para el bot_id y contact_phone actuales.
 Setea state.route a 'conocido' o 'desconocido' (configurable).
 También escribe state.vars["es_conocido"] = "true"/"false" para usar en prompts.
 
@@ -26,10 +26,10 @@ class CheckContactNode(BaseNode):
                     SELECT cc.id FROM contact_channels cc
                     JOIN contacts c ON cc.contact_id = c.id
                     WHERE cc.value = :phone
-                      AND c.connection_id = :empresa_id
+                      AND c.connection_id = :bot_id
                     LIMIT 1
                 """),
-                {"phone": state.contact_phone, "empresa_id": state.empresa_id},
+                {"phone": state.contact_phone, "bot_id": state.bot_id},
             )).fetchone()
 
         is_known = row is not None
@@ -37,8 +37,8 @@ class CheckContactNode(BaseNode):
         state.route = route_known if is_known else route_unknown
 
         logger.info(
-            "[CheckContactNode] %s → %s (empresa=%s)",
-            state.contact_phone, state.route, state.empresa_id,
+            "[CheckContactNode] %s → %s (bot=%s)",
+            state.contact_phone, state.route, state.bot_id,
         )
         return state
 

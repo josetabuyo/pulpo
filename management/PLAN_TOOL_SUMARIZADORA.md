@@ -19,7 +19,7 @@ Un operador quiere hacer seguimiento de lo que habla con un contacto a lo largo 
 
 ### ¿Qué es una "tool" en Pulpo?
 
-Las tools son handlers que se activan por contacto y empresa. Cuando llega un mensaje de un contacto que tiene una tool asignada, el sistema llama a `resolve_tool` → ejecuta la lógica de la tool → puede responder automáticamente o solo registrar.
+Las tools son handlers que se activan por contacto y bot. Cuando llega un mensaje de un contacto que tiene una tool asignada, el sistema llama a `resolve_tool` → ejecuta la lógica de la tool → puede responder automáticamente o solo registrar.
 
 La tool sumarizadora es **pasiva**: no responde al contacto, solo registra.
 
@@ -37,7 +37,7 @@ La tool sumarizadora es **pasiva**: no responde al contacto, solo registra.
 ### Dónde se guardan los documentos
 
 ```
-data/summaries/{empresa_id}/{contacto_phone}.md
+data/summaries/{bot_id}/{contacto_phone}.md
 ```
 
 Cada contacto tiene su propio archivo. El archivo crece append-only — nunca se sobreescribe, siempre se agrega al final.
@@ -46,7 +46,7 @@ Cada contacto tiene su propio archivo. El archivo crece append-only — nunca se
 
 ```markdown
 # Resumen: +54911xxxxxxx (Ivancho)
-**Empresa:** gm_herreria
+**Bot:** gm_herreria
 **Inicio:** 2026-03-18
 
 ---
@@ -208,7 +208,7 @@ if msg['msg_type'] == 'document':
 async with page.expect_download() as download_info:
     await page.click(f'div[role="button"][title="Descargar \\"{filename}\\""]')
 download = await download_info.value
-await download.save_as(f"data/summaries/{empresa_id}/docs/{filename}")
+await download.save_as(f"data/summaries/{bot_id}/docs/{filename}")
 ```
 - Esta API de Playwright maneja el timing automáticamente
 - Requiere que el botón sea clickeable (el mensaje debe estar visible en el DOM)
@@ -224,7 +224,7 @@ await download.save_as(f"data/summaries/{empresa_id}/docs/{filename}")
 
 **Destino de archivos descargados:**
 ```
-data/summaries/{empresa_id}/docs/{contact_phone}/{filename}
+data/summaries/{bot_id}/docs/{contact_phone}/{filename}
 ```
 
 **Qué registra en el MD cuando hay descarga:**
@@ -268,12 +268,12 @@ data/summaries/{empresa_id}/docs/{contact_phone}/{filename}
 ### Fase 1 — Tool pasiva, solo texto (MVP rápido)
 
 1. **Nuevo tipo de tool:** `summarizer` en la DB / phones.json
-2. **`resolve_tool`:** cuando detecta tipo `summarizer`, en vez de buscar respuesta, llama a `tool_summarizer.accumulate(empresa_id, contact_phone, message)`
+2. **`resolve_tool`:** cuando detecta tipo `summarizer`, en vez de buscar respuesta, llama a `tool_summarizer.accumulate(bot_id, contact_phone, message)`
 3. **`tool_summarizer.py`:** módulo nuevo en `backend/tools/`
-   - `accumulate(empresa_id, contact_phone, msg_type, content, timestamp)` → append al `.md`
-   - `get_summary(empresa_id, contact_phone)` → retorna el contenido del `.md`
-4. **Endpoint API:** `GET /api/tools/summarizer/{empresa_id}/{contact}` → devuelve el documento
-5. **UI mínima:** botón "Ver resumen" en el portal de empresa para contactos con esta tool activa
+   - `accumulate(bot_id, contact_phone, msg_type, content, timestamp)` → append al `.md`
+   - `get_summary(bot_id, contact_phone)` → retorna el contenido del `.md`
+4. **Endpoint API:** `GET /api/tools/summarizer/{bot_id}/{contact}` → devuelve el documento
+5. **UI mínima:** botón "Ver resumen" en el portal de bot para contactos con esta tool activa
 
 ### Fase 2 — Descarga y transcripción de audios
 
@@ -292,7 +292,7 @@ data/summaries/{empresa_id}/docs/{contact_phone}/{filename}
 
 ### Fase 3 — Procesamiento con IA (informe elaborado)
 
-1. **Trigger manual:** endpoint `POST /api/tools/summarizer/{empresa_id}/{contact}/process`
+1. **Trigger manual:** endpoint `POST /api/tools/summarizer/{bot_id}/{contact}/process`
 2. **Prompt al LLM (Claude API o Groq):** tomar el log acumulado + prompt de síntesis
    ```
    Sos un asistente que analiza conversaciones de clientes.
@@ -302,7 +302,7 @@ data/summaries/{empresa_id}/docs/{contact_phone}/{filename}
    - Compromisos o acuerdos mencionados
    - Pendientes o seguimientos requeridos
    ```
-3. **Guardar el informe** en `data/summaries/{empresa_id}/{contact}_informe.md`
+3. **Guardar el informe** en `data/summaries/{bot_id}/{contact}_informe.md`
 4. **UI:** botón "Generar informe" junto al botón "Ver resumen"
 
 ---
@@ -323,7 +323,7 @@ backend/main.py                    — registrar router summarizer
 backend/sim.py                     — pasar mensaje a summarizer si tool activa
 backend/automation/whatsapp.py     — idem, más descarga de audio
 backend/db.py                      — si se necesita persistir estado en DB
-frontend/src/                      — botón "Ver resumen" en portal empresa
+frontend/src/                      — botón "Ver resumen" en portal bot
 ```
 
 ---
@@ -367,7 +367,7 @@ GROQ_API_KEY=...       # obtener gratis en console.groq.com
   - [x] Real-time Python: detecta `[doc:` prefix → `accumulate(msg_type="document")`
   - [x] Acumulador `tool_summarizer.py` con soporte para msg_type=`document` (ya funciona por diseño)
   - [x] Endpoint GET para ver el MD (ya existía)
-  - [x] Botón "Ver resúmenes" en EmpresaPage (ya existía)
+  - [x] Botón "Ver resúmenes" en BotPage (ya existía)
 - [x] Fase 2 — Descarga y transcripción de audios (Groq + fallback whisper.cpp) — implementado en whatsapp.py (tiempo real + full-sync IDB/DOM) y telegram_bot.py
 - [x] Fase 3 — Descarga de documentos adjuntos — implementado con `_download_document_from_page` (expect_download) en tiempo real y en full-sync histórico
 - [ ] Fase 4 — Procesamiento IA para informe elaborado

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import StatusBadge from '../components/StatusBadge.jsx'
 import { authFetch, setAccessToken } from '../lib/auth.js'
 
-function empresaApi(method, path, body) {
+function botApi(method, path, body) {
   return authFetch('/api' + path, {
     method,
     body: body ? JSON.stringify(body) : undefined,
@@ -31,7 +31,7 @@ export function ConexionRow({ conn, botId, onDelete }) {
   )
 }
 
-// ─── Paso 1: Datos de la empresa ─────────────────────────────────
+// ─── Paso 1: Datos de la bot ─────────────────────────────────
 
 function StepDatos({ onCreated }) {
   const [form, setForm] = useState({ name: '', password: '', confirm: '' })
@@ -47,17 +47,17 @@ function StepDatos({ onCreated }) {
     if (form.password !== form.confirm) { setError('Las contraseñas no coinciden'); return }
 
     setLoading(true)
-    const res = await fetch('/api/empresa/nueva', {
+    const res = await fetch('/api/bot/nueva', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: form.name, password: form.password }),
     }).then(r => r.json()).catch(() => null)
     setLoading(false)
 
-    if (!res?.ok) { setError(res?.detail || 'Error al crear la empresa'); return }
+    if (!res?.ok) { setError(res?.detail || 'Error al crear la bot'); return }
 
     // Login automático para obtener JWT
-    const loginRes = await fetch('/api/empresa/login', {
+    const loginRes = await fetch('/api/bot/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ bot_id: res.bot_id, password: form.password }),
@@ -71,12 +71,12 @@ function StepDatos({ onCreated }) {
   return (
     <div className="connect-box" style={{ maxWidth: 480, width: '100%' }}>
       <div className="logo">🐙</div>
-      <h1>Nueva empresa</h1>
-      <p className="subtitle">Configurá los datos de tu empresa para empezar</p>
+      <h1>Nueva bot</h1>
+      <p className="subtitle">Configurá los datos de tu bot para empezar</p>
       {error && <div className="error">{error}</div>}
       <form onSubmit={handleSubmit}>
         <div className="fg">
-          <label>Nombre de la empresa</label>
+          <label>Nombre de la bot</label>
           <input value={form.name} onChange={set('name')} placeholder="Herrería García" autoFocus />
         </div>
         <div className="fg">
@@ -109,7 +109,7 @@ function StepConexiones({ session, onDone }) {
     const token = tgInput.trim()
     if (!token) return
     setLoading(true)
-    const res = await empresaApi('POST', `/empresa/${botId}/telegram`, { token }).catch(() => null)
+    const res = await botApi('POST', `/bot/${botId}/telegram`, { token }).catch(() => null)
     setLoading(false)
     if (!res?.ok) { setTgError(res?.detail || 'Error al agregar'); return }
     const tokenId = token.split(':')[0]
@@ -122,7 +122,7 @@ function StepConexiones({ session, onDone }) {
 
   async function removeConn(conn) {
     const tokenId = conn.id.split('-tg-')[1]
-    await empresaApi('DELETE', `/empresa/${botId}/telegram/${tokenId}`, null).catch(() => null)
+    await botApi('DELETE', `/bot/${botId}/telegram/${tokenId}`, null).catch(() => null)
     setConns(c => c.filter(x => x.id !== conn.id))
   }
 
@@ -141,7 +141,7 @@ function StepConexiones({ session, onDone }) {
           <ol style={{ margin: '8px 0 0 16px', lineHeight: 1.8 }}>
             <li>Abrí Telegram y buscá <strong>@BotFather</strong></li>
             <li>Escribí <code>/newbot</code> y seguí las instrucciones</li>
-            <li>Elegí un nombre (ej: <em>Mi Empresa Bot</em>) y un usuario (debe terminar en <em>bot</em>)</li>
+            <li>Elegí un nombre (ej: <em>Mi Bot Bot</em>) y un usuario (debe terminar en <em>bot</em>)</li>
             <li>BotFather te manda un token como: <code>123456:ABCdef...</code></li>
             <li>Copiá ese token y pegalo acá abajo</li>
           </ol>
@@ -178,8 +178,8 @@ function StepListo({ session }) {
   const navigate = useNavigate()
 
   function goPortal() {
-    localStorage.setItem('empresa_bot_id', session.botId)
-    navigate('/empresa')
+    localStorage.setItem('bot_bot_id', session.botId)
+    navigate('/bot')
   }
 
   return (
@@ -190,7 +190,7 @@ function StepListo({ session }) {
         <strong>{session.botName}</strong> está configurada y lista para usar.
       </p>
       <p className="subtitle" style={{ marginTop: 8, fontSize: 13, color: '#888' }}>
-        Guardá tu contraseña: podés entrar en cualquier momento desde el portal de empresa.
+        Guardá tu contraseña: podés entrar en cualquier momento desde el portal de bot.
       </p>
       <button className="btn-connect" style={{ marginTop: 24 }} onClick={goPortal}>
         Ir a mi portal →
@@ -201,11 +201,11 @@ function StepListo({ session }) {
 
 // ─── Página principal ─────────────────────────────────────────────
 
-export default function NuevaEmpresaPage() {
+export default function NewBotPage() {
   const [step, setStep]       = useState('datos')
   const [session, setSession] = useState(null)
 
-  useEffect(() => { document.title = 'Pulpo — Nueva empresa' }, [])
+  useEffect(() => { document.title = 'Pulpo — Nueva bot' }, [])
 
   function handleCreated(sess) {
     setSession(sess)

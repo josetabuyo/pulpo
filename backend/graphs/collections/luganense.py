@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 @register_collection("luganense_oficios")
-async def handler_luganense_oficios(query: str, top_k: int, empresa_id: str) -> dict:
+async def handler_luganense_oficios(query: str, top_k: int, bot_id: str) -> dict:
     """
     Handler para búsqueda de oficios (workers) en Luganense.
 
@@ -31,7 +31,7 @@ async def handler_luganense_oficios(query: str, top_k: int, empresa_id: str) -> 
         if str(backend_path) not in sys.path:
             sys.path.insert(0, str(backend_path))
         from nodes import find_worker
-        oficio, worker = await find_worker.find(query, empresa_id)
+        oficio, worker = await find_worker.find(query, bot_id)
 
         result = {
             "oficio": oficio,
@@ -61,7 +61,7 @@ async def handler_luganense_oficios(query: str, top_k: int, empresa_id: str) -> 
 
 
 @register_collection("luganense_auspiciantes")
-async def handler_luganense_auspiciantes(query: str, top_k: int, empresa_id: str) -> dict:
+async def handler_luganense_auspiciantes(query: str, top_k: int, bot_id: str) -> dict:
     """
     Handler para búsqueda de auspiciantes en Luganense.
 
@@ -79,7 +79,7 @@ async def handler_luganense_auspiciantes(query: str, top_k: int, empresa_id: str
         if str(backend_path) not in sys.path:
             sys.path.insert(0, str(backend_path))
         from graphs import auspiciantes as auspiciantes_mod
-        nombre, mensaje = auspiciantes_mod.get_relevant(empresa_id, query)
+        nombre, mensaje = auspiciantes_mod.get_relevant(bot_id, query)
 
         if mensaje:
             result = {

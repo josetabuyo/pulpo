@@ -12,9 +12,9 @@
 ```sql
 SELECT DISTINCT phone FROM messages WHERE connection_id = :eid AND outbound = 0
 ```
-donde `:eid` es el `empresa_id` (e.g. `"garantido"`).
+donde `:eid` es el `bot_id` (e.g. `"garantido"`).
 
-Esto es correcto — el handler WA guarda mensajes con `connection_id = empresa_id`  
+Esto es correcto — el handler WA guarda mensajes con `connection_id = bot_id`  
 (ver `automation/whatsapp.py:288`: `log_message(eid, bot_phone, ...)`).
 
 **Pero:** si Andrés Buxareo nunca mandó un mensaje DESPUÉS de que el sistema fuera activado,
@@ -98,11 +98,11 @@ Si devuelve 0 con mensajes en DB → hay un bug en la query de sync-all.
 
 ## Arquitectura del sumarizador (estado actual, mayo 2026)
 
-- Mensajes → `data/summaries/{empresa_id}/{contact_slug}/chat.md`
+- Mensajes → `data/summaries/{bot_id}/{contact_slug}/chat.md`
 - `contact_slug` = nombre slugificado (e.g. `andres-buxareo`) o phone como fallback
 - `sync-all` reconstruye el .md desde DB (fuente de verdad: tabla `messages`)
 - `sync_contact` hace delta sync de un contacto individual
-- La UI (tab Sumarizador en EmpresaCard/FlowEditor) lee el `.md` vía API
+- La UI (tab Sumarizador en BotCard/FlowEditor) lee el `.md` vía API
 
 ## Archivos clave
 - `backend/api/summarizer.py` — endpoints de consulta y sync

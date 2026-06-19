@@ -7,12 +7,12 @@
 
 ## Contexto
 
-Las conexiones actuales (WA, Telegram) son conexiones *activas*: ocupan un proceso, pollan mensajes, tienen conflicto si dos empresas comparten el recurso.
+Las conexiones actuales (WA, Telegram) son conexiones *activas*: ocupan un proceso, pollan mensajes, tienen conflicto si dos bots comparten el recurso.
 
-Una cuenta Google de servicio es una conexión *pasiva*: no ocupa recursos, puede ser editora de miles de hojas en simultáneo, no tiene conflicto entre empresas. Esto permite un modelo diferente:
+Una cuenta Google de servicio es una conexión *pasiva*: no ocupa recursos, puede ser editora de miles de hojas en simultáneo, no tiene conflicto entre bots. Esto permite un modelo diferente:
 
-- **Cuenta Pulpo compartida:** Pulpo presta su cuenta → la empresa solo comparte su hoja con el email de Pulpo. Sin configuración.
-- **Cuenta propia por empresa:** la empresa crea su propio Service Account → pega el JSON → total autonomía.
+- **Cuenta Pulpo compartida:** Pulpo presta su cuenta → la bot solo comparte su hoja con el email de Pulpo. Sin configuración.
+- **Cuenta propia por bot:** la bot crea su propio Service Account → pega el JSON → total autonomía.
 
 Ambos modos conviven en la misma UI de conexiones.
 
@@ -24,13 +24,13 @@ Ambos modos conviven en la misma UI de conexiones.
 
 1. Nuevo tipo de conexión `gsheet` en la tabla `connections` (o en `phones.json`).
 2. Al crear: recibe JSON del Service Account → extrae `client_email` → guarda credenciales cifradas.
-3. Al listar conexiones de una empresa: incluye las de tipo `gsheet` con `{id, email, label, type: "gsheet"}`.
-4. Seed automático: si existe `GOOGLE_SERVICE_ACCOUNT_JSON` en `.env`, registrar como conexión `id="pulpo-default"` disponible para todas las empresas.
-5. Endpoint `GET /api/flow/google-accounts` → reemplazar con `GET /api/empresas/{id}/connections?type=gsheet`.
+3. Al listar conexiones de una bot: incluye las de tipo `gsheet` con `{id, email, label, type: "gsheet"}`.
+4. Seed automático: si existe `GOOGLE_SERVICE_ACCOUNT_JSON` en `.env`, registrar como conexión `id="pulpo-default"` disponible para todas las bots.
+5. Endpoint `GET /api/flow/google-accounts` → reemplazar con `GET /api/bots/{id}/connections?type=gsheet`.
 
 ### Frontend — Conexiones UI
 
-- En la tarjeta de empresa, pestaña **Conexiones**, botón **+ Google Sheets**.
+- En la tarjeta de bot, pestaña **Conexiones**, botón **+ Google Sheets**.
 - Modal de setup con dos opciones:
   - **Usar cuenta Pulpo:** solo muestra el email a copiar, botón "Confirmar". Sin JSON.
   - **Cuenta propia:** textarea para pegar el JSON del Service Account + validación + instrucciones paso a paso (igual que el flujo de Telegram con el token).
@@ -43,7 +43,7 @@ Ambos modos conviven en la misma UI de conexiones.
 ### Nodos
 
 - Los campos `google_account` en `gsheet`, `search_sheet`, `fetch_sheet` se convierten en `connection_id` apuntando a una conexión de tipo `gsheet`.
-- El dropdown `google_account_select` pasa a usar las conexiones del tipo `gsheet` de la empresa (incluida la cuenta Pulpo compartida).
+- El dropdown `google_account_select` pasa a usar las conexiones del tipo `gsheet` de la bot (incluida la cuenta Pulpo compartida).
 - El recuadro "Compartir planilla con Pulpo" usa el email de la conexión seleccionada, dinámico.
 
 ---
@@ -116,6 +116,6 @@ Requiere:
 ## Notas de diseño
 
 - **Seguridad:** el JSON del Service Account es sensible. Guardar cifrado en DB, nunca en el flow definition. El flow solo guarda el `connection_id`.
-- **Multiempresa:** la cuenta Pulpo compartida no expone credenciales a las empresas — solo el email de destino para compartir. Las empresas nunca ven el JSON de Pulpo.
+- **Multibot:** la cuenta Pulpo compartida no expone credenciales a las bots — solo el email de destino para compartir. Las bots nunca ven el JSON de Pulpo.
 - **HTTP trigger y ngrok:** la URL del trigger debe usar `VITE_PUBLIC_URL` (ngrok) cuando está configurada, no localhost. De lo contrario Google Sheets no puede alcanzar Pulpo.
 - **Rate limiting:** el endpoint del HTTP trigger debe tener rate limiting por token para evitar abusos.

@@ -177,14 +177,14 @@ def test_next_id_no_ids_backward_compat():
 # ─── accumulate() genera IDs ──────────────────────────────────────────────────
 
 def test_accumulate_writes_id_in_header():
-    eid, phone = "empresa_test", "111"
+    eid, phone = "bot_test", "111"
     accumulate(eid, phone, "Test", "text", "primer mensaje",
                timestamp=datetime(2026, 5, 1, 10, 0))
     content = get_summary(eid, phone)
     assert "[id:1]" in content
 
 def test_accumulate_sequential_ids():
-    eid, phone = "empresa_test", "222"
+    eid, phone = "bot_test", "222"
     accumulate(eid, phone, "Test", "text", "mensaje uno",
                timestamp=datetime(2026, 5, 1, 10, 0))
     accumulate(eid, phone, "Test", "text", "mensaje dos",
@@ -197,7 +197,7 @@ def test_accumulate_sequential_ids():
     assert "[id:3]" in content
 
 def test_accumulate_middle_insert_gets_fractional_id():
-    eid, phone = "empresa_test", "333"
+    eid, phone = "bot_test", "333"
     # Dos mensajes en orden
     accumulate(eid, phone, "Test", "text", "primero",
                timestamp=datetime(2026, 5, 1, 10, 0))
@@ -212,7 +212,7 @@ def test_accumulate_middle_insert_gets_fractional_id():
     assert "[id:1.1]" in content
 
 def test_accumulate_no_duplicate_ids():
-    eid, phone = "empresa_test", "444"
+    eid, phone = "bot_test", "444"
     accumulate(eid, phone, "Test", "text", "hola", timestamp=datetime(2026, 5, 1, 10, 0))
     accumulate(eid, phone, "Test", "text", "hola", timestamp=datetime(2026, 5, 1, 10, 0))
     content = get_summary(eid, phone)

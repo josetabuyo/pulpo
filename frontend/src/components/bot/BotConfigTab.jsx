@@ -1,17 +1,17 @@
 /**
- * Tab "Configurar" del portal de empresa: nombre y contraseña.
+ * Tab "Configurar" del portal de bot: nombre y contraseña.
  */
 import { useState, useEffect } from 'react'
 
-export default function EmpresaConfigTab({ botId, botName, apiCall, onNameChange }) {
+export default function BotConfigTab({ botId, botName, apiCall, onNameChange }) {
   const [form, setForm] = useState({ name: botName, newPassword: '', confirmPassword: '' })
   const [saving, setSaving] = useState(false)
   const [result, setResult] = useState(null)
 
   useEffect(() => {
-    apiCall('GET', `/empresa/${botId}`, null).then(r => {
+    apiCall('GET', `/bot/${botId}`, null).then(r => {
       if (r?.bot_name) setForm(f => ({ ...f, name: r.bot_name }))
-    }).catch(e => console.warn('[EmpresaConfigTab] carga', e))
+    }).catch(e => console.warn('[BotConfigTab] carga', e))
   }, [botId, apiCall])
 
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }))
@@ -25,7 +25,7 @@ export default function EmpresaConfigTab({ botId, botName, apiCall, onNameChange
       body.password = form.newPassword
     }
     if (Object.keys(body).length === 0) { setSaving(false); return }
-    const res = await apiCall('PUT', `/empresa/${botId}/config`, body).catch(() => null)
+    const res = await apiCall('PUT', `/bot/${botId}/config`, body).catch(() => null)
     setSaving(false)
     setResult(res?.ok ? 'ok' : (res?.detail || 'error'))
     if (res?.ok) {
@@ -38,7 +38,7 @@ export default function EmpresaConfigTab({ botId, botName, apiCall, onNameChange
   return (
     <div className="ec-config-tab">
       <form onSubmit={handleSave}>
-        <div className="fg"><label>Nombre de la empresa</label>
+        <div className="fg"><label>Nombre de la bot</label>
           <input value={form.name} onChange={set('name')} placeholder="Nombre" />
         </div>
         <div className="fg"><label>Nueva contraseña <small style={{ fontWeight: 400, color: '#94a3b8' }}>(dejar vacío para no cambiar)</small></label>

@@ -15,75 +15,75 @@ def save_config(config: dict) -> None:
         json.dump(config, f, indent=2, ensure_ascii=False)
 
 
-def get_empresa_for_connection(connection_id: str) -> str | None:
+def get_bot_for_connection(connection_id: str) -> str | None:
     """
-    Retorna el empresa_id al que pertenece este connection_id.
-    Si la conexión pertenece a múltiples empresas, devuelve el primero.
-    Usar get_empresas_for_connection() para el caso multi-empresa.
+    Retorna el bot_id al que pertenece este connection_id.
+    Si la conexión pertenece a múltiples bots, devuelve el primero.
+    Usar get_bots_for_connection() para el caso multi-bot.
     """
-    results = get_empresas_for_connection(connection_id)
+    results = get_bots_for_connection(connection_id)
     return results[0] if results else None
 
 
-def get_empresas_for_connection(connection_id: str) -> list[str]:
+def get_bots_for_connection(connection_id: str) -> list[str]:
     """
-    Retorna todos los empresa_ids que tienen registrada esta conexión (connection_id).
-    Una conexión puede ser un número WA, un session_id TG, o el propio empresa id.
-    Permite el dispatch multi-empresa: si el mismo número está en varios bots,
+    Retorna todos los bot_ids que tienen registrada esta conexión (connection_id).
+    Una conexión puede ser un número WA, un session_id TG, o el propio bot id.
+    Permite el dispatch multi-bot: si el mismo número está en varios bots,
     el mensaje se loguea bajo todos ellos.
     """
     config = load_config()
     result = []
-    for empresa in config.get("empresas", []):
-        if empresa["id"] == connection_id:
-            if empresa["id"] not in result:
-                result.append(empresa["id"])
+    for bot in config.get("bots", []):
+        if bot["id"] == connection_id:
+            if bot["id"] not in result:
+                result.append(bot["id"])
             continue
-        for phone in empresa.get("phones", []):
+        for phone in bot.get("phones", []):
             if phone["number"] == connection_id:
-                if empresa["id"] not in result:
-                    result.append(empresa["id"])
+                if bot["id"] not in result:
+                    result.append(bot["id"])
                 break
-        for tg in empresa.get("telegram", []):
+        for tg in bot.get("telegram", []):
             token_id = tg["token"].split(":")[0]
-            if f"{empresa['id']}-tg-{token_id}" == connection_id:
-                if empresa["id"] not in result:
-                    result.append(empresa["id"])
+            if f"{bot['id']}-tg-{token_id}" == connection_id:
+                if bot["id"] not in result:
+                    result.append(bot["id"])
                 break
     return result
 
 
-def get_connection_default_filter(conn_id: str, empresa_id: str | None = None) -> dict | None:
+def get_connection_default_filter(conn_id: str, bot_id: str | None = None) -> dict | None:
     """
     Retorna el default_filter configurado para una conexión (número WA).
     Se almacena bajo phones[].default_filter en connections.json.
-    Si empresa_id se provee, busca el filtro específico de esa empresa (conexión compartida).
+    Si bot_id se provee, busca el filtro específico de esa bot (conexión compartida).
     Retorna None si no hay filtro configurado.
     """
     try:
         config = load_config()
     except Exception:
         return None
-    for empresa in config.get("empresas", []):
-        if empresa_id and empresa["id"] != empresa_id:
+    for bot in config.get("bots", []):
+        if bot_id and bot["id"] != bot_id:
             continue
-        for phone in empresa.get("phones", []):
+        for phone in bot.get("phones", []):
             if phone.get("number") == conn_id:
                 return phone.get("default_filter")
     return None
 
 
-def set_connection_default_filter(conn_id: str, default_filter: dict | None, empresa_id: str | None = None) -> bool:
+def set_connection_default_filter(conn_id: str, default_filter: dict | None, bot_id: str | None = None) -> bool:
     """
     Guarda (o elimina) el default_filter para una conexión en connections.json.
-    Si empresa_id se provee, solo actualiza el entry de esa empresa (conexión compartida).
+    Si bot_id se provee, solo actualiza el entry de esa bot (conexión compartida).
     Retorna True si encontró y modificó la conexión, False si no existe.
     """
     config = load_config()
-    for empresa in config.get("empresas", []):
-        if empresa_id and empresa["id"] != empresa_id:
+    for bot in config.get("bots", []):
+        if bot_id and bot["id"] != bot_id:
             continue
-        for phone in empresa.get("phones", []):
+        for phone in bot.get("phones", []):
             if phone.get("number") == conn_id:
                 if default_filter is None:
                     phone.pop("default_filter", None)
@@ -97,10 +97,10 @@ def set_connection_default_filter(conn_id: str, default_filter: dict | None, emp
 def get_telegram_connections(config: dict) -> list[dict]:
     """Devuelve una lista de configs de conexiones Telegram: [{ connection_id, token }, ...]"""
     result = []
-    for empresa in config.get("empresas", []):
-        empresa_id = empresa["id"]
-        for tg in empresa.get("telegram", []):
-            result.append({"connection_id": empresa_id, "token": tg["token"]})
+    for bot in config.get("bots", []):
+        bot_id = bot["id"]
+        for tg in bot.get("telegram", []):
+            result.append({"connection_id": bot_id, "token": tg["token"]})
     return result
 
 

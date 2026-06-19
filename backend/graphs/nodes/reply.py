@@ -52,11 +52,11 @@ class SendMessageNode(BaseNode):
 
     async def _send(self, to: str, message: str, channel: str, state: FlowState) -> None:
         if channel == "telegram":
-            await self._send_telegram(to, message, state.empresa_id)
+            await self._send_telegram(to, message, state.bot_id)
         else:
             logger.warning("[SendMessageNode] canal desconocido: %s", channel)
 
-    async def _send_telegram(self, chat_id: str, message: str, empresa_id: str) -> None:
+    async def _send_telegram(self, chat_id: str, message: str, bot_id: str) -> None:
         import os
         if os.getenv("ENABLE_BOTS", "false").lower() != "true":
             logger.info("[SendMessageNode] [sim] TG → %s: %s", chat_id, message[:80])
@@ -65,13 +65,13 @@ class SendMessageNode(BaseNode):
         from state import clients
         tg_session = next(
             (k for k, v in clients.items()
-             if v.get("connection_id") == empresa_id
+             if v.get("connection_id") == bot_id
              and v.get("type") == "telegram"
              and v.get("client")),
             None,
         )
         if not tg_session:
-            logger.warning("[SendMessageNode] Sin bot Telegram activo para empresa '%s'", empresa_id)
+            logger.warning("[SendMessageNode] Sin bot Telegram activo para bot '%s'", bot_id)
             return
 
         try:

@@ -17,8 +17,8 @@ from api.summarizer import _parse_messages
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _reset_dedup(empresa_id: str, contact_phone: str):
-    key = (empresa_id, contact_phone)
+def _reset_dedup(bot_id: str, contact_phone: str):
+    key = (bot_id, contact_phone)
     _dedup_loaded.discard(key)
     _dedup.pop(key, None)
 
@@ -158,7 +158,7 @@ def test_iter_entry_hashes_archivo_vacio(tmp_path):
     assert list(_iter_entry_hashes(md)) == []
 
 
-def test_invalidate_dedup_contacto_y_empresa():
+def test_invalidate_dedup_contacto_y_bot():
     _dedup[("emp_x", "c1")] = {"h1"}
     _dedup_loaded.add(("emp_x", "c1"))
     _dedup[("emp_x", "c2")] = {"h2"}
@@ -170,9 +170,9 @@ def test_invalidate_dedup_contacto_y_empresa():
     assert ("emp_x", "c1") not in _dedup_loaded
     assert ("emp_x", "c2") in _dedup_loaded, "otro contacto no se invalida"
 
-    invalidate_dedup("emp_x")  # toda la empresa
+    invalidate_dedup("emp_x")  # toda la bot
     assert ("emp_x", "c2") not in _dedup_loaded
-    assert ("emp_y", "c1") in _dedup_loaded, "otra empresa no se invalida"
+    assert ("emp_y", "c1") in _dedup_loaded, "otra bot no se invalida"
 
     invalidate_dedup("emp_y", "c1")  # cleanup
 

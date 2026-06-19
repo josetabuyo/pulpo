@@ -28,7 +28,7 @@ class FlowState:
     # ── Contexto de la conversación ───────────────────────────────
     connection_id: str = ""             # ID de la conexión (session TG) que recibió el mensaje
     bot_name: str = ""
-    empresa_id: str = ""
+    bot_id: str = ""
     contact_phone: str = ""            # ID del contacto en su canal (ver docstring del módulo)
     contact_name: str = ""
     canal: str = "telegram"            # telegram | wavi | (sim usa telegram)
