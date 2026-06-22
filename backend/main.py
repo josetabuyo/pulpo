@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import random
 from contextlib import asynccontextmanager
 from logging.handlers import RotatingFileHandler
 from fastapi import FastAPI
@@ -155,17 +156,48 @@ async def lifespan(app: FastAPI):
             tg_app = build_telegram_app(cfg)
             await tg_app.initialize()
             await tg_app.start()
-            await tg_app.updater.start_polling(drop_pending_updates=True)
-            _tg_apps.append(tg_app)
-            bot_info = await tg_app.bot.get_me()
-            clients[session_id] = {
-                "status": "ready", "qr": None,
-                "connection_id": cfg["connection_id"], "type": "telegram",
-                "client": tg_app,
-                "bot_username": bot_info.username or "",
-                "bot_name": bot_info.first_name or "",
-            }
-            logger.info(f"[{cfg['connection_id']}/tg-{token_id}] Bot de Telegram listo — @{bot_info.username}.")
+
+            # Reintentar inicio de polling con backoff exponencial + jitter
+            max_retries = 3
+            last_err = None
+            for attempt in range(max_retries):
+                try:
+                    await tg_app.updater.start_polling(drop_pending_updates=True)
+                    break
+                except Exception as e:
+                    last_err = e
+                    if attempt < max_retries - 1:
+                        wait_time = 2 ** attempt + random.random() * 2
+                        logger.warning(
+                            f"[{cfg['connection_id']}/tg-{token_id}] Error al iniciar polling "
+                            f"(intento {attempt + 1}/{max_retries}): {e}. "
+                            f"Reintentando en {wait_time:.1f}s..."
+                        )
+                        await asyncio.sleep(wait_time)
+            else:
+                logger.error(
+                    f"[{cfg['connection_id']}/tg-{token_id}] No se pudo iniciar polling "
+                    f"después de {max_retries} intentos: {last_err}"
+                )
+                await tg_app.stop()
+                await tg_app.shutdown()
+                continue
+
+            try:
+                bot_info = await tg_app.bot.get_me()
+                clients[session_id] = {
+                    "status": "ready", "qr": None,
+                    "connection_id": cfg["connection_id"], "type": "telegram",
+                    "client": tg_app,
+                    "bot_username": bot_info.username or "",
+                    "bot_name": bot_info.first_name or "",
+                }
+                _tg_apps.append(tg_app)
+                logger.info(f"[{cfg['connection_id']}/tg-{token_id}] Bot de Telegram listo — @{bot_info.username}.")
+            except Exception as e:
+                logger.error(f"[{cfg['connection_id']}/tg-{token_id}] Error obteniendo info del bot: {e}")
+                await tg_app.stop()
+                await tg_app.shutdown()
 
         if not tg_configs:
             logger.warning("No hay bots de Telegram configurados en connections.json.")

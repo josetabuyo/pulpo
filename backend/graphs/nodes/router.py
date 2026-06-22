@@ -4,17 +4,18 @@ RouterNode — clasificador LLM que setea state.route.
 El engine sigue solo los edges con label == state.route.
 
 Config:
-  prompt:         str   — system prompt para el clasificador
-  routes:         list  — valores válidos (ej: ["noticias", "oficio", "auspiciante"])
-  fallback:       str   — route por defecto si el LLM no responde algo válido
-  model:          str   — modelo Groq (default: llama-3.3-70b-versatile)
-  context_source: str   — qué parte del state inyectar al mensaje del usuario:
-                          "none" (default) | "vars" | "context" | "vars+context"
+  prompt:          str  — system prompt para el clasificador
+  routes:          list — valores válidos (ej: ["noticias", "oficio", "auspiciante"])
+  fallback:        str  — route por defecto si el LLM no responde algo válido
+  model:           str  — modelo a usar (best:*, ollama/*, groq/*, o legacy)
+  router_strategy: str  — "local-first" | "cloud-first" (solo aplica a best:*)
+  context_source:  str  — qué parte del state inyectar al mensaje del usuario:
+                           "none" (default) | "vars" | "context" | "vars+context"
 """
 import json
 import logging
-import os
 from .base import BaseNode
+from .llm import MODEL_OPTIONS, _build_llm
 from .state import FlowState
 
 logger = logging.getLogger(__name__)
@@ -31,23 +32,22 @@ def _build_user_message(state: FlowState, context_source: str) -> str:
 
 class RouterNode(BaseNode):
     async def run(self, state: FlowState) -> FlowState:
-        prompt         = self.config.get("prompt", "")
-        routes         = self.config.get("routes", [])
-        fallback       = self.config.get("fallback", routes[0] if routes else "")
-        model          = self.config.get("model", "llama-3.3-70b-versatile")
-        context_source = self.config.get("context_source", "none")
+        prompt          = self.config.get("prompt", "")
+        routes          = self.config.get("routes", [])
+        fallback        = self.config.get("fallback", routes[0] if routes else "")
+        model           = self.config.get("model", "best:instruction")
+        router_strategy = self.config.get("router_strategy", "local-first")
+        context_source  = self.config.get("context_source", "none")
 
-        api_key = os.getenv("GROQ_API_KEY")
-        if not api_key or not prompt:
-            logger.warning("[RouterNode] Sin GROQ_API_KEY o prompt — usando fallback '%s'", fallback)
+        if not prompt:
+            logger.warning("[RouterNode] Sin prompt — usando fallback '%s'", fallback)
             state.route = fallback
             return state
 
         user_message = _build_user_message(state, context_source)
 
         try:
-            from langchain_groq import ChatGroq
-            llm = ChatGroq(model=model, api_key=api_key, max_tokens=10, temperature=0)
+            llm = _build_llm(model, temperature=0, json_out=False, router_strategy=router_strategy, max_tokens=10)
             result = await llm.ainvoke([
                 {"role": "system", "content": prompt},
                 {"role": "user",   "content": user_message},
@@ -67,11 +67,18 @@ class RouterNode(BaseNode):
     @classmethod
     def config_schema(cls) -> dict:
         return {
-            "prompt":   {"type": "textarea", "label": "Prompt del clasificador", "default": "", "rows": 7},
-            "routes":   {"type": "list",     "label": "Rutas válidas",           "default": [], "hint": "Separadas por coma — ej: noticias,oficio,auspiciante"},
-            "fallback": {"type": "string",   "label": "Ruta por defecto",        "default": "", "hint": "Si el LLM responde algo inválido"},
-            "model":    {"type": "string",   "label": "Modelo",                  "default": "llama-3.3-70b-versatile"},
-            "context_source": {
+            "prompt":          {"type": "textarea", "label": "Prompt del clasificador", "default": "", "rows": 7},
+            "routes":          {"type": "list",     "label": "Rutas válidas",           "default": [], "hint": "Separadas por coma — ej: noticias,oficio,auspiciante"},
+            "fallback":        {"type": "string",   "label": "Ruta por defecto",        "default": "", "hint": "Si el LLM responde algo inválido"},
+            "model":           {"type": "select",   "label": "Modelo",                  "default": "best:instruction",
+                                "options": MODEL_OPTIONS},
+            "router_strategy": {"type": "select",   "label": "Estrategia del router",   "default": "local-first",
+                                "hint": "Aplica solo a modelos best:* — cuál priorizar cuando ambos están disponibles",
+                                "options": [
+                                    {"value": "local-first", "label": "local-first — Ollama primero, Groq como fallback"},
+                                    {"value": "cloud-first", "label": "cloud-first — Groq primero, Ollama como fallback"},
+                                ]},
+            "context_source":  {
                 "type":    "select",
                 "label":   "Contexto adicional al mensaje",
                 "default": "none",

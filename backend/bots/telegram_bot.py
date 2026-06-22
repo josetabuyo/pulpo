@@ -109,10 +109,12 @@ def build_telegram_app(bot_config: dict):
 
     async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         err = context.error
-        if isinstance(err, (NetworkError, TimedOut)):
-            logger.warning(f"{label} ⚠️ Red caída (Telegram polling): {err}")
+        if isinstance(err, NetworkError):
+            logger.warning(f"{label} ⚠️ Error de red (Telegram polling): {err.__class__.__name__}: {err}")
+        elif isinstance(err, TimedOut):
+            logger.warning(f"{label} ⚠️ Timeout en polling de Telegram")
         else:
-            logger.error(f"{label} Error inesperado en bot Telegram", exc_info=err)
+            logger.error(f"{label} Error inesperado en bot Telegram: {err.__class__.__name__}", exc_info=err)
 
     app = ApplicationBuilder().token(token).build()
     app.add_handler(MessageHandler(filters.ALL, handle_message))

@@ -71,10 +71,13 @@ async def _fetch_rows(sheet_id: str, range_param: str, cache_minutes: float) -> 
 
 
 def _tags_match(message: str, tags_str: str) -> bool:
-    """True si alguna palabra del mensaje aparece en las tags (normalizada)."""
-    msg_words = [_normalize(w) for w in message.lower().split() if len(w) >= 3]
-    tags_words = [_normalize(t.strip()) for t in tags_str.replace(",", " ").split() if t.strip()]
-    return any(mw in tags_words or any(mw in tw for tw in tags_words) for mw in msg_words)
+    """True si alguna palabra del mensaje (≥4 chars) coincide exactamente con alguna tag normalizada.
+    Mínimo de 4 chars para evitar que preposiciones como "por" matcheen como substring de "portón".
+    Solo exact match — sin substring — para reducir falsos positivos.
+    """
+    msg_words = {_normalize(w) for w in message.lower().split() if len(w) >= 4}
+    tags_words = {_normalize(t.strip()) for t in tags_str.replace(",", " ").split() if t.strip()}
+    return bool(msg_words & tags_words)
 
 
 class SearchSheetNode(BaseNode):
