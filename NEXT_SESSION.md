@@ -1,133 +1,70 @@
-# NEXT_SESSION — feat-gsheet-connections
+# NEXT SESSION — Pipeline FB completado
 
-**Worktree:** `/Users/josetabuyo/Development/pulpo/feat-gsheet-connections`
-**Branch:** `feat-gsheet-connections`
-**Backend:** http://localhost:8001
-**Frontend:** http://localhost:5174
-**Modo:** simulado (ENABLE_BOTS=false)
+## Estado (sesión 2026-06-24)
+
+Los tres pasos del pipeline FB están completos. No hay deuda pendiente en este tema.
 
 ---
 
-## Objetivo
+### ✅ Paso 1 — Links en respuestas del LLM
 
-Convertir las cuentas Google de servicio en conexiones de primera clase en Pulpo,
-igual que WhatsApp y Telegram. Plan completo en `management/PLAN_GSHEET_CONNECTIONS.md`.
+**Qué se hizo:**
+- Bug corregido: `_NOTICIAS_SYSTEM` no tenía cierre `"""` → `_AUSPICIANTE_SYSTEM` quedaba embebido
+  como texto y nunca era una variable Python (la rama `auspiciante` tiraba `NameError`).
+- `responder_noticias` ahora arma el contexto con `Link: <url>` antes del texto de cada post.
+- Prompt del LLM actualizado: le indica que cite el link al final de la oración relevante.
+- Error path de `_scrape_post_page` corregido: ahora siempre retorna `{"url": url, ...}`.
+
+**Archivos:**
+- `backend/graphs/luganense.py` — líneas 68, 217, prompt `_NOTICIAS_SYSTEM`
+- `backend/nodes/fetch_facebook.py` — línea 293
 
 ---
 
-## Arrancar
+### ✅ Paso 2 — Límite de contexto
+
+**Resultado:** sin cambios necesarios.
+El modelo es `llama-3.3-70b-versatile` (Groq) con 128k tokens de contexto.
+30 posts × ~600 tokens = ~18k tokens → caben holgado.
+
+---
+
+### ✅ Paso 3 — Cache como read-through (sin LLM)
+
+**Qué se hizo:**
+- `buscar_posts_fb` ahora chequea `fb_cache.get_by_query` antes de scrapear FB.
+- Si la query tiene posts en cache con menos de 24h de antigüedad → los reutiliza, no toca FB.
+- Solo scrapea las queries sin cache hit.
+- `get_by_query` acepta `max_age` (segundos); 0 = sin límite.
+- El dedup semántico es implícito: `expandir_consulta` normaliza las queries
+  ("perdí mi perro" → "perro perdido"), así queries equivalentes reutilizan la misma entrada de cache.
+
+**Archivos:**
+- `backend/nodes/fb_cache.py` — `get_by_query(max_age=)`
+- `backend/graphs/luganense.py` — `buscar_posts_fb` (lógica cache-first)
+
+---
+
+## Tests
 
 ```bash
-cd /Users/josetabuyo/Development/pulpo/feat-gsheet-connections
-./start.sh
-cd backend && pytest tests/ -v
+backend/.venv/bin/pytest backend/tests/test_fb_cache.py -v   # 10/10
 ```
 
----
+## Cómo verificar en vivo
 
-## Contexto (lo que ya existe en master)
+```bash
+# Ver posts cacheados con sus URLs
+qdb "SELECT url, substr(text,1,60) FROM fb_posts WHERE page_id='luganense' LIMIT 10"
 
-- Nodos `gsheet`, `search_sheet`, `fetch_sheet` funcionan en producción.
-- Campo `google_account_select` en NodeConfigPanel lee de `GET /api/flow/google-accounts`.
-- Ese endpoint lee solo de `GOOGLE_SERVICE_ACCOUNT_JSON` en `.env` — es lo que hay que reemplazar.
-- La cuenta configurada es `pulpo-sheets@booming-monitor-459317-d3.iam.gserviceaccount.com`.
-- El `.env` ya tiene `GOOGLE_SERVICE_ACCOUNT_JSON` con el JSON completo.
+# Ver queries guardadas
+qdb "SELECT query, found_at FROM fb_post_queries ORDER BY found_at DESC LIMIT 10"
 
----
+# Test de scraping real (abre browser visible)
+backend/.venv/bin/python scripts/test_fb_debug.py --visible "perro perdido"
+```
 
-## Fase 1 — Backend: conexiones tipo `gsheet`
-
-### 1a. Modelo en DB
-
-En `backend/db.py`, la tabla `connections` (o donde vivan las conexiones) necesita soporte para `type="gsheet"`.
-Revisar primero cómo están modeladas las conexiones WA/TG para seguir el mismo patrón.
-
-Una conexión `gsheet` guarda:
-- `type = "gsheet"`
-- `bot_id` — null si es la cuenta compartida de Pulpo
-- `credentials_json` — el JSON del Service Account (texto plano por ahora, cifrar en el futuro)
-- `email` — extraído de `client_email` del JSON (para mostrar en UI sin exponer las credenciales)
-- `label` — nombre amigable (ej: "Cuenta principal Pulpo")
-
-### 1b. Seed automático al arrancar
-
-En `backend/main.py` (lifespan), si `GOOGLE_SERVICE_ACCOUNT_JSON` está en `.env`:
-- Si no existe una conexión con `id="pulpo-default"`, crearla.
-- Esto hace que la cuenta de Pulpo esté disponible para todas las bots sin configurar nada.
-
-### 1c. Listar conexiones Google de una bot
-
-Modificar el endpoint que lista conexiones para incluir las de tipo `gsheet`:
-- Las conexiones propias de la bot (con su `bot_id`).
-- La conexión `pulpo-default` (compartida, sin bot_id).
-
-### 1d. Reemplazar `/api/flow/google-accounts`
-
-Reemplazar (o hacer que internamente use) las conexiones de tipo `gsheet` de la bot.
-El campo `google_account_select` en los nodos pasa a listar estas conexiones.
-
----
-
-## Fase 2 — Frontend: UI en BotCard
-
-### 2a. Botón "+ Google Sheets" en la pestaña Conexiones
-
-En `frontend/src/components/BotCard.jsx`, agregar botón junto a "+ WhatsApp" y "+ Telegram".
-
-### 2b. Modal de setup
-
-Dos opciones dentro del modal:
-
-**Opción A — Usar cuenta Pulpo (recomendado):**
-- Muestra el email `pulpo-sheets@booming-monitor-459317-d3.iam.gserviceaccount.com` con botón Copiar.
-- Instrucción: "Compartí tu Google Sheet con este email como Editor."
-- Botón "Confirmar" — no requiere pegar nada.
-
-**Opción B — Cuenta propia:**
-- Textarea para pegar el JSON del Service Account.
-- Validación: intentar `JSON.parse()` y verificar que tiene `client_email` y `private_key`.
-- Instrucciones paso a paso:
-  1. Ir a console.cloud.google.com → Biblioteca → "Google Sheets API" → Habilitar
-  2. Credenciales → + Crear credenciales → Cuenta de servicio → nombre cualquiera → Crear
-  3. Clic en la cuenta → pestaña Claves → Agregar clave → JSON → se descarga el archivo
-  4. Pegar el contenido del archivo acá
-- Al guardar: `POST /api/bots/{id}/connections` con `{type: "gsheet", credentials_json: "..."}`.
-
-### 2c. Tarjeta de conexión Google
-
-En la lista de conexiones, la conexión Google aparece como:
-- Ícono de Google Sheets (verde).
-- Email de la cuenta.
-- Label (ej: "Cuenta Pulpo" o el nombre que puso el usuario).
-- Sin botón QR ni estado de conexión (es pasiva).
-- Botón eliminar (solo para cuentas propias; la de Pulpo no se puede borrar).
-
----
-
-## Fase 3 — Conectar nodos a conexiones
-
-Los campos `google_account` en `gsheet.py`, `search_sheet.py`, `fetch_sheet.py` ya son de tipo
-`google_account_select`. Solo hay que hacer que el selector use las conexiones del backend
-en lugar del endpoint separado `/api/flow/google-accounts`.
-
-En `NodeConfigPanel.jsx`, el `useEffect` que carga `googleAccounts` pasa a llamar
-a las conexiones de tipo `gsheet` de la bot.
-
----
-
-## Archivos clave
-
-- `management/PLAN_GSHEET_CONNECTIONS.md` — plan completo incluyendo Fases futuras (HTTP trigger, polling)
-- `backend/db.py` — esquema de conexiones
-- `backend/api/connections.py` — CRUD de conexiones (si existe; buscar dónde están)
-- `backend/api/flows.py` — endpoint `GET /api/flow/google-accounts` (a reemplazar)
-- `frontend/src/components/BotCard.jsx` — UI de conexiones
-- `frontend/src/components/NodeConfigPanel.jsx` — campo `google_account_select` ya implementado
-
----
-
-## No hacer en este worktree
-
-- No tocar la lógica de ejecución de los nodos (ya funciona en prod).
-- No implementar HTTP trigger ni gsheet_trigger (están en el plan pero son fases futuras).
-- El merge a master lo hace siempre la sesión de `_`.
+En los logs del backend, el cache hit se ve como:
+```
+[luganense] cache hit 'perro perdido': 12 posts (sin scrapear FB)
+```

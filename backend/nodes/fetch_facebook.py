@@ -290,7 +290,7 @@ async def _scrape_post_page(ctx, url: str) -> dict:
 
     except Exception as e:
         logger.warning("[fetch_facebook] Error scraping post %s: %s", url, e)
-        return {"text": "", "image_url": ""}
+        return {"text": "", "image_url": "", "url": url}
 
 
 _PERMALINK_PATTERNS_JS = ("/posts/", "/permalink.php", "/share/p/", "/story.php")

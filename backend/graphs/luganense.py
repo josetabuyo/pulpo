@@ -65,6 +65,7 @@ SIEMPRE:
 - Si no tenés info suficiente, decilo honestamente.
 
 IMPORTANTE: respondé directamente con el texto para el vecino, sin JSON ni formato extra.
+Si un post incluye un link, citalo al final de la oración relevante: "... (ver: https://...)"""
 
 _AUSPICIANTE_SYSTEM = """Sos el vocero de Luganense, el portal comunitario de Villa Lugano.
 Un vecino preguntó por algo y tenés información de un negocio del barrio que puede ayudarlo.
@@ -160,27 +161,44 @@ async def expandir_consulta(state: LuganenseState) -> dict:
         return {"queries": [state["message"]]}
 
 
+_FB_CACHE_MAX_AGE = 24 * 3600  # reusar posts cacheados hasta 24 horas
+
+
 async def buscar_posts_fb(state: LuganenseState) -> dict:
-    """Scrapea Facebook en paralelo para cada query. Persiste en cache. Devuelve posts con texto e imagen."""
+    """
+    Para cada query: primero intenta la cache SQLite (hasta 24h), solo scrapea FB si hay miss.
+    Persiste en cache. Devuelve posts deduplicados con texto, url e imagen.
+    """
     from nodes import fetch_facebook, fb_cache
 
     bot_id = state.get("bot_id", "luganense")
     queries = state.get("queries") or [state["message"]]
 
-    results = await asyncio.gather(*[
-        fetch_facebook.fetch_posts(bot_id, q) for q in queries
-    ])
+    all_posts_by_query: dict[str, list[dict]] = {}
+    queries_to_scrape: list[str] = []
 
-    # Persistir en cache (solo posts con permalink real)
-    for q, posts in zip(queries, results):
-        scraped = [p for p in posts if p.get("url") and "share/p" in p["url"]]
-        await fb_cache.save(bot_id, q, scraped)
+    for q in queries:
+        cached = await fb_cache.get_by_query(bot_id, q, max_age=_FB_CACHE_MAX_AGE)
+        if cached:
+            logger.info("[luganense] cache hit '%s': %d posts (sin scrapear FB)", q, len(cached))
+            all_posts_by_query[q] = cached
+        else:
+            queries_to_scrape.append(q)
+
+    if queries_to_scrape:
+        scraped_results = await asyncio.gather(*[
+            fetch_facebook.fetch_posts(bot_id, q) for q in queries_to_scrape
+        ])
+        for q, posts in zip(queries_to_scrape, scraped_results):
+            scraped = [p for p in posts if p.get("url")]
+            await fb_cache.save(bot_id, q, scraped)
+            all_posts_by_query[q] = posts
 
     # Deduplicar por texto para el reply
     seen: set[str] = set()
     fb_posts: list[dict] = []
-    for posts in results:
-        for post in posts:
+    for q in queries:
+        for post in all_posts_by_query.get(q, []):
             key = post["text"][:100]
             if key not in seen:
                 seen.add(key)
@@ -188,8 +206,8 @@ async def buscar_posts_fb(state: LuganenseState) -> dict:
 
     fb_context = "\n\n".join(p["text"] for p in fb_posts if p["text"])
     logger.info(
-        "[luganense] buscar_posts_fb: %d posts únicos, %d chars",
-        len(fb_posts), len(fb_context),
+        "[luganense] buscar_posts_fb: %d posts únicos, %d chars (%d queries scrapeadas, %d desde cache)",
+        len(fb_posts), len(fb_context), len(queries_to_scrape), len(queries) - len(queries_to_scrape),
     )
     return {"fb_posts": fb_posts, "fb_context": fb_context}
 
@@ -213,7 +231,7 @@ async def responder_noticias(state: LuganenseState) -> dict:
     system = _NOTICIAS_SYSTEM
     if fb_context:
         indexed = "\n\n".join(
-            f"[Post {i}]\n{p['text']}"
+            f"[Post {i}]\n{('Link: ' + p['url'] + chr(10)) if p.get('url') else ''}{p['text']}"
             for i, p in enumerate(fb_posts)
             if p["text"]
         )

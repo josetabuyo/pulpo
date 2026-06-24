@@ -140,7 +140,7 @@ async def run_verifications():
 
 
 async def main():
-    from nodes import fetch_facebook
+    from nodes import fetch_facebook, fb_cache
 
     queries = args if args else DEFAULT_QUERIES
     visible = bool(os.getenv("FB_DEBUG"))
@@ -164,6 +164,10 @@ async def main():
         fetch_facebook.invalidate(PAGE_ID)
 
         posts = await fetch_facebook.fetch_posts(PAGE_ID, query)
+
+        # Guardar en cache (igual que buscar_posts_fb en luganense.py)
+        scraped_to_save = [p for p in posts if p.get("url")]
+        await fb_cache.save(PAGE_ID, query, scraped_to_save)
 
         scrapeados = [p for p in posts if any(pat in p.get("url", "") for pat in ("/posts/", "/share/p/", "/permalink.php"))]
         print(f"\n  → {len(posts)} post(s) totales ({len(scrapeados)} scrapeados con permalink, {len(posts)-len(scrapeados)} otros)")

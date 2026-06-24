@@ -107,22 +107,55 @@ async def _migrate_legacy() -> None:
 
 async def save(page_id: str, query: str, posts: list[dict]) -> None:
     """
-    Upsert de posts. El texto más largo gana. No duplica (url, query).
-    Posts sin URL se ignoran.
+    Upsert de posts. Deduplica por texto (primeros 200 chars) dentro del mismo page_id:
+    si ya existe un post con ese texto, actualiza el existente en vez de insertar duplicado.
+    El texto más largo gana. No duplica (url, query).
+    Posts sin URL o sin texto se ignoran.
     """
     if not posts:
         return
     import aiosqlite
     await _init()
     now = time.time()
-    saved = 0
+    saved = skipped = 0
     async with aiosqlite.connect(_DB_PATH) as db:
         for post in posts:
             url = (post.get("url") or "").strip()
             if not url:
                 continue
-            text = post.get("text", "")
+            text = (post.get("text") or "").strip()
+            if not text:
+                continue
             image_url = post.get("image_url", "")
+            text_key = text[:200]
+
+            # Dedup por texto: buscar si ya existe un post con mismo contenido en esta página
+            async with db.execute(
+                "SELECT url FROM fb_posts WHERE page_id = ? AND substr(text, 1, 200) = ?",
+                (page_id, text_key),
+            ) as cur:
+                existing = await cur.fetchone()
+
+            if existing and existing[0] != url:
+                # Mismo texto, URL distinta → actualizar el existente, ignorar este
+                canonical_url = existing[0]
+                await db.execute(
+                    "UPDATE fb_posts SET last_seen = ? WHERE url = ?",
+                    (now, canonical_url),
+                )
+                if len(text) > 200:
+                    await db.execute(
+                        "UPDATE fb_posts SET text = ? WHERE url = ? AND length(?) > length(text)",
+                        (text, canonical_url, text),
+                    )
+                if query:
+                    await db.execute(
+                        "INSERT OR IGNORE INTO fb_post_queries (url, query, found_at) VALUES (?, ?, ?)",
+                        (canonical_url, query, now),
+                    )
+                skipped += 1
+                logger.debug("[fb_cache] texto duplicado ignorado: %s → usa %s", url[:60], canonical_url[:60])
+                continue
 
             await db.execute(
                 "INSERT OR IGNORE INTO fb_posts (url, page_id, text, image_url, first_seen, last_seen) "
@@ -145,7 +178,7 @@ async def save(page_id: str, query: str, posts: list[dict]) -> None:
             saved += 1
 
         await db.commit()
-    logger.info("[fb_cache] save: %d posts (query='%s')", saved, query)
+    logger.info("[fb_cache] save: %d posts nuevos, %d duplicados de texto ignorados (query='%s')", saved, skipped, query)
 
 
 async def get_all(page_id: str) -> list[dict]:
@@ -179,18 +212,22 @@ async def get_all(page_id: str) -> list[dict]:
     return result
 
 
-async def get_by_query(page_id: str, query: str) -> list[dict]:
-    """Posts que alguna vez aparecieron para esa query."""
+async def get_by_query(page_id: str, query: str, max_age: int = 0) -> list[dict]:
+    """
+    Posts que alguna vez aparecieron para esa query.
+    max_age: segundos máximos desde last_seen (0 = sin límite).
+    """
     import aiosqlite
     await _init()
+    cutoff = (time.time() - max_age) if max_age else 0
     async with aiosqlite.connect(_DB_PATH) as db:
         async with db.execute(
             "SELECT p.url, p.text, p.image_url, p.first_seen, p.last_seen "
             "FROM fb_posts p "
             "JOIN fb_post_queries q ON q.url = p.url "
-            "WHERE p.page_id = ? AND q.query = ? "
+            "WHERE p.page_id = ? AND q.query = ? AND (? = 0 OR p.last_seen >= ?) "
             "ORDER BY p.last_seen DESC",
-            (page_id, query),
+            (page_id, query, cutoff, cutoff),
         ) as cur:
             rows = await cur.fetchall()
     return [
