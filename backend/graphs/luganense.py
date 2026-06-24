@@ -161,8 +161,8 @@ async def expandir_consulta(state: LuganenseState) -> dict:
 
 
 async def buscar_posts_fb(state: LuganenseState) -> dict:
-    """Scrapea Facebook en paralelo para cada query. Devuelve posts con texto e imagen."""
-    from nodes import fetch_facebook
+    """Scrapea Facebook en paralelo para cada query. Persiste en cache. Devuelve posts con texto e imagen."""
+    from nodes import fetch_facebook, fb_cache
 
     bot_id = state.get("bot_id", "luganense")
     queries = state.get("queries") or [state["message"]]
@@ -171,7 +171,12 @@ async def buscar_posts_fb(state: LuganenseState) -> dict:
         fetch_facebook.fetch_posts(bot_id, q) for q in queries
     ])
 
-    # Deduplicar por texto
+    # Persistir en cache (solo posts con permalink real)
+    for q, posts in zip(queries, results):
+        scraped = [p for p in posts if p.get("url") and "share/p" in p["url"]]
+        await fb_cache.save(bot_id, q, scraped)
+
+    # Deduplicar por texto para el reply
     seen: set[str] = set()
     fb_posts: list[dict] = []
     for posts in results:

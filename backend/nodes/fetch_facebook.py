@@ -45,7 +45,7 @@ _PAUSE_ON_SUSPICIOUS = 90
 
 _SUSPICIOUS_URL_FRAGMENTS = ("login", "checkpoint", "index.php", "recover", "secure", "suspended", "hacked")
 
-# cache estructurado: "page_id:query" -> (timestamp, list[dict])
+# cache en memoria: "page_id:query" -> (timestamp, list[dict])
 _posts_cache: dict[str, tuple[float, list[dict]]] = {}
 
 
@@ -127,11 +127,14 @@ async def _load_posts(page_id: str, query: str, numeric_id: str = "") -> list[di
 
     async with async_playwright() as pw:
         headless = not os.getenv("FB_DEBUG")
+        # Viewport retrato y alto — misma estrategia que wavi: maximiza contenido
+        # visible por posición de scroll. 1280×4096 encaja un feed de ~8-12 posts
+        # sin necesidad de scroll. device_scale_factor=0.5 = zoom alejado al 50%.
         browser = await pw.chromium.launch(headless=headless)
         ctx = await browser.new_context(
             locale="es-AR",
             user_agent=_UA,
-            viewport={"width": 1920, "height": 1080},
+            viewport={"width": 1280, "height": 4096},
             device_scale_factor=0.5,
         )
 
@@ -291,158 +294,45 @@ async def _scrape_post_page(ctx, url: str) -> dict:
         return {"text": "", "image_url": ""}
 
 
-async def _extract_post_urls(page, max_posts: int = 3) -> list[str]:
-    """
-    Extrae las URLs share/p/ de los posts del feed de búsqueda.
+_PERMALINK_PATTERNS = ("/posts/", "/permalink.php", "/share/p/")
 
-    Estrategia: para cada post, hace click en el botón Compartir y luego en
-    Copiar enlace, capturando la URL share/p/ desde la respuesta de red que
-    FB genera al hacer click.
-    """
-    import re as _re
 
-    share_urls: list[str] = []
+async def _extract_article_urls(page, max_posts: int = 5) -> list[str]:
+    """
+    Extrae URLs de posts buscando links de permalink en cada [role="article"].
+    Más robusto que el approach de Compartir → Copiar enlace.
+    """
+    urls: list[str] = []
+    seen: set[str] = set()
 
     try:
-        feed = await page.query_selector("[role='feed']")
-        if not feed:
-            return []
-        posts = await feed.query_selector_all(":scope > div")
-        logger.info("[fetch_facebook] %d posts en feed para extraer share URLs", len(posts))
+        articles = await page.query_selector_all("[role='article']")
+        logger.info("[fetch_facebook] %d articles encontrados en feed", len(articles))
     except Exception as e:
-        logger.warning("[fetch_facebook] Error buscando posts en feed: %s", e)
+        logger.warning("[fetch_facebook] Error buscando articles: %s", e)
         return []
 
-    for i, post in enumerate(posts[:max_posts + 3]):
-        if len(share_urls) >= max_posts:
+    for article in articles:
+        if len(urls) >= max_posts:
             break
         try:
-            share_btn = await post.query_selector(
-                "[aria-label='Envía esto a tus amigos o publícalo en tu perfil.']"
-            )
-            if not share_btn:
-                continue
-
-            # Capturar respuestas de red que contengan share/p/
-            captured: list[str] = []
-
-            async def on_response(resp, _cap=captured):
-                try:
-                    if "share" in resp.url or "graphql" in resp.url or "ajax" in resp.url:
-                        body = await resp.text()
-                        found = _re.findall(r'https://www\.facebook\.com/share/p/[\w]+/?', body)
-                        _cap.extend(found)
-                except Exception:
-                    pass
-
-            page.on("response", on_response)
-
-            try:
-                await share_btn.click(force=True)
-                await page.wait_for_timeout(2_000)
-
-                # Click en Copiar enlace dentro del diálogo Compartir
-                await page.evaluate("""() => {
-                    const d = Array.from(document.querySelectorAll('[role=dialog]'))
-                        .find(d => d.innerText.includes('Compartir ahora'));
-                    if (!d) return;
-                    const btn = Array.from(d.querySelectorAll('div,span'))
-                        .find(el => el.innerText && el.innerText.trim() === 'Copiar enlace');
-                    if (btn) btn.click();
-                }""")
-                await page.wait_for_timeout(1_500)
-
-            finally:
-                page.remove_listener("response", on_response)
-
-            # Cerrar diálogo
-            await page.keyboard.press("Escape")
-            await page.wait_for_timeout(500)
-
-            if captured:
-                url = captured[0]
-                if url not in share_urls:
-                    share_urls.append(url)
-                    logger.info("[fetch_facebook] share URL extraída: %s", url)
-            else:
-                logger.info("[fetch_facebook] post %d: no se capturó share URL", i)
-
+            links = await article.query_selector_all("a[href]")
+            for link in links:
+                href = await link.get_attribute("href") or ""
+                if not any(p in href for p in _PERMALINK_PATTERNS):
+                    continue
+                if href.startswith("/"):
+                    href = f"https://www.facebook.com{href}"
+                base = href.split("?")[0]
+                if base not in seen:
+                    seen.add(base)
+                    urls.append(base)
+                    logger.info("[fetch_facebook] article URL: %s", base)
+                    break  # una URL por article
         except Exception as e:
-            logger.warning("[fetch_facebook] Error extrayendo share URL post %d: %s", i, e)
-            try:
-                await page.keyboard.press("Escape")
-            except Exception:
-                pass
+            logger.debug("[fetch_facebook] Error en article: %s", e)
 
-    return share_urls
-
-
-async def _scrape_search_feed(page) -> tuple[str, list[str]]:
-    """
-    Extrae texto del feed de resultados de búsqueda de FB.
-    Retorna (texto_combinado, share_urls_por_post).
-    - texto_combinado: feed.inner_text() filtrado (mecanismo original, probado)
-    - share_urls_por_post: URLs share/p/ via click Compartir → Copiar enlace
-    """
-    # Expandir "Ver más" visibles
-    try:
-        expandables = await page.query_selector_all("[role='button'], button, a")
-        clicked = 0
-        for el in expandables:
-            try:
-                text = (await el.inner_text()).strip()
-                if text in ("Ver más", "See more"):
-                    await el.click()
-                    await page.wait_for_timeout(400)
-                    clicked += 1
-            except Exception:
-                pass
-        if clicked:
-            logger.info("[fetch_facebook] Expandidos %d 'Ver más'", clicked)
-            await page.wait_for_timeout(1_000)
-    except Exception:
-        pass
-
-    await page.wait_for_timeout(1_000)
-
-    if os.getenv("FB_DEBUG"):
-        debug_dir = Path(__file__).parent.parent.parent / "data" / "debug"
-        debug_dir.mkdir(parents=True, exist_ok=True)
-        await page.screenshot(path=str(debug_dir / "fb_search_after_expand.png"), full_page=False)
-        logger.info("[fetch_facebook] DEBUG screenshot guardado")
-
-    # Texto combinado del feed (mecanismo original — probado y funcionando)
-    raw = ""
-    try:
-        feed = await page.query_selector("[role='feed']")
-        if feed:
-            raw = await feed.inner_text()
-    except Exception as e:
-        logger.debug("[fetch_facebook] no se pudo leer el feed: %s", e)
-
-    if not raw.strip():
-        return "", []
-
-    lines = [
-        l.strip() for l in raw.split("\n")
-        if len(l.strip()) > 5
-        and l.strip() not in _UI_NOISE
-        and not l.strip().startswith("0:0")
-        and "Audio original" not in l
-    ]
-    if not lines:
-        return "", []
-
-    logger.info("[fetch_facebook] Search feed: %d líneas extraídas", len(lines))
-
-    # Share URLs via click Compartir
-    post_urls: list[str] = []
-    try:
-        post_urls = await _extract_post_urls(page, max_posts=3)
-    except Exception as e:
-        logger.warning("[fetch_facebook] Error extrayendo share URLs (no crítico): %s", e)
-
-    return "\n".join(lines[:150]), post_urls
+    return urls
 
 
 async def _search_and_scrape(page, query: str, page_id: str = "", numeric_id: str = "") -> list[dict]:
@@ -478,18 +368,26 @@ async def _search_and_scrape(page, query: str, page_id: str = "", numeric_id: st
                     full_page=False,
                 )
 
-            text, post_urls = await _scrape_search_feed(page)
-            if text:
-                # Un dict por share URL; el primero lleva todo el texto
-                posts = []
-                for i, u in enumerate(post_urls):
-                    posts.append({"text": text if i == 0 else "", "image_url": "", "url": u})
-                if not posts:
-                    posts = [{"text": text, "image_url": "", "url": f"https://www.facebook.com/{page_id}"}]
-                logger.info("[fetch_facebook] Búsqueda: %d líneas, %d URLs para '%s'", len(text.splitlines()), len(post_urls), query)
-                return posts
-            logger.info("[fetch_facebook] Búsqueda sin resultados para query '%s'", query)
-            return []
+            # Scroll para cargar más posts
+            for _ in range(4):
+                await page.evaluate("window.scrollBy(0, 600)")
+                await page.wait_for_timeout(1_000)
+
+            post_urls = await _extract_article_urls(page)
+            if not post_urls:
+                logger.info("[fetch_facebook] Sin URLs de posts para query '%s'", query)
+                return []
+
+            ctx = page.context
+            posts = []
+            for url in post_urls:
+                post = await _scrape_post_page(ctx, url)
+                if post.get("text"):
+                    posts.append(post)
+                    logger.info("[fetch_facebook] post %d: %s", len(posts), post["text"][:80].replace('\n', ' '))
+
+            logger.info("[fetch_facebook] Búsqueda: %d posts para '%s'", len(posts), query)
+            return posts
         except Exception as e:
             err_str = str(e)
             if "ERR_TOO_MANY_REDIRECTS" in err_str or "net::ERR_" in err_str:
