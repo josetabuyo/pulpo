@@ -258,22 +258,21 @@ async def _scrape_post_page(ctx, url: str) -> dict:
         except Exception as e:
             logger.debug("[fetch_facebook] sin og:image: %s", e)
 
-        # Expandir texto truncado
+        # Texto: og:description es la fuente más confiable (FB lo inyecta por JS).
+        # Esperar hasta 4s a que aparezca antes de caer al body fallback.
+        raw = ""
         try:
-            ver_mas = await post_page.query_selector(
-                "button:has-text('Ver más'), [role='button']:has-text('Ver más')"
+            await post_page.wait_for_selector(
+                "meta[property='og:description']", timeout=4_000
             )
-            if ver_mas:
-                await ver_mas.click()
-                await post_page.wait_for_timeout(800)
+            meta_desc = await post_page.query_selector("meta[property='og:description']")
+            if meta_desc:
+                raw = await meta_desc.get_attribute("content") or ""
+                if raw:
+                    logger.debug("[fetch_facebook] og:description: %s", raw[:80])
         except Exception:
             pass
 
-        # Texto: article principal o body completo
-        raw = ""
-        articles = await post_page.query_selector_all("[role='article']")
-        if articles:
-            raw = await articles[0].inner_text()
         if len(raw.strip()) < 30:
             raw = await post_page.inner_text("body")
 
@@ -284,11 +283,7 @@ async def _scrape_post_page(ctx, url: str) -> dict:
             if len(l.strip()) > 10
             and l.strip() not in _UI_NOISE
             and not l.strip().startswith("0:0")
-            and "Audio original" not in l
-            and "chats no leídos" not in l
-            and "notificaciones no leídas" not in l
-            and "Esta foto es de una publicación" not in l
-            and "Fan destacado" not in l
+            and not any(noise in l for noise in _BODY_NOISE)
         ]
         text = "\n".join(lines[:40]) if lines else ""
         return {"text": text, "image_url": image_url, "url": url}
@@ -332,19 +327,9 @@ async def _extract_feed_urls(page, max_posts: int = 5, numeric_id: str = "") -> 
                 const href = a.href;
                 if (!href || href === window.location.href) continue;
 
-                // Fotos de posts: set=pcb.POST_ID → permalink del post
-                if (href.includes('/photo/') && href.includes('set=pcb.')) {
-                    const m = href.match(/set=pcb\.([0-9]+)/);
-                    if (m) {
-                        const postUrl = numericId
-                            ? 'https://www.facebook.com/permalink.php?story_fbid=' + m[1] + '&id=' + numericId
-                            : 'https://www.facebook.com/photo?fbid=' + (href.match(/fbid=([0-9]+)/) || [,''])[1];
-                        if (!seen.has(postUrl)) { seen.add(postUrl); result.push(postUrl); }
-                    }
-                    continue;
-                }
-
-                // Fotos de álbum u otras: usar fbid
+                // Todas las fotos (set=pcb.POST_ID o set=a.ALBUM_ID): usar photo?fbid=
+                // og:description en la página de foto contiene el caption del post completo.
+                // permalink.php?story_fbid= no popula og:description en vista autenticada.
                 if (href.includes('/photo/') && href.includes('fbid=')) {
                     const m = href.match(/fbid=([0-9]+)/);
                     if (m) {
@@ -368,6 +353,43 @@ async def _extract_feed_urls(page, max_posts: int = 5, numeric_id: str = "") -> 
         return urls[:max_posts]
     except Exception as e:
         logger.warning("[fetch_facebook] Error en feed scan: %s", e)
+        return []
+
+
+async def _extract_feed_urls_sorted(page, numeric_id: str = "") -> list[str]:
+    """
+    Como _extract_feed_urls pero retorna URLs ordenadas por posición vertical (getBoundingClientRect.top).
+    Permite identificar el último post visible para anclar el scroll entre rondas.
+    """
+    patterns = list(_PERMALINK_PATTERNS_JS)
+    try:
+        items = await page.evaluate("""([patterns]) => {
+            const seen = new Set();
+            const result = [];
+            for (const a of document.querySelectorAll('a[href]')) {
+                const href = a.href;
+                if (!href || href === window.location.href) continue;
+
+                let url = null;
+                if (href.includes('/photo/') && href.includes('fbid=')) {
+                    const m = href.match(/fbid=([0-9]+)/);
+                    if (m) url = 'https://www.facebook.com/photo?fbid=' + m[1];
+                } else if (patterns.some(p => href.includes(p))) {
+                    url = href.split('?')[0];
+                }
+
+                if (url && !seen.has(url)) {
+                    seen.add(url);
+                    const rect = a.getBoundingClientRect();
+                    result.push({ url, top: rect.top });
+                }
+            }
+            result.sort((a, b) => a.top - b.top);
+            return result.map(r => r.url);
+        }""", [patterns])
+        return items
+    except Exception as e:
+        logger.warning("[fetch_facebook] Error en feed scan ordenado: %s", e)
         return []
 
 
@@ -404,12 +426,81 @@ async def _search_and_scrape(page, query: str, page_id: str = "", numeric_id: st
                     full_page=False,
                 )
 
-            # Scroll para cargar más posts
-            for _ in range(4):
-                await page.evaluate("window.scrollBy(0, 600)")
-                await page.wait_for_timeout(1_000)
+            # Viewport grande para maximizar posts visibles por ronda
+            original_vp = page.viewport_size or {"width": 1280, "height": 800}
+            await page.set_viewport_size({"width": 1280, "height": 2400})
+            await page.wait_for_timeout(800)
 
-            post_urls = await _extract_feed_urls(page, numeric_id=numeric_id)
+            # Scroll con ancla: acumula globalmente, avanza hasta que el último
+            # post visible quede arriba (evita perder posts por virtualización del DOM)
+            MAX_ROUNDS = 25
+            MAX_POSTS = 30
+            all_seen: set[str] = set()
+            post_urls: list[str] = []
+            dry_rounds = 0
+
+            try:
+                for _ in range(MAX_ROUNDS):
+                    batch = await _extract_feed_urls_sorted(page, numeric_id=numeric_id)
+
+                    new_in_batch = [u for u in batch if u not in all_seen]
+                    for u in new_in_batch:
+                        all_seen.add(u)
+                        post_urls.append(u)
+
+                    logger.info(
+                        "[fetch_facebook] scroll round: +%d nuevos, %d acumulados",
+                        len(new_in_batch), len(post_urls),
+                    )
+
+                    if len(post_urls) >= MAX_POSTS:
+                        break
+
+                    if not new_in_batch:
+                        dry_rounds += 1
+                        if dry_rounds >= 3:
+                            break
+                    else:
+                        dry_rounds = 0
+
+                    if not batch:
+                        break
+
+                    # Ancla: scrollear hasta que el último post visible quede arriba,
+                    # luego empujar un viewport más para saltar el área ya vista y
+                    # activar el lazy loading de FB con contenido nuevo abajo.
+                    last_url = batch[-1]
+                    scrolled = await page.evaluate("""(lastUrl) => {
+                        const patterns = ['/photo/', '/posts/', '/permalink.php', '/share/p/', '/story.php'];
+                        for (const a of document.querySelectorAll('a[href]')) {
+                            const href = a.href;
+                            let url = null;
+                            if (href.includes('/photo/') && href.includes('fbid=')) {
+                                const m = href.match(/fbid=([0-9]+)/);
+                                if (m) url = 'https://www.facebook.com/photo?fbid=' + m[1];
+                            } else if (patterns.some(p => href.includes(p))) {
+                                url = href.split('?')[0];
+                            }
+                            if (url === lastUrl) {
+                                a.scrollIntoView({ block: 'start', behavior: 'instant' });
+                                return true;
+                            }
+                        }
+                        return false;
+                    }""", last_url)
+
+                    if not scrolled:
+                        # Fallback: saltar un viewport completo desde posición actual
+                        await page.evaluate("window.scrollBy(0, window.innerHeight)")
+                    else:
+                        # Ancla posicionó el último post arriba → empujar para saltar el área ya vista
+                        await page.evaluate("window.scrollBy(0, window.innerHeight)")
+
+                    await page.wait_for_timeout(2_500)
+            finally:
+                await page.set_viewport_size(original_vp)
+
+            post_urls = post_urls[:MAX_POSTS]
             if not post_urls:
                 logger.info("[fetch_facebook] Sin URLs de posts para query '%s'", query)
                 return []
@@ -546,6 +637,24 @@ _UI_NOISE = {
     "Ve más en Facebook", "Crear cuenta nueva", "Audio original",
     "Correo electrónico o número de teléfono", "Contraseña",
     "Indicador de estado online", "Activo", "Facebook",
+    "Comentarios",  # encabezado de sección de comentarios en FB
 }
+
+# Substrings que indican basura del body de FB (navegación, UI vacía, etc.)
+_BODY_NOISE = (
+    "Audio original",
+    "chats no leídos",
+    "notificaciones no leídas",
+    "Esta foto es de una publicación",
+    "Fan destacado",
+    "Todavía no hay comentarios",
+    "Sé la primera persona en comentar",
+    "Escribe un comentario",
+    "Ver publicación",
+    "Menú de Facebook",
+    "Tus accesos directos",
+    "Candy Crush",
+    "days ago", "hours ago", "minutes ago",  # timestamps en inglés = página de FB autenticada
+)
 
 _POST_URL_PATTERNS = ("/posts/", "/photo.php", "/reel/", "/videos/")
