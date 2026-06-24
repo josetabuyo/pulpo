@@ -13,6 +13,7 @@ import { S } from './styles.js'
 import { Field, isVisible } from './fields.jsx'
 import SummarizeInfo from './SummarizeInfo.jsx'
 import SheetCacheButton from './SheetCacheButton.jsx'
+import FbCacheModal from './FbCacheModal.jsx'
 
 const TRIGGER_TYPES = new Set(['telegram_trigger', 'message_trigger', 'whatsapp_trigger'])
 
@@ -31,6 +32,7 @@ export default function ConfigForm({ node, schema, botId, flowId, connections, a
   const [cloneMsg, setCloneMsg]     = useState('')
   const [fbRefreshing, setFbRefreshing] = useState(false)
   const [fbRefreshMsg, setFbRefreshMsg] = useState('')
+  const [showFbCache, setShowFbCache]   = useState(false)
   const [backupMsg, setBackupMsg]   = useState('')
   const [backingUp, setBackingUp]   = useState(false)
   const [showBackupConfirm, setShowBackupConfirm] = useState(false)
@@ -308,7 +310,26 @@ export default function ConfigForm({ node, schema, botId, flowId, connections, a
               {fbRefreshMsg}
             </div>
           )}
+          <button
+            onClick={() => setShowFbCache(true)}
+            style={{
+              width: '100%', padding: '7px 12px',
+              background: 'transparent',
+              border: '1px solid #1e293b',
+              borderRadius: 6, color: '#64748b', fontSize: 12, cursor: 'pointer',
+            }}
+          >
+            Ver cache FB
+          </button>
         </div>
+      )}
+
+      {showFbCache && (
+        <FbCacheModal
+          pageId={config.fb_page_id || 'luganense'}
+          apiCall={apiCall}
+          onClose={() => setShowFbCache(false)}
+        />
       )}
 
       {!isFixed && (

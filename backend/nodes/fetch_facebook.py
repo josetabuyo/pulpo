@@ -285,6 +285,10 @@ async def _scrape_post_page(ctx, url: str) -> dict:
             and l.strip() not in _UI_NOISE
             and not l.strip().startswith("0:0")
             and "Audio original" not in l
+            and "chats no leídos" not in l
+            and "notificaciones no leídas" not in l
+            and "Esta foto es de una publicación" not in l
+            and "Fan destacado" not in l
         ]
         text = "\n".join(lines[:40]) if lines else ""
         return {"text": text, "image_url": image_url, "url": url}
@@ -294,45 +298,77 @@ async def _scrape_post_page(ctx, url: str) -> dict:
         return {"text": "", "image_url": ""}
 
 
-_PERMALINK_PATTERNS = ("/posts/", "/permalink.php", "/share/p/")
+_PERMALINK_PATTERNS_JS = ("/posts/", "/permalink.php", "/share/p/", "/story.php")
 
 
-async def _extract_article_urls(page, max_posts: int = 5) -> list[str]:
+async def _extract_feed_urls(page, max_posts: int = 5, numeric_id: str = "") -> list[str]:
     """
-    Extrae URLs de posts buscando links de permalink en cada [role="article"].
-    Más robusto que el approach de Compartir → Copiar enlace.
+    Extrae URLs de posts haciendo un único page.evaluate() que escanea todo el DOM.
+    a.href resuelve URLs absolutas — maneja relativos y encoding de Facebook.
     """
-    urls: list[str] = []
-    seen: set[str] = set()
-
-    try:
-        articles = await page.query_selector_all("[role='article']")
-        logger.info("[fetch_facebook] %d articles encontrados en feed", len(articles))
-    except Exception as e:
-        logger.warning("[fetch_facebook] Error buscando articles: %s", e)
-        return []
-
-    for article in articles:
-        if len(urls) >= max_posts:
-            break
+    if os.getenv("FB_DEBUG"):
         try:
-            links = await article.query_selector_all("a[href]")
-            for link in links:
-                href = await link.get_attribute("href") or ""
-                if not any(p in href for p in _PERMALINK_PATTERNS):
-                    continue
-                if href.startswith("/"):
-                    href = f"https://www.facebook.com{href}"
-                base = href.split("?")[0]
-                if base not in seen:
-                    seen.add(base)
-                    urls.append(base)
-                    logger.info("[fetch_facebook] article URL: %s", base)
-                    break  # una URL por article
+            all_page_hrefs = await page.evaluate("""() => {
+                const hrefs = [];
+                for (const a of document.querySelectorAll('a[href]')) {
+                    const h = a.href;
+                    if (h && !h.startsWith('javascript') && h !== window.location.href)
+                        hrefs.push(h);
+                }
+                return [...new Set(hrefs)].slice(0, 60);
+            }""")
+            logger.info("[fetch_facebook] FB_DEBUG: %d hrefs únicos en página", len(all_page_hrefs))
+            for h in all_page_hrefs:
+                logger.info("[fetch_facebook] href: %s", h[:120])
         except Exception as e:
-            logger.debug("[fetch_facebook] Error en article: %s", e)
+            logger.debug("[fetch_facebook] FB_DEBUG href scan error: %s", e)
 
-    return urls
+    patterns = list(_PERMALINK_PATTERNS_JS)
+    try:
+        urls = await page.evaluate("""([patterns, numericId]) => {
+            const seen = new Set();
+            const result = [];
+            for (const a of document.querySelectorAll('a[href]')) {
+                const href = a.href;
+                if (!href || href === window.location.href) continue;
+
+                // Fotos de posts: set=pcb.POST_ID → permalink del post
+                if (href.includes('/photo/') && href.includes('set=pcb.')) {
+                    const m = href.match(/set=pcb\.([0-9]+)/);
+                    if (m) {
+                        const postUrl = numericId
+                            ? 'https://www.facebook.com/permalink.php?story_fbid=' + m[1] + '&id=' + numericId
+                            : 'https://www.facebook.com/photo?fbid=' + (href.match(/fbid=([0-9]+)/) || [,''])[1];
+                        if (!seen.has(postUrl)) { seen.add(postUrl); result.push(postUrl); }
+                    }
+                    continue;
+                }
+
+                // Fotos de álbum u otras: usar fbid
+                if (href.includes('/photo/') && href.includes('fbid=')) {
+                    const m = href.match(/fbid=([0-9]+)/);
+                    if (m) {
+                        const photoUrl = 'https://www.facebook.com/photo?fbid=' + m[1];
+                        if (!seen.has(photoUrl)) { seen.add(photoUrl); result.push(photoUrl); }
+                    }
+                    continue;
+                }
+
+                // Posts con permalink directo (/posts/, /share/p/, etc.)
+                if (patterns.some(p => href.includes(p))) {
+                    const base = href.split('?')[0];
+                    if (!seen.has(base)) { seen.add(base); result.push(base); }
+                }
+            }
+            return result;
+        }""", [patterns, numeric_id])
+        logger.info("[fetch_facebook] feed scan: %d URLs encontradas", len(urls))
+        for u in urls[:max_posts]:
+            logger.info("[fetch_facebook] feed URL: %s", u)
+        return urls[:max_posts]
+    except Exception as e:
+        logger.warning("[fetch_facebook] Error en feed scan: %s", e)
+        return []
 
 
 async def _search_and_scrape(page, query: str, page_id: str = "", numeric_id: str = "") -> list[dict]:
@@ -373,7 +409,7 @@ async def _search_and_scrape(page, query: str, page_id: str = "", numeric_id: st
                 await page.evaluate("window.scrollBy(0, 600)")
                 await page.wait_for_timeout(1_000)
 
-            post_urls = await _extract_article_urls(page)
+            post_urls = await _extract_feed_urls(page, numeric_id=numeric_id)
             if not post_urls:
                 logger.info("[fetch_facebook] Sin URLs de posts para query '%s'", query)
                 return []

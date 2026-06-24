@@ -35,6 +35,14 @@ async def refresh_session(page_id: str = Query("luganense")):
     return {"ok": True, "message": "Browser abierto — completá el login en el servidor"}
 
 
+@router.get("/fb/cache", dependencies=[Depends(require_admin)])
+async def get_fb_cache(page_id: str = Query("luganense")):
+    """Retorna todos los posts cacheados de una página FB."""
+    from nodes import fb_cache
+    posts = await fb_cache.get_all(page_id)
+    return {"page_id": page_id, "posts": posts}
+
+
 @router.get("/fb/session-status", dependencies=[Depends(require_admin)])
 async def session_status(page_id: str = Query("luganense")):
     """Retorna el estado del último intento de login."""
