@@ -15,7 +15,7 @@ Config:
 import json
 import logging
 from .base import BaseNode
-from .llm import MODEL_OPTIONS, _build_llm
+from .llm import MODEL_OPTIONS, _build_llm, parse_model_strategy
 from .state import FlowState
 
 logger = logging.getLogger(__name__)
@@ -32,12 +32,12 @@ def _build_user_message(state: FlowState, context_source: str) -> str:
 
 class RouterNode(BaseNode):
     async def run(self, state: FlowState) -> FlowState:
-        prompt          = self.config.get("prompt", "")
-        routes          = self.config.get("routes", [])
-        fallback        = self.config.get("fallback", routes[0] if routes else "")
-        model           = self.config.get("model", "best:instruction")
-        router_strategy = self.config.get("router_strategy", "local-first")
-        context_source  = self.config.get("context_source", "none")
+        prompt         = self.config.get("prompt", "")
+        routes         = self.config.get("routes", [])
+        fallback       = self.config.get("fallback", routes[0] if routes else "")
+        raw_model      = self.config.get("model", "best:instruction|local-first")
+        context_source = self.config.get("context_source", "none")
+        model, router_strategy = parse_model_strategy(raw_model, self.config)
 
         if not prompt:
             logger.warning("[RouterNode] Sin prompt — usando fallback '%s'", fallback)
@@ -70,14 +70,8 @@ class RouterNode(BaseNode):
             "prompt":          {"type": "textarea", "label": "Prompt del clasificador", "default": "", "rows": 7},
             "routes":          {"type": "list",     "label": "Rutas válidas",           "default": [], "hint": "Separadas por coma — ej: noticias,oficio,auspiciante"},
             "fallback":        {"type": "string",   "label": "Ruta por defecto",        "default": "", "hint": "Si el LLM responde algo inválido"},
-            "model":           {"type": "select",   "label": "Modelo",                  "default": "best:instruction",
-                                "options": MODEL_OPTIONS},
-            "router_strategy": {"type": "select",   "label": "Estrategia del router",   "default": "local-first",
-                                "hint": "Aplica solo a modelos best:* — cuál priorizar cuando ambos están disponibles",
-                                "options": [
-                                    {"value": "local-first", "label": "local-first — Ollama primero, Groq como fallback"},
-                                    {"value": "cloud-first", "label": "cloud-first — Groq primero, Ollama como fallback"},
-                                ]},
+            "model":       {"type": "select", "label": "Modelo", "default": "best:instruction|local-first",
+                            "options": MODEL_OPTIONS},
             "context_source":  {
                 "type":    "select",
                 "label":   "Contexto adicional al mensaje",

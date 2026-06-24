@@ -55,6 +55,16 @@ class _FileLogFilter(logging.Filter):
         return True
 
 
+class _TelegramTimedOutFilter(logging.Filter):
+    """Suprime TimedOut de telegram.ext._updater durante el cleanup al apagar — es inocuo."""
+    def filter(self, record):
+        if record.exc_info and record.exc_info[1] is not None:
+            from telegram.error import TimedOut
+            if isinstance(record.exc_info[1], TimedOut):
+                return False
+        return True
+
+
 class _UvicornPollingFilter(logging.Filter):
     """Excluye del log de acceso de uvicorn los endpoints que la UI consulta periódicamente."""
     _POLLING = (
@@ -94,6 +104,7 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("hpack").setLevel(logging.WARNING)
 logging.getLogger("asyncio").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.WARNING)
+logging.getLogger("telegram.ext._updater").addFilter(_TelegramTimedOutFilter())
 # El módulo de automatización en INFO — WebGL noise y mensajes ignorados quedan en DEBUG
 logging.getLogger("automation").setLevel(logging.INFO)
 # Excluir del log de acceso de uvicorn los endpoints de polling de la UI

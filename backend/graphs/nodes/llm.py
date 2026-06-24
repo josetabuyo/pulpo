@@ -24,30 +24,38 @@ logger = logging.getLogger(__name__)
 
 _ROUTER_URL = os.getenv("MODEL_ROUTER_URL", "http://localhost:11435")
 
-MODEL_OPTIONS = [
-    # ── Híbrido — el router elige local o cloud según disponibilidad ──────────
-    {"value": "best:instruction",    "label": "best:instruction — híbrido (recomendado)"},
-    {"value": "best:summarization",  "label": "best:summarization — híbrido"},
-    {"value": "best:reasoning",      "label": "best:reasoning — híbrido"},
-    {"value": "best:multilingual",   "label": "best:multilingual — híbrido"},
-    {"value": "best:context",        "label": "best:context — híbrido"},
-    {"value": "best:coding",         "label": "best:coding — híbrido"},
-    # ── Local (Ollama vía router) ─────────────────────────────────────────────
-    {"value": "ollama/qwen2.5:7b",    "label": "qwen2.5:7b — local Ollama"},
-    {"value": "ollama/deepseek-r1:8b","label": "deepseek-r1:8b — local Ollama (CoT lento)"},
-    # ── Cloud Groq (vía router) ───────────────────────────────────────────────
-    {"value": "groq/llama-3.3-70b-versatile", "label": "llama-3.3-70b-versatile (Groq)"},
-    {"value": "groq/llama-3.1-8b-instant",    "label": "llama-3.1-8b-instant — rápido (Groq)"},
-    # ── Legacy ───────────────────────────────────────────────────────────────
-    {"value": "local:gemma4:e4b",            "label": "[legacy] Gemma 4 4B — Ollama directo"},
-    {"value": "llama-3.3-70b-versatile",     "label": "[legacy] llama-3.3-70b-versatile (Groq directo)"},
-    {"value": "llama-3.1-70b-versatile",     "label": "[legacy] llama-3.1-70b-versatile"},
-    {"value": "llama-3.1-8b-instant",        "label": "[legacy] llama-3.1-8b-instant"},
-    {"value": "llama3-70b-8192",             "label": "[legacy] llama3-70b-8192"},
-    {"value": "llama3-8b-8192",              "label": "[legacy] llama3-8b-8192"},
-    {"value": "mixtral-8x7b-32768",          "label": "[legacy] mixtral-8x7b-32768"},
-    {"value": "gemma2-9b-it",                "label": "[legacy] gemma2-9b-it"},
+_CATEGORIES = [
+    "instruction", "reasoning", "coding", "code_debug",
+    "math", "summarization", "multilingual", "context",
 ]
+
+_STRATEGIES = [
+    ("local",       "local"),
+    ("local-first", "local → cloud"),
+    ("cloud-first", "cloud → local"),
+    ("cloud",       "cloud"),
+]
+
+MODEL_OPTIONS = [
+    {"value": f"best:{cat}|{strat}", "label": f"best:{cat} — {label}"}
+    for cat in _CATEGORIES
+    for strat, label in _STRATEGIES
+]
+
+_STRATEGY_MAP = {
+    "local":       "local-only",
+    "local-first": "local-first",
+    "cloud-first": "cloud-first",
+    "cloud":       "cloud-best-with-local-fallback",
+}
+
+
+def parse_model_strategy(raw: str, config: dict) -> tuple[str, str]:
+    """Parse 'best:cat|strategy' → (model, router_strategy). Backward-compat with old configs."""
+    if "|" in raw:
+        model, alias = raw.split("|", 1)
+        return model, _STRATEGY_MAP.get(alias, "local-first")
+    return raw, config.get("router_strategy", "local-first")
 
 
 def _build_llm(model: str, temperature: float, json_out: bool, router_strategy: str, max_tokens: int | None = None):
@@ -61,6 +69,33 @@ def _build_llm(model: str, temperature: float, json_out: bool, router_strategy: 
     from langchain_openai import ChatOpenAI
 
     if model.startswith("best:"):
+        if router_strategy == "local-only":
+            return ChatOpenAI(
+                model=model,
+                base_url=f"{_ROUTER_URL}/local/v1",
+                api_key="router",
+                temperature=temperature,
+                **extra,
+            )
+
+        if router_strategy == "cloud-best-with-local-fallback":
+            primary = ChatOpenAI(
+                model=model,
+                base_url=f"{_ROUTER_URL}/cloud/v1",
+                api_key="router",
+                temperature=temperature,
+                **extra,
+            )
+            local_fallback = ChatOpenAI(
+                model=model,
+                base_url=f"{_ROUTER_URL}/local/v1",
+                api_key="router",
+                temperature=temperature,
+                **extra,
+            )
+            return primary.with_fallbacks([local_fallback])
+
+        # local-first / cloud-first — endpoint híbrido /v1
         primary = ChatOpenAI(
             model=model,
             base_url=f"{_ROUTER_URL}/v1",
@@ -123,14 +158,14 @@ class LLMNode(BaseNode):
         if state.from_delta_sync:
             return state
 
-        prompt          = self.config.get("prompt", "")
-        model           = self.config.get("model", "best:instruction")
-        temperature     = float(self.config.get("temperature", 0.3))
-        output          = self.config.get("output", "reply")
-        json_out        = bool(self.config.get("json_output", False))
-        reply_key       = self.config.get("json_reply_key", "reply")
-        route_key       = self.config.get("json_route_key", "")
-        router_strategy = self.config.get("router_strategy", "local-first")
+        prompt      = self.config.get("prompt", "")
+        raw_model   = self.config.get("model", "best:instruction|local-first")
+        temperature = float(self.config.get("temperature", 0.3))
+        output      = self.config.get("output", "reply")
+        json_out    = bool(self.config.get("json_output", False))
+        reply_key   = self.config.get("json_reply_key", "reply")
+        route_key   = self.config.get("json_route_key", "")
+        model, router_strategy = parse_model_strategy(raw_model, self.config)
 
         # Interpolar placeholders en el prompt y construir system.
         # Compat: si el prompt no menciona {{context}} pero hay contexto, se agrega al final.
@@ -173,14 +208,8 @@ class LLMNode(BaseNode):
     def config_schema(cls) -> dict:
         return {
             "prompt":          {"type": "textarea", "label": "System prompt",          "default": "", "rows": 8},
-            "model":           {"type": "select",   "label": "Modelo",                 "default": "best:instruction",
-                                "options": MODEL_OPTIONS},
-            "router_strategy": {"type": "select",   "label": "Estrategia del router",  "default": "local-first",
-                                "hint": "Aplica solo a modelos best:* — cuál priorizar cuando ambos están disponibles",
-                                "options": [
-                                    {"value": "local-first", "label": "local-first — Ollama primero, Groq como fallback"},
-                                    {"value": "cloud-first", "label": "cloud-first — Groq primero, Ollama como fallback"},
-                                ]},
+            "model":       {"type": "select", "label": "Modelo", "default": "best:instruction|local-first",
+                            "options": MODEL_OPTIONS},
             "temperature":     {"type": "float",    "label": "Temperatura",            "default": 0.3},
             "output":          {"type": "select",   "label": "Destino de la salida",   "default": "reply",
                                 "hint": "reply = responde al usuario · context = pasa al siguiente nodo · query = para búsqueda/fetch",
