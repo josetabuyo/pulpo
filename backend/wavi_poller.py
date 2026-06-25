@@ -72,23 +72,30 @@ async def _poll_session(session: str):
 
     for contact in result.get("new_inbound", []):
         name = contact.get("name", "")
-        text = contact.get("last_message", "")
-        if not name or not text:
+        preview = contact.get("last_message", "")
+        if not name or not preview:
             continue
 
-        if await _already_seen(session, name, text):
+        # Dedup on the sidebar preview (check-updates signal).
+        if await _already_seen(session, name, preview):
             logger.debug("[wavi-poll] skip duplicate %s/%s", session, name)
             continue
-        await _mark_seen(session, name, text)
+        await _mark_seen(session, name, preview)
+
+        # Fetch the full message text via wavi get --newest.
+        full_text = await wd.get_last_inbound(session, name)
+        if full_text is None:
+            logger.warning("[wavi-poll] get_last_inbound failed for %s/%s, falling back to preview", session, name)
+            full_text = preview
 
         for bot_id in bot_ids:
             try:
-                await log_message(bot_id, session, name, name, text)
+                await log_message(bot_id, session, name, name, full_text)
             except Exception as e:
                 logger.warning("[wavi-poll] log_message error: %s", e)
 
         state = FlowState(
-            message=text,
+            message=full_text,
             message_type="text",
             contact_phone=name,
             contact_name=name,

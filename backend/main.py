@@ -65,6 +65,15 @@ class _TelegramTimedOutFilter(logging.Filter):
         return True
 
 
+class _ClosedLoopFilter(logging.Filter):
+    """Suprime cleanup de httpx cuando el event loop cierra antes de que terminen sus tasks — es inocuo."""
+    def filter(self, record):
+        if record.exc_info and isinstance(record.exc_info[1], RuntimeError):
+            if "Event loop is closed" in str(record.exc_info[1]):
+                return False
+        return True
+
+
 class _UvicornPollingFilter(logging.Filter):
     """Excluye del log de acceso de uvicorn los endpoints que la UI consulta periódicamente."""
     _POLLING = (
@@ -105,6 +114,7 @@ logging.getLogger("hpack").setLevel(logging.WARNING)
 logging.getLogger("asyncio").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.WARNING)
 logging.getLogger("telegram.ext._updater").addFilter(_TelegramTimedOutFilter())
+logging.getLogger("asyncio").addFilter(_ClosedLoopFilter())
 # El módulo de automatización en INFO — WebGL noise y mensajes ignorados quedan en DEBUG
 logging.getLogger("automation").setLevel(logging.INFO)
 # Excluir del log de acceso de uvicorn los endpoints de polling de la UI

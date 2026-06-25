@@ -94,6 +94,42 @@ def _read_json(path: Path) -> dict:
         return json.load(f)
 
 
+async def get_last_inbound(session: str, contact: str) -> str | None:
+    """
+    Fetch the last full inbound text message from a contact via wavi get --newest.
+    Returns the message text, or None if unavailable.
+    Contact name is normalized the same way wavi does internally (lower + spaces→underscores)
+    so the assets dir stays consistent across calls and --newest can use previous history.
+    """
+    contact_slug = contact.lower().replace(" ", "_")
+    assets_dir = WAVI_ROOT / "output" / session / contact_slug
+    args = [
+        "get", session, contact,
+        "--assets", str(assets_dir),
+        "--newest", "--max-iter", "1",
+        "--json-out",
+    ]
+    rc, out, err = await _run(*args, timeout=120)
+    if rc != 0 or not out.strip():
+        logger.warning("[wavi] get %s/%s rc=%s err=%s", session, contact, rc, err[:120])
+        return None
+    try:
+        bubbles = json.loads(out)
+        if not isinstance(bubbles, list):
+            return None
+        inbound = [
+            b for b in bubbles
+            if b.get("sender") == "other" and b.get("msg_type") == "text" and b.get("text", "").strip()
+        ]
+        if not inbound:
+            return None
+        # Array is oldest-first; last entry is most recent inbound message.
+        return inbound[-1]["text"].strip()
+    except (json.JSONDecodeError, KeyError) as e:
+        logger.warning("[wavi] get %s/%s parse error: %s", session, contact, e)
+        return None
+
+
 async def send(session: str, contact: str, message: str) -> dict:
     rc, out, err = await _run("send", session, contact, message, timeout=30)
     return {"ok": rc == 0, "stdout": out, "stderr": err}
