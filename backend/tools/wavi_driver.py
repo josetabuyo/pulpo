@@ -117,14 +117,11 @@ async def get_last_inbound(session: str, contact: str) -> str | None:
         bubbles = json.loads(out)
         if not isinstance(bubbles, list):
             return None
-        inbound = [
-            b for b in bubbles
-            if b.get("sender") == "other" and b.get("msg_type") == "text" and b.get("text", "").strip()
-        ]
-        if not inbound:
-            return None
-        # Array is oldest-first; last entry is most recent inbound message.
-        return inbound[-1]["text"].strip()
+        # Array is newest-first (id=1 = most recent); first match is the latest inbound message.
+        for b in bubbles:
+            if b.get("sender") == "other" and b.get("msg_type") == "text" and b.get("text", "").strip():
+                return b["text"].strip()
+        return None
     except (json.JSONDecodeError, KeyError) as e:
         logger.warning("[wavi] get %s/%s parse error: %s", session, contact, e)
         return None
