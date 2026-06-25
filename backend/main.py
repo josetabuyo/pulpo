@@ -114,6 +114,90 @@ logger = logging.getLogger(__name__)
 _tg_apps: list[Application] = []
 
 
+async def _start_tg_bot(cfg: dict) -> tuple | None:
+    """
+    Inicializa, arranca y pone en polling un bot de Telegram.
+    Maneja timeouts de red con retry exponencial en cada fase.
+    Retorna (tg_app, session_id, bot_info) o None si no se pudo conectar.
+    """
+    token_id = cfg["token"].split(":")[0]
+    session_id = f"{cfg['connection_id']}-tg-{token_id}"
+    label = f"[{cfg['connection_id']}/tg-{token_id}]"
+    tg_app = build_telegram_app(cfg)
+
+    # initialize() llama a get_me() — puede dar timeout si Telegram no responde.
+    for attempt in range(3):
+        try:
+            await tg_app.initialize()
+            break
+        except Exception as e:
+            if attempt < 2:
+                wait = 2 ** attempt + random.random() * 2
+                logger.warning(
+                    f"{label} Timeout al verificar token con Telegram "
+                    f"(intento {attempt + 1}/3): reintentando en {wait:.1f}s..."
+                )
+                await asyncio.sleep(wait)
+            else:
+                logger.error(
+                    f"{label} No se pudo inicializar el bot tras 3 intentos "
+                    f"({type(e).__name__}). "
+                    f"Causas probables: sin acceso a api.telegram.org o token inválido. "
+                    f"El bot se omite — el servidor arranca sin él."
+                )
+                return None
+
+    try:
+        await tg_app.start()
+    except Exception as e:
+        logger.error(
+            f"{label} Error al arrancar el dispatcher ({type(e).__name__}: {e}). "
+            f"El bot se omite."
+        )
+        try:
+            await tg_app.shutdown()
+        except Exception:
+            pass
+        return None
+
+    # Polling con retry y backoff exponencial
+    last_err = None
+    for attempt in range(3):
+        try:
+            await tg_app.updater.start_polling(drop_pending_updates=True)
+            last_err = None
+            break
+        except Exception as e:
+            last_err = e
+            if attempt < 2:
+                wait = 2 ** attempt + random.random() * 2
+                logger.warning(
+                    f"{label} Error al iniciar polling "
+                    f"(intento {attempt + 1}/3): {e}. Reintentando en {wait:.1f}s..."
+                )
+                await asyncio.sleep(wait)
+
+    if last_err is not None:
+        logger.error(
+            f"{label} No se pudo iniciar polling tras 3 intentos: {last_err}. "
+            f"El bot se omite."
+        )
+        await tg_app.stop()
+        await tg_app.shutdown()
+        return None
+
+    try:
+        bot_info = await tg_app.bot.get_me()
+    except Exception as e:
+        logger.error(f"{label} Error obteniendo info del bot: {e}. El bot se omite.")
+        await tg_app.updater.stop()
+        await tg_app.stop()
+        await tg_app.shutdown()
+        return None
+
+    return tg_app, session_id, bot_info
+
+
 async def _seed_pulpo_google_connection():
     """Si GOOGLE_SERVICE_ACCOUNT_JSON está en .env y no existe 'pulpo-default', lo crea."""
     import json as _json
@@ -162,53 +246,22 @@ async def lifespan(app: FastAPI):
         tg_configs = get_telegram_connections(config)
 
         for cfg in tg_configs:
-            token_id = cfg["token"].split(":")[0]
-            session_id = f"{cfg['connection_id']}-tg-{token_id}"
-            tg_app = build_telegram_app(cfg)
-            await tg_app.initialize()
-            await tg_app.start()
-
-            # Reintentar inicio de polling con backoff exponencial + jitter
-            max_retries = 3
-            last_err = None
-            for attempt in range(max_retries):
-                try:
-                    await tg_app.updater.start_polling(drop_pending_updates=True)
-                    break
-                except Exception as e:
-                    last_err = e
-                    if attempt < max_retries - 1:
-                        wait_time = 2 ** attempt + random.random() * 2
-                        logger.warning(
-                            f"[{cfg['connection_id']}/tg-{token_id}] Error al iniciar polling "
-                            f"(intento {attempt + 1}/{max_retries}): {e}. "
-                            f"Reintentando en {wait_time:.1f}s..."
-                        )
-                        await asyncio.sleep(wait_time)
-            else:
-                logger.error(
-                    f"[{cfg['connection_id']}/tg-{token_id}] No se pudo iniciar polling "
-                    f"después de {max_retries} intentos: {last_err}"
-                )
-                await tg_app.stop()
-                await tg_app.shutdown()
+            result = await _start_tg_bot(cfg)
+            if result is None:
                 continue
-
-            try:
-                bot_info = await tg_app.bot.get_me()
-                clients[session_id] = {
-                    "status": "ready", "qr": None,
-                    "connection_id": cfg["connection_id"], "type": "telegram",
-                    "client": tg_app,
-                    "bot_username": bot_info.username or "",
-                    "bot_name": bot_info.first_name or "",
-                }
-                _tg_apps.append(tg_app)
-                logger.info(f"[{cfg['connection_id']}/tg-{token_id}] Bot de Telegram listo — @{bot_info.username}.")
-            except Exception as e:
-                logger.error(f"[{cfg['connection_id']}/tg-{token_id}] Error obteniendo info del bot: {e}")
-                await tg_app.stop()
-                await tg_app.shutdown()
+            tg_app, session_id, bot_info = result
+            clients[session_id] = {
+                "status": "ready", "qr": None,
+                "connection_id": cfg["connection_id"], "type": "telegram",
+                "client": tg_app,
+                "bot_username": bot_info.username or "",
+                "bot_name": bot_info.first_name or "",
+            }
+            _tg_apps.append(tg_app)
+            token_id = cfg["token"].split(":")[0]
+            logger.info(
+                f"[{cfg['connection_id']}/tg-{token_id}] Bot de Telegram listo — @{bot_info.username}."
+            )
 
         if not tg_configs:
             logger.warning("No hay bots de Telegram configurados en connections.json.")
