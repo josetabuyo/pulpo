@@ -22,7 +22,7 @@ from .state import FlowState
 
 logger = logging.getLogger(__name__)
 
-_ROUTER_URL = os.getenv("MODEL_ROUTER_URL", "http://localhost:11435")
+_ROUTER_URL = os.getenv("MODEL_ROUTER_URL", "http://localhost:9002")
 
 _CATEGORIES = [
     "instruction", "reasoning", "coding", "code_debug",
