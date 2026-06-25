@@ -146,6 +146,38 @@ async def test_filtra_por_page_id():
 
 
 @pytest.mark.asyncio
+async def test_get_urls_retorna_set():
+    posts = [
+        {"url": "https://fb.com/share/p/AAA/", "text": "Post A", "image_url": ""},
+        {"url": "https://fb.com/share/p/BBB/", "text": "Post B", "image_url": ""},
+    ]
+    await fb_cache.save("luganense", "q1", posts)
+
+    urls = await fb_cache.get_urls("luganense")
+    assert isinstance(urls, set)
+    assert "https://fb.com/share/p/AAA/" in urls
+    assert "https://fb.com/share/p/BBB/" in urls
+
+
+@pytest.mark.asyncio
+async def test_get_urls_vacio_si_no_hay_posts():
+    urls = await fb_cache.get_urls("luganense")
+    assert urls == set()
+
+
+@pytest.mark.asyncio
+async def test_get_urls_filtra_por_page_id():
+    await fb_cache.save("pag_a", "q1", [{"url": "https://fb.com/A/", "text": "A", "image_url": ""}])
+    await fb_cache.save("pag_b", "q1", [{"url": "https://fb.com/B/", "text": "B", "image_url": ""}])
+
+    urls_a = await fb_cache.get_urls("pag_a")
+    urls_b = await fb_cache.get_urls("pag_b")
+    assert "https://fb.com/A/" in urls_a
+    assert "https://fb.com/B/" not in urls_a
+    assert "https://fb.com/B/" in urls_b
+
+
+@pytest.mark.asyncio
 async def test_posts_sin_url_se_ignoran():
     posts = [
         {"url": "", "text": "Sin URL", "image_url": ""},

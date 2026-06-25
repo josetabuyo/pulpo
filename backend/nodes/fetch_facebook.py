@@ -23,11 +23,13 @@ import logging
 import os
 import time
 from pathlib import Path
+from nodes import fb_cache as _fb_cache
 
 logger = logging.getLogger(__name__)
 
-_CACHE_TTL = 30 * 60       # 30 minutos
+_CACHE_TTL = 30 * 60       # 30 minutos para el cache en memoria por query
 _MAX_POSTS = 8
+_SCAN_LIMIT = 5            # posts máximos por visita a Facebook
 _SESSIONS_DIR = Path(__file__).parent.parent.parent / "data" / "sessions"
 
 # Lock global para evitar múltiples logins simultáneos cuando las cookies expiran
@@ -53,29 +55,43 @@ _posts_cache: dict[str, tuple[float, list[dict]]] = {}
 
 async def fetch_posts(page_id: str, query: str = "", numeric_id: str = "") -> list[dict]:
     """
-    Retorna lista de posts: [{"text": str, "image_url": str}].
-    - page_id:    slug de la página FB (ej: "luganense", "cnn")
-    - numeric_id: ID numérico (opcional) — habilita búsqueda directa dentro de la página
-    Los posts estáticos (solo para páginas configuradas) se incluyen al principio.
-    Cachea 30 min por (page_id, query).
+    Retorna lista de posts: [{"text": str, "image_url": str, "url": str}].
+
+    Estrategia (en orden):
+    1. Cache en memoria (30 min TTL) → retorno inmediato si hit
+    2. SQLite persistente (get_by_query) → si hay posts cacheados para esta query, se retornan
+    3. Facebook (máx _SCAN_LIMIT posts, early stop si el primer post ya está en cache)
+    4. Nuevos posts guardados en SQLite para futuras consultas
     """
     cache_key = f"{page_id}:{query}"
+
+    # 1. Memoria
     cached = _posts_cache.get(cache_key)
     if cached and time.time() - cached[0] < _CACHE_TTL:
-        logger.debug("[fetch_facebook] cache hit — %s", cache_key)
+        logger.debug("[fetch_facebook] mem-cache hit — %s", cache_key)
         return cached[1]
 
-    # numeric_id: el parámetro tiene precedencia, luego el diccionario hardcodeado
+    # 2. SQLite persistente
+    if query:
+        db_posts = await _fb_cache.get_by_query(page_id, query)
+        if db_posts:
+            logger.info("[fetch_facebook] SQLite hit — %d posts para '%s'", len(db_posts), query)
+            _posts_cache[cache_key] = (time.time(), db_posts)
+            return db_posts
+
+    # 3. Facebook (con early stop)
+    cached_urls = await _fb_cache.get_urls(page_id)
     resolved_numeric_id = numeric_id or _PAGE_NUMERIC_IDS.get(page_id, "")
+    scraped = await _load_posts(page_id, query, resolved_numeric_id, cached_urls=cached_urls)
 
-    scraped = await _load_posts(page_id, query, resolved_numeric_id)
+    # 4. Persistir nuevos posts
+    if scraped:
+        await _fb_cache.save(page_id, query, scraped)
 
-    # Posts estáticos: solo se agregan cuando hay query Y scraped tiene resultados,
-    # o cuando no hay query (browsing del feed general).
-    # Si la búsqueda no encontró nada, no contaminar con static posts irrelevantes.
+    # Posts estáticos: solo cuando hay scraping con resultados o no hay query
     if scraped or not query:
         static_posts = _STATIC_POSTS.get(page_id, [])
-        static_dicts = [{"text": sp, "image_url": ""} for sp in static_posts]
+        static_dicts = [{"text": sp, "image_url": "", "url": ""} for sp in static_posts]
         for i, sp in enumerate(static_dicts):
             logger.info("[fetch_facebook] static %d: %s", i + 1, sp["text"][:80].replace('\n', ' '))
         posts = static_dicts + scraped
@@ -103,8 +119,8 @@ def invalidate(page_id: str) -> None:
 
 # ─── Implementación interna ──────────────────────────────────────────────────
 
-async def _load_posts(page_id: str, query: str, numeric_id: str = "") -> list[dict]:
-    """Scrapea FB y retorna posts estructurados. Sin cache ni posts estáticos."""
+async def _load_posts(page_id: str, query: str, numeric_id: str = "", cached_urls: set | None = None) -> list[dict]:
+    """Scrapea FB y retorna posts nuevos (no presentes en cached_urls). Sin cache ni posts estáticos."""
     from playwright.async_api import async_playwright
 
     email = os.getenv("FB_EMAIL", "").strip()
@@ -160,9 +176,9 @@ async def _load_posts(page_id: str, query: str, numeric_id: str = "") -> list[di
             return []
 
         if query:
-            posts = await _search_and_scrape(page, query, page_id, numeric_id)
+            posts = await _search_and_scrape(page, query, page_id, numeric_id, cached_urls=cached_urls)
         else:
-            posts = await _scrape_posts(page, page_id)
+            posts = await _scrape_posts(page, page_id, cached_urls=cached_urls)
 
         if os.getenv("FB_DEBUG"):
             logger.info("[fetch_facebook] FB_DEBUG: pausa 60s — inspeccioná el browser antes de cerrar")
@@ -393,11 +409,12 @@ async def _extract_feed_urls_sorted(page, numeric_id: str = "") -> list[str]:
         return []
 
 
-async def _search_and_scrape(page, query: str, page_id: str = "", numeric_id: str = "") -> list[dict]:
+async def _search_and_scrape(page, query: str, page_id: str = "", numeric_id: str = "", cached_urls: set | None = None) -> list[dict]:
     """
-    Navega a la URL de búsqueda directa de la página.
-    Fallback: scraping del feed con seeds si la búsqueda no rinde resultados.
-    Retorna list[{text, image_url}].
+    Navega a la URL de búsqueda directa de la página y extrae los primeros _SCAN_LIMIT posts.
+    Early stop: si el primer post ya está en cached_urls, cierra sin scraping.
+    Fallback: scraping del feed si no hay ID numérico.
+    Retorna list[{text, image_url, url}] con los posts NUEVOS (no en cached_urls).
     """
     import urllib.parse
 
@@ -426,95 +443,39 @@ async def _search_and_scrape(page, query: str, page_id: str = "", numeric_id: st
                     full_page=False,
                 )
 
-            # Viewport grande para maximizar posts visibles por ronda
             original_vp = page.viewport_size or {"width": 1280, "height": 800}
             await page.set_viewport_size({"width": 1280, "height": 2400})
             await page.wait_for_timeout(800)
 
-            # Scroll con ancla: acumula globalmente, avanza hasta que el último
-            # post visible quede arriba (evita perder posts por virtualización del DOM)
-            MAX_ROUNDS = 25
-            MAX_POSTS = 30
-            all_seen: set[str] = set()
-            post_urls: list[str] = []
-            dry_rounds = 0
-
             try:
-                for _ in range(MAX_ROUNDS):
-                    batch = await _extract_feed_urls_sorted(page, numeric_id=numeric_id)
+                urls = await _extract_feed_urls_sorted(page)
+                urls = urls[:_SCAN_LIMIT]
 
-                    new_in_batch = [u for u in batch if u not in all_seen]
-                    for u in new_in_batch:
-                        all_seen.add(u)
-                        post_urls.append(u)
+                if not urls:
+                    logger.info("[fetch_facebook] Sin URLs de posts para query '%s'", query)
+                    return []
 
-                    logger.info(
-                        "[fetch_facebook] scroll round: +%d nuevos, %d acumulados",
-                        len(new_in_batch), len(post_urls),
-                    )
+                # Early stop: si el primer post ya está en cache, no hay nada nuevo
+                if cached_urls and urls[0] in cached_urls:
+                    logger.info("[fetch_facebook] primer post ya en cache — cerrando browser (query='%s')", query)
+                    return []
 
-                    if len(post_urls) >= MAX_POSTS:
-                        break
+                ctx = page.context
+                posts = []
+                for url in urls:
+                    if cached_urls and url in cached_urls:
+                        logger.info("[fetch_facebook] post ya en cache, saltando: %s", url[:60])
+                        continue
+                    post = await _scrape_post_page(ctx, url)
+                    if post.get("text"):
+                        posts.append(post)
+                        logger.info("[fetch_facebook] nuevo post %d: %s", len(posts), post["text"][:80].replace('\n', ' '))
 
-                    if not new_in_batch:
-                        dry_rounds += 1
-                        if dry_rounds >= 3:
-                            break
-                    else:
-                        dry_rounds = 0
-
-                    if not batch:
-                        break
-
-                    # Ancla: scrollear hasta que el último post visible quede arriba,
-                    # luego empujar un viewport más para saltar el área ya vista y
-                    # activar el lazy loading de FB con contenido nuevo abajo.
-                    last_url = batch[-1]
-                    scrolled = await page.evaluate("""(lastUrl) => {
-                        const patterns = ['/photo/', '/posts/', '/permalink.php', '/share/p/', '/story.php'];
-                        for (const a of document.querySelectorAll('a[href]')) {
-                            const href = a.href;
-                            let url = null;
-                            if (href.includes('/photo/') && href.includes('fbid=')) {
-                                const m = href.match(/fbid=([0-9]+)/);
-                                if (m) url = 'https://www.facebook.com/photo?fbid=' + m[1];
-                            } else if (patterns.some(p => href.includes(p))) {
-                                url = href.split('?')[0];
-                            }
-                            if (url === lastUrl) {
-                                a.scrollIntoView({ block: 'start', behavior: 'instant' });
-                                return true;
-                            }
-                        }
-                        return false;
-                    }""", last_url)
-
-                    if not scrolled:
-                        # Fallback: saltar un viewport completo desde posición actual
-                        await page.evaluate("window.scrollBy(0, window.innerHeight)")
-                    else:
-                        # Ancla posicionó el último post arriba → empujar para saltar el área ya vista
-                        await page.evaluate("window.scrollBy(0, window.innerHeight)")
-
-                    await page.wait_for_timeout(2_500)
+                logger.info("[fetch_facebook] %d nuevos posts para '%s'", len(posts), query)
+                return posts
             finally:
                 await page.set_viewport_size(original_vp)
 
-            post_urls = post_urls[:MAX_POSTS]
-            if not post_urls:
-                logger.info("[fetch_facebook] Sin URLs de posts para query '%s'", query)
-                return []
-
-            ctx = page.context
-            posts = []
-            for url in post_urls:
-                post = await _scrape_post_page(ctx, url)
-                if post.get("text"):
-                    posts.append(post)
-                    logger.info("[fetch_facebook] post %d: %s", len(posts), post["text"][:80].replace('\n', ' '))
-
-            logger.info("[fetch_facebook] Búsqueda: %d posts para '%s'", len(posts), query)
-            return posts
         except Exception as e:
             err_str = str(e)
             if "ERR_TOO_MANY_REDIRECTS" in err_str or "net::ERR_" in err_str:
@@ -527,22 +488,31 @@ async def _search_and_scrape(page, query: str, page_id: str = "", numeric_id: st
     else:
         logger.info("[fetch_facebook] Sin ID numérico para '%s', usando feed", page_id)
 
-    return await _scrape_posts(page, page_id)
+    return await _scrape_posts(page, page_id, cached_urls=cached_urls)
 
 
-async def _scrape_posts(page, page_id: str = "") -> list[dict]:
+async def _scrape_posts(page, page_id: str = "", cached_urls: set | None = None) -> list[dict]:
     """
-    Recolecta URLs de posts del perfil, navega a cada uno y extrae texto + imagen.
-    Retorna list[{text, image_url}].
+    Recolecta los primeros _SCAN_LIMIT posts del feed del perfil.
+    Early stop si el primer post ya está en cached_urls.
+    Retorna list[{text, image_url, url}] con los posts nuevos.
     """
     urls = await _collect_post_urls(page, page_id)
     if not urls:
         logger.warning("[fetch_facebook] No se encontraron URLs de posts")
         return []
 
+    urls = urls[:_SCAN_LIMIT]
+
+    if cached_urls and urls[0] in cached_urls:
+        logger.info("[fetch_facebook] primer post ya en cache (feed) — nada nuevo")
+        return []
+
     ctx = page.context
     posts = []
     for url in urls:
+        if cached_urls and url in cached_urls:
+            continue
         post = await _scrape_post_page(ctx, url)
         if post["text"]:
             posts.append(post)

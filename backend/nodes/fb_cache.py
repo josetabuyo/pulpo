@@ -212,6 +212,17 @@ async def get_all(page_id: str) -> list[dict]:
     return result
 
 
+async def get_urls(page_id: str) -> set[str]:
+    """Set de URLs ya cacheadas para un page_id. Para chequeo O(1) de early stop."""
+    import aiosqlite
+    await _init()
+    async with aiosqlite.connect(_DB_PATH) as db:
+        async with db.execute(
+            "SELECT url FROM fb_posts WHERE page_id = ?", (page_id,)
+        ) as cur:
+            return {row[0] for row in await cur.fetchall()}
+
+
 async def get_by_query(page_id: str, query: str, max_age: int = 0) -> list[dict]:
     """
     Posts que alguna vez aparecieron para esa query.

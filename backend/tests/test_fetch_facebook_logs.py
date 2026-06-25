@@ -2,12 +2,23 @@
 import logging
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from nodes import fetch_facebook
+
+
+@pytest.fixture(autouse=True)
+def mock_fb_cache_module():
+    """Aísla la cache SQLite — estos tests solo prueban lógica de fetch_facebook."""
+    mock = MagicMock()
+    mock.get_by_query = AsyncMock(return_value=[])
+    mock.get_urls = AsyncMock(return_value=set())
+    mock.save = AsyncMock(return_value=None)
+    with patch.object(fetch_facebook, "_fb_cache", mock):
+        yield mock
 
 
 # ─── Tests de logs (estáticos) ───────────────────────────────────────────────
