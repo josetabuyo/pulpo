@@ -22,8 +22,17 @@ from graphs.nodes.state import FlowState
 logger = logging.getLogger(__name__)
 _task: asyncio.Task | None = None
 
+# Sesiones suspendidas: check_updates devolvió qr_needed → no reintentar
+# hasta que el usuario presione Reconectar (se limpia en cada restart también).
+_suspended: set[str] = set()
+
 # L1: (session, contact_name, msg_hash) — cache de la tabla wavi_seen.
 _seen: set[tuple[str, str, str]] = set()
+
+
+def resume_session(session: str) -> None:
+    """Quita la sesión de la lista suspendida para que el poller la vuelva a intentar."""
+    _suspended.discard(session)
 
 
 async def _already_seen(session: str, contact: str, text: str) -> bool:
@@ -56,6 +65,10 @@ async def _poll_once():
 
 
 async def _poll_session(session: str):
+    if session in _suspended:
+        logger.debug("[wavi-poll] skip %s — suspended (qr_needed)", session)
+        return
+
     # Fast pid-file check — avoids spawning Chrome just to see if daemon is alive.
     if not wd.daemon_running_by_pid(session):
         logger.debug("[wavi-poll] skip %s — no pid", session)
@@ -68,6 +81,9 @@ async def _poll_session(session: str):
 
     result = await wd.check_updates(session)
     if result.get("status") == "error":
+        if "qr_needed" in result.get("error", ""):
+            _suspended.add(session)
+            logger.info("[wavi-poll] %s suspendida — qr_needed (esperando Reconectar)", session)
         return
 
     for contact in result.get("new_inbound", []):

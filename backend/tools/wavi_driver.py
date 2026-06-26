@@ -1,27 +1,42 @@
 """
-Async wrapper around the `wavi` CLI.
-All calls use asyncio.create_subprocess_exec so they never block the event loop.
+Wrapper around the wavi Python library.
 
-NOTE: wavi check-updates identifies contacts by display name only (no phone number).
-As a result, contact_phone in FlowState holds the display name when coming from WhatsApp.
-Filters and cooldowns key on display names, which works but differs from Telegram (numeric IDs).
+Replaces the previous subprocess-based driver. Same public interface —
+wavi_poller.py and api/wavi.py require no changes.
+
+connect() is the only function that still uses subprocess: it's a one-time
+interactive operation (starts Chrome + QR scan) and the library has no
+headless equivalent for the daemon-start flow.
 """
 import asyncio
-import json
 import logging
 import os
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Configurables por env (.env de la raíz del worktree); defaults relativos a $HOME.
 WAVI_BIN = os.getenv("WAVI_BIN", str(Path.home() / ".local" / "bin" / "wavi"))
 WAVI_ROOT = Path(os.getenv("WAVI_ROOT", str(Path.home() / "Development" / "wavi")))
-WAVI_SESSIONS_DIR = WAVI_ROOT / "data" / "sessions"
+WAVI_SESSIONS_DIR = Path(os.getenv(
+    "WAVI_SESSIONS_DIR",
+    str(WAVI_ROOT / "data" / "sessions"),
+))
 WAVI_QR_PAGE = WAVI_ROOT / "data" / "qr.html"
 
 
-async def _run(*args: str, timeout: int = 120) -> tuple[int, str, str]:
+def _profile(session: str) -> Path:
+    """Resolve session name to profile path, respecting the .default alias."""
+    alias_file = WAVI_SESSIONS_DIR / ".default"
+    if session == "default" and alias_file.exists():
+        target = alias_file.read_text().strip()
+        if target:
+            return WAVI_SESSIONS_DIR / target
+    return WAVI_SESSIONS_DIR / session
+
+
+# ── connect — stays as subprocess (interactive QR flow) ──────────────────────
+
+async def _run_subprocess(*args: str, timeout: int = 120) -> tuple[int, str, str]:
     proc = await asyncio.create_subprocess_exec(
         WAVI_BIN, *args,
         stdout=asyncio.subprocess.PIPE,
@@ -34,107 +49,120 @@ async def _run(*args: str, timeout: int = 120) -> tuple[int, str, str]:
         try:
             proc.kill()
         except ProcessLookupError:
-            pass  # ya terminó solo
+            pass
         return -1, "", "timeout"
 
 
 async def connect(session: str = "default", new: bool = False) -> dict:
+    """Start Chrome daemon and authenticate (QR scan if needed). Interactive — uses subprocess."""
     args = ["connect", session]
     if new:
         args.append("--new")
-    rc, out, err = await _run(*args, timeout=180)
+    rc, out, err = await _run_subprocess(*args, timeout=180)
     qr_page = str(WAVI_QR_PAGE) if WAVI_QR_PAGE.exists() else None
     ok = rc == 0 or "QR" in out or "authenticated" in out.lower()
     logger.info("[wavi] connect %s rc=%s", session, rc)
     return {"ok": ok, "stdout": out, "stderr": err, "qr_page": qr_page}
 
 
+# ── direct library calls ──────────────────────────────────────────────────────
+
 def daemon_running_by_pid(session: str) -> bool:
-    """Fast check using the pid file — no subprocess spawn."""
-    pid_file = WAVI_SESSIONS_DIR / session / "chrome_daemon.pid"
-    if not pid_file.exists():
-        return False
-    try:
-        pid = int(pid_file.read_text().strip())
-        os.kill(pid, 0)  # signal 0 = check if process exists, no actual signal sent
-        return True
-    except (ValueError, OSError):
-        return False
+    """Fast check using the pid file — no subprocess, no library overhead."""
+    from wavi.session import WASession
+    return WASession(_profile(session)).daemon_alive()
 
 
 async def status(session: str) -> dict:
-    rc, out, err = await _run("status", session, timeout=15)
-    daemon_running = "daemon=running" in out
-    authenticated = "session=restored" in out
-    return {
-        "session": session,
-        "daemon_running": daemon_running,
-        "authenticated": authenticated,
-        "raw": out,
-    }
+    from wavi.session import WASession, _is_process_alive
+    profile = _profile(session)
+    s = WASession(profile)
+    pid = s._load_pid()
+    daemon_running = bool(pid and _is_process_alive(pid))
+    if not daemon_running:
+        return {"session": session, "daemon_running": False, "authenticated": False, "raw": ""}
+    try:
+        result = await s.connect()
+        await s.close()
+        return {
+            "session": session,
+            "daemon_running": True,
+            "authenticated": result == "restored",
+            "raw": result,
+        }
+    except Exception as e:
+        logger.warning("[wavi] status %s error: %s", session, e)
+        return {"session": session, "daemon_running": True, "authenticated": False, "raw": str(e)}
 
 
 async def check_updates(session: str, reset: bool = False) -> dict:
+    from wavi.runner import WARunner
+    profile = _profile(session)
     assets_dir = WAVI_ROOT / "output" / session / "last-updates"
-    args = ["check-updates", session, "--assets", str(assets_dir)]
-    if reset:
-        args.append("--reset")
-    rc, out, err = await _run(*args, timeout=60)
-    updates_file = assets_dir / "updates.json"
+    runner = WARunner(profile)
     try:
-        data = await asyncio.to_thread(_read_json, updates_file)
-        return data
+        return await runner.check_updates(assets_dir=assets_dir, reset=reset)
     except Exception as e:
-        logger.warning("[wavi] check_updates %s: cannot read updates.json: %s", session, e)
-        return {"status": "error", "new_inbound": []}
-
-
-def _read_json(path: Path) -> dict:
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+        logger.warning("[wavi] check_updates %s error: %s", session, e)
+        return {"status": "error", "error": str(e), "new_inbound": []}
 
 
 async def get_last_inbound(session: str, contact: str) -> str | None:
     """
     Fetch the last full inbound text message from a contact via wavi get --newest.
     Returns the message text, or None if unavailable.
-    Contact name is normalized the same way wavi does internally (lower + spaces→underscores)
-    so the assets dir stays consistent across calls and --newest can use previous history.
     """
+    from wavi.runner import run_enhanced
     contact_slug = contact.lower().replace(" ", "_")
     assets_dir = WAVI_ROOT / "output" / session / contact_slug
-    args = [
-        "get", session, contact,
-        "--assets", str(assets_dir),
-        "--newest", "--max-iter", "1",
-        "--json-out",
-    ]
-    rc, out, err = await _run(*args, timeout=120)
-    if rc != 0 or not out.strip():
-        logger.warning("[wavi] get %s/%s rc=%s err=%s", session, contact, rc, err[:120])
-        return None
     try:
-        bubbles = json.loads(out)
-        if not isinstance(bubbles, list):
-            return None
-        # Array is newest-first (id=1 = most recent); first match is the latest inbound message.
-        for b in bubbles:
-            if b.get("sender") == "other" and b.get("msg_type") == "text" and b.get("text", "").strip():
-                return b["text"].strip()
+        result = await run_enhanced(
+            profile_dir=_profile(session),
+            contact=contact,
+            assets_dir=assets_dir,
+            max_iterations=1,
+            newest=True,
+        )
+        for b in result["bubbles"]:
+            if b.sender == "other" and b.msg_type == "text" and b.text.strip():
+                return b.text.strip()
         return None
-    except (json.JSONDecodeError, KeyError) as e:
-        logger.warning("[wavi] get %s/%s parse error: %s", session, contact, e)
+    except Exception as e:
+        logger.warning("[wavi] get_last_inbound %s/%s error: %s", session, contact, e)
         return None
 
 
 async def send(session: str, contact: str, message: str) -> dict:
-    rc, out, err = await _run("send", session, contact, message, timeout=30)
-    return {"ok": rc == 0, "stdout": out, "stderr": err}
+    from wavi.session import WASession
+    profile = _profile(session)
+    s = WASession(profile)
+    try:
+        st = await s.connect()
+        if st != "restored":
+            return {"ok": False, "stdout": "", "stderr": f"session not authenticated: {st}"}
+        await s.navigate_to_contact(contact)
+        await s.send_message(message)
+        return {"ok": True, "stdout": "", "stderr": ""}
+    except Exception as e:
+        logger.warning("[wavi] send %s/%s error: %s", session, contact, e)
+        return {"ok": False, "stdout": "", "stderr": str(e)}
+    finally:
+        try:
+            await s.close()
+        except Exception:
+            pass
 
 
 async def stop(session: str) -> dict:
-    rc, out, err = await _run("stop", session, timeout=30)
-    return {"ok": rc == 0, "stdout": out}
+    from wavi.session import WASession
+    profile = _profile(session)
+    s = WASession(profile)
+    try:
+        await s.stop_daemon()
+        return {"ok": True, "stdout": "Daemon stopped."}
+    except Exception as e:
+        logger.warning("[wavi] stop %s error: %s", session, e)
+        return {"ok": False, "stdout": str(e)}
 
 
 def get_qr_page_path() -> Path:

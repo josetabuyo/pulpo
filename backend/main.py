@@ -33,6 +33,7 @@ from api.settings import router as settings_router
 from api.architecture import router as architecture_router
 import sim as sim_engine
 import wavi_poller
+import teli_poller
 
 # ── Logging con rotación automática ──────────────────────────────────────────
 _PROJECT_DIR = Path(__file__).parent.parent
@@ -56,12 +57,22 @@ class _FileLogFilter(logging.Filter):
 
 
 class _TelegramTimedOutFilter(logging.Filter):
-    """Suprime TimedOut de telegram.ext._updater durante el cleanup al apagar — es inocuo."""
+    """Suprime errores de red transitorios del polling de Telegram.
+
+    Aplica doble chequeo: por mensaje (más robusto) y por tipo de excepción.
+    El filter va en el handler, no en el logger, para atrapar registros de
+    cualquier logger de telegram sin importar cuál propaga primero.
+    """
     def filter(self, record):
+        if "polling for updates" in record.getMessage():
+            return False
         if record.exc_info and record.exc_info[1] is not None:
-            from telegram.error import TimedOut
-            if isinstance(record.exc_info[1], TimedOut):
-                return False
+            try:
+                from telegram.error import TimedOut, NetworkError
+                if isinstance(record.exc_info[1], (TimedOut, NetworkError)):
+                    return False
+            except Exception:
+                pass
         return True
 
 
@@ -99,6 +110,8 @@ _log_handler = RotatingFileHandler(
 _log_handler.setLevel(logging.INFO)   # solo INFO+ va al archivo; DEBUG nunca
 _log_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
 _log_handler.addFilter(_FileLogFilter())
+_log_handler.addFilter(_TelegramTimedOutFilter())
+_log_handler.addFilter(_ClosedLoopFilter())
 
 # Sin _stdout_handler: start.sh redirige stdout al log; tener ambos duplicaría entradas
 # y permitiría que DEBUG de librerías (telegram, httpx) se cuele al archivo vía stdout capturado.
@@ -113,8 +126,6 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("hpack").setLevel(logging.WARNING)
 logging.getLogger("asyncio").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.WARNING)
-logging.getLogger("telegram.ext._updater").addFilter(_TelegramTimedOutFilter())
-logging.getLogger("asyncio").addFilter(_ClosedLoopFilter())
 # El módulo de automatización en INFO — WebGL noise y mensajes ignorados quedan en DEBUG
 logging.getLogger("automation").setLevel(logging.INFO)
 # Excluir del log de acceso de uvicorn los endpoints de polling de la UI
@@ -279,6 +290,9 @@ async def lifespan(app: FastAPI):
         wavi_poller.start()
         logger.info("[wavi-poll] scheduler arrancado")
 
+        await teli_poller.start()
+        logger.info("[teli-poll] bots conectados")
+
     yield
 
     # Apagado
@@ -289,6 +303,7 @@ async def lifespan(app: FastAPI):
             await tg_app.shutdown()
         logger.info("Bots de Telegram detenidos.")
         await wavi_poller.stop()
+        await teli_poller.stop()
 
 
 from slowapi import _rate_limit_exceeded_handler

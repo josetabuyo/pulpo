@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from api.deps import require_admin, ADMIN_PASSWORD
 import tools.wavi_driver as wd
+import wavi_poller
 
 router = APIRouter()
 
@@ -42,6 +43,23 @@ async def create_wavi_session(body: SessionCreate):
 async def _connect_and_cleanup(session: str):
     try:
         await wd.connect(session, new=True)
+    finally:
+        _CONNECTING_SESSIONS.discard(session)
+
+
+@router.post("/wavi/sessions/{session}/connect", dependencies=[Depends(require_admin)])
+async def reconnect_wavi_session(session: str):
+    session = _validate_session(session)
+    wavi_poller.resume_session(session)
+    if session not in _CONNECTING_SESSIONS:
+        _CONNECTING_SESSIONS.add(session)
+        asyncio.create_task(_reconnect_and_cleanup(session))
+    return {"ok": True, "qr_url": "/api/wavi/qr-page", "status": "connecting", "session": session}
+
+
+async def _reconnect_and_cleanup(session: str):
+    try:
+        await wd.connect(session, new=False)
     finally:
         _CONNECTING_SESSIONS.discard(session)
 

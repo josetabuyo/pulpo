@@ -4,7 +4,7 @@
  */
 import { useState, useEffect } from 'react'
 
-export function WaviConnectionsList({ conns, mode, onDelete }) {
+export function WaviConnectionsList({ conns, mode, onDelete, onReconnect }) {
   if (conns.length === 0) return null
   return (
     <div>
@@ -14,6 +14,13 @@ export function WaviConnectionsList({ conns, mode, onDelete }) {
           <span style={{ color: conn.status === 'ready' ? '#22c55e' : '#94a3b8' }}>📱</span>
           <span style={{ flex: 1 }}>{conn.number}</span>
           <span style={{ fontSize: 11, color: '#94a3b8' }}>{conn.status || 'stopped'}</span>
+          {mode === 'admin' && conn.status !== 'ready' && (
+            <button
+              title="Reconectar"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', fontSize: 14, color: '#15803d', lineHeight: 1 }}
+              onClick={() => onReconnect?.(conn.number)}
+            >↻</button>
+          )}
           {mode === 'admin' && (
             <button className="btn-sm" style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px' }}
               onClick={() => onDelete(conn.number)}>✕</button>

@@ -102,6 +102,11 @@ export default function BotCard({
     onRefresh?.()
   }
 
+  async function handleReconnectWavi(number) {
+    await apiCall('POST', `/wavi/sessions/${number}/connect`, null).catch(() => null)
+    onRefresh?.()
+  }
+
   async function handleAddTg(e) {
     e.preventDefault(); setTgErr('')
     const token = tgInput.trim(); if (!token) return
@@ -230,7 +235,7 @@ export default function BotCard({
               </div>
             )}
 
-            <WaviConnectionsList conns={waviConns} mode={mode} onDelete={handleDeleteWavi} />
+            <WaviConnectionsList conns={waviConns} mode={mode} onDelete={handleDeleteWavi} onReconnect={handleReconnectWavi} />
 
             {conns.length === 0 && mode === 'bot' && (
               <div className="empty" style={{ padding: '20px 0 8px' }}>Sin canales configurados</div>
