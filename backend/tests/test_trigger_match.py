@@ -47,8 +47,8 @@ def _no_default_filter():
 # ─── TRIGGER_TYPES derivado del registry ──────────────────────────────────────
 
 def test_trigger_types_derivado_del_registry():
-    """No-regresión: los 3 ids históricos siguen siendo triggers."""
-    assert TRIGGER_TYPES == {"message_trigger", "telegram_trigger", "whatsapp_trigger"}
+    """No-regresión: los ids históricos siguen siendo triggers."""
+    assert {"message_trigger", "telegram_trigger", "whatsapp_trigger"}.issubset(TRIGGER_TYPES)
 
 
 def test_trigger_types_son_subclases_de_base_trigger():

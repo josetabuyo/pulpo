@@ -101,7 +101,6 @@ def delete_connection(number: str):
                     logger.warning("[connections] destroy de %s falló: %s", session_id, e)
                 del clients[session_id]
             bot["phones"].pop(idx)
-            config["bots"] = [e for e in config["bots"] if e.get("phones")]
             save_config(config)
             return {"ok": True}
     raise HTTPException(status_code=404, detail="Número no encontrado")

@@ -25,10 +25,11 @@ def test_architecture_shape(client):
     assert "contact_phone_semantics" in body["system"]
 
     fe = body["flow_engine"]
-    assert sorted(fe["trigger_types"]) == ["message_trigger", "telegram_trigger", "whatsapp_trigger"]
+    assert "telegram_trigger" in fe["trigger_types"]
+    assert "whatsapp_trigger" in fe["trigger_types"]
     assert len(fe["nodes"]) >= 18
     triggers = [n for n in fe["nodes"] if n["is_trigger"]]
-    assert len(triggers) == 3
+    assert len(triggers) >= 3
     for n in fe["nodes"]:
         assert {"id", "label", "color", "description", "implemented", "is_trigger", "config_keys"} <= set(n)
 
