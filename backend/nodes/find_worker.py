@@ -18,13 +18,13 @@ logger = logging.getLogger(__name__)
 _CONFIG_DIR = Path(__file__).parent.parent / "config" / "oficios"
 _MODEL = "llama-3.3-70b-versatile"
 
-_IDENTIFY_SYSTEM = """Sos un clasificador de oficios para un bot de barrio.
-Dado un mensaje de un vecino que busca un servicio, identificá el oficio en UNA sola palabra en minúsculas.
+_IDENTIFY_SYSTEM = """Sos un clasificador de servicios para un bot de barrio.
+Dado un mensaje de un vecino que busca un servicio, identificá el tipo de servicio en UNA sola palabra en minúsculas.
 
-Oficios válidos: herrero, electricista, plomero, albanil, pintor, gasista, carpintero, mecanico, jardinero, techista, otro
+Servicios válidos: herrero, electricista, albanil, plomero, pintor, carpintero, gasista, techista, cerrajero, jardinero, vidrieria, fumigador, mecanico, yesero, zinguero, tapicero, instalador_ac, colocador_pisos, informatico, electrodomesticos, mudanza, podador, reparador_electronico, impermeabilizador, desmalezador, gomero, marmolero, reparador_rejas, bicicleteria, sanitarista, otro
 
-Si no reconocés un oficio específico, respondé "otro".
-Respondé SOLO la palabra del oficio. Sin explicaciones."""
+Si no reconocés un servicio específico, respondé "otro".
+Respondé SOLO la palabra del servicio. Sin explicaciones."""
 
 
 async def find(message: str, bot_id: str) -> tuple[str, dict | None]:
@@ -72,11 +72,11 @@ def _lookup_worker(bot_id: str, oficio: str) -> dict | None:
         logger.error("[find_worker] Error leyendo config '%s': %s", bot_id, e)
         return None
 
-    lista = data.get("oficios", {}).get(oficio, [])
+    lista = data.get("servicios", data.get("oficios", {})).get(oficio, [])
     activos = [w for w in lista if w.get("activo")]
     if not activos:
         return None
 
     worker = activos[0]
-    worker["oficio"] = oficio
+    worker["servicio"] = oficio
     return worker

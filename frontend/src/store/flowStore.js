@@ -14,6 +14,7 @@ export function useFlowStore(selector) {
 // El orden importa: así aparecen en la paleta.
 export const PALETTE_TYPES = [
   'telegram_trigger',
+  'api_trigger',
   'message_join',
   'router',
   'llm',
@@ -36,6 +37,7 @@ export const PALETTE_TYPES = [
 const DEFAULT_CONFIGS = {
   message_trigger:   { connection_id: '', contact_phone: '', message_pattern: '' },
   telegram_trigger:  { connection_id: '', contact_filter: { include_all_known: false, include_unknown: false, included: [], excluded: [] }, message_pattern: '', cooldown_hours: 4 },
+  api_trigger:       {},
   message_join:      {},
   router:          { prompt: '', routes: [], fallback: '', model: 'llama-3.3-70b-versatile' },
   llm:             { prompt: '', model: 'llama-3.3-70b-versatile', temperature: 0.3, output: 'reply' },

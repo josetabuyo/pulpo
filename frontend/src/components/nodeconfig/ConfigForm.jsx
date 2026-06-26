@@ -15,7 +15,7 @@ import SummarizeInfo from './SummarizeInfo.jsx'
 import SheetCacheButton from './SheetCacheButton.jsx'
 import FbCacheModal from './FbCacheModal.jsx'
 
-const TRIGGER_TYPES = new Set(['telegram_trigger', 'message_trigger', 'whatsapp_trigger'])
+const TRIGGER_TYPES = new Set(['telegram_trigger', 'message_trigger', 'whatsapp_trigger', 'api_trigger'])
 
 const FB_POLL_MS = 3_000        // intervalo de chequeo del login FB
 const FB_MAX_WAIT_MS = 130_000  // corte del polling si el login nunca llega
@@ -183,6 +183,34 @@ export default function ConfigForm({ node, schema, botId, flowId, connections, a
       </div>
 
       <div style={{ borderTop: '1px solid #1e293b', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 12, flex: 1, overflowY: 'auto' }}>
+
+        {nodeType === 'api_trigger' && flowId && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={S.label}>ENDPOINT</span>
+            <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.5 }}>
+              Enviá un <code style={{ color: '#60a5fa' }}>POST</code> a esta URL para disparar el flow desde este trigger:
+            </div>
+            <div style={{
+              background: '#0f172a',
+              border: '1px solid #334155',
+              borderRadius: 6,
+              padding: '8px 10px',
+              fontFamily: 'monospace',
+              fontSize: 10,
+              color: '#a78bfa',
+              wordBreak: 'break-all',
+              cursor: 'pointer',
+              userSelect: 'all',
+            }}
+              title="Clic para seleccionar"
+            >
+              {window.location.origin}/api/flows/{flowId}/trigger/{node.id}
+            </div>
+            <div style={{ fontSize: 10, color: '#475569' }}>
+              Body JSON opcional: <code style={{ color: '#64748b' }}>{`{"message":"texto","contact_phone":"id"}`}</code>
+            </div>
+          </div>
+        )}
 
         {nodeType === 'summarize' && <SummarizeInfo botId={botId} apiCall={apiCall} onGoToUIs={onGoToUIs} />}
 

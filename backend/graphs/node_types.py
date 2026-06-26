@@ -46,6 +46,12 @@ NODE_TYPES: dict[str, NodeType] = {
         color="#15803d",
         description="Punto de entrada para mensajes de WhatsApp (Wavi). Solo activa el flow si el mensaje viene por WA.",
     ),
+    "api_trigger": NodeType(
+        id="api_trigger",
+        label="API Trigger",
+        color="#7c3aed",
+        description="Punto de entrada via HTTP. Activa el flow con un POST a /api/flows/{flow_id}/trigger.",
+    ),
     "message_join": NodeType(
         id="message_join",
         label="+",
@@ -154,6 +160,7 @@ _CLASSIFY_SUBSTRINGS: list[tuple[str, str]] = [
     ("summariz",  "summarize"),
     ("whatsapp_trigger", "whatsapp_trigger"),
     ("telegram_trigger", "telegram_trigger"),
+    ("api_trigger",      "api_trigger"),
     ("trigger",   "message_trigger"),
     ("llm",       "llm"),
     ("fetch",     "fetch"),

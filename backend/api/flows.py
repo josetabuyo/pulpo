@@ -328,6 +328,50 @@ async def replay_flow(
     return {"processed": processed, "skipped": skipped}
 
 
+class ApiTriggerBody(BaseModel):
+    message: str = ""
+    contact_phone: str = "api"
+    contact_name: str = "API"
+
+
+@router.post("/flows/{flow_id}/trigger/{node_id}")
+async def trigger_flow(flow_id: str, node_id: str, body: ApiTriggerBody = None):
+    """
+    Dispara un flow desde un nodo api_trigger específico.
+
+    La URL es única por nodo, lo que permite tener varios api_trigger
+    en un mismo flow apuntando a distintas ramas.
+
+    Retorna {ok: true, reply: "..."} o {ok: true, reply: null} si el flow
+    no genera respuesta.
+    """
+    flow = await db.get_flow(flow_id)
+    if not flow or not flow.get("active"):
+        raise HTTPException(status_code=404, detail="Flow no encontrado o inactivo")
+
+    nodes = flow.get("definition", {}).get("nodes", [])
+    trigger_node = next((n for n in nodes if n.get("id") == node_id), None)
+    if not trigger_node or trigger_node.get("type") != "api_trigger":
+        raise HTTPException(status_code=404, detail="Nodo api_trigger no encontrado")
+
+    if body is None:
+        body = ApiTriggerBody()
+
+    from graphs.compiler import execute_flow
+    from graphs.nodes.state import FlowState
+
+    state = FlowState(
+        message=body.message,
+        canal="api",
+        contact_phone=body.contact_phone,
+        contact_name=body.contact_name,
+        bot_id=flow.get("bot_id", ""),
+    )
+
+    state = await execute_flow(flow, state, entry_node_id=node_id)
+    return {"ok": True, "reply": state.reply}
+
+
 @router.delete("/bots/{bot_id}/flows/{flow_id}", status_code=204)
 async def delete_flow(
     bot_id: str,

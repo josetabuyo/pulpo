@@ -1,3 +1,6 @@
+# Management / handoffs — documentos internos, no van al repo
+management/
+
 # Environment
 .env
 

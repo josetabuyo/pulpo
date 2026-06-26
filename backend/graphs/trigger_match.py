@@ -181,14 +181,17 @@ async def select_trigger(nodes: list[dict], state: FlowState) -> TriggerMatch | 
         if not _matches_channel(ctype, state):
             continue
 
-        required_connection = cconfig.get("connection_id", "")
-        if not required_connection:
-            logger.debug("[engine] trigger sin connection_id configurado — skip")
-            continue
-        if required_connection != state.connection_id:
-            logger.debug("[engine] Flow no aplica: connection_id %s != %s",
-                         required_connection, state.connection_id)
-            continue
+        node_cls = NODE_REGISTRY.get(ctype)
+        needs_connection = getattr(node_cls, "requires_connection", True)
+        if needs_connection:
+            required_connection = cconfig.get("connection_id", "")
+            if not required_connection:
+                logger.debug("[engine] trigger sin connection_id configurado — skip")
+                continue
+            if required_connection != state.connection_id:
+                logger.debug("[engine] Flow no aplica: connection_id %s != %s",
+                             required_connection, state.connection_id)
+                continue
 
         if not await _passes_contact_filter(cconfig, state):
             continue

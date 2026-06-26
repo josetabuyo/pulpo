@@ -113,11 +113,18 @@ async def _run_bfs(
     return state
 
 
-async def execute_flow(flow: dict, state: FlowState) -> FlowState:
+async def execute_flow(
+    flow: dict,
+    state: FlowState,
+    entry_node_id: str | None = None,
+) -> FlowState:
     """
     Ejecuta el flow si su trigger aplica al mensaje.
 
-    Punto de entrada:
+    entry_node_id: si se pasa, bypasea select_trigger y entra directamente
+    desde ese nodo (usado por el endpoint de api_trigger).
+
+    Punto de entrada normal:
       - triggers (TRIGGER_TYPES): canal, connection_id, contactos y regex
         se verifican en trigger_match.select_trigger()
       - __start__: legacy, sin triggers — contact_phone se verifica desde DB
@@ -128,6 +135,12 @@ async def execute_flow(flow: dict, state: FlowState) -> FlowState:
     nodes = definition.get("nodes", [])
     node_by_id = {node["id"]: node for node in nodes}
     graph = _build_graph(definition.get("edges", []))
+
+    if entry_node_id is not None:
+        if entry_node_id not in node_by_id:
+            logger.debug("[engine] entry_node_id '%s' no encontrado en el flow", entry_node_id)
+            return state
+        return await _run_bfs(entry_node_id, node_by_id, graph, state)
 
     has_triggers = any(n.get("type", "") in TRIGGER_TYPES for n in nodes)
 

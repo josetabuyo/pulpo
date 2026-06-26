@@ -82,18 +82,21 @@ function BotModal({ open, onClose, editBot, onSave }) {
   const isEdit = !!editBot
   const [id, setId] = useState('')
   const [name, setName] = useState('')
+  const [password, setPassword] = useState('')
 
   useEffect(() => {
     if (open) {
       setId(editBot?.id ?? '')
       setName(editBot?.name ?? '')
+      setPassword('')
     }
   }, [open, editBot])
 
   function handleSave() {
     if (!name.trim()) return alert('Nombre requerido.')
     if (!isEdit && !id.trim()) return alert('ID es requerido.')
-    onSave({ id: id.trim(), name: name.trim() })
+    if (!isEdit && !password.trim()) return alert('Contraseña requerida.')
+    onSave({ id: id.trim(), name: name.trim(), password: password.trim() })
   }
 
   return (
@@ -109,6 +112,12 @@ function BotModal({ open, onClose, editBot, onSave }) {
         <label>Nombre de la bot</label>
         <input value={name} onChange={e => setName(e.target.value)} placeholder="Herrería García" />
       </div>
+      {!isEdit && (
+        <div className="fg">
+          <label>Contraseña de acceso</label>
+          <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Clave para que la bot acceda al portal" />
+        </div>
+      )}
       <div className="modal-actions">
         <button className="btn-ghost" onClick={onClose}>Cancelar</button>
         <button className="btn-primary" onClick={handleSave}>Guardar</button>
@@ -241,11 +250,11 @@ export default function DashboardPage() {
   }
 
   // ── Bot CRUD ──
-  async function handleSaveBot({ id, name }) {
+  async function handleSaveBot({ id, name, password }) {
     const isEdit = !!botModal.editBot
     const res = isEdit
       ? await call('PUT', `/bots/${botModal.editBot.id}`, { name })
-      : await call('POST', '/bots', { id, name })
+      : await call('POST', '/bots', { id, name, password })
     if (res.error) return alert('Error: ' + res.error)
     setBotModal({ open: false, editBot: null })
     loadBots()
