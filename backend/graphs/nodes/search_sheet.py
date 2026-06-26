@@ -119,7 +119,7 @@ class SearchSheetNode(BaseNode):
         if not matches:
             logger.info("[SearchSheetNode] Sin match para %s='%s'", search_field, search_value)
             state.vars[search_field] = search_value
-            if active_rows:
+            if active_rows and not state.context:
                 state.context = json.dumps(active_rows, ensure_ascii=False)
             return state
 
