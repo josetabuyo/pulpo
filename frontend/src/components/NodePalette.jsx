@@ -82,10 +82,20 @@ function NodeTooltip({ nt, anchorEl }) {
 // ─── NodePalette ──────────────────────────────────────────────────────────────
 
 export default function NodePalette({ apiCall, typeMap }) {
-  const paletteNodes = PALETTE_TYPES.map(id => typeMap[id]).filter(Boolean)
+  const allPaletteNodes = PALETTE_TYPES.map(id => typeMap[id]).filter(Boolean)
+  const [query, setQuery] = useState('')
   const [hoveredId, setHoveredId] = useState(null)
   const [anchorEl, setAnchorEl] = useState(null)
   const timerRef = useRef(null)
+
+  const q = query.trim().toLowerCase()
+  const paletteNodes = q
+    ? allPaletteNodes.filter(nt =>
+        nt.id.toLowerCase().includes(q) ||
+        nt.label.toLowerCase().includes(q) ||
+        (nt.description || '').toLowerCase().includes(q)
+      )
+    : allPaletteNodes
 
   function onDragStart(e, typeId) {
     e.dataTransfer.setData('nodeType', typeId)
@@ -122,48 +132,76 @@ export default function NodePalette({ apiCall, typeMap }) {
         padding: '12px 8px',
         flexShrink: 0,
       }}>
-        <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, letterSpacing: '0.08em', marginBottom: 10, paddingLeft: 4 }}>
+        <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, letterSpacing: '0.08em', marginBottom: 8, paddingLeft: 4 }}>
           NODOS
         </div>
 
-        {paletteNodes.length === 0 && (
-          <div style={{ fontSize: 12, color: '#475569', padding: '8px 4px' }}>Cargando...</div>
-        )}
+        <input
+          type="text"
+          autoComplete="off"
+          spellCheck="false"
+          placeholder="Filtrar nodos..."
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          style={{
+            width: '100%',
+            boxSizing: 'border-box',
+            marginBottom: 8,
+            padding: '5px 8px',
+            fontSize: 11,
+            background: '#1e293b',
+            border: '1px solid #334155',
+            borderRadius: 5,
+            color: '#cbd5e1',
+            outline: 'none',
+            WebkitTextFillColor: '#cbd5e1',
+            WebkitBoxShadow: '0 0 0px 1000px #1e293b inset',
+          }}
+        />
 
-        {paletteNodes.map(nt => (
-          <div
-            key={nt.id}
-            draggable
-            onDragStart={e => onDragStart(e, nt.id)}
-            onMouseEnter={e => handleMouseEnter(e, nt.id)}
-            onMouseLeave={handleMouseLeave}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '7px 8px',
-              borderRadius: 6,
-              cursor: 'grab',
-              userSelect: 'none',
-              marginBottom: 2,
-              background: hoveredId === nt.id ? '#1e293b' : 'transparent',
-            }}
-          >
-            <div style={{
-              width: 8,
-              height: 8,
-              borderRadius: 2,
-              background: nt.color,
-              flexShrink: 0,
-            }} />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <span style={{ fontSize: 11, color: '#cbd5e1', fontFamily: 'monospace' }}>{nt.id}</span>
-              <span style={{ fontSize: 10, color: '#475569' }}>{nt.label}</span>
+        <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+          {allPaletteNodes.length === 0 && (
+            <div style={{ fontSize: 12, color: '#475569', padding: '8px 4px' }}>Cargando...</div>
+          )}
+          {allPaletteNodes.length > 0 && paletteNodes.length === 0 && (
+            <div style={{ fontSize: 11, color: '#475569', padding: '8px 4px' }}>Sin resultados</div>
+          )}
+
+          {paletteNodes.map(nt => (
+            <div
+              key={nt.id}
+              draggable
+              onDragStart={e => onDragStart(e, nt.id)}
+              onMouseEnter={e => handleMouseEnter(e, nt.id)}
+              onMouseLeave={handleMouseLeave}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '7px 8px',
+                borderRadius: 6,
+                cursor: 'grab',
+                userSelect: 'none',
+                marginBottom: 2,
+                background: hoveredId === nt.id ? '#1e293b' : 'transparent',
+              }}
+            >
+              <div style={{
+                width: 8,
+                height: 8,
+                borderRadius: 2,
+                background: nt.color,
+                flexShrink: 0,
+              }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <span style={{ fontSize: 11, color: '#cbd5e1', fontFamily: 'monospace' }}>{nt.id}</span>
+                <span style={{ fontSize: 10, color: '#475569' }}>{nt.label}</span>
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
 
-        <div style={{ marginTop: 'auto', paddingTop: 12, borderTop: '1px solid #1e293b' }}>
+        <div style={{ paddingTop: 12, borderTop: '1px solid #1e293b', flexShrink: 0 }}>
           <div style={{ fontSize: 10, color: '#334155', lineHeight: 1.5 }}>
             Arrastrá un nodo al canvas para agregarlo
           </div>
