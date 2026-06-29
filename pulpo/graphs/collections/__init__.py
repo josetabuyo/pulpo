@@ -32,8 +32,4 @@ def get_handler(collection: str):
     return handler
 
 
-# Importar y registrar handlers de Luganense
-from .luganense import register_luganense_handlers
-register_luganense_handlers()
-
 __all__ = ["register_collection", "get_handler", "COLLECTION_REGISTRY"]
