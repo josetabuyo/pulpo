@@ -13,13 +13,28 @@ export function WaviConnectionsList({ conns, mode, onDelete, onReconnect }) {
         <div key={conn.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', fontSize: 13 }}>
           <span style={{ color: conn.status === 'ready' ? '#22c55e' : '#94a3b8' }}>📱</span>
           <span style={{ flex: 1 }}>{conn.number}</span>
-          <span style={{ fontSize: 11, color: '#94a3b8' }}>{conn.status || 'stopped'}</span>
+          <span style={{ fontSize: 11, color: conn.status === 'ready' ? '#22c55e' : conn.status === 'connecting' ? '#f59e0b' : '#94a3b8' }}>
+            {conn.status || 'stopped'}
+          </span>
           {mode === 'admin' && conn.status !== 'ready' && (
             <button
-              title="Reconectar"
-              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', fontSize: 14, color: '#15803d', lineHeight: 1 }}
+              title={conn.status === 'disconnected' ? 'Reconectar WhatsApp' : 'Conectar WhatsApp'}
+              style={{
+                background: '#f0fdf4',
+                border: '1px solid #86efac',
+                borderRadius: 4,
+                cursor: 'pointer',
+                padding: '2px 8px',
+                fontSize: 12,
+                color: '#15803d',
+                fontWeight: 500,
+                whiteSpace: 'nowrap',
+              }}
+              disabled={conn.status === 'connecting'}
               onClick={() => onReconnect?.(conn.number)}
-            >↻</button>
+            >
+              {conn.status === 'connecting' ? '⏳ Conectando…' : conn.status === 'disconnected' ? '↻ Reconectar' : '▶ Conectar'}
+            </button>
           )}
           {mode === 'admin' && (
             <button className="btn-sm" style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px' }}

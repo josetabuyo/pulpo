@@ -18,6 +18,7 @@ from config import get_wa_poll_interval, get_bots_for_connection
 from db import log_message, wavi_msg_hash, wavi_seen_add, wavi_seen_has, wavi_seen_prune
 from graphs.compiler import run_flows
 from graphs.nodes.state import FlowState
+from state import wavi_status
 
 logger = logging.getLogger(__name__)
 _task: asyncio.Task | None = None
@@ -71,6 +72,7 @@ async def _poll_session(session: str):
 
     # Fast pid-file check — avoids spawning Chrome just to see if daemon is alive.
     if not wd.daemon_running_by_pid(session):
+        wavi_status[session] = "stopped"
         logger.debug("[wavi-poll] skip %s — no pid", session)
         return
 
@@ -81,11 +83,14 @@ async def _poll_session(session: str):
 
     result = await wd.check_updates(session)
     if result.get("status") == "error":
-        if "qr_needed" in result.get("error", ""):
+        error_str = result.get("error", "")
+        if "qr_needed" in error_str or "not authenticated" in error_str:
             _suspended.add(session)
-            logger.info("[wavi-poll] %s suspendida — qr_needed (esperando Reconectar)", session)
+            wavi_status[session] = "disconnected"
+            logger.info("[wavi-poll] %s suspendida — auth requerida (esperando Reconectar)", session)
         return
 
+    wavi_status[session] = "ready"
     for contact in result.get("new_inbound", []):
         name = contact.get("name", "")
         preview = contact.get("last_message", "")

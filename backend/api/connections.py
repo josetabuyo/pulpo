@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from api.deps import require_admin, ADMIN_PASSWORD
 from config import load_config, save_config, get_connection_default_filter, set_connection_default_filter
 from middleware_auth import get_bot_id_from_token
-from state import clients
+from state import clients, wavi_status
 import db
 
 logger = logging.getLogger(__name__)
@@ -51,7 +51,7 @@ def get_connections():
                 "botName": bot["name"],
                 "number": phone["number"],
                 "sessionId": session_id,
-                "status": clients.get(session_id, {}).get("status", "stopped"),
+                "status": wavi_status.get(session_id, "stopped"),
             })
     return result
 

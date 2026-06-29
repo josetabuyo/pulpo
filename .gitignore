@@ -23,8 +23,16 @@ npm-debug.log*
 
 # Python
 backend/.venv/
+.venv-pulpo/
 __pycache__/
 *.pyc
+*.egg-info/
+dist/
+build/
+
+# Backups
+connections.json.bak_*
+backend/output/
 
 # Playwright
 .playwright-mcp/

@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from api.deps import require_admin
 from config import load_config, save_config
-from state import clients
+from state import clients, wavi_status
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ def get_bots():
             phones.append({
                 "number": phone["number"],
                 "sessionId": session_id,
-                "status": clients.get(session_id, {}).get("status", "stopped"),
+                "status": wavi_status.get(session_id, "stopped"),
                 "allowMass": phone.get("allow_mass", False),
             })
         telegram = []

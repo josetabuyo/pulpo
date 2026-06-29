@@ -13,7 +13,7 @@ from pathlib import Path
 from config import load_config, get_telegram_connections
 from db import init_db, google_connection_exists, create_google_connection
 from bots.telegram_bot import build_telegram_app
-from state import clients
+from state import clients, wavi_status
 from api.auth import router as auth_router
 from api.auth_bot import router as auth_bot_router, limiter as bot_limiter
 from api.bots import router as bots_router
@@ -286,6 +286,12 @@ async def lifespan(app: FastAPI):
 
         if not tg_configs:
             logger.warning("No hay bots de Telegram configurados en connections.json.")
+
+        # Inicializar wavi_status con estado real de las sesiones (chequeo por PID, rápido)
+        import tools.wavi_driver as wd_init
+        for _s in wd_init.list_session_names():
+            wavi_status[_s] = "ready" if wd_init.daemon_running_by_pid(_s) else "stopped"
+            logger.info("[wavi] startup status %s → %s", _s, wavi_status[_s])
 
         wavi_poller.start()
         logger.info("[wavi-poll] scheduler arrancado")

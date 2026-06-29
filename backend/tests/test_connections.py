@@ -116,3 +116,60 @@ def test_delete_nonexistent_number_returns_404(client):
     assert status == 404, "Número inexistente debe retornar 404"
 
     assert _bot_exists(client, "conn_test_a"), "La bot no debe ser afectada por un 404"
+
+
+# ─── Tests de wavi_status (HTTP integration) ──────────────────────────────────
+
+def test_phone_status_field_present_and_valid(client):
+    """
+    El status de un teléfono wavi debe ser un string válido.
+    Regresión: antes siempre retornaba 'stopped' incluso cuando el daemon estaba activo,
+    porque clients (para Telegram) nunca tenía entradas wavi.
+    Ahora viene de wavi_status que se inicializa desde el daemon PID al startup.
+    """
+    _create_bot(client, "conn_test_a")
+    _add_phone(client, "conn_test_a", "5490000000099")
+
+    r = client.get("/api/bots", headers=ADMIN)
+    assert r.status_code == 200
+    phones = next(b["phones"] for b in r.json() if b["id"] == "conn_test_a")
+    assert len(phones) == 1
+    status = phones[0]["status"]
+    # El status debe ser uno de los valores válidos de wavi_status
+    assert status in ("stopped", "connecting", "ready", "disconnected"), (
+        f"Status inesperado: {status!r}"
+    )
+    # Sin daemon corriendo para este número de prueba, debe ser 'stopped'
+    assert status == "stopped"
+
+
+def test_connections_endpoint_has_status_field(client):
+    """
+    El endpoint GET /api/connections debe incluir campo 'status' para phones wavi.
+    """
+    _create_bot(client, "conn_test_b")
+    _add_phone(client, "conn_test_b", "5490000000098")
+
+    r = client.get("/api/connections", headers=ADMIN)
+    assert r.status_code == 200
+    conns = [c for c in r.json() if c["number"] == "5490000000098"]
+    assert conns, "La conexión debe aparecer en /connections"
+    assert "status" in conns[0], "El endpoint connections debe incluir el campo status"
+    assert conns[0]["status"] in ("stopped", "connecting", "ready", "disconnected")
+
+
+def test_reconnect_wavi_returns_connecting_status(client):
+    """
+    POST /wavi/sessions/{session}/connect debe retornar status='connecting' de inmediato
+    sin bloquear (el connect real ocurre en background).
+    """
+    session = "test-wavi-conn-99"
+
+    r = client.post(f"/api/wavi/sessions/{session}/connect", headers=ADMIN)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "connecting", (
+        f"El reconectar debe responder 'connecting' de inmediato, got: {body}"
+    )
+    assert body["ok"] is True
+    assert "qr_url" in body

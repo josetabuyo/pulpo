@@ -47,6 +47,7 @@ export default function BotCard({
   onEditBot, onDeleteBot,
   onAddTelegram,
   onDeleteTelegram, onReconnectTg,
+  onReconnectWavi,
 
   // Drag & drop (admin only)
   onDragOver, onDragLeave, onDrop,
@@ -103,6 +104,11 @@ export default function BotCard({
   }
 
   async function handleReconnectWavi(number) {
+    if (onReconnectWavi) {
+      onReconnectWavi(number)  // abre el modal QR en el padre (admin dashboard)
+      return
+    }
+    // fallback directo (sin modal QR)
     await apiCall('POST', `/wavi/sessions/${number}/connect`, null).catch(() => null)
     onRefresh?.()
   }

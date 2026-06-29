@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from api.deps import require_admin, ADMIN_PASSWORD
 import tools.wavi_driver as wd
 import wavi_poller
+from state import wavi_status
 
 router = APIRouter()
 
@@ -34,6 +35,7 @@ class SessionCreate(BaseModel):
 @router.post("/wavi/sessions", dependencies=[Depends(require_admin)])
 async def create_wavi_session(body: SessionCreate):
     session = _validate_session(body.session or "default")
+    wavi_status[session] = "connecting"
     if session not in _CONNECTING_SESSIONS:
         _CONNECTING_SESSIONS.add(session)
         asyncio.create_task(_connect_and_cleanup(session))
@@ -42,7 +44,10 @@ async def create_wavi_session(body: SessionCreate):
 
 async def _connect_and_cleanup(session: str):
     try:
-        await wd.connect(session, new=True)
+        result = await wd.connect(session, new=True)
+        wavi_status[session] = "ready" if result.get("ok") else "disconnected"
+    except Exception:
+        wavi_status[session] = "disconnected"
     finally:
         _CONNECTING_SESSIONS.discard(session)
 
@@ -51,15 +56,22 @@ async def _connect_and_cleanup(session: str):
 async def reconnect_wavi_session(session: str):
     session = _validate_session(session)
     wavi_poller.resume_session(session)
+    wavi_status[session] = "connecting"
     if session not in _CONNECTING_SESSIONS:
         _CONNECTING_SESSIONS.add(session)
-        asyncio.create_task(_reconnect_and_cleanup(session))
+        # Si no hay perfil en disco, crear sesión nueva (QR fresco)
+        profile_path = wd.WAVI_SESSIONS_DIR / session
+        is_new = not profile_path.exists()
+        asyncio.create_task(_reconnect_and_cleanup(session, is_new))
     return {"ok": True, "qr_url": "/api/wavi/qr-page", "status": "connecting", "session": session}
 
 
-async def _reconnect_and_cleanup(session: str):
+async def _reconnect_and_cleanup(session: str, is_new: bool = False):
     try:
-        await wd.connect(session, new=False)
+        result = await wd.connect(session, new=is_new)
+        wavi_status[session] = "ready" if result.get("ok") else "disconnected"
+    except Exception:
+        wavi_status[session] = "disconnected"
     finally:
         _CONNECTING_SESSIONS.discard(session)
 
@@ -96,6 +108,7 @@ async def get_wavi_session(session: str):
 async def stop_wavi_session(session: str):
     _validate_session(session)
     result = await wd.stop(session)
+    wavi_status[session] = "stopped"
     return result
 
 

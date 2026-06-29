@@ -8,47 +8,70 @@ import BotCard, { normalizeBot } from '../components/BotCard.jsx'
 
 // ─── WaviModal ────────────────────────────────────────────────────────────────
 
-function WaviModal({ open, onClose, pwd }) {
+function WaviModal({ open, onClose, pwd, session }) {
   const [sessions, setSessions] = useState([])
   const [starting, setStarting] = useState(false)
+  const [iframeKey, setIframeKey] = useState(0)
 
   useEffect(() => {
     if (!open) return
     setSessions([])
-    const fetch = () => apiQuiet('GET', '/wavi/sessions', null, pwd).then(s => { if (s) setSessions(s) })
-    fetch()
-    const id = setInterval(fetch, 3000)
+    setStarting(false)
+    setIframeKey(k => k + 1)
+    const fetchSessions = () => apiQuiet('GET', '/wavi/sessions', null, pwd).then(s => { if (s) setSessions(s) })
+    fetchSessions()
+    const id = setInterval(fetchSessions, 3000)
     return () => clearInterval(id)
-  }, [open, pwd])
+  }, [open, pwd, session])
+
+  // Auto-refresca el iframe cada 5s mientras el modal esté abierto (el QR lo actualiza wavi)
+  useEffect(() => {
+    if (!open) return
+    const id = setInterval(() => setIframeKey(k => k + 1), 5000)
+    return () => clearInterval(id)
+  }, [open])
+
+  const isSpecificSession = session && session !== 'default'
 
   async function handleConnect() {
     setStarting(true)
-    await apiQuiet('POST', '/wavi/sessions', { session: null }, pwd)
+    if (isSpecificSession) {
+      await apiQuiet('POST', `/wavi/sessions/${session}/connect`, null, pwd)
+    } else {
+      await apiQuiet('POST', '/wavi/sessions', { session: null }, pwd)
+    }
     setStarting(false)
   }
+
+  const visibleSessions = isSpecificSession
+    ? sessions.filter(s => s.session === session)
+    : sessions
 
   return (
     <div className={`overlay${open ? ' open' : ''}`} onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ width: 420 }}>
         <button className="modal-close" onClick={onClose}>✕</button>
-        <h3>Conectar WhatsApp (Wavi)</h3>
+        <h3>{isSpecificSession ? `Conectar WhatsApp — ${session}` : 'Conectar WhatsApp (Wavi)'}</h3>
         <p style={{ fontSize: 13, color: '#888', marginTop: 0 }}>
-          Iniciá el daemon y escaneá el QR con tu celular.
+          {isSpecificSession
+            ? 'Iniciá el daemon y escaneá el QR con tu celular para reconectar esta sesión.'
+            : 'Iniciá el daemon y escaneá el QR con tu celular.'}
         </p>
         <button className="btn-primary" onClick={handleConnect} disabled={starting} style={{ marginBottom: 12 }}>
-          {starting ? 'Iniciando…' : '▶ Iniciar daemon + QR'}
+          {starting ? 'Iniciando…' : isSpecificSession ? '↻ Reconectar + QR' : '▶ Iniciar daemon + QR'}
         </button>
         <iframe
+          key={iframeKey}
           src={`/api/wavi/qr-page?pwd=${encodeURIComponent(pwd)}`}
           style={{ width: '100%', height: 360, border: '1px solid #333', borderRadius: 6 }}
           title="WhatsApp QR"
         />
-        {sessions.length > 0 && (
+        {visibleSessions.length > 0 && (
           <div style={{ marginTop: 12 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Sesiones</div>
-            {sessions.map(s => (
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Estado</div>
+            {visibleSessions.map(s => (
               <div key={s.session} style={{ fontSize: 12, color: s.authenticated ? '#22c55e' : '#888', marginBottom: 2 }}>
-                {s.session}: {s.authenticated ? 'Conectado ✓' : s.connecting ? 'Conectando…' : 'Detenido'}
+                {s.session}: {s.authenticated ? '✓ Conectado' : s.connecting ? '⏳ Conectando…' : 'Detenido'}
               </div>
             ))}
           </div>
@@ -175,7 +198,7 @@ export default function DashboardPage() {
   const [archCollapsed,     setArchCollapsed]     = useState(() => searchParams.get('arquitectura') !== '1')
   const [pollMinutes,       setPollMinutes]        = useState(5)
   const [pollSaving,        setPollSaving]         = useState(false)
-  const [waviModal,         setWaviModal]          = useState({ open: false })
+  const [waviModal,         setWaviModal]          = useState({ open: false, session: null })
 
   useEffect(() => { document.title = 'Pulpo — Dashboard' }, [])
 
@@ -360,7 +383,7 @@ export default function DashboardPage() {
               </button>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn-ghost btn-sm" onClick={() => setWaviModal({ open: true })}>
+              <button className="btn-ghost btn-sm" onClick={() => setWaviModal({ open: true, session: null })}>
                 📱 Conectar WhatsApp (Wavi)
               </button>
             </div>
@@ -443,6 +466,7 @@ export default function DashboardPage() {
               onAddTelegram={botId => setTgModal({ open: true, botId })}
               onDeleteTelegram={conn => handleDeleteTg(conn.number)}
               onReconnectTg={conn => handleReconnectTg(conn.number)}
+              onReconnectWavi={number => setWaviModal({ open: true, session: number })}
               onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('drag-over') }}
               onDragLeave={e => e.currentTarget.classList.remove('drag-over')}
               onDrop={e => onDrop(e, bot.id)}
@@ -471,8 +495,9 @@ export default function DashboardPage() {
 
       <WaviModal
         open={waviModal.open}
-        onClose={() => setWaviModal({ open: false })}
+        onClose={() => setWaviModal({ open: false, session: null })}
         pwd={pwd}
+        session={waviModal.session}
       />
 
       {/* Modal fullscreen de bot expandida */}
@@ -494,6 +519,7 @@ export default function DashboardPage() {
               onAddTelegram={botId => setTgModal({ open: true, botId })}
               onDeleteTelegram={conn => handleDeleteTg(conn.number)}
               onReconnectTg={conn => handleReconnectTg(conn.number)}
+              onReconnectWavi={number => setWaviModal({ open: true, session: number })}
             />
           </div>
         </div>
