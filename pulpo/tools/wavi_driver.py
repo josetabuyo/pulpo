@@ -25,12 +25,13 @@ WAVI_QR_PAGE = WAVI_ROOT / "data" / "qr.html"
 
 
 def _profile(session: str) -> Path:
-    """Resolve session name to profile path, respecting the .default alias."""
-    alias_file = WAVI_SESSIONS_DIR / ".default"
-    if session == "default" and alias_file.exists():
-        target = alias_file.read_text().strip()
-        if target:
-            return WAVI_SESSIONS_DIR / target
+    """Resolve session name or alias to profile path via aliases.json (wavi convention)."""
+    import json
+    aliases_file = WAVI_SESSIONS_DIR / "aliases.json"
+    if aliases_file.exists():
+        aliases = json.loads(aliases_file.read_text())
+        if session in aliases:
+            return WAVI_SESSIONS_DIR / aliases[session]
     return WAVI_SESSIONS_DIR / session
 
 

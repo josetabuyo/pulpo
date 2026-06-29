@@ -104,17 +104,6 @@ def _build_llm(model: str, temperature: float, json_out: bool, router_strategy: 
             default_headers={"X-Router-Strategy": router_strategy},
             **extra,
         )
-        groq_key = os.getenv("GROQ_API_KEY")
-        if groq_key:
-            from langchain_groq import ChatGroq
-            groq_extra = {"max_tokens": max_tokens} if max_tokens is not None else {}
-            groq_fallback = ChatGroq(
-                model="llama-3.3-70b-versatile",
-                api_key=groq_key,
-                temperature=temperature,
-                **groq_extra,
-            )
-            return primary.with_fallbacks([groq_fallback])
         return primary
 
     if model.startswith("ollama/"):

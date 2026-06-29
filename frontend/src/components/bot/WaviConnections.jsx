@@ -12,7 +12,7 @@ export function WaviConnectionsList({ conns, mode, onDelete, onReconnect }) {
       {conns.map(conn => (
         <div key={conn.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', fontSize: 13 }}>
           <span style={{ color: conn.status === 'ready' ? '#22c55e' : '#94a3b8' }}>📱</span>
-          <span style={{ flex: 1 }}>{conn.number}</span>
+          <span style={{ flex: 1 }}>{conn.alias || conn.number}</span>
           <span style={{ fontSize: 11, color: conn.status === 'ready' ? '#22c55e' : conn.status === 'connecting' ? '#f59e0b' : '#94a3b8' }}>
             {conn.status || 'stopped'}
           </span>

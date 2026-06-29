@@ -29,7 +29,7 @@ export function normalizeBot(bot) {
         username: t.username || '', botName: t.botName || '', allowMass: t.allowMass ?? false,
       })),
       ...(bot.phones ?? []).map(p => ({
-        id: p.sessionId, type: 'wavi', number: p.number, status: p.status,
+        id: p.sessionId, type: 'wavi', number: p.number, alias: p.alias, status: p.status,
       })),
     ],
   }

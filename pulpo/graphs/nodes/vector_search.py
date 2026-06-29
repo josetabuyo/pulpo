@@ -64,9 +64,10 @@ async def _identify_field_value(message: str, search_field: str, possible_values
     values_str = ", ".join(possible_values) if possible_values else "cualquier valor relevante"
     system = _IDENTIFY_SYSTEM.format(field=search_field, values=values_str)
 
+    router_url = os.getenv("MODEL_ROUTER_URL", "http://localhost:9002")
     try:
-        from langchain_groq import ChatGroq
-        llm = ChatGroq(model="llama-3.3-70b-versatile", api_key=api_key, max_tokens=10, temperature=0)
+        from langchain_openai import ChatOpenAI
+        llm = ChatOpenAI(model="groq/llama-3.3-70b-versatile", base_url=f"{router_url}/cloud/v1", api_key="router", max_tokens=10, temperature=0)
         result = await llm.ainvoke([
             {"role": "system", "content": system},
             {"role": "user", "content": message},

@@ -17,6 +17,7 @@ def list_bots() -> list[dict]:
             session_id = phone["number"]
             phones.append({
                 "number": phone["number"],
+                "alias": phone.get("alias", ""),
                 "sessionId": session_id,
                 "status": wavi_status.get(session_id, "stopped"),
                 "allowMass": phone.get("allow_mass", False),

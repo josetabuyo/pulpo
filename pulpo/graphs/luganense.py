@@ -21,7 +21,8 @@ from langgraph.graph import StateGraph, END
 
 logger = logging.getLogger(__name__)
 
-_MODEL = "llama-3.3-70b-versatile"
+_MODEL = "groq/llama-3.3-70b-versatile"
+_ROUTER_URL = os.getenv("MODEL_ROUTER_URL", "http://localhost:9002")
 
 # ─── Prompts ─────────────────────────────────────────────────────────────────
 
@@ -115,14 +116,9 @@ class LuganenseState(TypedDict):
 
 async def scope_router(state: LuganenseState) -> dict:
     """Clasifica el mensaje en una de 3 fuentes: noticias | oficio | auspiciante."""
-    api_key = os.getenv("GROQ_API_KEY")
-    if not api_key:
-        logger.error("[luganense] GROQ_API_KEY no configurada")
-        return {"scope": "noticias"}
-
     try:
-        from langchain_groq import ChatGroq
-        llm = ChatGroq(model=_MODEL, api_key=api_key, max_tokens=10, temperature=0)
+        from langchain_openai import ChatOpenAI
+        llm = ChatOpenAI(model=_MODEL, base_url=f"{_ROUTER_URL}/cloud/v1", api_key="router", max_tokens=10, temperature=0)
         result = await llm.ainvoke([
             {"role": "system", "content": _ROUTER_SYSTEM},
             {"role": "user", "content": state["message"]},
@@ -141,13 +137,9 @@ async def scope_router(state: LuganenseState) -> dict:
 
 async def expandir_consulta(state: LuganenseState) -> dict:
     """Genera 1-3 queries de búsqueda para Facebook a partir del mensaje."""
-    api_key = os.getenv("GROQ_API_KEY")
-    if not api_key:
-        return {"queries": [state["message"]]}
-
     try:
-        from langchain_groq import ChatGroq
-        llm = ChatGroq(model=_MODEL, api_key=api_key, max_tokens=40, temperature=0)
+        from langchain_openai import ChatOpenAI
+        llm = ChatOpenAI(model=_MODEL, base_url=f"{_ROUTER_URL}/cloud/v1", api_key="router", max_tokens=40, temperature=0)
         result = await llm.ainvoke([
             {"role": "system", "content": _QUERIES_SYSTEM},
             {"role": "user", "content": state["message"]},
@@ -214,19 +206,7 @@ async def buscar_posts_fb(state: LuganenseState) -> dict:
 
 async def responder_noticias(state: LuganenseState) -> dict:
     """Genera la respuesta sobre el barrio usando el contexto de Facebook."""
-    api_key = os.getenv("GROQ_API_KEY")
     fb_context = state.get("fb_context", "")
-
-    if not api_key:
-        logger.error("[luganense] GROQ_API_KEY no configurada — fallback a assistant.ask")
-        from pulpo.tools import assistant as assistant_mod
-        context = (
-            "Sos el asistente de Luganense. Respondé en base a estas publicaciones:\n\n" + fb_context
-            if fb_context else state["prompt"]
-        )
-        reply = await assistant_mod.ask(context, state["message"], state["bot_name"]) or ""
-        return {"reply": reply}
-
     fb_posts = state.get("fb_posts", [])
     system = _NOTICIAS_SYSTEM
     if fb_context:
@@ -238,8 +218,8 @@ async def responder_noticias(state: LuganenseState) -> dict:
         system = _NOTICIAS_SYSTEM + f"\n\nPublicaciones de la página:\n\n{indexed}"
 
     try:
-        from langchain_groq import ChatGroq
-        llm = ChatGroq(model=_MODEL, api_key=api_key, temperature=0.3)
+        from langchain_openai import ChatOpenAI
+        llm = ChatOpenAI(model=_MODEL, base_url=f"{_ROUTER_URL}/cloud/v1", api_key="router", temperature=0.3)
         result = await llm.ainvoke([
             {"role": "system", "content": system},
             {"role": "user", "content": state["message"]},
@@ -340,14 +320,10 @@ async def responder_auspiciante(state: LuganenseState) -> dict:
         )
         return {"reply": reply}
 
-    api_key = os.getenv("GROQ_API_KEY")
-    if not api_key:
-        return {"reply": auspiciante_msg}
-
     try:
-        from langchain_groq import ChatGroq
+        from langchain_openai import ChatOpenAI
         system = _AUSPICIANTE_SYSTEM.format(auspiciante_msg=auspiciante_msg)
-        llm = ChatGroq(model=_MODEL, api_key=api_key, temperature=0.4)
+        llm = ChatOpenAI(model=_MODEL, base_url=f"{_ROUTER_URL}/cloud/v1", api_key="router", temperature=0.4)
         result = await llm.ainvoke([
             {"role": "system", "content": system},
             {"role": "user", "content": state["message"]},
