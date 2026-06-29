@@ -67,7 +67,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
         onSaved={onSaved}
       />
       <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
-        <NodePalette apiCall={apiCall} typeMap={typeMap} />
+        <NodePalette key={flow?.id} apiCall={apiCall} typeMap={typeMap} />
         <FlowCanvas
           nodes={nodes}
           edges={edges}

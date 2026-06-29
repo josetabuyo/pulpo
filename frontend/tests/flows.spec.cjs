@@ -94,3 +94,52 @@ test('crear nuevo flow y verificar que aparece en la lista', async ({ page }) =>
     expect(after).toBeGreaterThanOrEqual(before)
   }).toPass({ timeout: 8000 })
 })
+
+// ─── NodePalette: whatsapp_trigger + buscador ──────────────────────────────────
+
+test('paleta incluye whatsapp_trigger', async ({ page }) => {
+  const card = await goToFlowTab(page)
+  await clickFlowEdit(card)
+  await expect(page.getByText('NODOS')).toBeVisible({ timeout: 8000 })
+  const palette = page.getByTestId('node-palette')
+  await expect(palette.getByText('whatsapp_trigger')).toBeVisible()
+})
+
+test('buscador de nodos filtra por texto', async ({ page }) => {
+  const card = await goToFlowTab(page)
+  await clickFlowEdit(card)
+  await expect(page.getByText('NODOS')).toBeVisible({ timeout: 8000 })
+
+  const palette = page.getByTestId('node-palette')
+  const filter = palette.getByPlaceholder('Filtrar nodos...')
+  await expect(filter).toBeVisible()
+
+  // Con "send" solo debe verse send_message en la paleta, no whatsapp_trigger
+  await filter.fill('send')
+  await expect(palette.getByText('send_message')).toBeVisible()
+  await expect(palette.getByText('whatsapp_trigger')).not.toBeVisible()
+
+  // Al borrar el filtro vuelven todos
+  await filter.fill('')
+  await expect(palette.getByText('whatsapp_trigger')).toBeVisible()
+})
+
+test('buscador arranca vacío al reabrir un flow', async ({ page }) => {
+  const card = await goToFlowTab(page)
+  await clickFlowEdit(card)
+  await expect(page.getByText('NODOS')).toBeVisible({ timeout: 8000 })
+
+  // Escribir algo en el filtro
+  const palette = page.getByTestId('node-palette')
+  await palette.getByPlaceholder('Filtrar nodos...').fill('send')
+  await expect(palette.getByText('whatsapp_trigger')).not.toBeVisible()
+
+  // Volver y reabrir el mismo flow
+  await page.getByTitle('Volver').click()
+  await card.locator('.flow-row').first().click()
+  await expect(page.getByText('NODOS')).toBeVisible({ timeout: 8000 })
+
+  // El filtro debe estar vacío y todos los nodos visibles
+  await expect(page.getByTestId('node-palette').getByPlaceholder('Filtrar nodos...')).toHaveValue('')
+  await expect(page.getByTestId('node-palette').getByText('whatsapp_trigger')).toBeVisible()
+})

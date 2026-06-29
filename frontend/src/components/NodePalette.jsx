@@ -122,7 +122,7 @@ export default function NodePalette({ apiCall, typeMap }) {
 
   return (
     <>
-      <div style={{
+      <div data-testid="node-palette" style={{
         width: 180,
         background: '#0f172a',
         borderRight: '1px solid #1e293b',
