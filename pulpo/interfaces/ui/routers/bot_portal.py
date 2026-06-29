@@ -7,22 +7,11 @@ logger = logging.getLogger(__name__)
 from pydantic import BaseModel
 from sqlalchemy import text
 
-import sys
-from pathlib import Path
-
 from pulpo.core.config import load_config, save_config
 from pulpo.core.state import clients
 from pulpo.core.db import AsyncSessionLocal, log_outbound_message
 from pulpo.interfaces.ui.middleware import require_bot_auth, get_bot_id_from_token
-
-_BACKEND = str(Path(__file__).parent.parent.parent.parent.parent / "backend")
-
-
-def _sim():
-    if _BACKEND not in sys.path:
-        sys.path.insert(0, _BACKEND)
-    import sim as _sim_engine
-    return _sim_engine
+from pulpo.core import sim_engine
 
 router = APIRouter()
 
@@ -215,7 +204,7 @@ async def bot_chat_send(bot_id: str, number: str, contact: str,
         _acc(bot_id=bot_id, contact_phone=contact, contact_name=contact,
              msg_type="text", content=f"Tú: {msg_text}")
 
-    if _sim().SIM_MODE:
+    if sim_engine.SIM_MODE:
         await log_outbound_message(bot_id, db_number, contact, body.text)
         _accumulate_outbound(contact, body.text)
         async with AsyncSessionLocal() as session:
@@ -334,8 +323,8 @@ async def bot_add_telegram(bot_id: str, body: AddTelegramBody, _: dict = Depends
     save_config(config)
 
     requires_restart = False
-    if _sim().SIM_MODE:
-        _sim().sim_connect(session_id, bot_id)
+    if sim_engine.SIM_MODE:
+        sim_engine.sim_connect(session_id, bot_id)
     else:
         # Intentar iniciar dinámicamente
         try:
@@ -367,8 +356,8 @@ def bot_remove_telegram(bot_id: str, token_id: str, _: dict = Depends(_require_b
 
     save_config(config)
     session_id = f"{bot_id}-tg-{token_id}"
-    if _sim().SIM_MODE:
-        _sim().sim_disconnect(session_id)
+    if sim_engine.SIM_MODE:
+        sim_engine.sim_disconnect(session_id)
     clients.pop(session_id, None)
     return {"ok": True}
 

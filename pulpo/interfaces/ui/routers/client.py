@@ -3,22 +3,11 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from sqlalchemy import text
 
-import sys
-from pathlib import Path
-
 from pulpo.interfaces.ui.deps import require_client
 from pulpo.core.config import load_config, save_config
 from pulpo.core.state import clients
 from pulpo.core.db import AsyncSessionLocal, log_outbound_message
-
-_BACKEND = str(Path(__file__).parent.parent.parent.parent.parent / "backend")
-
-
-def _sim():
-    if _BACKEND not in sys.path:
-        sys.path.insert(0, _BACKEND)
-    import sim as _sim_engine
-    return _sim_engine
+from pulpo.core import sim_engine
 
 router = APIRouter()
 
@@ -123,7 +112,7 @@ async def send_chat_message(number: str, contact: str, body: SendMessageBody):
         _acc(bot_id=bot_id, contact_phone=contact, contact_name=contact,
              msg_type="text", content=f"Tú: {msg_text}")
 
-    if _sim().SIM_MODE:
+    if sim_engine.SIM_MODE:
         await log_outbound_message(bot["id"], number, contact, body.text)
         _accumulate_outbound(bot["id"], contact, body.text)
         async with AsyncSessionLocal() as session:

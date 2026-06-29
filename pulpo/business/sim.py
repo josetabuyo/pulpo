@@ -4,24 +4,14 @@ No FastAPI, no HTTPException, no Pydantic — plain Python types only.
 """
 
 import os
-import sys
-from pathlib import Path
 
 from pulpo.core.config import load_config
-
-_BACKEND = str(Path(__file__).parent.parent.parent.parent / "backend")
-
-
-def _sim():
-    if _BACKEND not in sys.path:
-        sys.path.insert(0, _BACKEND)
-    import sim as _sim_engine
-    return _sim_engine
+from pulpo.core import sim_engine
 
 
 def get_mode() -> str:
     """Returns 'sim' or 'real' based on ENABLE_BOTS env var."""
-    return _sim().get_mode()
+    return sim_engine.get_mode()
 
 
 def sim_connect(number: str) -> dict:
@@ -41,7 +31,7 @@ def sim_connect(number: str) -> dict:
     )
     if not connection_id:
         raise KeyError(f"Número no encontrado: {number}")
-    _sim().sim_connect(number, connection_id)
+    sim_engine.sim_connect(number, connection_id)
     return {"ok": True, "status": "ready", "sessionId": number}
 
 
@@ -51,7 +41,7 @@ def sim_disconnect(number: str) -> dict:
     Always succeeds (no-op if not connected).
     Returns {ok}.
     """
-    _sim().sim_disconnect(number)
+    sim_engine.sim_disconnect(number)
     return {"ok": True}
 
 
@@ -60,7 +50,7 @@ async def sim_send(number: str, from_name: str, from_phone: str, text: str) -> d
     Simulates receiving a text message and processes it through the flow engine.
     Returns {ok, reply}.
     """
-    reply = await _sim().sim_receive(number, from_name, from_phone, text)
+    reply = await sim_engine.sim_receive(number, from_name, from_phone, text)
     return {"ok": True, "reply": reply}
 
 
@@ -72,7 +62,7 @@ async def sim_send_audio(number: str, from_name: str, from_phone: str, audio_pat
     """
     if not os.path.exists(audio_path):
         raise FileNotFoundError(f"audio_path no existe: {audio_path}")
-    reply = await _sim().sim_receive(
+    reply = await sim_engine.sim_receive(
         number,
         from_name,
         from_phone,
@@ -84,4 +74,4 @@ async def sim_send_audio(number: str, from_name: str, from_phone: str, audio_pat
 
 def get_conversation(number: str) -> list:
     """Returns the in-memory conversation log for a simulated session."""
-    return _sim().get_conversation(number)
+    return sim_engine.get_conversation(number)

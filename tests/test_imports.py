@@ -25,6 +25,8 @@ MODULES_TO_CHECK = [
     "pulpo.core.config",
     "pulpo.core.db",
     "pulpo.core.state",
+    "pulpo.core.sim_engine",
+    "pulpo.core.wavi_poller",
 ]
 
 
@@ -56,6 +58,48 @@ def test_no_eager_sim_import_in_client():
                 assert alias.name != "sim", "import sim a nivel módulo en client.py"
         elif isinstance(node, ast.ImportFrom):
             assert node.module != "sim", "from sim import ... a nivel módulo en client.py"
+
+
+def test_sim_engine_sim_mode_importable():
+    """SIM_MODE debe ser accesible directamente desde pulpo.core.sim_engine (no lazy)."""
+    from pulpo.core.sim_engine import SIM_MODE
+    assert isinstance(SIM_MODE, bool)
+
+
+def test_wavi_poller_start_stop_importable():
+    """start y stop deben ser accesibles directamente desde pulpo.core.wavi_poller (no lazy)."""
+    from pulpo.core.wavi_poller import start, stop
+    import asyncio
+    assert callable(start)
+    assert callable(stop)
+
+
+def test_no_legacy_sim_or_wavi_poller_import_in_pulpo():
+    """
+    Ningún módulo de pulpo/ debe importar 'sim' o 'wavi_poller' del backend/ via sys.path hack.
+    sim_engine y wavi_poller ya viven en pulpo.core.*
+    """
+    import ast
+    from pathlib import Path
+
+    pulpo_root = Path(__file__).parent.parent / "pulpo"
+    violations = []
+    for py_file in pulpo_root.rglob("*.py"):
+        src = py_file.read_text()
+        tree = ast.parse(src)
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Import, ast.ImportFrom)):
+                continue
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name in ("sim", "wavi_poller") and alias.asname in ("sim_engine", "wavi_poller", None):
+                        # solo es violación si el nombre importado es el módulo bare (no pulpo.core.*)
+                        if "." not in alias.name:
+                            violations.append((str(py_file.relative_to(pulpo_root.parent)), alias.name))
+            elif isinstance(node, ast.ImportFrom):
+                if node.module in ("sim", "wavi_poller"):
+                    violations.append((str(py_file.relative_to(pulpo_root.parent)), node.module))
+    assert not violations, f"Import bare de sim/wavi_poller encontrado (debería ser pulpo.core.*): {violations}"
 
 
 def test_no_eager_sim_import_in_bot_portal():
