@@ -11,25 +11,32 @@ import BotCard, { normalizeBot } from '../components/BotCard.jsx'
 function WaviModal({ open, onClose, pwd, session }) {
   const [sessions, setSessions] = useState([])
   const [starting, setStarting] = useState(false)
-  const [iframeKey, setIframeKey] = useState(0)
+  const [qrHtml, setQrHtml] = useState('')
 
   useEffect(() => {
     if (!open) return
     setSessions([])
     setStarting(false)
-    setIframeKey(k => k + 1)
+    setQrHtml('')
     const fetchSessions = () => apiQuiet('GET', '/wavi/sessions', null, pwd).then(s => { if (s) setSessions(s) })
     fetchSessions()
     const id = setInterval(fetchSessions, 3000)
     return () => clearInterval(id)
   }, [open, pwd, session])
 
-  // Auto-refresca el iframe cada 5s mientras el modal esté abierto (el QR lo actualiza wavi)
+  // Fetches QR HTML con header de auth — la contraseña nunca va en la URL
   useEffect(() => {
     if (!open) return
-    const id = setInterval(() => setIframeKey(k => k + 1), 5000)
+    const fetchQr = async () => {
+      try {
+        const res = await fetch('/api/wavi/qr-page', { headers: { 'x-password': pwd } })
+        if (res.ok) setQrHtml(await res.text())
+      } catch (_) {}
+    }
+    fetchQr()
+    const id = setInterval(fetchQr, 5000)
     return () => clearInterval(id)
-  }, [open])
+  }, [open, pwd])
 
   const isSpecificSession = session && session !== 'default'
 
@@ -61,8 +68,7 @@ function WaviModal({ open, onClose, pwd, session }) {
           {starting ? 'Iniciando…' : isSpecificSession ? '↻ Reconectar + QR' : '▶ Iniciar daemon + QR'}
         </button>
         <iframe
-          key={iframeKey}
-          src={`/api/wavi/qr-page?pwd=${encodeURIComponent(pwd)}`}
+          srcdoc={qrHtml}
           style={{ width: '100%', height: 360, border: '1px solid #333', borderRadius: 6 }}
           title="WhatsApp QR"
         />

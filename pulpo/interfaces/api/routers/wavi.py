@@ -19,11 +19,12 @@ Route layout (parent mounts at /wavi):
 import asyncio
 import re
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from pulpo.business import wavi as wavi_svc
+from pulpo.interfaces.ui.deps import require_admin
 
 router = APIRouter()
 
@@ -99,11 +100,8 @@ def get_boarding(session: str):
 
 
 @router.get("/qr-page")
-def get_qr_page():
-    """
-    Sirve la página HTML del QR de WhatsApp Web.
-    La autenticación es responsabilidad del padre (interfaces/ui/app.py).
-    """
+def get_qr_page(_: None = Depends(require_admin)):
+    """Sirve la página HTML del QR de WhatsApp Web."""
     try:
         content = wavi_svc.get_qr_page_html()
     except FileNotFoundError:

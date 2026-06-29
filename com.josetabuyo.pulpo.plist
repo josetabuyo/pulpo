@@ -5,16 +5,10 @@
 	<key>Label</key>
 	<string>com.josetabuyo.pulpo</string>
 	<key>Program</key>
-	<string>/Users/josetabuyo/Development/pulpo/_/.venv-pulpo/bin/pulpo</string>
+	<string>/Users/josetabuyo/Development/pulpo/_/start-backend-launchd.sh</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/Users/josetabuyo/Development/pulpo/_/.venv-pulpo/bin/pulpo</string>
-		<string>server</string>
-		<string>ui</string>
-		<string>--host</string>
-		<string>0.0.0.0</string>
-		<string>--port</string>
-		<string>8000</string>
+		<string>/Users/josetabuyo/Development/pulpo/_/start-backend-launchd.sh</string>
 	</array>
 	<key>EnvironmentVariables</key>
 	<dict>
