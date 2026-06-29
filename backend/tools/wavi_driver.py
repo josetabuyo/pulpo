@@ -178,4 +178,5 @@ def list_session_names() -> list[str]:
         and not d.name.startswith("_tmp_")
         and not d.name.startswith("_new_")
         and not d.name.startswith(".")
+        and not d.name.endswith("_bak")
     ]
