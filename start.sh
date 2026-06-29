@@ -59,7 +59,12 @@ start_back() {
     return
   fi
   echo "▶ Backend → $BACK_LOG"
-  cd "$ROOT/backend" && ./start.sh >> "$BACK_LOG" 2>&1
+  VENV_PULPO="$ROOT/.venv-pulpo"
+  if [ "${ENABLE_BOTS}" = "true" ]; then
+    "$VENV_PULPO/bin/pulpo" server ui --host 0.0.0.0 --port "$BACKEND_PORT" >> "$BACK_LOG" 2>&1
+  else
+    "$VENV_PULPO/bin/pulpo" server ui --host 0.0.0.0 --port "$BACKEND_PORT" --reload >> "$BACK_LOG" 2>&1
+  fi
 }
 
 start_front() {

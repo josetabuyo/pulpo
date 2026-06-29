@@ -9,11 +9,18 @@ def server():
 @server.command("ui")
 @click.option("--host", default="0.0.0.0", show_default=True)
 @click.option("--port", default=8000, show_default=True)
-def serve_ui(host, port):
+@click.option("--reload", is_flag=True, default=False, help="Auto-reload on code changes (dev only).")
+def serve_ui(host, port, reload):
     """Start the UI server (with auth)."""
     import uvicorn
-    from pulpo.interfaces.ui.app import create_ui_app
-    uvicorn.run(create_ui_app(), host=host, port=port)
+    if reload:
+        uvicorn.run(
+            "pulpo.interfaces.ui.app:create_ui_app",
+            host=host, port=port, reload=True, factory=True,
+        )
+    else:
+        from pulpo.interfaces.ui.app import create_ui_app
+        uvicorn.run(create_ui_app(), host=host, port=port)
 
 
 @server.command("api")

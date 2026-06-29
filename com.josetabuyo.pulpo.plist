@@ -5,11 +5,16 @@
 	<key>Label</key>
 	<string>com.josetabuyo.pulpo</string>
 	<key>Program</key>
-	<string>/bin/bash</string>
+	<string>/Users/josetabuyo/Development/pulpo/_/.venv-pulpo/bin/pulpo</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/bin/bash</string>
-		<string>/Users/josetabuyo/Development/pulpo/_/backend/start.sh</string>
+		<string>/Users/josetabuyo/Development/pulpo/_/.venv-pulpo/bin/pulpo</string>
+		<string>server</string>
+		<string>ui</string>
+		<string>--host</string>
+		<string>0.0.0.0</string>
+		<string>--port</string>
+		<string>8000</string>
 	</array>
 	<key>EnvironmentVariables</key>
 	<dict>
@@ -17,7 +22,7 @@
 		<string>true</string>
 	</dict>
 	<key>WorkingDirectory</key>
-	<string>/Users/josetabuyo/Development/pulpo/_/backend</string>
+	<string>/Users/josetabuyo/Development/pulpo/_</string>
 	<key>RunAtLoad</key>
 	<true/>
 	<key>KeepAlive</key>
