@@ -67,7 +67,7 @@ async def reconnect_wavi_session(session: str):
 @router.get("/sessions")
 async def list_wavi_sessions():
     try:
-        return await wavi_svc.list_sessions()
+        return await wavi_svc.list_wavi_sessions()
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
