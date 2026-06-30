@@ -89,15 +89,16 @@ vector_search (collection: luganense_oficios)
 
 ---
 
-## Estado de FlowState — campos a agregar
+## Estado de FlowState — campos de dominio (implementado)
 
-Para que `send_message` pueda resolver `{{worker_telegram_id}}` y `{{worker_nombre}}`, el nodo `vector_search` tiene que escribir esos valores en el state cuando los encuentra.
+`FlowState` tiene un único `state.data: dict` para valores que los nodos
+producen y consumen. `vector_search` escribe directamente en `state.data`:
+`state.data["worker_nombre"]`, `state.data["worker_telegram_id"]`, etc.
 
-Opciones:
-- **a)** `vector_search` escribe JSON en `state.context` y los placeholders se resuelven parseando ese JSON
-- **b)** `FlowState` tiene un dict `state.vars: dict[str, str]` para valores arbitrarios que los nodos producen y los placeholders resuelven
+`interpolate()` resuelve `{{worker_nombre}}` → `state.data["worker_nombre"]`
+automáticamente en cualquier template de config de nodo.
 
-La opción **b** es más limpia a largo plazo: `{{worker_nombre}}` resuelve `state.vars["worker_nombre"]`, independiente del formato del context.
+Ver `management/FLOWSTATE_DATA_CONTRACT.md` para el contrato completo.
 
 ---
 
