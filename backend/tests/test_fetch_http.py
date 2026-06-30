@@ -17,7 +17,10 @@ def make_node(url: str, extract: str = "json") -> FetchNode:
 
 
 def make_state(message: str = "donde hay una ferreteria", query: str = "") -> FlowState:
-    return FlowState(message=message, bot_id="luganense", query=query)
+    s = FlowState(message=message, bot_id="luganense")
+    if query:
+        s.data["query"] = query
+    return s
 
 
 def mock_response(body: str, status: int = 200):
@@ -126,7 +129,7 @@ async def test_json_response_stored_in_context():
         mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
         await node.run(state)
 
-    assert state.context == payload
+    assert state.data.get("context") == payload
 
 
 # ── Error resilience ─────────────────────────────────────────────────────────
@@ -145,7 +148,7 @@ async def test_http_error_does_not_raise():
         mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
         await node.run(state)  # must not raise
 
-    assert state.context == ""
+    assert state.data.get("context", "") == ""
 
 
 @pytest.mark.asyncio
@@ -154,7 +157,7 @@ async def test_missing_url_does_nothing():
     node = FetchNode(config={"source": "http", "url": "", "extract": "json"})
     state = make_state()
     await node.run(state)
-    assert state.context == ""
+    assert state.data.get("context", "") == ""
 
 
 # ── extract_first_to_vars + contactos expansion ──────────────────────────────
@@ -179,9 +182,9 @@ async def test_extract_first_to_vars_expands_contactos():
         mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
         await node.run(state)
 
-    assert state.vars.get("nombre") == "Juan"
-    assert state.vars.get("whatsapp") == "1155551234"
-    assert state.vars.get("telegram") == "98765"
+    assert state.data.get("nombre") == "Juan"
+    assert state.data.get("whatsapp") == "1155551234"
+    assert state.data.get("telegram") == "98765"
 
 
 # ── Config schema ────────────────────────────────────────────────────────────

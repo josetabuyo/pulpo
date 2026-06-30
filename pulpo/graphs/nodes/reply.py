@@ -1,12 +1,12 @@
 """
 SendMessageNode — único nodo que envía mensajes.
 
-Si `to` está vacío → escribe en state.reply (el adapter lo envía al usuario).
+Si `to` está vacío → escribe en state.data["reply"] (el adapter lo envía al usuario).
 Si `to` tiene valor → envía inmediatamente al destinatario via Telegram.
 
 Config:
   to:            str   — destinatario. Vacío = reply al usuario de la conversación.
-                         Soporta placeholders: "{{worker_telegram_id}}", "{{contact_phone}}", etc.
+                         Soporta placeholders: "{{telegram}}", "{{contact_phone}}", etc.
   message:       str   — texto con placeholders.
   channel:       str   — "telegram" (default: "telegram")
   max_age_hours: float — edad máxima del mensaje original para responder (solo reply al usuario).
@@ -14,7 +14,7 @@ Config:
                          Previene respuestas automáticas a mensajes retroactivos.
 """
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from .base import BaseNode, interpolate
 from .state import FlowState
 
@@ -35,7 +35,6 @@ class SendMessageNode(BaseNode):
             max_age = float(self.config.get("max_age_hours", 1.0))
             if max_age > 0 and state.timestamp is not None:
                 now = datetime.now()
-                # Normalizar: state.timestamp puede ser naive o aware
                 msg_ts = state.timestamp.replace(tzinfo=None) if state.timestamp.tzinfo else state.timestamp
                 age_hours = (now - msg_ts).total_seconds() / 3600
                 if age_hours > max_age:
@@ -44,7 +43,7 @@ class SendMessageNode(BaseNode):
                         state.contact_phone, age_hours, max_age,
                     )
                     return state
-            state.reply = message
+            state.data["reply"] = message
             return state
 
         await self._send(to, message, channel, state)
@@ -97,7 +96,7 @@ class SendMessageNode(BaseNode):
                 "default":  "",
                 "required": True,
                 "rows":     5,
-                "hint":     "Soporta {{placeholders}} como {{worker_nombre}}",
+                "hint":     "Soporta {{placeholders}} como {{nombre}}",
             },
             "channel": {
                 "type":    "select",

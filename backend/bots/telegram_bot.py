@@ -85,10 +85,10 @@ def build_telegram_app(bot_config: dict):
             canal="telegram",
         )
         state = await run_flows(state, connection_id=session_id)
-        reply = state.reply or ""
+        reply = state.data.get("reply") or ""
 
         # Appendar URLs de fuentes en código (el LLM no lo hace consistentemente)
-        source_urls = state.vars.get("source_urls", [])
+        source_urls = state.data.get("source_urls", [])
         if source_urls and reply:
             links = "\n".join(
                 f"[📎 Ver publicación {i+1}]({u})" for i, u in enumerate(source_urls)

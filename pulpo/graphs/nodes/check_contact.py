@@ -33,12 +33,12 @@ class CheckContactNode(BaseNode):
             )).fetchone()
 
         is_known = row is not None
-        state.vars["es_conocido"] = "true" if is_known else "false"
-        state.route = route_known if is_known else route_unknown
+        state.data["es_conocido"] = "true" if is_known else "false"
+        state.data["route"] = route_known if is_known else route_unknown
 
         logger.info(
             "[CheckContactNode] %s → %s (bot=%s)",
-            state.contact_phone, state.route, state.bot_id,
+            state.contact_phone, state.data.get("route"), state.bot_id,
         )
         return state
 

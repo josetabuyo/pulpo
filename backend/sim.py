@@ -102,7 +102,7 @@ async def sim_receive(
         canal=channel_type,
     )
     state = await run_flows(state, connection_id=session_id)
-    reply = state.reply
+    reply = state.data.get("reply")
 
     if reply:
         for mid in msg_ids.values():

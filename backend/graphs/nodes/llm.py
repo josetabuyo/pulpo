@@ -104,17 +104,6 @@ def _build_llm(model: str, temperature: float, json_out: bool, router_strategy: 
             default_headers={"X-Router-Strategy": router_strategy},
             **extra,
         )
-        groq_key = os.getenv("GROQ_API_KEY")
-        if groq_key:
-            from langchain_groq import ChatGroq
-            groq_extra = {"max_tokens": max_tokens} if max_tokens is not None else {}
-            groq_fallback = ChatGroq(
-                model="llama-3.3-70b-versatile",
-                api_key=groq_key,
-                temperature=temperature,
-                **groq_extra,
-            )
-            return primary.with_fallbacks([groq_fallback])
         return primary
 
     if model.startswith("ollama/"):
@@ -170,8 +159,9 @@ class LLMNode(BaseNode):
         # Interpolar placeholders en el prompt y construir system.
         # Compat: si el prompt no menciona {{context}} pero hay contexto, se agrega al final.
         system = interpolate(prompt, state)
-        if state.context and "{{context}}" not in prompt:
-            system += f"\n\nContexto:\n{state.context}"
+        context = state.data.get("context", "")
+        if context and "{{context}}" not in prompt:
+            system += f"\n\nContexto:\n{context}"
 
         try:
             llm = _build_llm(model, temperature, json_out, router_strategy)
@@ -183,19 +173,19 @@ class LLMNode(BaseNode):
             content = result.content
 
             if json_out:
-                data = json.loads(content)
-                text = data.get(reply_key, "")
-                if route_key and data.get(route_key):
-                    state.route = str(data[route_key])
+                parsed = json.loads(content)
+                text = parsed.get(reply_key, "")
+                if route_key and parsed.get(route_key):
+                    state.data["route"] = str(parsed[route_key])
             else:
                 text = content
 
             if output == "reply":
-                state.reply = text
+                state.data["reply"] = text
             elif output == "context":
-                state.context = text
+                state.data["context"] = text
             elif output == "query":
-                state.query = text.strip()
+                state.data["query"] = text.strip()
 
             logger.info("[LLMNode] output=%s len=%d", output, len(text))
 

@@ -13,8 +13,8 @@ Dos modos según config:
     La búsqueda usa el LLM para extraer el valor del search_field del mensaje,
     luego filtra items con normalización de género.
 
-En ambos modos escribe en state.vars todas las keys del resultado,
-y el campo "text" va a state.context.
+En ambos modos escribe en state.data todas las keys del resultado,
+y el campo "text" va a state.data["context"].
 """
 import json
 import logging
@@ -122,7 +122,7 @@ class VectorSearchNode(BaseNode):
 
         if not activos:
             logger.info("[VectorSearchNode] Sin match para %s='%s'", search_field, search_value)
-            state.vars[search_field] = search_value
+            state.data[search_field] = search_value
             # Dejar en contexto los ítems activos disponibles para que el LLM
             # pueda responder "qué tienen" cuando no hay búsqueda específica.
             disponibles = [
@@ -130,22 +130,22 @@ class VectorSearchNode(BaseNode):
                 if item.get("activo", True)
             ]
             if disponibles:
-                state.context = json.dumps(disponibles, ensure_ascii=False)
+                state.data["context"] = json.dumps(disponibles, ensure_ascii=False)
             return state
 
         item = activos[0]
         logger.info("[VectorSearchNode] Match: %s='%s' → %s", search_field, search_value, item)
 
-        # Poblar state.vars con todas las keys del ítem
+        # Poblar state.data con todas las keys del ítem
         for key, value in item.items():
             if key != "activo":
-                state.vars[key] = value
+                state.data[key] = value
 
         # Aseguramos que el search_field esté en vars con el valor normalizado del LLM
-        state.vars[search_field] = search_value
+        state.data[search_field] = search_value
 
-        # text para state.context: serialización del ítem
-        state.context = json.dumps(item, ensure_ascii=False)
+        # text para state.data["context"]: serialización del ítem
+        state.data["context"] = json.dumps(item, ensure_ascii=False)
         logger.info("[VectorSearchNode] vars: %s", list(item.keys()))
         return state
 
@@ -181,13 +181,13 @@ class VectorSearchNode(BaseNode):
                 return state
 
             for key, value in result.items():
-                state.vars[key] = value
+                state.data[key] = value
 
             text = result.get("text") or result.get("mensaje") or json.dumps(result, ensure_ascii=False)
             if output_field == "context":
-                state.context = text
+                state.data["context"] = text
             elif output_field == "query":
-                state.query = text
+                state.data["query"] = text
 
             logger.info("[VectorSearchNode] Registry '%s' → vars: %s", collection, list(result.keys()))
         except Exception as e:
@@ -197,8 +197,8 @@ class VectorSearchNode(BaseNode):
 
     def _get_field(self, state: FlowState, field: str) -> str:
         if field == "message": return state.message
-        if field == "query":   return state.query
-        if field == "context": return state.context
+        if field == "query":   return state.data.get("query", "")
+        if field == "context": return state.data.get("context", "")
         return ""
 
     @classmethod

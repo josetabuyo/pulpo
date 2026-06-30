@@ -11,8 +11,8 @@ Config:
   cache_minutes: float — default 5
 
 Salida (igual que VectorSearchNode inline):
-  Match → state.vars con todas las columnas del ítem, state.context con JSON del ítem
-  Sin match → state.vars[search_field] = valor buscado, state.context = JSON de filas activas
+  Match → state.vars con todas las columnas del ítem, state.data["context"] con JSON del ítem
+  Sin match → state.data[search_field] = valor buscado, state.data["context"] = JSON de filas activas
 """
 import csv
 import io
@@ -116,11 +116,27 @@ class SearchSheetNode(BaseNode):
                 logger.info("[SearchSheetNode] Tags match para '%s' → %s", state.message[:40], tag_matches[0].get(search_field))
                 matches = tag_matches
 
+        # Búsqueda terciaria: el campo de búsqueda puede ser una cadena multi-palabra
+        # (ej: categoria="comida pizza delivery ...") — buscamos la palabra extraída como keyword
+        if not matches and search_value and search_value != "otro":
+            field_kw_matches = [
+                r for r in active_rows
+                if _tags_match(search_value, str(r.get(search_field, "")))
+                or _tags_match(state.message, str(r.get(search_field, "")))
+            ]
+            if field_kw_matches:
+                logger.info("[SearchSheetNode] Keyword match en campo '%s' para '%s'", search_field, search_value)
+                matches = field_kw_matches
+
         if not matches:
             logger.info("[SearchSheetNode] Sin match para %s='%s'", search_field, search_value)
-            state.vars[search_field] = search_value
-            if active_rows and not state.context:
-                state.context = json.dumps(active_rows, ensure_ascii=False)
+            state.data[search_field] = search_value
+            # Si la hoja tiene columna "mensaje", inicializar a "" para que {{mensaje}}
+            # se interpole como cadena vacía en nodos downstream (evita placeholder literal)
+            if active_rows and "mensaje" in active_rows[0]:
+                state.data.setdefault("mensaje", "")
+            if active_rows and not state.data.get("context"):
+                state.data["context"] = json.dumps(active_rows, ensure_ascii=False)
             return state
 
         item = matches[0]
@@ -128,9 +144,9 @@ class SearchSheetNode(BaseNode):
 
         for key, value in item.items():
             if key != "activo":
-                state.vars[key] = value
-        state.vars[search_field] = search_value
-        state.context = json.dumps(item, ensure_ascii=False)
+                state.data[key] = value
+        state.data[search_field] = search_value
+        state.data["context"] = json.dumps(item, ensure_ascii=False)
 
         return state
 

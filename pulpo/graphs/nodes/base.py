@@ -9,30 +9,28 @@ def interpolate(template: str, state: FlowState) -> str:
     """
     Reemplaza placeholders {{field}} con valores de FlowState.
 
-    Campos disponibles:
+    Campos meta (siempre disponibles):
       {{message}}       — mensaje entrante del usuario
-      {{reply}}         — reply acumulado hasta este nodo
-      {{context}}       — contexto acumulado (fetch/search/llm)
-      {{query}}         — query expandida
       {{contact_name}}  — nombre del contacto
-      {{contact_phone}} — teléfono del contacto
-      {{bot_name}}      — nombre del bot/bot
-      {{bot_id}}    — id de la bot
+      {{contact_phone}} — teléfono/id del contacto
+      {{bot_name}}      — nombre del bot
+      {{bot_id}}        — id del bot
       {{canal}}         — whatsapp | telegram
+
+    Cualquier clave en state.data también es un placeholder válido:
+      {{reply}}, {{context}}, {{route}}, {{nombre}}, {{trabajador}}, etc.
     """
-    builtin = {
+    meta = {
         "message":       state.message or "",
-        "reply":         state.reply or "",
-        "context":       state.context or "",
-        "query":         state.query or "",
         "contact_name":  state.contact_name or "",
         "contact_phone": state.contact_phone or "",
         "bot_name":      state.bot_name or "",
-        "bot_id":    state.bot_id or "",
+        "bot_id":        state.bot_id or "",
         "canal":         state.canal or "",
     }
-    # state.vars tiene prioridad — valores dinámicos escritos por nodos anteriores
-    all_fields = {**builtin, **{k: str(v) for k, v in state.vars.items()}}
+    # data tiene prioridad — solo escalares (listas/dicts se dejan como {{key}} literal)
+    scalar_data = {k: str(v) for k, v in state.data.items() if isinstance(v, (str, int, float, bool))}
+    all_fields = {**meta, **scalar_data}
 
     def replace(match):
         key = match.group(1).strip()

@@ -54,9 +54,9 @@ async def test_search_match_herrero():
          patch("graphs.nodes.search_sheet._identify_field_value", new=AsyncMock(return_value="herrero")):
         result = await node.run(state)
 
-    assert result.vars.get("nombre") == "Gregorio"
-    assert result.vars.get("oficio") == "herrero"
-    assert "Gregorio" in result.context
+    assert result.data.get("nombre") == "Gregorio"
+    assert result.data.get("oficio") == "herrero"
+    assert "Gregorio" in result.data.get("context", "")
 
 
 @pytest.mark.asyncio
@@ -71,7 +71,7 @@ async def test_search_normaliza_genero():
          patch("graphs.nodes.search_sheet._identify_field_value", new=AsyncMock(return_value="herrera")):
         result = await node.run(state)
 
-    assert result.vars.get("nombre") == "Gregorio"
+    assert result.data.get("nombre") == "Gregorio"
 
 
 @pytest.mark.asyncio
@@ -85,10 +85,10 @@ async def test_search_sin_match():
          patch("graphs.nodes.search_sheet._identify_field_value", new=AsyncMock(return_value="electricista")):
         result = await node.run(state)
 
-    assert result.vars.get("oficio") == "electricista"
+    assert result.data.get("oficio") == "electricista"
     # context debe tener los ítems activos disponibles
     import json
-    disponibles = json.loads(result.context)
+    disponibles = json.loads(result.data.get("context", ""))
     nombres = [r["nombre"] for r in disponibles]
     assert "Gregorio" in nombres
     assert "Ana" in nombres
@@ -109,12 +109,12 @@ async def test_search_filtra_activo_false():
         result = await node.run(state)
 
     # plomero tiene activo=false → sin match
-    assert result.vars.get("nombre") is None
-    assert result.vars.get("oficio") == "plomero"
+    assert result.data.get("nombre") is None
+    assert result.data.get("oficio") == "plomero"
     # Carlos (plomero) no debe aparecer en los disponibles
     import json
-    if result.context:
-        disponibles = json.loads(result.context)
+    if result.data.get("context", ""):
+        disponibles = json.loads(result.data.get("context", ""))
         assert all(r["nombre"] != "Carlos" for r in disponibles)
 
 
@@ -137,8 +137,8 @@ async def test_search_sin_sheet_id():
     node = SearchSheetNode({"sheet_id": ""})
     state = make_state()
     result = await node.run(state)
-    assert result.vars == {}
-    assert result.context == ""
+    assert result.data == {}
+    assert result.data.get("context", "") == ""
 
 
 def test_config_schema():

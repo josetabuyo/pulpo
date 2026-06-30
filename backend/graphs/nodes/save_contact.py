@@ -27,7 +27,7 @@ class SaveContactNode(BaseNode):
             v = getattr(state, field, None)
             if v:
                 return v
-            return state.vars.get(field)
+            return state.data.get(field)
 
         name  = _get(name_field)  or state.contact_phone
         phone = _get(phone_field) or state.contact_phone

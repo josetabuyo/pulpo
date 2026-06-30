@@ -172,7 +172,7 @@ async def _pipeline(
         logger.exception("[teli-poll] run_flows error for %s/%s", session, contact_id)
         return
 
-    reply = state.reply or ""
+    reply = state.data.get("reply") or ""
     if not reply:
         return
 

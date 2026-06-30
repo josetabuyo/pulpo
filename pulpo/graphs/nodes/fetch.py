@@ -1,5 +1,5 @@
 """
-FetchNode — obtiene contenido externo y lo guarda en state.context.
+FetchNode — obtiene contenido externo y lo guarda en state.data["context"].
 
 Config:
   source:        str — "facebook" | "http"
@@ -17,6 +17,9 @@ from .base import BaseNode
 from .state import FlowState
 
 logger = logging.getLogger(__name__)
+
+# Claves con semántica propia del engine — no deben ser pisadas por datos externos
+_RESERVED_KEYS = frozenset({"route", "reply", "context", "query", "fb_posts", "source_urls", "_node_errors"})
 
 
 class FetchNode(BaseNode):
@@ -37,9 +40,9 @@ class FetchNode(BaseNode):
         page_id    = self.config.get("fb_page_id") or state.bot_id
         numeric_id = self.config.get("fb_numeric_id", "")
 
-        # Queries: usa state.query (multi-línea) o el mensaje directo
-        if state.query:
-            queries = [q.strip() for q in state.query.splitlines() if q.strip()]
+        # Queries: usa state.data["query"] (multi-línea) o el mensaje directo
+        if state.data.get("query"):
+            queries = [q.strip() for q in state.data["query"].splitlines() if q.strip()]
         else:
             queries = [state.message]
 
@@ -61,7 +64,7 @@ class FetchNode(BaseNode):
                         seen.add(key)
                         fb_posts.append(post)
 
-            state.fb_posts = fb_posts
+            state.data["fb_posts"] = fb_posts
 
             # Formatear contexto con URL de cada post para que el LLM pueda citar la fuente
             parts = []
@@ -72,8 +75,9 @@ class FetchNode(BaseNode):
                 if p.get("url"):
                     header += f"\nURL: {p['url']}"
                 parts.append(f"{header}\n{p['text']}")
-            state.context = "\n\n".join(parts)
-            logger.info("[FetchNode] Facebook: %d posts, %d chars", len(fb_posts), len(state.context))
+            context = "\n\n".join(parts)
+            state.data["context"] = context
+            logger.info("[FetchNode] Facebook: %d posts, %d chars", len(fb_posts), len(context))
 
             # Guardar URLs para appendar al reply
             seen_urls: set[str] = set()
@@ -85,7 +89,7 @@ class FetchNode(BaseNode):
                         source_urls.append(u)
             if source_urls:
                 # BUG: solo el primer link tiene sentido — ver BUG_LUGANENSE_LINKS.md
-                state.vars["source_urls"] = source_urls[:1]
+                state.data["source_urls"] = source_urls[:1]
 
         except Exception as e:
             logger.error("[FetchNode] Error fetching Facebook: %s", e)
@@ -99,39 +103,44 @@ class FetchNode(BaseNode):
             return
         # Template substitution: {message} and {query} are replaced with user input
         url = url.replace("{message}", state.message or "")
-        url = url.replace("{query}", state.query or state.message or "")
+        url = url.replace("{query}", state.data.get("query") or state.message or "")
         try:
             import httpx
             async with httpx.AsyncClient(timeout=15) as client:
                 resp = await client.get(url)
                 resp.raise_for_status()
                 if extract == "json":
-                    state.context = resp.text
+                    state.data["context"] = resp.text
                 elif extract == "html":
-                    state.context = resp.text
+                    state.data["context"] = resp.text
                 else:
                     # extraer texto plano básico
                     import re
                     text = re.sub(r"<[^>]+>", " ", resp.text)
                     text = re.sub(r"\s+", " ", text).strip()
-                    state.context = text[:5000]
-            logger.info("[FetchNode] http %s: %d chars", url[:60], len(state.context))
+                    state.data["context"] = text[:5000]
+            logger.info("[FetchNode] http %s: %d chars", url[:60], len(state.data.get("context", "")))
 
             # Extrae el primer resultado de {"results": [...]} a state.vars
-            if extract_first_to_vars and extract == "json" and state.context:
+            if extract_first_to_vars and extract == "json" and state.data.get("context"):
                 import json as _json
                 try:
-                    data = _json.loads(state.context)
+                    data = _json.loads(state.data["context"])
                     results = data.get("results") if isinstance(data, dict) else None
                     if results and isinstance(results, list) and results[0]:
                         for k, v in results[0].items():
-                            state.vars[k] = v
+                            if k in _RESERVED_KEYS:
+                                logger.warning("[FetchNode] campo externo '%s' colisiona con clave reservada — ignorado", k)
+                                continue
+                            state.data[k] = v
                         # Expandir contactos: [{tipo, valor}] a vars planos por tipo
                         contactos = results[0].get("contactos")
                         if isinstance(contactos, list):
                             for c in contactos:
-                                if isinstance(c, dict) and c.get("tipo") and c.get("valor"):
-                                    state.vars[c["tipo"]] = c["valor"]
+                                tipo = c.get("tipo") if isinstance(c, dict) else None
+                                valor = c.get("valor") if isinstance(c, dict) else None
+                                if tipo and valor and tipo not in _RESERVED_KEYS:
+                                    state.data[tipo] = valor
                         logger.info("[FetchNode] extract_first_to_vars: %d campos → vars", len(results[0]))
                 except Exception as ex:
                     logger.warning("[FetchNode] extract_first_to_vars falló: %s", ex)

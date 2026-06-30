@@ -94,7 +94,7 @@ async def test_max_age_bloquea_mensaje_viejo():
     node = _send_node(max_age=1.0)
     state = _state_with_ts(hours_old=2.0)
     result = await node.run(state)
-    assert result.reply is None, "Mensaje de 2h debe ser bloqueado (límite 1h)"
+    assert result.data.get("reply") is None, "Mensaje de 2h debe ser bloqueado (límite 1h)"
 
 
 @pytest.mark.asyncio
@@ -103,7 +103,7 @@ async def test_max_age_permite_mensaje_reciente():
     node = _send_node(max_age=1.0)
     state = _state_with_ts(hours_old=10 / 60)
     result = await node.run(state)
-    assert result.reply == "Respuesta automática", "Mensaje de 10min debe pasar"
+    assert result.data.get("reply") == "Respuesta automática", "Mensaje de 10min debe pasar"
 
 
 @pytest.mark.asyncio
@@ -112,7 +112,7 @@ async def test_max_age_sin_timestamp_permite():
     node = _send_node(max_age=1.0)
     state = _state_with_ts(hours_old=None)
     result = await node.run(state)
-    assert result.reply == "Respuesta automática", "Sin timestamp debe pasar siempre"
+    assert result.data.get("reply") == "Respuesta automática", "Sin timestamp debe pasar siempre"
 
 
 @pytest.mark.asyncio
@@ -121,7 +121,7 @@ async def test_max_age_cero_desactiva_limite():
     node = _send_node(max_age=0)
     state = _state_with_ts(hours_old=48.0)   # 2 días
     result = await node.run(state)
-    assert result.reply == "Respuesta automática", "max_age=0 debe desactivar el límite"
+    assert result.data.get("reply") == "Respuesta automática", "max_age=0 debe desactivar el límite"
 
 
 @pytest.mark.asyncio
@@ -131,7 +131,7 @@ async def test_from_delta_sync_siempre_bloqueado():
     state = _state_with_ts(hours_old=0.1)
     state.from_delta_sync = True
     result = await node.run(state)
-    assert result.reply is None, "from_delta_sync siempre debe bloquear el reply"
+    assert result.data.get("reply") is None, "from_delta_sync siempre debe bloquear el reply"
 
 
 @pytest.mark.asyncio
@@ -212,7 +212,7 @@ async def test_cooldown_tg_primer_mensaje_pasa():
          patch("paused.is_paused", return_value=False):
         result = await run_flows(state, connection_id=bot_id)
 
-    assert result.reply == "Hola desde TG", "Primer mensaje debe pasar"
+    assert result.data.get("reply") == "Hola desde TG", "Primer mensaje debe pasar"
     assert flow_cooldown.has("test-tg-cooldown", contact), "Cooldown debe quedar registrado"
 
 
@@ -236,7 +236,7 @@ async def test_cooldown_tg_segundo_mensaje_bloqueado():
          patch("paused.is_paused", return_value=False):
         result = await run_flows(state, connection_id=bot_id)
 
-    assert result.reply is None, "Mensaje dentro del cooldown debe ser bloqueado"
+    assert result.data.get("reply") is None, "Mensaje dentro del cooldown debe ser bloqueado"
 
 
 @pytest.mark.asyncio
@@ -261,7 +261,7 @@ async def test_cooldown_tg_otro_contacto_no_afectado():
          patch("paused.is_paused", return_value=False):
         result = await run_flows(state_b, connection_id=bot_id)
 
-    assert result.reply == "Hola desde TG", "Contacto distinto no debe estar bloqueado por cooldown ajeno"
+    assert result.data.get("reply") == "Hola desde TG", "Contacto distinto no debe estar bloqueado por cooldown ajeno"
 
 
 @pytest.mark.asyncio
@@ -289,7 +289,7 @@ async def test_cooldown_tg_sin_campo_usa_default_schema():
          patch("paused.is_paused", return_value=False):
         result = await run_flows(state, connection_id=bot_id)
 
-    assert result.reply is None, "Sin cooldown_hours en config → usa default 4h → bloqueado dentro del cooldown"
+    assert result.data.get("reply") is None, "Sin cooldown_hours en config → usa default 4h → bloqueado dentro del cooldown"
 
 
 # ─── 3. max_age en run_flows (integración con mocks) ─────────────────────────
@@ -308,7 +308,7 @@ async def test_run_flows_bloquea_mensaje_viejo():
          patch("paused.is_paused", return_value=False):
         result = await run_flows(state, connection_id=bot_id)
 
-    assert result.reply is None, "Mensaje de 3h debe ser bloqueado en run_flows"
+    assert result.data.get("reply") is None, "Mensaje de 3h debe ser bloqueado en run_flows"
 
 
 @pytest.mark.asyncio
@@ -325,7 +325,7 @@ async def test_run_flows_permite_mensaje_reciente():
          patch("paused.is_paused", return_value=False):
         result = await run_flows(state, connection_id=bot_id)
 
-    assert result.reply == "Respuesta automática", "Mensaje reciente debe pasar en run_flows"
+    assert result.data.get("reply") == "Respuesta automática", "Mensaje reciente debe pasar en run_flows"
 
 
 # ─── 3. Pausa por bot ─────────────────────────────────────────────────────
@@ -393,7 +393,7 @@ async def test_run_flows_bot_pausada_no_responde():
          patch("paused.is_paused", return_value=True):
         result = await run_flows(state, connection_id=bot_id)
 
-    assert result.reply is None, "Bot pausada debe retornar reply=None"
+    assert result.data.get("reply") is None, "Bot pausada debe retornar reply=None"
 
 
 @pytest.mark.asyncio
@@ -410,4 +410,4 @@ async def test_run_flows_bot_reanudada_responde():
          patch("paused.is_paused", return_value=False):
         result = await run_flows(state, connection_id=bot_id)
 
-    assert result.reply == "Respuesta automática", "Bot activa debe responder"
+    assert result.data.get("reply") == "Respuesta automática", "Bot activa debe responder"

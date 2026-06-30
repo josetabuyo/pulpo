@@ -23,25 +23,55 @@ logger = logging.getLogger(__name__)
 
 def _build_user_message(state: FlowState, context_source: str) -> str:
     parts = [f"Mensaje: {state.message}"]
-    if "vars" in context_source and state.vars:
-        parts.append(f"Variables: {json.dumps(state.vars, ensure_ascii=False)}")
-    if "context" in context_source and state.context:
-        parts.append(f"Contexto: {state.context}")
+    if "vars" in context_source and state.data:
+        parts.append(f"Variables: {json.dumps(state.data, ensure_ascii=False)}")
+    if "context" in context_source and state.data.get("context"):
+        parts.append(f"Contexto: {state.data['context']}")
     return "\n\n".join(parts)
+
+
+def _eval_pre_route_rules(rules: list[dict], state: FlowState) -> str | None:
+    """
+    Evalúa reglas deterministas sobre state.data antes de llamar al LLM.
+
+    Cada regla:
+      { "if_var": "servicio", "not_in": ["", "otro"], "then": "servicio" }
+
+    Devuelve la ruta de la primera regla que matchea, o None si ninguna.
+    """
+    for rule in rules:
+        var_name = rule.get("if_var", "")
+        not_in   = rule.get("not_in", [])
+        then     = rule.get("then", "")
+        if not var_name or not then:
+            continue
+        value = str(state.data.get(var_name, ""))
+        if value and value not in not_in:
+            return then
+    return None
 
 
 class RouterNode(BaseNode):
     async def run(self, state: FlowState) -> FlowState:
-        prompt         = self.config.get("prompt", "")
-        routes         = self.config.get("routes", [])
-        fallback       = self.config.get("fallback", routes[0] if routes else "")
-        raw_model      = self.config.get("model", "best:instruction|local-first")
-        context_source = self.config.get("context_source", "none")
+        prompt           = self.config.get("prompt", "")
+        routes           = self.config.get("routes", [])
+        fallback         = self.config.get("fallback", routes[0] if routes else "")
+        raw_model        = self.config.get("model", "best:instruction|local-first")
+        context_source   = self.config.get("context_source", "none")
+        pre_route_rules  = self.config.get("pre_route_rules", [])
         model, router_strategy = parse_model_strategy(raw_model, self.config)
+
+        # Reglas deterministas: se evalúan antes del LLM
+        if pre_route_rules:
+            route = _eval_pre_route_rules(pre_route_rules, state)
+            if route:
+                logger.info("[RouterNode] pre_route_rule → '%s'", route)
+                state.data["route"] = route
+                return state
 
         if not prompt:
             logger.warning("[RouterNode] Sin prompt — usando fallback '%s'", fallback)
-            state.route = fallback
+            state.data["route"] = fallback
             return state
 
         user_message = _build_user_message(state, context_source)
@@ -57,10 +87,10 @@ class RouterNode(BaseNode):
                 logger.info("[RouterNode] respuesta '%s' no válida — usando fallback '%s'", route, fallback)
                 route = fallback
             logger.info("[RouterNode] route → '%s' | msg: %.60s | ctx: %s", route, state.message, context_source)
-            state.route = route
+            state.data["route"] = route
         except Exception as e:
             logger.error("[RouterNode] Error: %s — fallback '%s'", e, fallback)
-            state.route = fallback
+            state.data["route"] = fallback
 
         return state
 

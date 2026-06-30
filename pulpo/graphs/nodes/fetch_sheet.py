@@ -86,10 +86,8 @@ class FetchSheetNode(BaseNode):
         if content is None:
             return state
 
-        if output == "context":
-            state.context = content
-        else:
-            state.vars["sheet_data"] = content
+        key = output.replace("vars.", "") if output != "context" else "context"
+        state.data[key] = content
 
         logger.info("[FetchSheetNode] %d chars → %s", len(content), output)
         return state

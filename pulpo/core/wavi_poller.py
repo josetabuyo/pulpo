@@ -129,7 +129,7 @@ async def _poll_session(session: str):
             logger.exception("[wavi-poll] run_flows error for %s/%s", session, name)
             continue
 
-        reply = state.reply or ""
+        reply = state.data.get("reply") or ""
         if reply:
             try:
                 await wd.send(session, name, reply)

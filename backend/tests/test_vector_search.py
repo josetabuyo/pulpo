@@ -85,14 +85,14 @@ async def test_vector_search_query_field_message():
     )
     result = await node.run(state)
 
-    # El handler debe haber escrito en state.vars
-    assert "oficio" in result.vars
-    assert "worker" in result.vars
+    # El handler debe haber escrito en state.data
+    assert "oficio" in result.data
+    assert "worker" in result.data
 
 
 @pytest.mark.asyncio
 async def test_vector_search_output_field_context():
-    """Escribe el resultado en state.context (default)."""
+    """Escribe el resultado en state.data.get("context", "") (default)."""
     config = {"collection": "luganense_oficios"}
     node = VectorSearchNode(config)
 
@@ -102,9 +102,9 @@ async def test_vector_search_output_field_context():
     )
     result = await node.run(state)
 
-    # El resultado debe estar en state.context (serializado como JSON)
-    assert result.context is not None
-    assert result.context != ""
+    # El resultado debe estar en state.data.get("context", "") (serializado como JSON)
+    assert result.data.get("context", "") is not None
+    assert result.data.get("context", "") != ""
 
 
 @pytest.mark.asyncio
@@ -123,12 +123,12 @@ async def test_vector_search_interpola_placeholders():
     )
     # Nota: {{message}} es un placeholder self-referencial, debería quedar igual
     result = await node.run(state)
-    assert "oficio" in result.vars
+    assert "oficio" in result.data
 
 
 @pytest.mark.asyncio
 async def test_vector_search_vars_tienen_todas_las_keys():
-    """El handler retorna todas sus keys en state.vars."""
+    """El handler retorna todas sus keys en state.data."""
     config = {"collection": "luganense_oficios"}
     node = VectorSearchNode(config)
 
@@ -139,8 +139,8 @@ async def test_vector_search_vars_tienen_todas_las_keys():
     result = await node.run(state)
 
     # El handler de oficios retorna: oficio, worker, nombre, telefono, text
-    assert "oficio" in result.vars
-    assert "worker" in result.vars
-    assert "nombre" in result.vars
-    assert "telefono" in result.vars
-    assert "text" in result.vars
+    assert "oficio" in result.data
+    assert "worker" in result.data
+    assert "nombre" in result.data
+    assert "telefono" in result.data
+    assert "text" in result.data

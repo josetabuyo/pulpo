@@ -77,8 +77,8 @@ async def test_fetch_sheet_vuelca_en_context():
     with patch("graphs.nodes.fetch_sheet.httpx.AsyncClient", return_value=mock_client):
         result = await node.run(state)
 
-    assert "Gregorio" in result.context
-    assert result.context.startswith("|")  # markdown_table
+    assert "Gregorio" in result.data.get("context", "")
+    assert result.data.get("context", "").startswith("|")  # markdown_table
 
 
 @pytest.mark.asyncio
@@ -96,9 +96,9 @@ async def test_fetch_sheet_output_vars():
     with patch("graphs.nodes.fetch_sheet.httpx.AsyncClient", return_value=mock_client):
         result = await node.run(state)
 
-    assert "sheet_data" in result.vars
-    assert "Gregorio" in result.vars["sheet_data"]
-    assert result.context == ""  # no tocó context
+    assert "sheet_data" in result.data
+    assert "Gregorio" in result.data["sheet_data"]
+    assert result.data.get("context", "") == ""  # no tocó context
 
 
 @pytest.mark.asyncio
@@ -144,7 +144,7 @@ async def test_fetch_sheet_sin_sheet_id():
     node = FetchSheetNode({"sheet_id": ""})
     state = make_state()
     result = await node.run(state)
-    assert result.context == ""
+    assert result.data.get("context", "") == ""
 
 
 def test_build_url_sin_range():

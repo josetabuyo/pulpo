@@ -13,6 +13,7 @@ Colaboradores:
 Los adapters (Telegram, Wavi, Sim) normalizan el mensaje a FlowState
 y llaman a run_flows(). El engine no sabe nada de protocolos.
 """
+import copy
 import logging
 import os
 from datetime import datetime
@@ -88,14 +89,14 @@ async def _run_bfs(
 
         # Saltar marcadores visuales — pero seguir sus edges
         if node_id in ("__start__", "__end__") or node_type in ("start", "end"):
-            _enqueue_neighbors(graph, current_id, visited, queue, state.route)
+            _enqueue_neighbors(graph, current_id, visited, queue, state.data.get("route", ""))
             continue
 
         node_cls = NODE_REGISTRY.get(node_type)
         if not node_cls:
             logger.debug("[engine] tipo '%s' no tiene implementación — skip", node_type)
             # Seguir edges igual: no abandonar el árbol por un nodo no implementado
-            _enqueue_neighbors(graph, current_id, visited, queue, state.route)
+            _enqueue_neighbors(graph, current_id, visited, queue, state.data.get("route", ""))
             continue
 
         try:
@@ -104,12 +105,16 @@ async def _run_bfs(
             logger.debug("[engine] nodo '%s' (%s) ejecutado", node_id, node_type)
         except Exception as e:
             logger.exception("[engine] Error en nodo '%s' (%s)", node_id, node_type)
-            state.vars.setdefault("_node_errors", []).append(
+            state.data.setdefault("_node_errors", []).append(
                 {"node": node_id, "type": node_type, "error": str(e)}
             )
 
-        _enqueue_neighbors(graph, current_id, visited, queue, state.route)
+        _enqueue_neighbors(graph, current_id, visited, queue, state.data.get("route", ""))
 
+    errors = state.data.get("_node_errors")
+    if errors:
+        logger.warning("[engine] Flow terminó con %d error(es): %s", len(errors),
+                       [e["node"] for e in errors])
     return state
 
 
@@ -266,6 +271,7 @@ async def run_flows(
         if is_paused(bot_id):
             logger.info("[engine] Bot pausado: %s — flows ejecutados sin reply", bot_id)
             state_copy = FlowState(**{f: getattr(state, f) for f in state.__dataclass_fields__})
+            state_copy.data = copy.deepcopy(state.data)
             state_copy.from_delta_sync = True  # bloquea replies en todos los nodos
             for flow in flows:
                 state_copy.bot_id = bot_id
@@ -279,10 +285,10 @@ async def run_flows(
                              flow["name"], state.timestamp)
                 continue
 
-            prev_reply = state.reply
+            prev_reply = state.data.get("reply")
             state = await execute_flow(flow, state)
             # Si este flow generó un reply nuevo, registrar timestamp para cooldown
-            if state.reply and state.reply != prev_reply:
+            if state.data.get("reply") and state.data.get("reply") != prev_reply:
                 entry = next(
                     (n for n in flow.get("definition", {}).get("nodes", [])
                      if n.get("type") in TRIGGER_TYPES),
@@ -293,9 +299,9 @@ async def run_flows(
                     if ch > 0:
                         flow_cooldown.mark(flow["id"], state.contact_phone or "")
 
-    if disable_reply and state.reply is not None:
+    if disable_reply and state.data.get("reply") is not None:
         logger.info("[engine] Kill switch activado — reply descartado (connection_id=%s)",
                     connection_id)
-        state.reply = None
+        state.data.pop("reply", None)
 
     return state

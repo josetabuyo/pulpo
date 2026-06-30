@@ -369,7 +369,7 @@ async def trigger_flow(flow_id: str, node_id: str, body: ApiTriggerBody = None):
     )
 
     state = await execute_flow(flow, state, entry_node_id=node_id)
-    return {"ok": True, "reply": state.reply}
+    return {"ok": True, "reply": state.data.get("reply")}
 
 
 @router.delete("/bots/{bot_id}/flows/{flow_id}", status_code=204)

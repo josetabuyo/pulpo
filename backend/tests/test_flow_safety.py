@@ -141,7 +141,7 @@ async def test_flow_sin_trigger_no_dispara():
     }
     state = FlowState(message="Hola", contact_phone="5491199990000", canal="telegram", connection_id="5491199990000")
     result = await execute_flow(flow_sin_trigger, state)
-    assert result.reply is None, "Flow sin trigger no debe producir reply"
+    assert result.data.get("reply") is None, "Flow sin trigger no debe producir reply"
 
 
 @pytest.mark.asyncio
@@ -244,7 +244,7 @@ async def test_flow_con_message_trigger_y_connection_null_en_db():
             connection_id=bot_id,
         )
         state = await execute_flow(flow, state)
-        assert state.reply == "Mensaje desde message_trigger", "Flow con message_trigger y connection_id correcto debe ejecutarse"
+        assert state.data.get("reply") == "Mensaje desde message_trigger", "Flow con message_trigger y connection_id correcto debe ejecutarse"
     finally:
         await db_module.delete_flow(flow_id)
 
@@ -340,7 +340,7 @@ async def test_message_trigger_filtra_por_contact_phone():
             connection_id=bot_id,
         )
         state = await execute_flow(flow, state)
-        assert state.reply == "Mensaje para contacto específico", "Flow debe ejecutarse para contacto correcto"
+        assert state.data.get("reply") == "Mensaje para contacto específico", "Flow debe ejecutarse para contacto correcto"
 
         # Test 2: Contacto incorrecto → NO debe ejecutarse
         state2 = FlowState(
@@ -350,7 +350,7 @@ async def test_message_trigger_filtra_por_contact_phone():
             connection_id=bot_id,
         )
         state2 = await execute_flow(flow, state2)
-        assert state2.reply is None, "Flow NO debe ejecutarse para contacto incorrecto"
+        assert state2.data.get("reply") is None, "Flow NO debe ejecutarse para contacto incorrecto"
 
     finally:
         await db_module.delete_flow(flow_id)
@@ -404,7 +404,7 @@ async def test_message_trigger_sin_contact_phone_filtra_todos():
             connection_id=bot_id,
         )
         state = await execute_flow(flow, state)
-        assert state.reply == "Mensaje para todos", "Flow debe ejecutarse para contacto 1"
+        assert state.data.get("reply") == "Mensaje para todos", "Flow debe ejecutarse para contacto 1"
 
         # Test 2: Contacto 2 → también debe ejecutarse
         state2 = FlowState(
@@ -414,7 +414,7 @@ async def test_message_trigger_sin_contact_phone_filtra_todos():
             connection_id=bot_id,
         )
         state2 = await execute_flow(flow, state2)
-        assert state2.reply == "Mensaje para todos", "Flow debe ejecutarse para contacto 2 (sin filtro contact_phone)"
+        assert state2.data.get("reply") == "Mensaje para todos", "Flow debe ejecutarse para contacto 2 (sin filtro contact_phone)"
 
     finally:
         await db_module.delete_flow(flow_id)
@@ -494,7 +494,7 @@ async def test_migracion_start_a_message_trigger_explicito():
             connection_id=bot_id,
         )
         state_legacy = await execute_flow(flow_legacy, state_legacy)
-        assert state_legacy.reply == "Mensaje legacy", "Flow legacy con __start__ debe funcionar (compatibilidad hacia atrás)"
+        assert state_legacy.data.get("reply") == "Mensaje legacy", "Flow legacy con __start__ debe funcionar (compatibilidad hacia atrás)"
 
         # Test 2: Flow migrado funciona (forma nueva explícita)
         flow_migrado = next(f for f in flows if f["id"] == flow_migrado_id)
@@ -505,7 +505,7 @@ async def test_migracion_start_a_message_trigger_explicito():
             connection_id=bot_id,
         )
         state_migrado = await execute_flow(flow_migrado, state_migrado)
-        assert state_migrado.reply == "Mensaje migrado", "Flow migrado debe funcionar"
+        assert state_migrado.data.get("reply") == "Mensaje migrado", "Flow migrado debe funcionar"
 
         # Test 3: Ventaja de la forma nueva - filtrado más granular
         # Con InputTextNode podemos tener múltiples flows con diferentes contact_phones
@@ -542,7 +542,7 @@ async def test_migracion_start_a_message_trigger_explicito():
                 connection_id=bot_id,
             )
             state_otro = await execute_flow(flow_migrado_otro, state_otro)
-            assert state_otro.reply is None, "Flow con contact_phone diferente no debe ejecutarse"
+            assert state_otro.data.get("reply") is None, "Flow con contact_phone diferente no debe ejecutarse"
 
             # Pero sí debe ejecutarse para el contacto correcto
             state_contacto_correcto = FlowState(
@@ -552,7 +552,7 @@ async def test_migracion_start_a_message_trigger_explicito():
                 connection_id=bot_id,
             )
             state_contacto_correcto = await execute_flow(flow_migrado_otro, state_contacto_correcto)
-            assert state_contacto_correcto.reply == "Mensaje para otro contacto", "Flow debe ejecutarse para contacto correcto"
+            assert state_contacto_correcto.data.get("reply") == "Mensaje para otro contacto", "Flow debe ejecutarse para contacto correcto"
 
         finally:
             await db_module.delete_flow(flow_migrado_otro_contacto_id)
@@ -591,7 +591,7 @@ async def test_migracion_start_a_message_trigger_explicito():
                 connection_id=bot_id,
             )
             state_wildcard = await execute_flow(flow_wildcard, state_wildcard)
-            assert state_wildcard.reply == "Mensaje para todos", "Flow wildcard debe ejecutarse para cualquier contacto"
+            assert state_wildcard.data.get("reply") == "Mensaje para todos", "Flow wildcard debe ejecutarse para cualquier contacto"
 
         finally:
             await db_module.delete_flow(flow_migrado_wildcard_id)
@@ -645,7 +645,7 @@ async def test_flow_sin_nodo_entrada_no_se_ejecuta():
             connection_id=bot_id,
         )
         state = await execute_flow(flow, state)
-        assert state.reply is None, "Flow sin nodo de entrada debe ser ignorado"
+        assert state.data.get("reply") is None, "Flow sin nodo de entrada debe ser ignorado"
 
     finally:
         await db_module.delete_flow(flow_id)
@@ -666,7 +666,7 @@ async def test_kill_switch_global_descarta_reply():
 
         state = await run_flows(_state(bot_id), connection_id=bot_id)
 
-    assert state.reply is None, "DISABLE_AUTO_REPLY=true debe bloquear el reply."
+    assert state.data.get("reply") is None, "DISABLE_AUTO_REPLY=true debe bloquear el reply."
 
 
 @pytest.mark.asyncio
@@ -682,7 +682,7 @@ async def test_kill_switch_global_false_permite_reply():
 
         state = await run_flows(_state(bot_id), connection_id=bot_id)
 
-    assert state.reply == "Bienvenido"
+    assert state.data.get("reply") == "Bienvenido"
 
 
 # ─── 4. Kill switch por número DISABLE_AUTO_REPLY_PHONES ────────────────────
@@ -700,7 +700,7 @@ async def test_kill_switch_por_numero_bloquea_ese_numero():
 
         state = await run_flows(_state(blocked), connection_id=blocked)
 
-    assert state.reply is None, f"El número {blocked} no debe mandar replies (está en DISABLE_AUTO_REPLY_PHONES)."
+    assert state.data.get("reply") is None, f"El número {blocked} no debe mandar replies (está en DISABLE_AUTO_REPLY_PHONES)."
 
 
 @pytest.mark.asyncio
@@ -717,7 +717,7 @@ async def test_kill_switch_por_numero_no_afecta_otros():
 
         state = await run_flows(_state(otro), connection_id=otro)
 
-    assert state.reply == "Respuesta de GM", "El número 59 no debe verse afectado por el bloqueo del 67."
+    assert state.data.get("reply") == "Respuesta de GM", "El número 59 no debe verse afectado por el bloqueo del 67."
 
 
 # ─── 5. Guard activated_at: no responder mensajes anteriores al flow ─────────
@@ -739,7 +739,7 @@ async def test_guard_activatedat_bloquea_mensaje_viejo():
 
         state = await run_flows(state, connection_id=bot_id)
 
-    assert state.reply is None, "Mensaje anterior al flow no debe recibir respuesta (guard activated_at)."
+    assert state.data.get("reply") is None, "Mensaje anterior al flow no debe recibir respuesta (guard activated_at)."
 
 
 @pytest.mark.asyncio
@@ -760,7 +760,7 @@ async def test_guard_activatedat_permite_mensaje_nuevo():
 
         state = await run_flows(state, connection_id=bot_id)
 
-    assert state.reply == "Bienvenido"
+    assert state.data.get("reply") == "Bienvenido"
 
 
 # ─── 6. allow_mass: inc_all / inc_unk ignorados si la conexión no lo tiene activo ──
@@ -829,7 +829,7 @@ async def test_allow_mass_false_bloquea_inc_all():
          patch("graphs.trigger_match._is_known_contact", new_callable=AsyncMock, return_value=True):
         result = await execute_flow(flow, state)
 
-    assert result.reply is None, "inc_all con allow_mass=False no debe producir reply"
+    assert result.data.get("reply") is None, "inc_all con allow_mass=False no debe producir reply"
 
 
 @pytest.mark.asyncio
@@ -854,7 +854,7 @@ async def test_allow_mass_true_permite_inc_all():
          patch("graphs.trigger_match._is_known_contact", new_callable=AsyncMock, return_value=True):
         result = await execute_flow(flow, state)
 
-    assert result.reply == "Respuesta masiva", "inc_all con allow_mass=True debe producir reply"
+    assert result.data.get("reply") == "Respuesta masiva", "inc_all con allow_mass=True debe producir reply"
 
 
 @pytest.mark.asyncio
@@ -879,7 +879,7 @@ async def test_allow_mass_false_bloquea_inc_unk():
          patch("graphs.trigger_match._is_known_contact", new_callable=AsyncMock, return_value=False):
         result = await execute_flow(flow, state)
 
-    assert result.reply is None, "inc_unk con allow_mass=False no debe producir reply"
+    assert result.data.get("reply") is None, "inc_unk con allow_mass=False no debe producir reply"
 
 
 @pytest.mark.asyncio
@@ -930,5 +930,5 @@ async def test_allow_mass_false_no_afecta_filtro_individual():
     with patch("config.load_config", return_value=_cfg_with_allow_mass(conn_id, allow_mass=False)):
         result = await execute_flow(flow_individual, state)
 
-    assert result.reply == "Solo para vos", \
+    assert result.data.get("reply") == "Solo para vos", \
         "Filtro con contacto explícito debe funcionar aunque allow_mass=False"

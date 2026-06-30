@@ -24,9 +24,9 @@ CSV = (
 
 def make_state(query: str = "herrero", oficio_var: str = "") -> FlowState:
     s = FlowState(message="test", bot_id="test", connection_id="test", canal="telegram")
-    s.query = query
+    s.data["query"] = query
     if oficio_var:
-        s.vars["oficio"] = oficio_var
+        s.data["oficio"] = oficio_var
     return s
 
 
@@ -54,9 +54,9 @@ async def test_search_exacto_por_query():
     with patch("graphs.nodes.gsheet.httpx.AsyncClient", return_value=mock_client):
         result = await node.run(state)
 
-    assert result.vars.get("nombre") == "Gregorio"
-    assert result.vars.get("precio") == "500"
-    assert "Gregorio" in result.context
+    assert result.data.get("nombre") == "Gregorio"
+    assert result.data.get("precio") == "500"
+    assert "Gregorio" in result.data.get("context", "")
 
 
 @pytest.mark.asyncio
@@ -70,7 +70,7 @@ async def test_search_por_vars():
     with patch("graphs.nodes.gsheet.httpx.AsyncClient", return_value=mock_client):
         result = await node.run(state)
 
-    assert result.vars.get("nombre") == "Ana"
+    assert result.data.get("nombre") == "Ana"
 
 
 @pytest.mark.asyncio
@@ -84,8 +84,8 @@ async def test_search_sin_match_devuelve_disponibles():
     with patch("graphs.nodes.gsheet.httpx.AsyncClient", return_value=mock_client):
         result = await node.run(state)
 
-    assert result.vars.get("oficio") == "electricista"
-    disponibles = json.loads(result.context)
+    assert result.data.get("oficio") == "electricista"
+    disponibles = json.loads(result.data.get("context", ""))
     nombres = [r["nombre"] for r in disponibles]
     assert "Gregorio" in nombres
     assert "Carlos" not in nombres  # activo=false
@@ -102,7 +102,7 @@ async def test_search_filtra_activo_false():
     with patch("graphs.nodes.gsheet.httpx.AsyncClient", return_value=mock_client):
         result = await node.run(state)
 
-    assert result.vars.get("nombre") is None  # sin match porque activo=false
+    assert result.data.get("nombre") is None  # sin match porque activo=false
 
 
 @pytest.mark.asyncio
@@ -116,7 +116,7 @@ async def test_search_contains():
     with patch("graphs.nodes.gsheet.httpx.AsyncClient", return_value=mock_client):
         result = await node.run(state)
 
-    assert result.vars.get("nombre") == "Gregorio"
+    assert result.data.get("nombre") == "Gregorio"
 
 
 @pytest.mark.asyncio
@@ -138,7 +138,7 @@ async def test_search_sin_sheet_id():
     node = GSheetNode({"mode": "search", "sheet_id": "", "search_column": "oficio"})
     state = make_state()
     result = await node.run(state)
-    assert result.vars == {}
+    assert result.data.get("nombre") is None  # nada escrito por la hoja
 
 
 @pytest.mark.asyncio
@@ -152,7 +152,7 @@ async def test_search_valor_vacio():
     with patch("graphs.nodes.gsheet.httpx.AsyncClient", return_value=mock_client):
         result = await node.run(state)
 
-    assert result.vars == {}  # no busca si el valor está vacío
+    assert result.data.get("nombre") is None  # no busca si el valor está vacío
 
 
 def test_config_schema():

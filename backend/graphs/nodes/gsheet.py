@@ -23,6 +23,8 @@ from .state import FlowState
 
 logger = logging.getLogger(__name__)
 
+_RESERVED_KEYS = frozenset({"route", "reply", "context", "query", "fb_posts", "source_urls", "_node_errors"})
+
 _rows_cache: dict[str, tuple[list[dict], float]] = {}
 
 
@@ -85,14 +87,18 @@ def _get_search_value(state: FlowState, source: str) -> str:
     """
     Lee el valor de búsqueda del campo configurado del state.
     source puede ser: "query", "message", "vars.oficio", "vars.categoria", etc.
+    El prefijo "vars." es legacy — ahora todos los datos van en state.data.
     """
     if source == "query":
-        return (state.query or "").strip()
+        return str(state.data.get("query", "")).strip()
     if source == "message":
         return (state.message or "").strip()
     if source.startswith("vars."):
         key = source[5:]
-        return str(state.vars.get(key, "")).strip()
+        return str(state.data.get(key, "")).strip()
+    # clave directa en data
+    if source:
+        return str(state.data.get(source, "")).strip()
     return ""
 
 
@@ -139,18 +145,21 @@ class GSheetNode(BaseNode):
 
         if not matches:
             logger.info("[GSheetNode] Sin resultado para %s='%s'", search_col, search_value)
-            state.vars[search_col] = search_value
+            state.data[search_col] = search_value
             disponibles = [r for r in rows if _is_active(r)]
             if disponibles:
-                state.context = json.dumps(disponibles, ensure_ascii=False)
+                state.data["context"] = json.dumps(disponibles, ensure_ascii=False)
             return state
 
         item = matches[0]
         logger.info("[GSheetNode] Match: %s='%s'", search_col, search_value)
         for key, value in item.items():
-            if key != "activo":
-                state.vars[key] = value
-        state.context = json.dumps(item, ensure_ascii=False)
+            if key == "activo" or key in _RESERVED_KEYS:
+                if key in _RESERVED_KEYS:
+                    logger.warning("[GSheetNode] columna '%s' colisiona con clave reservada — ignorada", key)
+                continue
+            state.data[key] = value
+        state.data["context"] = json.dumps(item, ensure_ascii=False)
         return state
 
     # ── Read all ──────────────────────────────────────────────────────────────
@@ -182,9 +191,9 @@ class GSheetNode(BaseNode):
             content = buf.getvalue()
 
         if output == "context":
-            state.context = content
+            state.data["context"] = content
         else:
-            state.vars["sheet_data"] = content
+            state.data["sheet_data"] = content
 
         logger.info("[GSheetNode] read_all: %d filas → %s", len(rows), output)
         return state
@@ -302,7 +311,7 @@ class GSheetNode(BaseNode):
                 "label":   "Destino",
                 "default": "context",
                 "options": [
-                    {"value": "context",         "label": "state.context"},
+                    {"value": "context",         "label": "state.data[\"context\"]"},
                     {"value": "vars.sheet_data", "label": "state.vars.sheet_data"},
                 ],
                 "show_if": {"mode": "read_all"},

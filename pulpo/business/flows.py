@@ -280,7 +280,7 @@ async def trigger_flow(
     )
 
     state = await execute_flow(flow, state, entry_node_id=node_id)
-    return {"ok": True, "reply": state.reply}
+    return {"ok": True, "reply": state.data.get("reply")}
 
 
 def seed_default_flows() -> None:

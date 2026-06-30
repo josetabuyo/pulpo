@@ -9,8 +9,28 @@ from pulpo.interfaces.ui.deps import require_admin, require_client
 from pulpo.core.lifespan import pulpo_lifespan
 
 
+class _PollFilter(logging.Filter):
+    """Baja a DEBUG las rutas de polling frecuente para no saturar el log."""
+    _SKIP = ("/api/logs/latest", "/api/bots")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        if any(p in msg for p in self._SKIP):
+            record.levelno = logging.DEBUG
+            record.levelname = "DEBUG"
+            return False  # la descarta del handler INFO
+        return True
+
+
 def create_ui_app() -> FastAPI:
     logging.basicConfig(level=logging.INFO)
+
+    # httpx loguea en INFO cada request HTTP (getUpdates, etc.) — no nos aporta nada
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
+    # Las rutas de polling frecuente no deben aparecer en los logs de INFO
+    logging.getLogger("uvicorn.access").addFilter(_PollFilter())
+
     app = FastAPI(title="Pulpo UI", version="0.1.0", lifespan=pulpo_lifespan)
 
     @app.get("/health")
