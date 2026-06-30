@@ -5,6 +5,7 @@ No FastAPI, no HTTPException, no Pydantic — plain Python types only.
 
 from pulpo.core.config import load_config, save_config
 from pulpo.core.state import clients, wavi_status
+from pulpo.tools.wavi_driver import resolve_alias, daemon_running_by_pid
 
 
 def list_bots() -> list[dict]:
@@ -19,7 +20,11 @@ def list_bots() -> list[dict]:
                 "number": phone["number"],
                 "alias": phone.get("alias", ""),
                 "sessionId": session_id,
-                "status": wavi_status.get(session_id, "stopped"),
+                "status": (
+                    wavi_status.get(session_id)
+                    or wavi_status.get(resolve_alias(session_id))
+                    or ("ready" if daemon_running_by_pid(resolve_alias(session_id)) else "stopped")
+                ),
                 "allowMass": phone.get("allow_mass", False),
             })
         telegram = []

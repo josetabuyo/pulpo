@@ -24,14 +24,24 @@ WAVI_SESSIONS_DIR = Path(os.getenv(
 WAVI_QR_PAGE = WAVI_ROOT / "data" / "qr.html"
 
 
-def _profile(session: str) -> Path:
-    """Resolve session name or alias to profile path via aliases.json (wavi convention)."""
+def _load_aliases() -> dict:
     import json
     aliases_file = WAVI_SESSIONS_DIR / "aliases.json"
     if aliases_file.exists():
-        aliases = json.loads(aliases_file.read_text())
-        if session in aliases:
-            return WAVI_SESSIONS_DIR / aliases[session]
+        return json.loads(aliases_file.read_text())
+    return {}
+
+
+def resolve_alias(session: str) -> str:
+    """Devuelve el nombre de sesión real si 'session' es un alias, o el mismo si no lo es."""
+    return _load_aliases().get(session, session)
+
+
+def _profile(session: str) -> Path:
+    """Resolve session name or alias to profile path via aliases.json (wavi convention)."""
+    aliases = _load_aliases()
+    if session in aliases:
+        return WAVI_SESSIONS_DIR / aliases[session]
     return WAVI_SESSIONS_DIR / session
 
 
