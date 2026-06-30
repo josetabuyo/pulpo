@@ -4,7 +4,7 @@
  * Muestra: [←] [nombre] [Guardar]
  * La conexión y el filtro de contactos viven en el NodeConfigPanel del trigger.
  */
-import { useState } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useFlowStore } from '../store/flowStore.js'
 
 export default function FlowHeader({ flow, apiCall, onSaved, onBack }) {
@@ -13,17 +13,24 @@ export default function FlowHeader({ flow, apiCall, onSaved, onBack }) {
   const [saveErr, setSaveErr] = useState('')
 
   const isDirty       = useFlowStore(s => s.isDirty)
+  const version       = useFlowStore(s => s._version)
   const getDefinition = useFlowStore(s => s.getDefinition)
   const markClean     = useFlowStore(s => s.markClean)
 
-  async function handleSave() {
-    if (!name.trim()) { setSaveErr('El nombre es obligatorio'); return }
+  const nameRef = useRef(name)
+  useEffect(() => { nameRef.current = name }, [name])
+
+  const autoSaveTimer = useRef(null)
+
+  const handleSave = useCallback(async (nameOverride) => {
+    const saveName = (nameOverride ?? nameRef.current).trim()
+    if (!saveName) { setSaveErr('El nombre es obligatorio'); return }
     setSaving(true)
     setSaveErr('')
     try {
       const definition = getDefinition()
       await apiCall('PUT', `/flows/bots/${flow.bot_id}/${flow.id}`, {
-        name: name.trim(),
+        name: saveName,
         definition,
       })
       markClean()
@@ -33,7 +40,15 @@ export default function FlowHeader({ flow, apiCall, onSaved, onBack }) {
     } finally {
       setSaving(false)
     }
-  }
+  }, [apiCall, flow.bot_id, flow.id, getDefinition, markClean, onSaved])
+
+  // Auto-save: 2.5 s después del último cambio
+  useEffect(() => {
+    if (!isDirty) return
+    clearTimeout(autoSaveTimer.current)
+    autoSaveTimer.current = setTimeout(() => handleSave(), 2500)
+    return () => clearTimeout(autoSaveTimer.current)
+  }, [version, isDirty])
 
   const inputStyle = {
     background: '#1e293b',
@@ -64,6 +79,8 @@ export default function FlowHeader({ flow, apiCall, onSaved, onBack }) {
 
       {/* Nombre */}
       <input
+        type="text"
+        autoComplete="off"
         value={name}
         onChange={e => setName(e.target.value)}
         placeholder="Nombre del flow"
@@ -75,7 +92,7 @@ export default function FlowHeader({ flow, apiCall, onSaved, onBack }) {
         {saveErr && <span style={{ fontSize: 11, color: '#ef4444' }}>{saveErr}</span>}
         {isDirty && !saveErr && <span style={{ fontSize: 11, color: '#f59e0b' }}>Sin guardar</span>}
         <button
-          onClick={handleSave}
+          onClick={() => { clearTimeout(autoSaveTimer.current); handleSave() }}
           disabled={saving}
           style={{
             background: isDirty ? '#16a34a' : '#1e293b',

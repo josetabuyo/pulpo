@@ -124,92 +124,140 @@ function nodesToDefinition(rfNodes, rfEdges) {
 }
 
 export function createFlowStore() {
-  return createStore((set, get) => ({
-  nodes: [],
-  edges: [],
-  selectedNodeId: null,
-  isDirty: false,
-  typeMap: {},  // { [type_id]: { label, color, description } }
-
-  setTypeMap: (typeMap) => set({ typeMap }),
-
-  loadFlow: (definition, typeMap) => {
-    const tm = typeMap || get().typeMap
-    set({
-      nodes: (definition?.nodes || []).map(n => dbNodeToRF(n, tm)),
-      edges: (definition?.edges || []).map(e => ({ ...e })),
-      selectedNodeId: null,
-      isDirty: false,
-    })
-  },
-
-  setSelectedNodeId: (id) => set({ selectedNodeId: id }),
-
-  updateNodeConfig: (nodeId, config) => set(state => ({
-    nodes: state.nodes.map(n =>
-      n.id === nodeId ? { ...n, data: { ...n.data, config } } : n
-    ),
-    isDirty: true,
-  })),
-
-  updateNodeLabel: (nodeId, label) => set(state => ({
-    nodes: state.nodes.map(n =>
-      n.id === nodeId ? { ...n, data: { ...n.data, label } } : n
-    ),
-    isDirty: true,
-  })),
-
-  onNodesChange: (changes) => set(state => ({
-    nodes: applyNodeChanges(changes, state.nodes),
-    isDirty: true,
-  })),
-
-  onEdgesChange: (changes) => set(state => ({
-    edges: applyEdgeChanges(changes, state.edges),
-    isDirty: true,
-  })),
-
-  onConnect: (connection) => set(state => ({
-    edges: addEdge({ ...connection, id: `e-${Date.now()}` }, state.edges),
-    isDirty: true,
-  })),
-
-  addNode: (nodeType, position) => {
-    const { typeMap } = get()
-    const meta = typeMap[nodeType] || typeMap['generic'] || {}
-    const id = `node_${Date.now()}`
-    const newNode = {
-      id,
-      type: 'flowNode',
-      position,
-      width: 160,
-      height: 40,
-      data: {
-        nodeType,
-        config:      DEFAULT_CONFIGS[nodeType] || {},
-        label:       meta.label       || nodeType,
-        color:       meta.color       || '#1e293b',
-        description: meta.description || '',
-      },
+  return createStore((set, get) => {
+    function pushToHistory() {
+      const { nodes, edges, _history } = get()
+      const snapshot = {
+        nodes: nodes.map(n => ({ ...n, data: { ...n.data } })),
+        edges: edges.map(e => ({ ...e })),
+      }
+      const next = [..._history, snapshot]
+      if (next.length > 50) next.shift()
+      set({ _history: next })
     }
-    set(state => ({
-      nodes: [...state.nodes, newNode],
+
+    return {
+    nodes: [],
+    edges: [],
+    selectedNodeId: null,
+    isDirty: false,
+    typeMap: {},  // { [type_id]: { label, color, description } }
+    _history: [],
+    _version: 0,
+
+    setTypeMap: (typeMap) => set({ typeMap }),
+
+    loadFlow: (definition, typeMap) => {
+      const tm = typeMap || get().typeMap
+      set({
+        nodes: (definition?.nodes || []).map(n => dbNodeToRF(n, tm)),
+        edges: (definition?.edges || []).map(e => ({ ...e })),
+        selectedNodeId: null,
+        isDirty: false,
+        _history: [],
+        _version: 0,
+      })
+    },
+
+    setSelectedNodeId: (id) => set({ selectedNodeId: id }),
+
+    updateNodeConfig: (nodeId, config) => set(state => ({
+      nodes: state.nodes.map(n =>
+        n.id === nodeId ? { ...n, data: { ...n.data, config } } : n
+      ),
       isDirty: true,
-    }))
-    return id
-  },
+      _version: state._version + 1,
+    })),
 
-  deleteNode: (nodeId) => set(state => ({
-    nodes: state.nodes.filter(n => n.id !== nodeId),
-    edges: state.edges.filter(e => e.source !== nodeId && e.target !== nodeId),
-    selectedNodeId: state.selectedNodeId === nodeId ? null : state.selectedNodeId,
-    isDirty: true,
-  })),
+    updateNodeLabel: (nodeId, label) => set(state => ({
+      nodes: state.nodes.map(n =>
+        n.id === nodeId ? { ...n, data: { ...n.data, label } } : n
+      ),
+      isDirty: true,
+      _version: state._version + 1,
+    })),
 
-  markClean: () => set({ isDirty: false }),
+    onNodesChange: (changes) => set(state => ({
+      nodes: applyNodeChanges(changes, state.nodes),
+      isDirty: true,
+      _version: state._version + 1,
+    })),
 
-  reset: () => set({ nodes: [], edges: [], selectedNodeId: null, isDirty: false }),
+    onEdgesChange: (changes) => {
+      const hasRemove = changes.some(c => c.type === 'remove')
+      if (hasRemove) pushToHistory()
+      set(state => ({
+        edges: applyEdgeChanges(changes, state.edges),
+        isDirty: true,
+        _version: state._version + 1,
+      }))
+    },
 
-  getDefinition: () => nodesToDefinition(get().nodes, get().edges),
-  }))
+    onConnect: (connection) => {
+      pushToHistory()
+      set(state => ({
+        edges: addEdge({ ...connection, id: `e-${Date.now()}` }, state.edges),
+        isDirty: true,
+        _version: state._version + 1,
+      }))
+    },
+
+    addNode: (nodeType, position) => {
+      pushToHistory()
+      const { typeMap } = get()
+      const meta = typeMap[nodeType] || typeMap['generic'] || {}
+      const id = `node_${Date.now()}`
+      const newNode = {
+        id,
+        type: 'flowNode',
+        position,
+        width: 160,
+        height: 40,
+        data: {
+          nodeType,
+          config:      DEFAULT_CONFIGS[nodeType] || {},
+          label:       meta.label       || nodeType,
+          color:       meta.color       || '#1e293b',
+          description: meta.description || '',
+        },
+      }
+      set(state => ({
+        nodes: [...state.nodes, newNode],
+        isDirty: true,
+        _version: state._version + 1,
+      }))
+      return id
+    },
+
+    deleteNode: (nodeId) => {
+      pushToHistory()
+      set(state => ({
+        nodes: state.nodes.filter(n => n.id !== nodeId),
+        edges: state.edges.filter(e => e.source !== nodeId && e.target !== nodeId),
+        selectedNodeId: state.selectedNodeId === nodeId ? null : state.selectedNodeId,
+        isDirty: true,
+        _version: state._version + 1,
+      }))
+    },
+
+    undo: () => {
+      const { _history } = get()
+      if (!_history.length) return
+      const prev = _history[_history.length - 1]
+      set(state => ({
+        nodes: prev.nodes,
+        edges: prev.edges,
+        _history: state._history.slice(0, -1),
+        isDirty: true,
+        _version: state._version + 1,
+      }))
+    },
+
+    markClean: () => set({ isDirty: false }),
+
+    reset: () => set({ nodes: [], edges: [], selectedNodeId: null, isDirty: false, _history: [], _version: 0 }),
+
+    getDefinition: () => nodesToDefinition(get().nodes, get().edges),
+    }
+  })
 }

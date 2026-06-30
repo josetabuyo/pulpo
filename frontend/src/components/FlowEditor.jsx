@@ -34,6 +34,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
   const setSelectedNodeId = useFlowStore(s => s.setSelectedNodeId)
   const addNode          = useFlowStore(s => s.addNode)
   const reset            = useFlowStore(s => s.reset)
+  const undo             = useFlowStore(s => s.undo)
 
   // Cargar el flow y el typeMap en el store al montar
   useEffect(() => {
@@ -41,6 +42,18 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
     loadFlow(flow.definition, typeMap)
     return () => reset()
   }, [flow.id])
+
+  // Ctrl+Z / Cmd+Z → deshacer
+  useEffect(() => {
+    function handleKeyDown(e) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        undo()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [undo])
 
   // Drop de un nodo desde la paleta
   const handleDrop = useCallback((e) => {

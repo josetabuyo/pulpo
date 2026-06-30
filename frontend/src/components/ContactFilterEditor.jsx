@@ -179,6 +179,8 @@ export default function ContactFilterEditor({
       {/* Agregar número manual */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
         <input
+          type="text"
+          autoComplete="off"
           placeholder="Agregar número o nombre..."
           value={manualInput}
           onChange={e => setManualInput(e.target.value)}
@@ -226,6 +228,8 @@ export default function ContactFilterEditor({
       {/* Buscador */}
       {deduped.length > 6 && (
         <input
+          type="search"
+          autoComplete="off"
           placeholder="Buscar..."
           value={search}
           onChange={e => setSearch(e.target.value)}

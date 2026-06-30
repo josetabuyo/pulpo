@@ -9,27 +9,25 @@ import {
   EdgeLabelRenderer,
   getBezierPath,
   MarkerType,
-  useReactFlow,
   Panel,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
 // ─── Contexto de modo borrar ──────────────────────────────────────────────────
 
-const DeleteModeCtx = createContext(false)
+const EdgeActionsCtx = createContext({ deleteMode: false, deleteEdge: null })
 
 // ─── Edge custom ──────────────────────────────────────────────────────────────
 
 function LabeledEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, label, selected, markerEnd, markerStart }) {
-  const { setEdges } = useReactFlow()
-  const deleteMode = useContext(DeleteModeCtx)
+  const { deleteMode, deleteEdge } = useContext(EdgeActionsCtx)
 
   const [edgePath, labelX, labelY] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition })
 
   const onDelete = useCallback((e) => {
     e.stopPropagation()
-    setEdges(eds => eds.filter(e => e.id !== id))
-  }, [id, setEdges])
+    deleteEdge?.(id)
+  }, [id, deleteEdge])
 
   return (
     <>
@@ -37,7 +35,8 @@ function LabeledEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, t
         path={edgePath}
         markerEnd={markerEnd}
         markerStart={markerStart}
-        style={{ stroke: deleteMode ? '#ef4444' : selected ? '#94a3b8' : '#475569', strokeWidth: 2 }}
+        style={{ stroke: deleteMode ? '#ef4444' : selected ? '#94a3b8' : '#475569', strokeWidth: 2, cursor: deleteMode ? 'pointer' : 'default' }}
+        onClick={deleteMode ? (e) => { e.stopPropagation(); deleteEdge?.(id) } : undefined}
       />
       <EdgeLabelRenderer>
         <div
@@ -152,6 +151,10 @@ export default function FlowCanvas({
   const reactFlowWrapper = useRef(null)
   const [deleteMode, setDeleteMode] = useState(false)
 
+  const deleteEdge = useCallback((edgeId) => {
+    onEdgesChange([{ type: 'remove', id: edgeId }])
+  }, [onEdgesChange])
+
   function handleDragOver(e) {
     e.preventDefault()
     e.dataTransfer.dropEffect = 'move'
@@ -169,7 +172,7 @@ export default function FlowCanvas({
   }))
 
   return (
-    <DeleteModeCtx.Provider value={deleteMode}>
+    <EdgeActionsCtx.Provider value={{ deleteMode, deleteEdge }}>
       <div
         ref={reactFlowWrapper}
         style={{ flex: 1, background: '#0f172a', overflow: 'hidden' }}
@@ -220,6 +223,6 @@ export default function FlowCanvas({
           </Panel>
         </ReactFlow>
       </div>
-    </DeleteModeCtx.Provider>
+    </EdgeActionsCtx.Provider>
   )
 }
