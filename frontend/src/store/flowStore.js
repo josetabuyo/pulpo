@@ -123,6 +123,31 @@ function nodesToDefinition(rfNodes, rfEdges) {
   }
 }
 
+/**
+ * Para cada nodo router, asigna la primera ruta sin usar a las edges
+ * salientes que no tienen label. No modifica edges que ya tienen label.
+ */
+function autoAssignRouterLabels(rfNodes, rfEdges) {
+  const routerNodes = rfNodes.filter(n => n.data?.nodeType === 'router')
+  if (!routerNodes.length) return rfEdges
+
+  const edgeUpdates = new Map() // edgeId → label
+  for (const router of routerNodes) {
+    const routes = router.data.config?.routes || []
+    if (!routes.length) continue
+    const outEdges = rfEdges.filter(e => e.source === router.id)
+    const usedLabels = new Set(outEdges.filter(e => e.label).map(e => e.label))
+    let available = routes.filter(r => !usedLabels.has(r))
+    for (const edge of outEdges) {
+      if (edge.label || !available.length) continue
+      edgeUpdates.set(edge.id, available.shift())
+    }
+  }
+
+  if (!edgeUpdates.size) return rfEdges
+  return rfEdges.map(e => edgeUpdates.has(e.id) ? { ...e, label: edgeUpdates.get(e.id) } : e)
+}
+
 export function createFlowStore() {
   return createStore((set, get) => {
     function pushToHistory() {
@@ -149,9 +174,13 @@ export function createFlowStore() {
 
     loadFlow: (definition, typeMap) => {
       const tm = typeMap || get().typeMap
+      const rfNodes = (definition?.nodes || []).map(n => dbNodeToRF(n, tm))
+      const rfEdges = (definition?.edges || []).map(e => ({ ...e }))
+      // Reparar edges sin label salientes de nodos router
+      const repairedEdges = autoAssignRouterLabels(rfNodes, rfEdges)
       set({
-        nodes: (definition?.nodes || []).map(n => dbNodeToRF(n, tm)),
-        edges: (definition?.edges || []).map(e => ({ ...e })),
+        nodes: rfNodes,
+        edges: repairedEdges,
         selectedNodeId: null,
         isDirty: false,
         _history: [],
@@ -195,11 +224,22 @@ export function createFlowStore() {
 
     onConnect: (connection) => {
       pushToHistory()
-      set(state => ({
-        edges: addEdge({ ...connection, id: `e-${Date.now()}` }, state.edges),
-        isDirty: true,
-        _version: state._version + 1,
-      }))
+      set(state => {
+        const sourceNode = state.nodes.find(n => n.id === connection.source)
+        let label
+        if (sourceNode?.data?.nodeType === 'router') {
+          const routes = sourceNode.data.config?.routes || []
+          const usedLabels = new Set(
+            state.edges.filter(e => e.source === connection.source && e.label).map(e => e.label)
+          )
+          label = routes.find(r => !usedLabels.has(r))
+        }
+        return {
+          edges: addEdge({ ...connection, id: `e-${Date.now()}`, ...(label ? { label } : {}) }, state.edges),
+          isDirty: true,
+          _version: state._version + 1,
+        }
+      })
     },
 
     addNode: (nodeType, position) => {
