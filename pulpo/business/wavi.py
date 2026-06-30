@@ -6,22 +6,15 @@ No FastAPI, no HTTPException, no Pydantic — plain Python types only.
 import asyncio
 import os
 import re
-import sys
-from pathlib import Path
 
 import pulpo.tools.wavi_driver as wd
 
-_BACKEND = str(Path(__file__).parent.parent.parent.parent / "backend")
-
-
+from pulpo.core import wavi_poller as _wavi_poller_module
 from pulpo.core.state import wavi_status
 
 
 def _wavi_poller():
-    if _BACKEND not in sys.path:
-        sys.path.insert(0, _BACKEND)
-    import wavi_poller as _wp
-    return _wp
+    return _wavi_poller_module
 
 _SESSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
