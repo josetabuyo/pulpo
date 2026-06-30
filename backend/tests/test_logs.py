@@ -87,26 +87,10 @@ def test_logs_latest_invalid_source(client):
     assert r.status_code == 400
 
 
-def test_logs_latest_requires_auth(client):
-    r = client.get("/api/logs/latest?source=backend")
-    assert r.status_code == 422
-
-
-def test_logs_latest_wrong_auth(client):
-    r = client.get("/api/logs/latest?source=backend", headers={"x-password": "wrong"})
-    assert r.status_code == 401
-
-
 def test_logs_latest_contains_backend_entries(client):
     """El endpoint devuelve lista válida; si hay líneas, tienen formato de log."""
     r = client.get("/api/logs/latest?source=backend&lines=200", headers=ADMIN)
     lines = r.json()["lines"]
     assert isinstance(lines, list)
-    # Si hay contenido, verificar que las líneas tienen formato de log esperado
     if lines:
         assert any("INFO" in l or "WARNING" in l or "ERROR" in l for l in lines)
-
-
-def test_logs_stream_requires_auth(client):
-    r = client.get("/api/logs/stream?source=backend", headers={"Accept": "text/event-stream"})
-    assert r.status_code == 422

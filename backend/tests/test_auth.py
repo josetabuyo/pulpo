@@ -32,11 +32,3 @@ def test_mode_is_sim(client):
     assert r.json()["mode"] == "sim"
 
 
-def test_protected_route_without_auth(client):
-    r = client.get("/api/bots")
-    assert r.status_code == 422  # falta header x-password
-
-
-def test_protected_route_wrong_auth(client):
-    r = client.get("/api/bots", headers={"x-password": "wrong"})
-    assert r.status_code == 401

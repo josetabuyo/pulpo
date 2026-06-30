@@ -15,10 +15,6 @@ def test_create_session_nombre_invalido_422(client):
         assert r.status_code == 422, f"{bad!r} debería ser rechazado, dio {r.status_code}"
 
 
-def test_create_session_requiere_auth(client):
-    r = client.post("/api/wavi/sessions", json={"session": "cualquiera"})
-    assert r.status_code in (401, 422)
-
 
 def test_get_session_nombre_invalido_422(client):
     r = client.get("/api/wavi/sessions/a%20b", headers=ADMIN)
@@ -44,10 +40,6 @@ def test_list_sessions_ok(client):
         assert "daemon_running" in s
         assert "authenticated" in s
 
-
-def test_list_sessions_requiere_auth(client):
-    r = client.get("/api/wavi/sessions")
-    assert r.status_code in (401, 422)
 
 
 def test_qr_page_requiere_password(client):

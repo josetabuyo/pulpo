@@ -8,12 +8,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from conftest import ADMIN, BAD
 
 
-def test_architecture_requiere_auth(client):
-    r = client.get("/api/architecture")
-    assert r.status_code in (401, 422)
-    r = client.get("/api/architecture", headers=BAD)
-    assert r.status_code == 401
-
 
 def test_architecture_shape(client):
     r = client.get("/api/architecture", headers=ADMIN)

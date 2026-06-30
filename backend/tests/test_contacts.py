@@ -18,14 +18,14 @@ def _uniq_phone(base="549100"):
 
 def test_list_contacts_empty(client):
     auth = get_bot_token(BOT_ID, BOT_PWD, client)
-    r = client.get(f"/api/bots/{BOT_ID}/contacts", headers=auth)
+    r = client.get(f"/api/contacts/bots/{BOT_ID}/contacts", headers=auth)
     assert r.status_code == 200
     assert isinstance(r.json(), list)
 
 
 def test_create_contact(client):
     auth = get_bot_token(BOT_ID, BOT_PWD, client)
-    r = client.post(f"/api/bots/{BOT_ID}/contacts",
+    r = client.post(f"/api/contacts/bots/{BOT_ID}/contacts",
                     json={"name": "Test Contact", "channels": []},
                     headers=auth)
     assert r.status_code == 201
@@ -39,7 +39,7 @@ def test_create_contact(client):
 
 def test_create_contact_with_channels(client):
     auth = get_bot_token(BOT_ID, BOT_PWD, client)
-    r = client.post(f"/api/bots/{BOT_ID}/contacts", json={
+    r = client.post(f"/api/contacts/bots/{BOT_ID}/contacts", json={
         "name": "Con Canales",
         "channels": [{"type": "telegram", "value": "@testcanal"}],
     }, headers=auth)
@@ -53,7 +53,7 @@ def test_create_contact_with_channels(client):
 
 def test_get_contact(client):
     auth = get_bot_token(BOT_ID, BOT_PWD, client)
-    create = client.post(f"/api/bots/{BOT_ID}/contacts", json={"name": "Get Test"}, headers=auth).json()
+    create = client.post(f"/api/contacts/bots/{BOT_ID}/contacts", json={"name": "Get Test"}, headers=auth).json()
     r = client.get(f"/api/contacts/{create['id']}", headers=auth)
     assert r.status_code == 200
     assert r.json()["id"] == create["id"]
@@ -62,7 +62,7 @@ def test_get_contact(client):
 
 def test_update_contact(client):
     auth = get_bot_token(BOT_ID, BOT_PWD, client)
-    create = client.post(f"/api/bots/{BOT_ID}/contacts", json={"name": "Old Name"}, headers=auth).json()
+    create = client.post(f"/api/contacts/bots/{BOT_ID}/contacts", json={"name": "Old Name"}, headers=auth).json()
     r = client.put(f"/api/contacts/{create['id']}", json={"name": "New Name"}, headers=auth)
     assert r.status_code == 200
     assert r.json()["name"] == "New Name"
@@ -71,7 +71,7 @@ def test_update_contact(client):
 
 def test_delete_contact(client):
     auth = get_bot_token(BOT_ID, BOT_PWD, client)
-    create = client.post(f"/api/bots/{BOT_ID}/contacts", json={"name": "Delete Me"}, headers=auth).json()
+    create = client.post(f"/api/contacts/bots/{BOT_ID}/contacts", json={"name": "Delete Me"}, headers=auth).json()
     r = client.delete(f"/api/contacts/{create['id']}", headers=auth)
     assert r.status_code == 204
     r2 = client.get(f"/api/contacts/{create['id']}", headers=auth)
@@ -88,7 +88,7 @@ def test_contact_not_found(client):
 
 def test_add_and_delete_channel(client):
     auth = get_bot_token(BOT_ID, BOT_PWD, client)
-    c = client.post(f"/api/bots/{BOT_ID}/contacts", json={"name": "Channel Test"}, headers=auth).json()
+    c = client.post(f"/api/contacts/bots/{BOT_ID}/contacts", json={"name": "Channel Test"}, headers=auth).json()
     # Agregar canal
     r = client.post(f"/api/contacts/{c['id']}/channels",
                     json={"type": "telegram", "value": "@testuser"},
@@ -100,7 +100,7 @@ def test_add_and_delete_channel(client):
     channels = r2.json()["channels"]
     assert any(ch["id"] == ch_id for ch in channels)
     # Eliminar canal
-    r3 = client.delete(f"/api/contact-channels/{ch_id}", headers=auth)
+    r3 = client.delete(f"/api/contacts/contact-channels/{ch_id}", headers=auth)
     assert r3.status_code == 204
     client.delete(f"/api/contacts/{c['id']}", headers=auth)
 
@@ -110,8 +110,8 @@ def test_channel_uniqueness(client):
     auth = get_bot_token(BOT_ID, BOT_PWD, client)
     import time as _time
     tg_value = f"@user{int(_time.time() * 1000) % 10_000_000}"
-    c1 = client.post(f"/api/bots/{BOT_ID}/contacts", json={"name": "C1"}, headers=auth).json()
-    c2 = client.post(f"/api/bots/{BOT_ID}/contacts", json={"name": "C2"}, headers=auth).json()
+    c1 = client.post(f"/api/contacts/bots/{BOT_ID}/contacts", json={"name": "C1"}, headers=auth).json()
+    c2 = client.post(f"/api/contacts/bots/{BOT_ID}/contacts", json={"name": "C2"}, headers=auth).json()
     # Asignar canal a c1
     client.post(f"/api/contacts/{c1['id']}/channels",
                 json={"type": "telegram", "value": tg_value}, headers=auth)
@@ -126,7 +126,7 @@ def test_channel_uniqueness(client):
 def test_channel_validation_telegram(client):
     """Telegram rechaza valores que no sean @username ni ID numérico."""
     auth = get_bot_token(BOT_ID, BOT_PWD, client)
-    c = client.post(f"/api/bots/{BOT_ID}/contacts", json={"name": "Val Test"}, headers=auth).json()
+    c = client.post(f"/api/contacts/bots/{BOT_ID}/contacts", json={"name": "Val Test"}, headers=auth).json()
     r = client.post(f"/api/contacts/{c['id']}/channels",
                     json={"type": "telegram", "value": "nombre invalido"}, headers=auth)
     assert r.status_code == 400
@@ -137,11 +137,11 @@ def test_channel_validation_telegram(client):
 
 def test_list_contacts_includes_channels(client):
     auth = get_bot_token(BOT_ID, BOT_PWD, client)
-    c = client.post(f"/api/bots/{BOT_ID}/contacts", json={
+    c = client.post(f"/api/contacts/bots/{BOT_ID}/contacts", json={
         "name": "Lista Test",
         "channels": [{"type": "telegram", "value": "@listatest"}],
     }, headers=auth).json()
-    contacts = client.get(f"/api/bots/{BOT_ID}/contacts", headers=auth).json()
+    contacts = client.get(f"/api/contacts/bots/{BOT_ID}/contacts", headers=auth).json()
     found = next((x for x in contacts if x["id"] == c["id"]), None)
     assert found is not None
     assert len(found["channels"]) == 1

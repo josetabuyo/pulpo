@@ -73,15 +73,17 @@ def ensure_bot_test(_base_client):
         # Server caído: los tests de integración fallarán solos con su propio contexto.
         print(f"[conftest] no se pudo verificar/crear {TEST_BOT_ID}: {e}")
     yield
-    if created:
-        try:
-            flows = _base_client.get(f"/api/flows/bots/{TEST_BOT_ID}", headers=ADMIN)
-            if flows.status_code == 200:
-                for f in flows.json():
-                    _base_client.delete(f"/api/flows/bots/{TEST_BOT_ID}/{f['id']}", headers=ADMIN)
+    try:
+        # Siempre borrar los flows de bot_test, independientemente de si lo creamos nosotros.
+        # Esto limpia flows huérfanos de tests que fallaron antes de su propio cleanup.
+        flows = _base_client.get(f"/api/flows/bots/{TEST_BOT_ID}", headers=ADMIN)
+        if flows.status_code == 200:
+            for f in flows.json():
+                _base_client.delete(f"/api/flows/bots/{TEST_BOT_ID}/{f['id']}", headers=ADMIN)
+        if created:
             _base_client.delete(f"/api/bots/{TEST_BOT_ID}", headers=ADMIN)
-        except httpx.HTTPError as e:
-            print(f"[conftest] cleanup de {TEST_BOT_ID} falló: {e}")
+    except httpx.HTTPError as e:
+        print(f"[conftest] cleanup de {TEST_BOT_ID} falló: {e}")
 
 
 def get_bot_token(bot_id: str, password: str, base_client) -> dict:
