@@ -15,6 +15,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.routing import APIRoute
+from starlette.routing import Mount
 
 from pulpo.business import architecture as architecture_svc
 
@@ -27,17 +28,34 @@ _ROOT = Path(__file__).parent.parent.parent.parent.parent
 _MONITOR = _ROOT / "monitor"
 
 
+def _collect_routes(route_list, prefix: str = "") -> list[dict]:
+    """Walk the route tree recursively.
+
+    Handles both classic APIRoute instances and _IncludedRouter wrappers
+    introduced in FastAPI >= 0.115.
+    """
+    result = []
+    for r in route_list:
+        if isinstance(r, APIRoute):
+            result.append({
+                "path": prefix + r.path,
+                "methods": sorted(m for m in r.methods if m != "HEAD"),
+                "name": r.name,
+            })
+        elif isinstance(r, Mount) and hasattr(r, "app") and hasattr(r.app, "routes"):
+            result.extend(_collect_routes(r.app.routes, prefix + (r.path or "")))
+        elif hasattr(r, "include_context") and hasattr(r, "original_router"):
+            # _IncludedRouter — FastAPI >= 0.115 lazy router wrapper
+            ctx_prefix = getattr(r.include_context, "prefix", "")
+            result.extend(_collect_routes(r.original_router.routes, prefix + ctx_prefix))
+    return result
+
+
 @router.get("")
 async def get_architecture(request: Request) -> dict:
-    routes = [
-        {
-            "path": r.path,
-            "methods": sorted(m for m in r.methods if m != "HEAD"),
-            "name": r.name,
-        }
-        for r in request.app.routes
-        if isinstance(r, APIRoute)
-    ]
+    # root_path holds the mount prefix set by the parent app (e.g. "/api")
+    mount_prefix = request.scope.get("root_path", "")
+    routes = _collect_routes(request.app.routes, prefix=mount_prefix)
 
     try:
         return await architecture_svc.get_architecture(
