@@ -122,7 +122,7 @@ async def create_flow(bot_id: str, body: FlowIn):
 async def has_node_type(bot_id: str, node_type: str):
     """Devuelve {found: bool} indicando si algún flow de la bot contiene el tipo de nodo."""
     try:
-        found = await flows_svc.bot_has_node_type(bot_id=bot_id, node_type=node_type)
+        found = await flows_svc.has_node_type(bot_id=bot_id, node_type=node_type)
         return {"found": found}
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
