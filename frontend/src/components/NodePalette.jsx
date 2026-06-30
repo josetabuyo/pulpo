@@ -138,8 +138,8 @@ export default function NodePalette({ apiCall, typeMap }) {
         </div>
 
         <input
-          type="text"
-          autoComplete="new-password"
+          type="search"
+          autoComplete="off"
           name="node-palette-filter"
           spellCheck="false"
           placeholder="Filtrar nodos..."
