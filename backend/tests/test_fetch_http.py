@@ -157,6 +157,33 @@ async def test_missing_url_does_nothing():
     assert state.context == ""
 
 
+# ── extract_first_to_vars + contactos expansion ──────────────────────────────
+
+@pytest.mark.asyncio
+async def test_extract_first_to_vars_expands_contactos():
+    """contactos: [{tipo, valor}] se expande a vars planos por tipo."""
+    node = FetchNode(config={
+        "source": "http",
+        "url": "https://api.example.com/buscar?q={message}",
+        "extract": "json",
+        "extract_first_result_to_vars": True,
+    })
+    state = make_state(message="plomero")
+    payload = '{"results": [{"nombre": "Juan", "contactos": [{"tipo": "whatsapp", "valor": "1155551234"}, {"tipo": "telegram", "valor": "98765"}]}]}'
+
+    async def fake_get(url, **_):
+        return mock_response(payload)
+
+    with patch("httpx.AsyncClient") as mock_client:
+        mock_client.return_value.__aenter__ = AsyncMock(return_value=MagicMock(get=AsyncMock(side_effect=fake_get)))
+        mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
+        await node.run(state)
+
+    assert state.vars.get("nombre") == "Juan"
+    assert state.vars.get("whatsapp") == "1155551234"
+    assert state.vars.get("telegram") == "98765"
+
+
 # ── Config schema ────────────────────────────────────────────────────────────
 
 def test_config_schema_has_url_hint_with_templates():

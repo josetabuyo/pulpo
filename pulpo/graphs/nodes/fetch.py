@@ -91,8 +91,9 @@ class FetchNode(BaseNode):
             logger.error("[FetchNode] Error fetching Facebook: %s", e)
 
     async def _fetch_http(self, state: FlowState) -> None:
-        url     = self.config.get("url", "")
-        extract = self.config.get("extract", "text")
+        url                      = self.config.get("url", "")
+        extract                  = self.config.get("extract", "text")
+        extract_first_to_vars    = self.config.get("extract_first_result_to_vars", False)
         if not url:
             logger.warning("[FetchNode] http sin url configurada")
             return
@@ -115,6 +116,25 @@ class FetchNode(BaseNode):
                     text = re.sub(r"\s+", " ", text).strip()
                     state.context = text[:5000]
             logger.info("[FetchNode] http %s: %d chars", url[:60], len(state.context))
+
+            # Extrae el primer resultado de {"results": [...]} a state.vars
+            if extract_first_to_vars and extract == "json" and state.context:
+                import json as _json
+                try:
+                    data = _json.loads(state.context)
+                    results = data.get("results") if isinstance(data, dict) else None
+                    if results and isinstance(results, list) and results[0]:
+                        for k, v in results[0].items():
+                            state.vars[k] = v
+                        # Expandir contactos: [{tipo, valor}] a vars planos por tipo
+                        contactos = results[0].get("contactos")
+                        if isinstance(contactos, list):
+                            for c in contactos:
+                                if isinstance(c, dict) and c.get("tipo") and c.get("valor"):
+                                    state.vars[c["tipo"]] = c["valor"]
+                        logger.info("[FetchNode] extract_first_to_vars: %d campos → vars", len(results[0]))
+                except Exception as ex:
+                    logger.warning("[FetchNode] extract_first_to_vars falló: %s", ex)
         except Exception as e:
             logger.error("[FetchNode] Error HTTP GET %s: %s", url, e)
 
