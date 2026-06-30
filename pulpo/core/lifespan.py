@@ -132,7 +132,7 @@ async def pulpo_lifespan(app):
 
     import sys
     import os as _os
-    _backend = _os.path.join(_os.path.dirname(__file__), '..', '..', '..', 'backend')
+    _backend = _os.path.join(_os.path.dirname(__file__), '..', '..', 'backend')
     if _backend not in sys.path:
         sys.path.insert(0, _backend)
     import teli_poller

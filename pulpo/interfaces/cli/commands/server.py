@@ -20,7 +20,7 @@ def serve_ui(host, port, reload):
         )
     else:
         from pulpo.interfaces.ui.app import create_ui_app
-        uvicorn.run(create_ui_app(), host=host, port=port)
+        uvicorn.run(create_ui_app(), host=host, port=port, log_level="info")
 
 
 @server.command("api")
