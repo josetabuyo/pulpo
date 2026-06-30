@@ -75,10 +75,10 @@ def ensure_bot_test(_base_client):
     yield
     if created:
         try:
-            flows = _base_client.get(f"/api/bots/{TEST_BOT_ID}/flows", headers=ADMIN)
+            flows = _base_client.get(f"/api/flows/bots/{TEST_BOT_ID}", headers=ADMIN)
             if flows.status_code == 200:
                 for f in flows.json():
-                    _base_client.delete(f"/api/bots/{TEST_BOT_ID}/flows/{f['id']}", headers=ADMIN)
+                    _base_client.delete(f"/api/flows/bots/{TEST_BOT_ID}/{f['id']}", headers=ADMIN)
             _base_client.delete(f"/api/bots/{TEST_BOT_ID}", headers=ADMIN)
         except httpx.HTTPError as e:
             print(f"[conftest] cleanup de {TEST_BOT_ID} falló: {e}")
