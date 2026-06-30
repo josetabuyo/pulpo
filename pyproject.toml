@@ -42,9 +42,10 @@ dependencies = [
     "google-auth>=2.0.0",
     "google-api-python-client>=2.0.0",
     "wavi-lib>=0.2.0",
-    "teli-lib>=0.1.0",
+    "teli-lib>=0.2.0",
     "playwright>=1.49.0",
     "python-telegram-bot>=21.10.0",
+    "python-multipart>=0.0.9",
 ]
 
 [project.scripts]
