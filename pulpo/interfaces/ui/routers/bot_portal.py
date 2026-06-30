@@ -374,7 +374,7 @@ async def set_bot_paused(
     Bot pausado = conexión viva pero sin replies automáticos.
     Acepta tanto JWT Bearer (bot) como x-password (admin).
     """
-    import paused as _paused_mod
+    from pulpo.core import paused as _paused_mod
     should_pause = bool(body.get("paused", False))
     if should_pause:
         _paused_mod.pause(bot_id)
@@ -388,5 +388,5 @@ async def get_bot_paused(
     bot_id: str,
     _: dict = Depends(_require_bot_or_admin),
 ):
-    import paused as _paused_mod
+    from pulpo.core import paused as _paused_mod
     return {"paused": _paused_mod.is_paused(bot_id), "bot_id": bot_id}

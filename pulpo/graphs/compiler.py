@@ -236,7 +236,7 @@ async def run_flows(
     Retorna el FlowState con reply si algún nodo lo produjo.
     """
     from pulpo.core.config import get_bots_for_connection, load_config
-    from paused import is_paused
+    from pulpo.core.paused import is_paused
 
     bot_ids = get_bots_for_connection(connection_id)
     logger.debug("[engine] run_flows: connection=%s contact=%s bots=%s",
