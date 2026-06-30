@@ -18,11 +18,11 @@ def create_ui_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Auth routes (public — not protected by admin middleware)
-    app.include_router(auth.router)
-    app.include_router(auth_bot.router)
-    app.include_router(client.router)
-    app.include_router(bot_portal.router)
+    # Auth routes bajo /api para que el proxy de Vite (/api → backend) funcione
+    app.include_router(auth.router, prefix="/api")
+    app.include_router(auth_bot.router, prefix="/api")
+    app.include_router(client.router, prefix="/api")
+    app.include_router(bot_portal.router, prefix="/api")
 
     # Mount the API under /api — Depends(require_admin) or bearer token protects individual routes
     # Each api router applies its own deps via the UI-aware wrappers
