@@ -83,6 +83,7 @@ function NodeTooltip({ nt, anchorEl }) {
 
 export default function NodePalette({ apiCall, typeMap }) {
   const allPaletteNodes = PALETTE_TYPES.map(id => typeMap[id]).filter(Boolean)
+    .sort((a, b) => a.id.localeCompare(b.id))
   const [query, setQuery] = useState('')
   const [hoveredId, setHoveredId] = useState(null)
   const [anchorEl, setAnchorEl] = useState(null)
@@ -138,7 +139,8 @@ export default function NodePalette({ apiCall, typeMap }) {
 
         <input
           type="text"
-          autoComplete="off"
+          autoComplete="new-password"
+          name="node-palette-filter"
           spellCheck="false"
           placeholder="Filtrar nodos..."
           value={query}

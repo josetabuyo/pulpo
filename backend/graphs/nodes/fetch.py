@@ -2,10 +2,13 @@
 FetchNode — obtiene contenido externo y lo guarda en state.context.
 
 Config:
-  source:     str — "facebook" | "http"
-  bot_id: str — bot para credenciales de Facebook (si vacío, usa state.bot_id)
-  url:        str — URL para HTTP GET (solo si source="http")
-  extract:    str — "text" | "json" | "html" (para source="http")
+  source:        str — "facebook" | "http"
+  bot_id:        str — bot para credenciales de Facebook (si vacío, usa state.bot_id)
+  url:           str — URL para HTTP GET (solo si source="http").
+                       Soporta templates: {message} y {query} se sustituyen con el
+                       input del usuario antes de hacer el request.
+                       Ej: https://api.ejemplo.com/buscar?q={message}
+  extract:       str — "text" | "json" | "html" (para source="http")
 """
 import asyncio
 import logging
@@ -93,6 +96,9 @@ class FetchNode(BaseNode):
         if not url:
             logger.warning("[FetchNode] http sin url configurada")
             return
+        # Template substitution: {message} and {query} are replaced with user input
+        url = url.replace("{message}", state.message or "")
+        url = url.replace("{query}", state.query or state.message or "")
         try:
             import httpx
             async with httpx.AsyncClient(timeout=15) as client:
@@ -142,7 +148,7 @@ class FetchNode(BaseNode):
                 "type":    "string",
                 "label":   "URL",
                 "default": "",
-                "hint":    "https://...",
+                "hint":    "https://api.ejemplo.com/buscar?q={message} — {message} y {query} se reemplazan con el input del usuario",
                 "show_if": {"source": "http"},
             },
             "extract": {
