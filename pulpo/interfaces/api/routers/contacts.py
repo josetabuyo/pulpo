@@ -87,9 +87,12 @@ async def create_contact(bot_id: str, body: ContactIn):
 @router.get("/{contact_id}")
 async def get_contact(contact_id: int):
     try:
-        return await contacts_svc.get_contact(contact_id=contact_id)
+        contact = await contacts_svc.get_contact(contact_id=contact_id)
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    if contact is None:
+        raise HTTPException(status_code=404, detail=f"Contacto {contact_id} no encontrado")
+    return contact
 
 
 @router.put("/{contact_id}")
@@ -106,9 +109,11 @@ async def update_contact(contact_id: int, body: ContactUpdate):
 @router.delete("/{contact_id}", status_code=204)
 async def delete_contact(contact_id: int):
     try:
-        await contacts_svc.delete_contact(contact_id=contact_id)
+        found = await contacts_svc.delete_contact(contact_id=contact_id)
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    if not found:
+        raise HTTPException(status_code=404, detail=f"Contacto {contact_id} no encontrado")
     return Response(status_code=204)
 
 
@@ -122,7 +127,7 @@ async def add_channel(contact_id: int, body: ChannelIn):
     try:
         return await contacts_svc.add_channel(
             contact_id=contact_id,
-            channel_type=body.type,
+            type=body.type,
             value=body.value.strip(),
             is_group=body.is_group,
         )

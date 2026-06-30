@@ -57,9 +57,12 @@ def create_connection(body: PhoneCreate):
 @router.delete("/{number}")
 def delete_connection(number: str):
     try:
-        return connections_svc.delete_connection(number=number)
+        found = connections_svc.delete_connection(number=number)
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    if not found:
+        raise HTTPException(status_code=404, detail=f"Número no encontrado: {number}")
+    return found
 
 
 class ConnectionSettingsPatch(BaseModel):
