@@ -5,18 +5,18 @@ Thin FastAPI wrapper over the business layer. No auth — auth is applied
 by interfaces/ui/app.py at mount time.
 
 Route mapping (parent mounts at /flows):
-  GET  /node-types                        ← was /flow/node-types
-  GET  /google-accounts                   ← was /flow/google-accounts
-  POST /clear-sheet-cache                 ← was /flow/clear-sheet-cache
-  GET  /bots/{bot_id}/flows               ← same
-  POST /bots/{bot_id}/flows               ← same
-  GET  /bots/{bot_id}/flows/{flow_id}     ← same
-  PUT  /bots/{bot_id}/flows/{flow_id}     ← same
-  DELETE /bots/{bot_id}/flows/{flow_id}   ← same
-  GET  /bots/{bot_id}/flows/has-node/{node_type}  ← same
-  POST /bots/{bot_id}/flows/{flow_id}/replay      ← same
-  POST /{flow_id}/trigger/{node_id}       ← same
-  GET  /bots/{bot_id}/google-accounts     ← same
+  GET  /node-types
+  GET  /google-accounts
+  POST /clear-sheet-cache
+  GET  /bots/{bot_id}
+  POST /bots/{bot_id}
+  GET  /bots/{bot_id}/{flow_id}
+  PUT  /bots/{bot_id}/{flow_id}
+  DELETE /bots/{bot_id}/{flow_id}
+  GET  /bots/{bot_id}/has-node/{node_type}
+  POST /bots/{bot_id}/{flow_id}/replay
+  POST /{flow_id}/trigger/{node_id}
+  GET  /bots/{bot_id}/google-accounts
 """
 import logging
 import os
@@ -93,7 +93,7 @@ class FlowUpdate(BaseModel):
 
 # ─── CRUD ────────────────────────────────────────────────────────────────────
 
-@router.get("/bots/{bot_id}/flows")
+@router.get("/bots/{bot_id}")
 async def list_flows(bot_id: str):
     try:
         return await flows_svc.list_flows(bot_id=bot_id)
@@ -101,7 +101,7 @@ async def list_flows(bot_id: str):
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.post("/bots/{bot_id}/flows", status_code=201)
+@router.post("/bots/{bot_id}", status_code=201)
 async def create_flow(bot_id: str, body: FlowIn):
     try:
         return await flows_svc.create_flow(
@@ -110,6 +110,7 @@ async def create_flow(bot_id: str, body: FlowIn):
             definition=body.definition,
             connection_id=body.connection_id,
             contact_phone=body.contact_phone,
+            contact_filter=body.contact_filter,
         )
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -117,7 +118,7 @@ async def create_flow(bot_id: str, body: FlowIn):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/bots/{bot_id}/flows/has-node/{node_type}")
+@router.get("/bots/{bot_id}/has-node/{node_type}")
 async def has_node_type(bot_id: str, node_type: str):
     """Devuelve {found: bool} indicando si algún flow de la bot contiene el tipo de nodo."""
     try:
@@ -127,29 +128,30 @@ async def has_node_type(bot_id: str, node_type: str):
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.get("/bots/{bot_id}/flows/{flow_id}")
+@router.get("/bots/{bot_id}/{flow_id}")
 async def get_flow(bot_id: str, flow_id: str):
-    try:
-        return await flows_svc.get_flow(bot_id=bot_id, flow_id=flow_id)
-    except KeyError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    flow = await flows_svc.get_flow(bot_id=bot_id, flow_id=flow_id)
+    if flow is None:
+        raise HTTPException(status_code=404, detail="Flow no encontrado")
+    return flow
 
 
-@router.put("/bots/{bot_id}/flows/{flow_id}")
+@router.put("/bots/{bot_id}/{flow_id}")
 async def update_flow(bot_id: str, flow_id: str, body: FlowUpdate):
     try:
-        return await flows_svc.update_flow(
+        result = await flows_svc.update_flow(
             bot_id=bot_id,
             flow_id=flow_id,
             updates=body.model_dump(exclude_none=True),
         )
-    except KeyError as e:
-        raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    if result is None:
+        raise HTTPException(status_code=404, detail="Flow no encontrado")
+    return result
 
 
-@router.post("/bots/{bot_id}/flows/{flow_id}/replay")
+@router.post("/bots/{bot_id}/{flow_id}/replay")
 async def replay_flow(
     bot_id: str,
     flow_id: str,
@@ -173,12 +175,11 @@ async def replay_flow(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.delete("/bots/{bot_id}/flows/{flow_id}", status_code=204)
+@router.delete("/bots/{bot_id}/{flow_id}", status_code=204)
 async def delete_flow(bot_id: str, flow_id: str):
-    try:
-        await flows_svc.delete_flow(bot_id=bot_id, flow_id=flow_id)
-    except KeyError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    ok = await flows_svc.delete_flow(bot_id=bot_id, flow_id=flow_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Flow no encontrado")
     return Response(status_code=204)
 
 

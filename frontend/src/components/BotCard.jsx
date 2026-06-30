@@ -67,7 +67,7 @@ export default function BotCard({
 
   useEffect(() => {
     setHasSummarizer(false)
-    apiCall('GET', `/bots/${bot.id}/flows/has-node/summarize`, null)
+    apiCall('GET', `/flows/bots/${bot.id}/has-node/summarize`, null)
       .then(data => { if (data?.found) setHasSummarizer(true) })
       .catch(e => console.warn('[BotCard] has-node', e))
   }, [bot.id])

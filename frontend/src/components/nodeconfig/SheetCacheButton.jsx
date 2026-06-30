@@ -8,7 +8,7 @@ export default function SheetCacheButton({ apiCall }) {
   async function handleClear() {
     setStatus('Limpiando...')
     try {
-      const res = await apiCall('POST', '/flow/clear-sheet-cache', null)
+      const res = await apiCall('POST', '/flows/clear-sheet-cache', null)
       setStatus(`✓ Caché limpiado (${res.cleared} entradas)`)
     } catch {
       setStatus('Error al limpiar')

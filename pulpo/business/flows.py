@@ -71,7 +71,10 @@ def clear_sheet_cache() -> int:
 
 
 async def list_flows(bot_id: str) -> list[dict]:
-    """Returns all flows for a given bot."""
+    """Returns all flows for a given bot. Raises KeyError if bot doesn't exist."""
+    from pulpo.business.bots import get_bot
+    if get_bot(bot_id) is None:
+        raise KeyError(f"Bot '{bot_id}' no encontrado")
     return await db.get_flows(bot_id)
 
 

@@ -22,7 +22,7 @@ export default function FlowHeader({ flow, apiCall, onSaved, onBack }) {
     setSaveErr('')
     try {
       const definition = getDefinition()
-      await apiCall('PUT', `/bots/${flow.bot_id}/flows/${flow.id}`, {
+      await apiCall('PUT', `/flows/bots/${flow.bot_id}/${flow.id}`, {
         name: name.trim(),
         definition,
       })

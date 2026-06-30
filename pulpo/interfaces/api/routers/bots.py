@@ -28,7 +28,7 @@ def create_bot(body: BotCreate):
         raise HTTPException(status_code=400, detail="id, name y password son requeridos")
     try:
         return bots_svc.create_bot(
-            bot_id=body.id,
+            id=body.id,
             name=body.name,
             password=body.password,
         )

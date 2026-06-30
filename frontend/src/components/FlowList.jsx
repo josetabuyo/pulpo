@@ -26,7 +26,7 @@ export default function FlowList({ botId, apiCall, connections, onGoToUIs }) {
   const loadFlows = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await apiCall('GET', `/bots/${botId}/flows`, null)
+      const data = await apiCall('GET', `/flows/bots/${botId}`, null)
       if (Array.isArray(data)) setFlows(data)
     } finally {
       setLoading(false)
@@ -35,7 +35,7 @@ export default function FlowList({ botId, apiCall, connections, onGoToUIs }) {
 
   // Cargar tipos de nodo una vez (necesarios para el editor)
   useEffect(() => {
-    apiCall('GET', '/flow/node-types', null)
+    apiCall('GET', '/flows/node-types', null)
       .then(list => {
         if (Array.isArray(list)) {
           setTypeMap(Object.fromEntries(list.map(t => [t.id, t])))
@@ -54,7 +54,7 @@ export default function FlowList({ botId, apiCall, connections, onGoToUIs }) {
         edges: [],
         viewport: { x: 0, y: 0, zoom: 1 },
       }
-      const newFlow = await apiCall('POST', `/bots/${botId}/flows`, {
+      const newFlow = await apiCall('POST', `/flows/bots/${botId}`, {
         name: 'Nuevo flow',
         definition,
       })
@@ -69,19 +69,19 @@ export default function FlowList({ botId, apiCall, connections, onGoToUIs }) {
 
   async function handleEdit(flowSummary) {
     // Carga el detalle completo (con definition) antes de abrir el editor
-    const full = await apiCall('GET', `/bots/${botId}/flows/${flowSummary.id}`, null)
+    const full = await apiCall('GET', `/flows/bots/${botId}/${flowSummary.id}`, null)
     if (full?.id) setEditing(full)
   }
 
   async function handleToggleActive(flow) {
-    await apiCall('PUT', `/bots/${flow.bot_id}/flows/${flow.id}`, { active: !flow.active })
+    await apiCall('PUT', `/flows/bots/${flow.bot_id}/${flow.id}`, { active: !flow.active })
     loadFlows()
   }
 
   async function handleDelete(flow) {
     if (!confirm(`¿Eliminar el flow "${flow.name}"? Esta acción no se puede deshacer.`)) return
     setDeleting(flow.id)
-    await apiCall('DELETE', `/bots/${flow.bot_id}/flows/${flow.id}`, null)
+    await apiCall('DELETE', `/flows/bots/${flow.bot_id}/${flow.id}`, null)
     setFlows(prev => prev.filter(f => f.id !== flow.id))
     setDeleting(null)
   }
