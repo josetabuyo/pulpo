@@ -31,8 +31,8 @@ test('dashboard muestra sección de empresas', async ({ page }) => {
   await page.getByPlaceholder('Contraseña').fill(ADMIN_PASSWORD)
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page).toHaveURL('/dashboard')
-  await expect(page.getByText('🏢 Empresas')).toBeVisible()
-  await expect(page.getByRole('button', { name: '+ Nueva empresa' })).toBeVisible()
+  await expect(page.getByText('🏢 Bots')).toBeVisible()
+  await expect(page.getByRole('button', { name: '+ Nueva bot' })).toBeVisible()
 })
 
 test('proxy /api/auth no devuelve 500', async ({ request }) => {

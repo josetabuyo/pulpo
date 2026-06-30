@@ -30,6 +30,12 @@ async function loginAndGetCard(page) {
  * Hace click en "Reanudar" si está visible, o no hace nada si ya está "Pausar".
  */
 async function ensureResumed(card) {
+  // Wait for the component's async paused-state fetch to settle before reading button state
+  const anyBtn = card.getByRole('button', { name: /Pausar|Reanudar/i })
+  await anyBtn.waitFor({ state: 'visible', timeout: 5000 })
+  // Small settle delay so React can process the fetch response
+  await card.page().waitForTimeout(300)
+
   const resumeBtn = card.getByRole('button', { name: /Reanudar/i })
   const isResumeVisible = await resumeBtn.isVisible()
   if (isResumeVisible) {
