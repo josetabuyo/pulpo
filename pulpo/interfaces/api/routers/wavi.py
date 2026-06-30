@@ -48,7 +48,7 @@ class SessionCreate(BaseModel):
 async def create_wavi_session(body: SessionCreate):
     session = _validate_session(body.session or "default")
     try:
-        return await wavi_svc.create_session(session=session)
+        return await wavi_svc.create_wavi_session(session=session)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -57,7 +57,7 @@ async def create_wavi_session(body: SessionCreate):
 async def reconnect_wavi_session(session: str):
     session = _validate_session(session)
     try:
-        return await wavi_svc.reconnect_session(session=session)
+        return await wavi_svc.reconnect_wavi_session(session=session)
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
@@ -76,7 +76,7 @@ async def list_wavi_sessions():
 async def get_wavi_session(session: str):
     _validate_session(session)
     try:
-        return await wavi_svc.get_session(session=session)
+        return await wavi_svc.get_wavi_session(session=session)
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -85,7 +85,7 @@ async def get_wavi_session(session: str):
 async def stop_wavi_session(session: str):
     _validate_session(session)
     try:
-        return await wavi_svc.stop_session(session=session)
+        return await wavi_svc.stop_wavi_session(session=session)
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -94,7 +94,7 @@ async def stop_wavi_session(session: str):
 def get_boarding(session: str):
     _validate_session(session)
     try:
-        return wavi_svc.get_boarding(session=session)
+        return wavi_svc.get_boarding_path(session=session)
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
 

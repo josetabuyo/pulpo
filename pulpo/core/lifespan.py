@@ -180,9 +180,19 @@ async def pulpo_lifespan(app):
             logger.warning("No hay bots de Telegram configurados en connections.json.")
 
         import pulpo.tools.wavi_driver as wd_init
+        import json as _json
         for _s in wd_init.list_session_names():
-            wavi_status[_s] = "ready" if wd_init.daemon_running_by_pid(_s) else "stopped"
-            logger.info("[wavi] startup status %s → %s", _s, wavi_status[_s])
+            _st = "ready" if wd_init.daemon_running_by_pid(_s) else "stopped"
+            wavi_status[_s] = _st
+            logger.info("[wavi] startup status %s → %s", _s, _st)
+        # Propagar aliases: si "pulpo-bot" → "5491155612767", wavi_status["pulpo-bot"] = wavi_status["5491155612767"]
+        _aliases_file = wd_init.WAVI_SESSIONS_DIR / "aliases.json"
+        if _aliases_file.exists():
+            _aliases = _json.loads(_aliases_file.read_text())
+            for _alias, _target in _aliases.items():
+                if _alias not in wavi_status and _target in wavi_status:
+                    wavi_status[_alias] = wavi_status[_target]
+                    logger.info("[wavi] alias %s → %s (%s)", _alias, _target, wavi_status[_alias])
 
         wavi_poller.start()
         logger.info("[wavi-poll] scheduler arrancado")
