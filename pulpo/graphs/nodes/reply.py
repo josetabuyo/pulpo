@@ -75,13 +75,16 @@ class SendMessageNode(BaseNode):
             logger.warning("[SendMessageNode] Sin bot Telegram activo para bot '%s'", bot_id)
             return
 
+        bot = clients[tg_session]["client"].bot
         try:
-            await clients[tg_session]["client"].bot.send_message(
-                chat_id=int(chat_id), text=message, parse_mode="Markdown",
-            )
+            await bot.send_message(chat_id=int(chat_id), text=message, parse_mode="Markdown")
             logger.info("[SendMessageNode] TG → %s enviado", chat_id)
-        except Exception as e:
-            logger.error("[SendMessageNode] Error TG → %s: %s", chat_id, e)
+        except Exception:
+            try:
+                await bot.send_message(chat_id=int(chat_id), text=message)
+                logger.info("[SendMessageNode] TG → %s enviado (plain text)", chat_id)
+            except Exception as e:
+                logger.error("[SendMessageNode] Error TG → %s: %s", chat_id, e)
 
     async def _send_teli(self, to: str, message: str) -> None:
         import os
