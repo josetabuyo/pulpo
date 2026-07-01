@@ -1,5 +1,5 @@
 import click
-from .commands import bots, flows, connections, contacts, messages, settings, sim, server
+from .commands import bots, flows, connections, contacts, messages, settings, sim, server, runs
 
 
 @click.group()
@@ -15,3 +15,4 @@ cli.add_command(messages.messages)
 cli.add_command(settings.settings)
 cli.add_command(sim.sim)
 cli.add_command(server.server)
+cli.add_command(runs.runs)
