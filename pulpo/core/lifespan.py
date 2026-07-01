@@ -130,13 +130,6 @@ async def pulpo_lifespan(app):
 
     from pulpo.core import sim_engine, wavi_poller
 
-    import sys
-    import os as _os
-    _backend = _os.path.join(_os.path.dirname(__file__), '..', '..', 'backend')
-    if _backend not in sys.path:
-        sys.path.insert(0, _backend)
-    import teli_poller
-
     # seed default flows (no-op)
     from pulpo.business.flows import seed_default_flows
     seed_default_flows()
@@ -197,9 +190,6 @@ async def pulpo_lifespan(app):
         wavi_poller.start()
         logger.info("[wavi-poll] scheduler arrancado")
 
-        await teli_poller.start()
-        logger.info("[teli-poll] bots conectados")
-
         app.state._tg_apps = _tg_apps
 
     yield
@@ -211,4 +201,3 @@ async def pulpo_lifespan(app):
             await tg_app.shutdown()
         logger.info("Bots de Telegram detenidos.")
         await wavi_poller.stop()
-        await teli_poller.stop()

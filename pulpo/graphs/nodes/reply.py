@@ -52,6 +52,8 @@ class SendMessageNode(BaseNode):
     async def _send(self, to: str, message: str, channel: str, state: FlowState) -> None:
         if channel == "telegram":
             await self._send_telegram(to, message, state.bot_id)
+        elif channel == "teli":
+            await self._send_teli(to, message)
         else:
             logger.warning("[SendMessageNode] canal desconocido: %s", channel)
 
@@ -81,6 +83,26 @@ class SendMessageNode(BaseNode):
         except Exception as e:
             logger.error("[SendMessageNode] Error TG → %s: %s", chat_id, e)
 
+    async def _send_teli(self, to: str, message: str) -> None:
+        import os
+        if os.getenv("ENABLE_BOTS", "false").lower() != "true":
+            logger.info("[SendMessageNode] [sim] teli → %s: %s", to, message[:80])
+            return
+        from pathlib import Path
+        from telethon import TelegramClient
+        SESSION  = str(Path("/Users/josetabuyo/Development/teli/data/sessions/user_me"))
+        API_ID   = 31604778
+        API_HASH = "385bf75876904b022cb411c1c1954088"
+        client = TelegramClient(SESSION, API_ID, API_HASH)
+        try:
+            await client.start()
+            await client.send_message(int(to), message)
+            logger.info("[SendMessageNode] teli → %s enviado", to)
+        except Exception as e:
+            logger.error("[SendMessageNode] Error teli → %s: %s", to, e)
+        finally:
+            await client.disconnect()
+
     @classmethod
     def config_schema(cls) -> dict:
         return {
@@ -102,7 +124,7 @@ class SendMessageNode(BaseNode):
                 "type":    "select",
                 "label":   "Canal",
                 "default": "telegram",
-                "options": ["telegram"],
+                "options": ["telegram", "teli"],
             },
             "max_age_hours": {
                 "type":    "float",

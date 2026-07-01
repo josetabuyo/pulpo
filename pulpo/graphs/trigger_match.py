@@ -88,8 +88,12 @@ def _mass_send_allowed(connection_id: str, bot_id: str) -> bool:
             if ph.get("number") == connection_id and ph.get("allow_mass", False):
                 return True
         for tg in emp.get("telegram", []):
+            if not tg.get("allow_mass", False):
+                continue
             tok_id = tg.get("token", "").split(":")[0]
-            if f"{emp['id']}-tg-{tok_id}" == connection_id and tg.get("allow_mass", False):
+            full_session = f"{emp['id']}-tg-{tok_id}"
+            # Match by full session ID or by bot_id (trigger stores bot_id not session id)
+            if full_session == connection_id or emp["id"] == connection_id:
                 return True
     return False
 
@@ -188,7 +192,12 @@ async def select_trigger(nodes: list[dict], state: FlowState) -> TriggerMatch | 
             if not required_connection:
                 logger.debug("[engine] trigger sin connection_id configurado — skip")
                 continue
-            if required_connection != state.connection_id:
+            # TG session IDs are "{bot_id}-tg-{token_id}" but triggers store "{bot_id}"
+            conn_matches = (
+                required_connection == state.connection_id
+                or state.connection_id.startswith(required_connection + "-tg-")
+            )
+            if not conn_matches:
                 logger.debug("[engine] Flow no aplica: connection_id %s != %s",
                              required_connection, state.connection_id)
                 continue
