@@ -82,6 +82,40 @@ if step:
     await run_flows_from(state, run_id=step.run_id, resume_from=step.node_id)
 ```
 
+## Implementación actual del nodo gate (in-memory, 2026-07-01)
+
+El nodo `gate` implementado usa un dict global en módulo (`_GATE_STORE`) para
+acumular mensajes entre ejecuciones BFS. **Este modelo es consciente y temporal:**
+
+### Comportamiento actual
+- `_GATE_STORE` persiste en proceso mientras el backend esté corriendo.
+- Clave: `(node_id, contact_phone)` — independiente por contacto y por gate.
+- Cuando el gate bloquea: `flow_run.status = "waiting_gate"`, el step se loguea como `"blocked"`.
+- Cuando el gate abre: `state.data["gate_messages"] = [msg1, msg2, ...]`.
+
+### Restricciones conocidas (a anotar antes de usar en producción compleja)
+
+1. **Se pierde en reinicio**: launchd puede reiniciar el backend. Un gate a medio
+   llenar pierde su contador silenciosamente. Para el caso de uso actual (2 triggers
+   simultáneos → gate) esto es tolerable; para esperas de horas, no.
+
+2. **Nodos previos al gate re-ejecutan**: el segundo trigger arranca un BFS completo
+   desde su entry point. Si hay nodos entre el trigger y el gate, esos nodos se
+   ejecutan dos veces (una por cada trigger). **Diseño recomendado:** los nodos que
+   producen efectos de lado (LLM, send_message, fetch) deben estar DESPUÉS del gate,
+   no antes. Los triggers apuntan directamente al gate.
+
+3. **Memory leak**: gates que nunca completan (contact que envía un mensaje y no manda
+   el segundo) quedan en `_GATE_STORE` para siempre. Pendiente: job de GC con TTL.
+
+4. **Sin multi-proceso**: si el backend escala a múltiples workers, el store no se
+   comparte. El modelo durable (DB) del ADR resuelve esto.
+
+### Migración al modelo durable (cuando se necesite)
+El modelo durable del ADR (serializar FlowState a DB con `status=waiting` y reanudar
+desde el step siguiente al gate) reemplaza `_GATE_STORE` sin cambiar la interfaz del
+nodo — el compilador absorbería el cambio. El nodo gate en sí no cambia.
+
 ## Lo que NO resuelve este ADR (pendiente futuro)
 
 - **Identidad unificada entre canales**: si WA tiene `+549...` y TG tiene `@username`,

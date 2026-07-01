@@ -29,6 +29,7 @@ from .telegram_trigger import TelegramTriggerNode
 from .whatsapp_trigger import WhatsappTriggerNode
 from .api_trigger import ApiTriggerNode
 from .message_join import MessageJoinNode
+from .gate import GateNode
 from .fetch_sheet import FetchSheetNode
 from .gsheet import GSheetNode
 from .search_sheet import SearchSheetNode
@@ -39,6 +40,7 @@ NODE_REGISTRY: dict[str, type] = {
     "whatsapp_trigger":   WhatsappTriggerNode,
     "api_trigger":        ApiTriggerNode,
     "message_join":      MessageJoinNode,
+    "gate":             GateNode,
     "router":           RouterNode,
     "llm":              LLMNode,
     "send_message":     SendMessageNode,
@@ -70,4 +72,5 @@ __all__ = [
     "TelegramTriggerNode", "WhatsappTriggerNode", "ApiTriggerNode", "MessageJoinNode",
     "CheckContactNode",
     "FetchSheetNode", "GSheetNode",
+    "GateNode",
 ]

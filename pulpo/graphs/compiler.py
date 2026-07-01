@@ -143,12 +143,19 @@ async def _run_bfs(
 
         step_started = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
         input_json = json.dumps(state.data, default=str) if run_id else None
+        gate_blocked = False
         try:
-            node = node_cls(node_def.get("config", {}))
+            config = {**node_def.get("config", {}), "_node_id": current_id}
+            node = node_cls(config)
             state = await node.run(state)
-            logger.debug("[engine] nodo '%s' (%s) ejecutado", node_id, node_type)
+            gate_blocked = bool(state.data.pop("_gate_blocked", False))
+            if gate_blocked:
+                state.data["_has_waiting_gate"] = True
+            logger.debug("[engine] nodo '%s' (%s) ejecutado%s", node_id, node_type,
+                         " [bloqueado]" if gate_blocked else "")
             if run_id:
-                await _log_step(run_id, node_id, node_type, input_json, state, step_started, "ok")
+                status = "blocked" if gate_blocked else "ok"
+                await _log_step(run_id, node_id, node_type, input_json, state, step_started, status)
         except Exception as e:
             logger.exception("[engine] Error en nodo '%s' (%s)", node_id, node_type)
             if run_id:
@@ -157,7 +164,8 @@ async def _run_bfs(
                 {"node": node_id, "type": node_type, "error": str(e)}
             )
 
-        _enqueue_neighbors(graph, current_id, visited, queue, state.data.get("route", ""))
+        if not gate_blocked:
+            _enqueue_neighbors(graph, current_id, visited, queue, state.data.get("route", ""))
 
     errors = state.data.get("_node_errors")
     if errors:
@@ -245,7 +253,9 @@ async def execute_flow(
         try:
             from pulpo.core import db as _db
             errors = result.data.get("_node_errors")
-            await _db.end_flow_run(run_id, "error" if errors else "completed")
+            waiting = result.data.pop("_has_waiting_gate", False)
+            final_status = "error" if errors else ("waiting_gate" if waiting else "completed")
+            await _db.end_flow_run(run_id, final_status)
         except Exception:
             logger.warning("[engine] error al cerrar flow_run (non-fatal)", exc_info=True)
 

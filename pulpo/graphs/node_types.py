@@ -58,6 +58,12 @@ NODE_TYPES: dict[str, NodeType] = {
         color="#475569",
         description="Nodo de convergencia (fan-in). Úsalo cuando un flow tiene múltiples triggers. No modifica el estado.",
     ),
+    "gate": NodeType(
+        id="gate",
+        label="×",
+        color="#475569",
+        description="Gate AND bloqueante. Espera que todos los caminos configurados lleguen antes de continuar. Acumula mensajes en gate_messages.",
+    ),
     "router": NodeType(
         id="router",
         label="Router",
@@ -173,6 +179,7 @@ _CLASSIFY_SUBSTRINGS: list[tuple[str, str]] = [
     ("check_contact", "check_contact"),
     ("telegram_trigger", "telegram_trigger"),
     ("message_join", "message_join"),
+    ("gate",          "gate"),
     ("fetch_sheet",   "fetch_sheet"),
     ("search_sheet",  "search_sheet"),
     ("gsheet",        "gsheet"),
