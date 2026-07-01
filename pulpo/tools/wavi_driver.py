@@ -183,7 +183,7 @@ def get_qr_page_path() -> Path:
 def list_session_names() -> list[str]:
     if not WAVI_SESSIONS_DIR.exists():
         return []
-    return [
+    dirs = [
         d.name for d in WAVI_SESSIONS_DIR.iterdir()
         if d.is_dir()
         and not d.name.startswith("_tmp_")
@@ -191,3 +191,7 @@ def list_session_names() -> list[str]:
         and not d.name.startswith(".")
         and not d.name.endswith("_bak")
     ]
+    # Return canonical alias when one exists (so connections.json can use aliases like "pulpo-bot")
+    aliases = _load_aliases()
+    reverse = {v: k for k, v in aliases.items() if k not in ("default",)}
+    return [reverse.get(d, d) for d in dirs]
