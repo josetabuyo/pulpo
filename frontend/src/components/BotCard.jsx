@@ -17,6 +17,7 @@ import ConnectionRow from './bot/ConnectionRow.jsx'
 import BotConfigTab from './bot/BotConfigTab.jsx'
 import { GoogleSetupModal, GoogleConnectionsSection } from './bot/GoogleConnections.jsx'
 import { WaviConnectionsList, WaviSessionPicker } from './bot/WaviConnections.jsx'
+import RunsTab from './bot/RunsTab.jsx'
 
 // Normaliza un bot del formato admin (/bots) al formato canónico de BotCard
 export function normalizeBot(bot) {
@@ -145,6 +146,7 @@ export default function BotCard({
     { id: 'connections', label: 'Conexiones', count: conns.length },
     ...(hasSummarizer ? [{ id: 'uis', label: 'UIs', count: null }] : []),
     { id: 'flow', label: 'Flow', count: null },
+    { id: 'runs', label: 'Ejecuciones', count: null },
     ...(mode === 'bot' ? [{ id: 'config', label: 'Configurar', count: null }] : []),
   ]
 
@@ -304,6 +306,11 @@ export default function BotCard({
         {/* ── Flow ── */}
         {activeTab === 'flow' && (
           <FlowList botId={botId} apiCall={apiCall} connections={conns} onGoToUIs={() => setActiveTab('uis')} />
+        )}
+
+        {/* ── Ejecuciones ── */}
+        {activeTab === 'runs' && (
+          <RunsTab botId={botId} apiCall={apiCall} />
         )}
 
         {/* ── Config (bot only) ── */}
