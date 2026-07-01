@@ -44,8 +44,8 @@ export default function ConfigForm({ node, schema, botId, flowId, connections, a
   useEffect(() => {
     if (!botId || !apiCall) return
     Promise.all([
-      apiCall('GET', `/bots/${botId}/contacts`, null).catch(() => []),
-      apiCall('GET', `/bots/${botId}/google-accounts`, null).catch(() => []),
+      apiCall('GET', `/contacts/bots/${botId}/contacts`, null).catch(() => []),
+      apiCall('GET', `/flows/bots/${botId}/google-accounts`, null).catch(() => []),
     ]).then(([c, ga]) => {
       if (Array.isArray(c))  setContacts(c)
       if (Array.isArray(ga)) setGoogleAccounts(ga)

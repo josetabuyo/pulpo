@@ -46,6 +46,7 @@ dependencies = [
     "playwright>=1.49.0",
     "python-telegram-bot>=21.10.0",
     "python-multipart>=0.0.9",
+    "telethon>=1.44.0",
 ]
 
 [project.scripts]
@@ -62,4 +63,11 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
     "integration: tests that require a running server on BACKEND_PORT",
+    "e2e: end-to-end tests that require the real Telegram bot running and teli configured",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
 ]

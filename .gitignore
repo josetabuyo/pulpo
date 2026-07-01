@@ -16,13 +16,14 @@ data/
 
 # Dependencies
 node_modules/
+node_modules
 
 # Logs
 *.log
 npm-debug.log*
 
 # Python
-backend/.venv/
+.venv/
 .venv-pulpo/
 __pycache__/
 *.pyc
@@ -32,19 +33,16 @@ build/
 
 # Backups
 connections.json.bak_*
-backend/output/
 
 # Playwright
 .playwright-mcp/
 .playwright-cli/
-backend/.playwright-cli/
 frontend/test-results/
 frontend/playwright-report/
 
 # Monitor logs
 monitor/
 data/summaries/
-node_modules
 
 # macOS
 .DS_Store
@@ -54,8 +52,5 @@ session/
 .agent.json
 .claude/settings.local.json
 
-# Estado local de herramientas
-backend/.node-persist/
-
-# Colecciones Postman exportadas (locales)
-backend/open-wa-*.json
+# Memoria de proyecto (Claude auto-memory)
+memory/
