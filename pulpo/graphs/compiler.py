@@ -14,8 +14,10 @@ Los adapters (Telegram, Wavi, Sim) normalizan el mensaje a FlowState
 y llaman a run_flows(). El engine no sabe nada de protocolos.
 """
 import copy
+import json
 import logging
 import os
+import uuid
 from datetime import datetime
 
 from .cooldown import cooldown_hours, flow_cooldown
@@ -24,6 +26,44 @@ from .nodes.state import FlowState
 from .trigger_match import select_trigger
 
 logger = logging.getLogger(__name__)
+
+
+def _serialize_state(state: FlowState) -> str:
+    return json.dumps({
+        "message": state.message,
+        "message_type": state.message_type,
+        "canal": state.canal,
+        "connection_id": state.connection_id,
+        "bot_id": state.bot_id,
+        "bot_name": state.bot_name,
+        "contact_phone": state.contact_phone,
+        "contact_name": state.contact_name,
+        "data": state.data,
+    }, default=str)
+
+
+async def _log_step(
+    run_id: str,
+    node_id: str,
+    node_type: str,
+    input_json: str | None,
+    state_after: FlowState | None,
+    started_at: str,
+    status: str,
+) -> None:
+    try:
+        from pulpo.core import db as _db
+        output_json = json.dumps(state_after.data, default=str) if state_after else None
+        branch = state_after.data.get("route") if state_after else None
+        await _db.log_flow_step(
+            run_id=run_id, node_id=node_id, node_type=node_type,
+            input_state=input_json, output_state=output_json,
+            branch_taken=branch, status=status,
+            started_at=started_at,
+            ended_at=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+        )
+    except Exception:
+        logger.warning("[engine] error al loguear step %s (non-fatal)", node_id, exc_info=True)
 
 
 def _build_graph(edges: list[dict]) -> dict[str, list[tuple[str, str | None]]]:
@@ -65,11 +105,13 @@ async def _run_bfs(
     node_by_id: dict[str, dict],
     graph: dict,
     state: FlowState,
+    run_id: str | None = None,
 ) -> FlowState:
     """
     Ejecuta los nodos en BFS desde entry_id. Cada nodo se visita una sola vez
     (los ciclos no re-ejecutan). Un nodo que falla no aborta el flow: el error
     se loguea con stack trace y queda en state.vars["_node_errors"].
+    Si run_id está presente, cada nodo loguea input/output en flow_run_steps (ADR-006).
     """
     visited: set[str] = set()
     queue = [entry_id]
@@ -99,12 +141,18 @@ async def _run_bfs(
             _enqueue_neighbors(graph, current_id, visited, queue, state.data.get("route", ""))
             continue
 
+        step_started = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        input_json = json.dumps(state.data, default=str) if run_id else None
         try:
             node = node_cls(node_def.get("config", {}))
             state = await node.run(state)
             logger.debug("[engine] nodo '%s' (%s) ejecutado", node_id, node_type)
+            if run_id:
+                await _log_step(run_id, node_id, node_type, input_json, state, step_started, "ok")
         except Exception as e:
             logger.exception("[engine] Error en nodo '%s' (%s)", node_id, node_type)
+            if run_id:
+                await _log_step(run_id, node_id, node_type, input_json, None, step_started, "error")
             state.data.setdefault("_node_errors", []).append(
                 {"node": node_id, "type": node_type, "error": str(e)}
             )
@@ -175,7 +223,33 @@ async def execute_flow(
             return state
         entry_id = "__start__"
 
-    return await _run_bfs(entry_id, node_by_id, graph, state)
+    # ─── Journal: crear run antes de ejecutar (ADR-006) ──────────────────────
+    run_id: str | None = str(uuid.uuid4())
+    try:
+        from pulpo.core import db as _db
+        await _db.start_flow_run(
+            run_id=run_id,
+            flow_id=flow.get("id", ""),
+            bot_id=state.bot_id or flow.get("bot_id", ""),
+            connection_id=state.connection_id or None,
+            trigger_data=_serialize_state(state),
+        )
+    except Exception:
+        logger.warning("[engine] error al crear flow_run (non-fatal)", exc_info=True)
+        run_id = None
+    # ─────────────────────────────────────────────────────────────────────────
+
+    result = await _run_bfs(entry_id, node_by_id, graph, state, run_id=run_id)
+
+    if run_id:
+        try:
+            from pulpo.core import db as _db
+            errors = result.data.get("_node_errors")
+            await _db.end_flow_run(run_id, "error" if errors else "completed")
+        except Exception:
+            logger.warning("[engine] error al cerrar flow_run (non-fatal)", exc_info=True)
+
+    return result
 
 
 async def resolve_flows(bot_id: str) -> list[dict]:

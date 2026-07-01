@@ -185,6 +185,46 @@ async def init_db():
             )
         """))
 
+        # ─── Flow Runs — journal (ADR-006) ───────────────────────────
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS flow_runs (
+                run_id        TEXT PRIMARY KEY,
+                flow_id       TEXT NOT NULL,
+                bot_id        TEXT NOT NULL,
+                connection_id TEXT,
+                started_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+                ended_at      DATETIME,
+                status        TEXT DEFAULT 'running',
+                trigger_data  TEXT
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_flow_runs_bot_id ON flow_runs(bot_id)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_flow_runs_flow_id ON flow_runs(flow_id)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_flow_runs_started ON flow_runs(started_at)"
+        ))
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS flow_run_steps (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id        TEXT NOT NULL REFERENCES flow_runs(run_id),
+                node_id       TEXT NOT NULL,
+                node_type     TEXT NOT NULL,
+                started_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+                ended_at      DATETIME,
+                input_state   TEXT,
+                output_state  TEXT,
+                branch_taken  TEXT,
+                status        TEXT DEFAULT 'ok'
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_flow_run_steps_run_id ON flow_run_steps(run_id)"
+        ))
+
 async def create_job(
     bot_id: str,
     cliente_phone: str,
@@ -820,3 +860,127 @@ async def delete_google_connection(conn_id: str) -> bool:
         )
         await session.commit()
     return result.rowcount > 0
+
+
+# ─── Flow Runs — journal (ADR-006) ───────────────────────────────────────────
+
+async def start_flow_run(
+    run_id: str,
+    flow_id: str,
+    bot_id: str,
+    connection_id: str | None,
+    trigger_data: str | None,
+) -> None:
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            text("""
+                INSERT INTO flow_runs (run_id, flow_id, bot_id, connection_id, trigger_data)
+                VALUES (:run_id, :flow_id, :bot_id, :connection_id, :trigger_data)
+            """),
+            {"run_id": run_id, "flow_id": flow_id, "bot_id": bot_id,
+             "connection_id": connection_id, "trigger_data": trigger_data},
+        )
+        await session.commit()
+
+
+async def end_flow_run(run_id: str, status: str) -> None:
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            text("UPDATE flow_runs SET status=:status, ended_at=CURRENT_TIMESTAMP WHERE run_id=:run_id"),
+            {"run_id": run_id, "status": status},
+        )
+        await session.commit()
+
+
+async def log_flow_step(
+    run_id: str,
+    node_id: str,
+    node_type: str,
+    input_state: str | None,
+    output_state: str | None,
+    branch_taken: str | None,
+    status: str,
+    started_at: str,
+    ended_at: str,
+) -> None:
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            text("""
+                INSERT INTO flow_run_steps
+                  (run_id, node_id, node_type, input_state, output_state,
+                   branch_taken, status, started_at, ended_at)
+                VALUES
+                  (:run_id, :node_id, :node_type, :input_state, :output_state,
+                   :branch_taken, :status, :started_at, :ended_at)
+            """),
+            {
+                "run_id": run_id, "node_id": node_id, "node_type": node_type,
+                "input_state": input_state, "output_state": output_state,
+                "branch_taken": branch_taken, "status": status,
+                "started_at": started_at, "ended_at": ended_at,
+            },
+        )
+        await session.commit()
+
+
+async def get_flow_runs(bot_id: str, limit: int = 50) -> list[dict]:
+    async with AsyncSessionLocal() as session:
+        rows = (await session.execute(
+            text("""
+                SELECT run_id, flow_id, bot_id, connection_id, started_at, ended_at, status
+                FROM flow_runs
+                WHERE bot_id = :bot_id
+                ORDER BY started_at DESC
+                LIMIT :limit
+            """),
+            {"bot_id": bot_id, "limit": limit},
+        )).fetchall()
+    return [
+        {"run_id": r[0], "flow_id": r[1], "bot_id": r[2], "connection_id": r[3],
+         "started_at": str(r[4]), "ended_at": str(r[5]) if r[5] else None, "status": r[6]}
+        for r in rows
+    ]
+
+
+async def get_flow_run(run_id: str) -> dict | None:
+    async with AsyncSessionLocal() as session:
+        row = (await session.execute(
+            text("""
+                SELECT run_id, flow_id, bot_id, connection_id,
+                       started_at, ended_at, status, trigger_data
+                FROM flow_runs WHERE run_id=:run_id
+            """),
+            {"run_id": run_id},
+        )).fetchone()
+    if not row:
+        return None
+    return {
+        "run_id": row[0], "flow_id": row[1], "bot_id": row[2], "connection_id": row[3],
+        "started_at": str(row[4]), "ended_at": str(row[5]) if row[5] else None,
+        "status": row[6],
+        "trigger_data": _json.loads(row[7]) if row[7] else None,
+    }
+
+
+async def get_flow_run_steps(run_id: str) -> list[dict]:
+    async with AsyncSessionLocal() as session:
+        rows = (await session.execute(
+            text("""
+                SELECT id, run_id, node_id, node_type,
+                       started_at, ended_at, input_state, output_state, branch_taken, status
+                FROM flow_run_steps
+                WHERE run_id = :run_id
+                ORDER BY id
+            """),
+            {"run_id": run_id},
+        )).fetchall()
+    return [
+        {
+            "id": r[0], "run_id": r[1], "node_id": r[2], "node_type": r[3],
+            "started_at": str(r[4]), "ended_at": str(r[5]) if r[5] else None,
+            "input_state": _json.loads(r[6]) if r[6] else None,
+            "output_state": _json.loads(r[7]) if r[7] else None,
+            "branch_taken": r[8], "status": r[9],
+        }
+        for r in rows
+    ]
