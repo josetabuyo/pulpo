@@ -9,7 +9,7 @@ def _state(message: str = "hola", contact: str = "user1") -> FlowState:
 
 
 def _gate(wait_for: int = 2, node_id: str = "gate_test") -> GateNode:
-    return GateNode({"wait_for": wait_for, "_node_id": node_id})
+    return GateNode({"_in_degree": wait_for, "_node_id": node_id})
 
 
 @pytest.fixture(autouse=True)

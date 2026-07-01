@@ -26,7 +26,7 @@ _GATE_STORE: dict[tuple[str, str], list[str]] = {}
 class GateNode(BaseNode):
     async def run(self, state: FlowState) -> FlowState:
         node_id: str = self.config.get("_node_id", "gate")
-        wait_for: int = int(self.config.get("wait_for", 2))
+        wait_for: int = int(self.config.get("_in_degree", 2))
         contact: str = state.contact_phone or ""
 
         key = (node_id, contact)
@@ -45,11 +45,4 @@ class GateNode(BaseNode):
 
     @classmethod
     def config_schema(cls) -> dict:
-        return {
-            "wait_for": {
-                "type": "float",
-                "label": "Entradas a esperar",
-                "default": 2,
-                "required": False,
-            },
-        }
+        return {}

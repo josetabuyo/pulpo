@@ -9,27 +9,26 @@ def _state(message: str = "hola", contact: str = "u1") -> FlowState:
     return FlowState(message=message, contact_phone=contact)
 
 
-# ─── Flow mínimo: trigger → gate → sentinel ────────────────────────────────
+# ─── Flow: 2 triggers → gate → sentinel ────────────────────────────────────
 #
-#  node_a (trigger) → node_gate (gate, wait_for=2) → node_b (unknown type)
+#  node_a (trigger) ─┐
+#                    ├→ node_gate (gate, sin config) → node_b (unknown type)
+#  node_c (trigger) ─┘
 #
-# node_b es de tipo desconocido (no está en NODE_REGISTRY), así que el BFS
-# lo saltea pero lo encola si el gate lo permite. Usamos node_b.id en
-# state.data para saber si el BFS llegó más allá del gate.
+# El gate recibe _in_degree=2 del compiler (2 flechas entrantes).
+# node_b es de tipo desconocido — el BFS lo saltea pero lo encola si el gate permite.
 
 _NODES = [
-    {"id": "node_a",    "type": "api_trigger",  "config": {}},
-    {"id": "node_gate", "type": "gate",          "config": {"wait_for": 2}},
-    {"id": "node_b",    "type": "_sentinel",     "config": {}},
-]
-_EDGES = [
-    {"source": "node_a",    "target": "node_gate"},
-    {"source": "node_gate", "target": "node_b"},
+    {"id": "node_a",    "type": "api_trigger", "config": {}},
+    {"id": "node_c",    "type": "api_trigger", "config": {}},
+    {"id": "node_gate", "type": "gate",        "config": {}},
+    {"id": "node_b",    "type": "_sentinel",   "config": {}},
 ]
 _NODE_BY_ID = {n["id"]: n for n in _NODES}
-# grafo manual para evitar importar _build_graph (es privado)
+# grafo manual (equivalente a _build_graph sobre los edges)
 _GRAPH = {
     "node_a":    [("node_gate", None)],
+    "node_c":    [("node_gate", None)],
     "node_gate": [("node_b",    None)],
 }
 

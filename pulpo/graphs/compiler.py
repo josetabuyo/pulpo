@@ -113,6 +113,12 @@ async def _run_bfs(
     se loguea con stack trace y queda en state.vars["_node_errors"].
     Si run_id está presente, cada nodo loguea input/output en flow_run_steps (ADR-006).
     """
+    # Precalcular in-degree para que el gate sepa cuántas flechas le entran.
+    in_degree: dict[str, int] = {}
+    for targets in graph.values():
+        for tgt, _ in targets:
+            in_degree[tgt] = in_degree.get(tgt, 0) + 1
+
     visited: set[str] = set()
     queue = [entry_id]
 
@@ -145,7 +151,8 @@ async def _run_bfs(
         input_json = json.dumps(state.data, default=str) if run_id else None
         gate_blocked = False
         try:
-            config = {**node_def.get("config", {}), "_node_id": current_id}
+            config = {**node_def.get("config", {}), "_node_id": current_id,
+                      "_in_degree": in_degree.get(current_id, 1)}
             node = node_cls(config)
             state = await node.run(state)
             gate_blocked = bool(state.data.pop("_gate_blocked", False))
