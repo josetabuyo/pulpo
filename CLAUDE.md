@@ -29,7 +29,7 @@ pulpo/
     ui/           # API + SPA estática — entrypoint de producción
     cli/          # CLI Click: pulpo server ui|api, pulpo db init
     lib/          # PulpoClient — Python API in-process
-  tools/          # transcripción, browser headless
+  tools/          # todo lo externo: wavi_driver, teli_driver, telegram, transcription, browser
 frontend/         # React + Vite (dev: :5173, prod: dist/ compilado)
 tests/            # integration tests + e2e tests (ver ADR-004)
 docs/adr/         # decisiones de arquitectura
@@ -38,6 +38,14 @@ docs/adr/         # decisiones de arquitectura
 **Regla de oro:** la lógica va en `pulpo/business/` o `pulpo/graphs/`.
 Las interfaces solo coordinan. Los tests unitarios van inline junto al código
 que testean (`pulpo/graphs/nodes/reply/test_reply.py`).
+
+**`tools/` es todo lo externo que un nodo puede usar** — drivers de canal (wavi, teli,
+telegram), transcripción, browser. Los nodos importan directamente de `tools/`. Nadie más.
+`business/` solo recibe FlowState — sin conocimiento de canal.
+
+**Cada ejecución de flow tiene un `run_id`** (ADR-006). El compilador loguea cada step
+en `flow_run_steps` con el FlowState de entrada y salida. Permite debug visual y gates
+bloqueantes (flows que esperan un evento externo para reanudar).
 
 ---
 
@@ -50,6 +58,7 @@ que testean (`pulpo/graphs/nodes/reply/test_reply.py`).
 | [003](docs/adr/003-worktrees-y-flujo-de-features.md) | Features en worktrees, merge desde master |
 | [004](docs/adr/004-estrategia-de-tests.md) | Unit / integration / e2e — cuándo correr qué |
 | [005](docs/adr/005-produccion-launchd.md) | Launchd, `.venv-pulpo`, comandos de prod |
+| [006](docs/adr/006-durable-workflow-journal.md) | Flow runs con journal en DB — debug visual y gates bloqueantes |
 
 ---
 
