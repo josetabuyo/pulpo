@@ -158,6 +158,19 @@ async def _run_bfs(
             gate_blocked = bool(state.data.pop("_gate_blocked", False))
             if gate_blocked:
                 state.data["_has_waiting_gate"] = True
+                if run_id and node_type == "gate":
+                    from .nodes.gate import _store_waiting_run
+                    _store_waiting_run(node_id, state.contact_phone or "", run_id)
+            elif node_type == "gate" and run_id:
+                # Gate acaba de abrirse — cerrar el run que quedó en waiting_gate
+                from .nodes.gate import _pop_waiting_run
+                waiting_run_id = _pop_waiting_run(node_id, state.contact_phone or "")
+                if waiting_run_id and waiting_run_id != run_id:
+                    try:
+                        from pulpo.core import db as _db
+                        await _db.end_flow_run(waiting_run_id, "completed")
+                    except Exception:
+                        logger.warning("[engine] error cerrando waiting_gate run %s", waiting_run_id, exc_info=True)
             logger.debug("[engine] nodo '%s' (%s) ejecutado%s", node_id, node_type,
                          " [bloqueado]" if gate_blocked else "")
             if run_id:
@@ -208,7 +221,34 @@ async def execute_flow(
         if entry_node_id not in node_by_id:
             logger.debug("[engine] entry_node_id '%s' no encontrado en el flow", entry_node_id)
             return state
-        return await _run_bfs(entry_node_id, node_by_id, graph, state)
+
+        run_id: str | None = str(uuid.uuid4())
+        try:
+            from pulpo.core import db as _db
+            await _db.start_flow_run(
+                run_id=run_id,
+                flow_id=flow.get("id", ""),
+                bot_id=state.bot_id or flow.get("bot_id", ""),
+                connection_id=state.connection_id or None,
+                trigger_data=_serialize_state(state),
+            )
+        except Exception:
+            logger.warning("[engine] error al crear flow_run para api_trigger (non-fatal)", exc_info=True)
+            run_id = None
+
+        result = await _run_bfs(entry_node_id, node_by_id, graph, state, run_id=run_id)
+
+        if run_id:
+            try:
+                from pulpo.core import db as _db
+                errors = result.data.get("_node_errors")
+                waiting = result.data.pop("_has_waiting_gate", False)
+                final_status = "error" if errors else ("waiting_gate" if waiting else "completed")
+                await _db.end_flow_run(run_id, final_status)
+            except Exception:
+                logger.warning("[engine] error al cerrar flow_run de api_trigger (non-fatal)", exc_info=True)
+
+        return result
 
     has_triggers = any(n.get("type", "") in TRIGGER_TYPES for n in nodes)
 

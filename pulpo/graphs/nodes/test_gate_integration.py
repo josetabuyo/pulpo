@@ -1,7 +1,7 @@
 """Tests de integración: GateNode + BFS del compiler."""
 import pytest
 from ..compiler import _run_bfs
-from .gate import _GATE_STORE
+from .gate import _GATE_STORE, _GATE_WAITING_RUNS
 from .state import FlowState
 
 
@@ -36,8 +36,10 @@ _GRAPH = {
 @pytest.fixture(autouse=True)
 def clear_store():
     _GATE_STORE.clear()
+    _GATE_WAITING_RUNS.clear()
     yield
     _GATE_STORE.clear()
+    _GATE_WAITING_RUNS.clear()
 
 
 @pytest.mark.asyncio
@@ -80,3 +82,32 @@ async def test_bfs_independent_contacts_gate():
 
     # user2 sigue con su gate incompleto
     assert ("node_gate", "u2") in _GATE_STORE
+
+
+# ─── Waiting run linkage ──────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_bfs_stores_waiting_run_when_gate_blocks():
+    """Cuando el gate bloquea con run_id, se almacena en _GATE_WAITING_RUNS."""
+    await _run_bfs("node_a", _NODE_BY_ID, _GRAPH, _state("msg"), run_id="run-abc")
+    assert _GATE_WAITING_RUNS.get(("node_gate", "u1")) == "run-abc"
+
+
+@pytest.mark.asyncio
+async def test_bfs_pops_waiting_run_when_gate_opens():
+    """Cuando el gate abre en la segunda ejecución, _GATE_WAITING_RUNS se vacía."""
+    # Primera ejecución bloquea y almacena run_id
+    await _run_bfs("node_a", _NODE_BY_ID, _GRAPH, _state("primero"), run_id="run-1")
+    assert ("node_gate", "u1") in _GATE_WAITING_RUNS
+
+    # Segunda ejecución — gate abre, run-1 debe haber sido extraído del dict
+    # (el engine intentaría cerrarlo en DB, pero sin DB no falla)
+    await _run_bfs("node_a", _NODE_BY_ID, _GRAPH, _state("segundo"), run_id="run-2")
+    assert ("node_gate", "u1") not in _GATE_WAITING_RUNS
+
+
+@pytest.mark.asyncio
+async def test_bfs_no_waiting_run_without_run_id():
+    """Sin run_id, el gate no registra nada en _GATE_WAITING_RUNS."""
+    await _run_bfs("node_a", _NODE_BY_ID, _GRAPH, _state("msg"))
+    assert len(_GATE_WAITING_RUNS) == 0

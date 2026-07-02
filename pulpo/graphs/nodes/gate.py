@@ -22,6 +22,18 @@ logger = logging.getLogger(__name__)
 # Persiste mientras el proceso esté corriendo — se limpia al completar el gate.
 _GATE_STORE: dict[tuple[str, str], list[str]] = {}
 
+# run_id del flow_run que quedó en waiting_gate, indexado por (node_id, contact_phone).
+# Cuando el gate abre en una segunda ejecución, el engine lo cierra.
+_GATE_WAITING_RUNS: dict[tuple[str, str], str] = {}
+
+
+def _store_waiting_run(node_id: str, contact: str, run_id: str) -> None:
+    _GATE_WAITING_RUNS[(node_id, contact)] = run_id
+
+
+def _pop_waiting_run(node_id: str, contact: str) -> str | None:
+    return _GATE_WAITING_RUNS.pop((node_id, contact), None)
+
 
 class GateNode(BaseNode):
     async def run(self, state: FlowState) -> FlowState:

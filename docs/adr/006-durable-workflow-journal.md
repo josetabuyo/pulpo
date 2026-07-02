@@ -82,7 +82,7 @@ if step:
     await run_flows_from(state, run_id=step.run_id, resume_from=step.node_id)
 ```
 
-## Implementación actual del nodo gate (in-memory, 2026-07-01)
+## Implementación actual del nodo gate (in-memory, actualizado 2026-07-02)
 
 El nodo `gate` implementado usa un dict global en módulo (`_GATE_STORE`) para
 acumular mensajes entre ejecuciones BFS. **Este modelo es consciente y temporal:**
@@ -92,6 +92,25 @@ acumular mensajes entre ejecuciones BFS. **Este modelo es consciente y temporal:
 - Clave: `(node_id, contact_phone)` — independiente por contacto y por gate.
 - Cuando el gate bloquea: `flow_run.status = "waiting_gate"`, el step se loguea como `"blocked"`.
 - Cuando el gate abre: `state.data["gate_messages"] = [msg1, msg2, ...]`.
+
+### Linking de runs entre triggers (2026-07-02)
+
+Cuando un gate tiene dos caminos convergentes (ej: telegram_trigger + api_trigger),
+cada trigger crea su propio `flow_run`. El gate vincula ambos runs:
+
+1. **Primer trigger** llega al gate → gate bloquea → el compilador guarda
+   `_GATE_WAITING_RUNS[(node_id, contact_phone)] = run_id_del_primer_trigger`
+   y el flow_run queda en `waiting_gate`.
+
+2. **Segundo trigger** llega al gate → gate abre → el compilador extrae el
+   `run_id` guardado y lo cierra como `completed`. El flow continúa en el
+   nuevo run_id (del segundo trigger).
+
+La ruta `api_trigger` (`execute_flow` con `entry_node_id`) también crea su
+propio `flow_run` con journal completo (antes no lo hacía).
+
+**Restricción**: el `contact_phone` del segundo trigger debe coincidir con el
+primero para que la clave `(node_id, contact_phone)` coincida.
 
 ### Restricciones conocidas (a anotar antes de usar en producción compleja)
 
