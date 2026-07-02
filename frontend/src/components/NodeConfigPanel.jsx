@@ -4,7 +4,7 @@ import ConfigForm from './nodeconfig/ConfigForm.jsx'
 
 // ─── Node picker popup ────────────────────────────────────────────────────────
 
-function NodePicker({ typeMap, onSelect, onClose }) {
+function NodePicker({ typeMap, onSelect, onClose, onStartDrag }) {
   const [query, setQuery] = useState('')
   const inputRef = useRef(null)
 
@@ -28,6 +28,7 @@ function NodePicker({ typeMap, onSelect, onClose }) {
   return (
     <div
       ref={wrapRef}
+      data-testid="node-picker"
       style={{
         position: 'absolute',
         top: 'calc(100% + 4px)',
@@ -86,13 +87,41 @@ function NodePicker({ typeMap, onSelect, onClose }) {
         {filtered.map(nt => (
           <div
             key={nt.id}
+            draggable
             onClick={() => onSelect(nt.id)}
+            onDragStart={e => {
+              e.dataTransfer.setData('nodeType', nt.id)
+              e.dataTransfer.effectAllowed = 'move'
+              // Ghost en posición del cursor para que el browser compute el layout
+              const ghost = document.createElement('div')
+              Object.assign(ghost.style, {
+                position: 'fixed',
+                top: `${e.clientY - 14}px`,
+                left: `${e.clientX - 60}px`,
+                zIndex: '9999',
+                padding: '5px 12px',
+                background: nt.color + '33',
+                border: `1.5px solid ${nt.color}`,
+                borderRadius: '6px',
+                color: '#e2e8f0',
+                fontSize: '12px',
+                fontFamily: 'monospace',
+                whiteSpace: 'nowrap',
+                pointerEvents: 'none',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.6)',
+              })
+              ghost.textContent = nt.id
+              document.body.appendChild(ghost)
+              e.dataTransfer.setDragImage(ghost, 60, 14)
+              requestAnimationFrame(() => document.body.removeChild(ghost))
+            }}
+            onDragEnd={() => onStartDrag?.()}
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: 10,
               padding: '8px 12px',
-              cursor: 'pointer',
+              cursor: 'grab',
               borderBottom: '1px solid #0d1929',
             }}
             onMouseEnter={e => e.currentTarget.style.background = '#1e293b'}
@@ -257,6 +286,7 @@ export default function NodeConfigPanel({ botId, flowId, connections, apiCall, o
             typeMap={typeMap}
             onSelect={handleAddNode}
             onClose={() => setShowPicker(false)}
+            onStartDrag={() => setShowPicker(false)}
           />
         )}
       </div>

@@ -3,8 +3,7 @@
  *
  * Estructura:
  *   FlowHeader (nombre, connection, contact, guardar)
- *   ├── NodePalette  (izquierda — tipos de nodo arrastrables)
- *   ├── FlowCanvas   (centro — canvas editable)
+ *   ├── FlowCanvas      (centro — canvas editable)
  *   └── NodeConfigPanel (derecha — config del nodo seleccionado)
  *
  * El estado vive en useFlowStore (Zustand).
@@ -15,7 +14,6 @@ import { ReactFlowProvider, useReactFlow } from '@xyflow/react'
 
 import { useFlowStore, createFlowStore, FlowStoreContext } from '../store/flowStore.js'
 import FlowCanvas     from './FlowCanvas.jsx'
-import NodePalette    from './NodePalette.jsx'
 import NodeConfigPanel from './NodeConfigPanel.jsx'
 import FlowHeader     from './FlowHeader.jsx'
 
@@ -23,7 +21,6 @@ import FlowHeader     from './FlowHeader.jsx'
 
 function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved, onGoToUIs }) {
   const { screenToFlowPosition } = useReactFlow()
-
   const loadFlow         = useFlowStore(s => s.loadFlow)
   const setTypeMap       = useFlowStore(s => s.setTypeMap)
   const nodes            = useFlowStore(s => s.nodes)
@@ -57,21 +54,24 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [undo])
 
-  // Drop de un nodo desde la paleta (drag-and-drop)
+  // Drop desde drag del picker → insertar en posición del cursor
   const handleDrop = useCallback((e) => {
     e.preventDefault()
     const nodeType = e.dataTransfer.getData('nodeType')
     if (!nodeType) return
+    addNode(nodeType, screenToFlowPosition({ x: e.clientX, y: e.clientY }))
+  }, [screenToFlowPosition, addNode])
 
-    const position = screenToFlowPosition({ x: e.clientX, y: e.clientY })
-    addNode(nodeType, position)
-  }, [screenToFlowPosition, addNode, typeMap])
-
-  // Agregar nodo desde el botón de la paleta (sin drag)
-  const handleAddNodeFromPalette = useCallback((nodeType) => {
-    const offset = (nodeCount % 8) * 30
-    addNode(nodeType, { x: 200 + offset, y: 180 + offset })
-  }, [addNode, nodeCount])
+  // Click en picker → insertar visible, arriba a la izquierda del panel derecho
+  const handleAddNode = useCallback((nodeType) => {
+    const offset = (nodeCount % 8) * 25
+    const panelWidth = 400
+    const pos = screenToFlowPosition({
+      x: window.innerWidth - panelWidth - 180 - offset,
+      y: 90 + offset,
+    })
+    addNode(nodeType, pos)
+  }, [addNode, nodeCount, screenToFlowPosition])
 
   // Doble clic en un nodo → abrir panel de config
   const handleNodeDoubleClick = useCallback((nodeId) => {
@@ -88,7 +88,6 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
         onSaved={onSaved}
       />
       <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
-        <NodePalette key={flow?.id} typeMap={typeMap} />
         <FlowCanvas
           nodes={nodes}
           edges={edges}
@@ -105,7 +104,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
           connections={connections}
           apiCall={apiCall}
           onGoToUIs={onGoToUIs}
-          onAddNode={handleAddNodeFromPalette}
+          onAddNode={handleAddNode}
         />
       </div>
     </div>

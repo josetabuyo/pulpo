@@ -48,21 +48,21 @@ async function clickFlowEdit(card) {
 test('botón Editar abre el editor', async ({ page }) => {
   const card = await goToFlowTab(page)
   await clickFlowEdit(card)
-  await expect(card.getByText('NODOS')).toBeVisible({ timeout: 8000 })
+  await expect(card.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
   await expect(card.getByRole('button', { name: 'Guardar' })).toBeVisible()
 })
 
-test('editor muestra nodos de la paleta', async ({ page }) => {
+test('editor muestra botón Guardar', async ({ page }) => {
   const card = await goToFlowTab(page)
   await clickFlowEdit(card)
-  await expect(page.getByText('NODOS')).toBeVisible({ timeout: 8000 })
+  await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
   await expect(page.getByRole('button', { name: 'Guardar' })).toBeVisible()
 })
 
 test('botón volver regresa a la lista', async ({ page }) => {
   const card = await goToFlowTab(page)
   await clickFlowEdit(card)
-  await expect(page.getByText('NODOS')).toBeVisible({ timeout: 8000 })
+  await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
   await page.getByTitle('Volver').click()
   await expect(card.getByRole('button', { name: /Nuevo flow/i })).toBeVisible()
 })
@@ -70,7 +70,7 @@ test('botón volver regresa a la lista', async ({ page }) => {
 test('doble click en un nodo abre el panel de configuración', async ({ page }) => {
   const card = await goToFlowTab(page)
   await clickFlowEdit(card)
-  await expect(page.getByText('NODOS')).toBeVisible({ timeout: 8000 })
+  await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
 
   const nodes = page.locator('.react-flow__node')
   const count = await nodes.count()
@@ -86,7 +86,7 @@ test('crear nuevo flow y verificar que aparece en la lista', async ({ page }) =>
   const before = await card.locator('.flow-row').count()
 
   await card.getByRole('button', { name: /Nuevo flow/i }).click()
-  await expect(page.getByText('NODOS')).toBeVisible({ timeout: 8000 })
+  await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
 
   await page.getByTitle('Volver').click()
   await expect(async () => {
@@ -95,33 +95,34 @@ test('crear nuevo flow y verificar que aparece en la lista', async ({ page }) =>
   }).toPass({ timeout: 8000 })
 })
 
-// ─── NodePalette: whatsapp_trigger + buscador ──────────────────────────────────
+// ─── NodePicker: whatsapp_trigger + buscador ───────────────────────────────────
+// El picker se abre con el botón "+ Nuevo nodo" en NodeConfigPanel (ex NodePalette izquierda)
 
-test('paleta incluye whatsapp_trigger', async ({ page }) => {
+test('picker de nodos incluye whatsapp_trigger', async ({ page }) => {
   const card = await goToFlowTab(page)
   await clickFlowEdit(card)
-  await expect(page.getByText('NODOS')).toBeVisible({ timeout: 8000 })
-  const palette = page.getByTestId('node-palette')
-  await expect(palette.getByText('whatsapp_trigger')).toBeVisible()
+  await page.getByRole('button', { name: '+ Nuevo nodo' }).click()
+  const picker = page.getByTestId('node-picker')
+  await expect(picker.getByText('whatsapp_trigger')).toBeVisible()
 })
 
 test('buscador de nodos filtra por texto', async ({ page }) => {
   const card = await goToFlowTab(page)
   await clickFlowEdit(card)
-  await expect(page.getByText('NODOS')).toBeVisible({ timeout: 8000 })
+  await page.getByRole('button', { name: '+ Nuevo nodo' }).click()
 
-  const palette = page.getByTestId('node-palette')
-  const filter = palette.getByPlaceholder('Filtrar nodos...')
+  const picker = page.getByTestId('node-picker')
+  const filter = picker.getByPlaceholder('Buscar nodo...')
   await expect(filter).toBeVisible()
 
-  // Con "send" solo debe verse send_message en la paleta, no whatsapp_trigger
+  // Con "send" solo debe verse send_message en el picker, no whatsapp_trigger
   await filter.fill('send')
-  await expect(palette.getByText('send_message')).toBeVisible()
-  await expect(palette.getByText('whatsapp_trigger')).not.toBeVisible()
+  await expect(picker.getByText('send_message')).toBeVisible()
+  await expect(picker.getByText('whatsapp_trigger')).not.toBeVisible()
 
   // Al borrar el filtro vuelven todos
   await filter.fill('')
-  await expect(palette.getByText('whatsapp_trigger')).toBeVisible()
+  await expect(picker.getByText('whatsapp_trigger')).toBeVisible()
 })
 
 // ─── Back-edge: curva hacia la izquierda (getLoopBackPath) ────────────────────
@@ -142,7 +143,7 @@ test('back-edge usa path con dos segmentos cúbicos (getLoopBackPath)', async ({
   const flowRow = luganenseCard.locator('.flow-row', { has: page.locator('text=Orquestador Vendedor') })
   await flowRow.waitFor({ state: 'visible', timeout: 8000 })
   await flowRow.click()
-  await expect(page.getByText('NODOS')).toBeVisible({ timeout: 8000 })
+  await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
 
   // La etiqueta del back-edge debe ser visible
   await expect(page.getByText('sin_direccion')).toBeVisible({ timeout: 8000 })
@@ -163,22 +164,25 @@ test('back-edge usa path con dos segmentos cúbicos (getLoopBackPath)', async ({
   expect(hasLoopBackPath).toBe(true)
 })
 
-test('buscador arranca vacío al reabrir un flow', async ({ page }) => {
+test('buscador del picker arranca vacío al reabrirlo', async ({ page }) => {
   const card = await goToFlowTab(page)
   await clickFlowEdit(card)
-  await expect(page.getByText('NODOS')).toBeVisible({ timeout: 8000 })
+  const toggle = page.getByRole('button', { name: '+ Nuevo nodo' })
+  await expect(toggle).toBeVisible({ timeout: 8000 })
 
-  // Escribir algo en el filtro
-  const palette = page.getByTestId('node-palette')
-  await palette.getByPlaceholder('Filtrar nodos...').fill('send')
-  await expect(palette.getByText('whatsapp_trigger')).not.toBeVisible()
+  // Abrir el picker y escribir algo en el filtro
+  await toggle.click()
+  const picker = page.getByTestId('node-picker')
+  await picker.getByPlaceholder('Buscar nodo...').fill('send')
+  await expect(picker.getByText('whatsapp_trigger')).not.toBeVisible()
 
-  // Volver y reabrir el mismo flow
-  await page.getByTitle('Volver').click()
-  await card.locator('.flow-row').first().click()
-  await expect(page.getByText('NODOS')).toBeVisible({ timeout: 8000 })
+  // Cerrar (el picker se desmonta) y volver a abrir
+  await page.getByRole('button', { name: '− Nuevo nodo' }).click()
+  await expect(picker).not.toBeVisible()
+  await toggle.click()
 
   // El filtro debe estar vacío y todos los nodos visibles
-  await expect(page.getByTestId('node-palette').getByPlaceholder('Filtrar nodos...')).toHaveValue('')
-  await expect(page.getByTestId('node-palette').getByText('whatsapp_trigger')).toBeVisible()
+  const reopenedPicker = page.getByTestId('node-picker')
+  await expect(reopenedPicker.getByPlaceholder('Buscar nodo...')).toHaveValue('')
+  await expect(reopenedPicker.getByText('whatsapp_trigger')).toBeVisible()
 })
