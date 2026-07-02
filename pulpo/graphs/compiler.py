@@ -408,6 +408,7 @@ async def run_flows(
         bot_entry = next((e for e in config.get("bots", []) if e["id"] == bot_id), {})
         if not state.bot_name:
             state.bot_name = bot_entry.get("name", bot_id)
+        state.data.setdefault("_conv_ttl_hours", bot_entry.get("conversation_ttl_hours", 24))
 
         # ── Dispatcher wait_user: reanudar conversación pausada ──────────────
         try:

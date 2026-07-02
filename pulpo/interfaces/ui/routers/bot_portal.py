@@ -103,7 +103,7 @@ def bot_auth(body: BotAuthBody):
 # ─── Dashboard ───────────────────────────────────────────────────
 
 @router.get("/bot/{bot_id}")
-def bot_get(bot_id: str, bot: dict = Depends(_require_bot)):
+def bot_get(bot_id: str, bot: dict = Depends(_require_bot_or_admin)):
 
     connections = []
 
@@ -121,6 +121,8 @@ def bot_get(bot_id: str, bot: dict = Depends(_require_bot)):
     return {
         "bot_id": bot["id"],
         "bot_name": bot["name"],
+        "farewell_message": bot.get("farewell_message", ""),
+        "conversation_ttl_hours": bot.get("conversation_ttl_hours", 24),
         "connections": connections,
     }
 
@@ -270,10 +272,12 @@ def bot_new(body: NewBotBody):
 class BotConfigBody(BaseModel):
     name: str | None = None
     password: str | None = None
+    farewell_message: str | None = None
+    conversation_ttl_hours: int | None = None
 
 
 @router.put("/bot/{bot_id}/config")
-def bot_put_config(bot_id: str, body: BotConfigBody, _: dict = Depends(_require_bot)):
+def bot_put_config(bot_id: str, body: BotConfigBody, _: dict = Depends(_require_bot_or_admin)):
 
     config = load_config()
     bot = next((b for b in config["bots"] if b["id"] == bot_id), None)
@@ -292,6 +296,18 @@ def bot_put_config(bot_id: str, body: BotConfigBody, _: dict = Depends(_require_
             if b["id"] != bot_id and b.get("password") == body.password:
                 raise HTTPException(status_code=409, detail="Esa contraseña ya está en uso")
         bot["password"] = body.password
+
+    if body.farewell_message is not None:
+        if body.farewell_message.strip():
+            bot["farewell_message"] = body.farewell_message
+        else:
+            bot.pop("farewell_message", None)
+
+    if body.conversation_ttl_hours is not None:
+        if body.conversation_ttl_hours > 0:
+            bot["conversation_ttl_hours"] = body.conversation_ttl_hours
+        else:
+            bot.pop("conversation_ttl_hours", None)
 
     save_config(config)
     return {"ok": True, "bot_id": bot_id, "bot_name": bot["name"]}

@@ -147,7 +147,7 @@ export default function BotCard({
     ...(hasSummarizer ? [{ id: 'uis', label: 'UIs', count: null }] : []),
     { id: 'flow', label: 'Flow', count: null },
     { id: 'runs', label: 'Ejecuciones', count: null },
-    ...(mode === 'bot' ? [{ id: 'config', label: 'Configurar', count: null }] : []),
+    { id: 'config', label: 'Configurar', count: null },
   ]
 
   return (
@@ -313,8 +313,8 @@ export default function BotCard({
           <RunsTab botId={botId} apiCall={apiCall} />
         )}
 
-        {/* ── Config (bot only) ── */}
-        {activeTab === 'config' && mode === 'bot' && (
+        {/* ── Config ── */}
+        {activeTab === 'config' && (
           <BotConfigTab
             botId={botId}
             botName={bot.name}

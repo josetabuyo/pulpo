@@ -201,8 +201,13 @@ class ApiTriggerBody(BaseModel):
 
 
 _DEFAULT_FAREWELL = (
-    "Hola! Nuestra consulta anterior se cerró porque pasó un tiempo sin actividad. "
-    "¡Escribinos cuando quieras y te ayudamos de nuevo! 😊"
+    "¡Hola! 👋 Tu consulta anterior se cerró porque pasó un tiempo sin actividad "
+    "— ¡pero no te preocupes, acá seguimos!\n\n"
+    "En Luganense conectamos vecinos con los mejores profesionales de la zona: "
+    "plomeros, electricistas, albañiles, pintores y muchos servicios más. "
+    "Todos confiables, todos cerca tuyo.\n\n"
+    "Cuando necesités algo, escribinos y te ayudamos en segundos. 🏠✨\n\n"
+    "¡Hasta la próxima!\n— Luganense"
 )
 
 
@@ -219,13 +224,24 @@ async def expire_conversations(
 
     send_farewell = farewell != "no"
     if send_farewell and expired:
-        farewell_text = farewell if farewell and farewell != "yes" else _DEFAULT_FAREWELL
         from pulpo.core.state import clients
+        from pulpo.core.config import load_config
         import logging
         _log = logging.getLogger(__name__)
+        bot_config_cache: dict[str, dict] = {}
+        try:
+            cfg = load_config()
+            bot_config_cache = {b["id"]: b for b in cfg.get("bots", [])}
+        except Exception:
+            pass
         for item in expired:
             bot_id = item["bot_id"]
             contact = item["contact_phone"]
+            bot_cfg = bot_config_cache.get(bot_id, {})
+            farewell_text = (
+                farewell if farewell and farewell not in ("yes", "no")
+                else bot_cfg.get("farewell_message") or _DEFAULT_FAREWELL
+            )
             tg_session = next(
                 (k for k, v in clients.items()
                  if v.get("connection_id") == bot_id
