@@ -200,11 +200,49 @@ class ApiTriggerBody(BaseModel):
     contact_name: str = "API"
 
 
+_DEFAULT_FAREWELL = (
+    "Hola! Nuestra consulta anterior se cerró porque pasó un tiempo sin actividad. "
+    "¡Escribinos cuando quieras y te ayudamos de nuevo! 😊"
+)
+
+
 @router.post("/conversations/expire")
-async def expire_conversations(max_age_hours: int = 24):
-    """Expira conversaciones en waiting_gate más viejas que max_age_hours."""
+async def expire_conversations(
+    max_age_hours: int = 24,
+    farewell: str | None = None,
+):
+    """Expira conversaciones en waiting_gate más viejas que max_age_hours.
+    Si farewell no es 'no', manda un mensaje de despedida a cada contacto expirado."""
     from pulpo.core import db as _db
-    count = await _db.expire_old_conversations(max_age_hours)
+    expired = await _db.expire_old_conversations(max_age_hours)
+    count = len(expired)
+
+    send_farewell = farewell != "no"
+    if send_farewell and expired:
+        farewell_text = farewell if farewell and farewell != "yes" else _DEFAULT_FAREWELL
+        from pulpo.core.state import clients
+        import logging
+        _log = logging.getLogger(__name__)
+        for item in expired:
+            bot_id = item["bot_id"]
+            contact = item["contact_phone"]
+            tg_session = next(
+                (k for k, v in clients.items()
+                 if v.get("connection_id") == bot_id
+                 and v.get("type") == "telegram"
+                 and v.get("client")),
+                None,
+            )
+            if not tg_session:
+                _log.warning("[expire] Sin bot TG activo para bot='%s' contact='%s' — skip farewell", bot_id, contact)
+                continue
+            bot = clients[tg_session]["client"].bot
+            try:
+                await bot.send_message(chat_id=int(contact), text=farewell_text)
+                _log.info("[expire] farewell → bot=%s contact=%s", bot_id, contact)
+            except Exception as e:
+                _log.warning("[expire] Error farewell → %s: %s", contact, e)
+
     return {"expired": count, "max_age_hours": max_age_hours}
 
 

@@ -5,13 +5,13 @@ Marca todos los runs en waiting_gate de este (bot_id, contact_phone) como
 'completed', liberando al dispatcher para que el próximo mensaje arranque un
 flow nuevo en vez de retomar uno pausado.
 
-Útil al final de un flow exitoso: después de notificar al trabajador, después
-de que el usuario confirma su pedido, etc.
-
-No modifica state.data ni genera reply — es un efecto de lado puro.
+Config opcional:
+  farewell_message: str — mensaje de despedida enviado al usuario antes de cerrar.
+                          Soporta {{placeholders}}. Útil cuando no hay nodo LLM previo.
+                          Si está vacío, no se envía nada.
 """
 import logging
-from .base import BaseNode
+from .base import BaseNode, interpolate
 from .state import FlowState
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,11 @@ class EndConversationNode(BaseNode):
         if not bot_id or not contact:
             logger.warning("[end_conv] sin bot_id o contact_phone — skip")
             return state
+
+        farewell = interpolate(self.config.get("farewell_message", ""), state).strip()
+        if farewell:
+            state.data["reply"] = farewell
+
         try:
             from pulpo.core import db as _db
             closed = await _db.close_waiting_conversations(bot_id, contact)
@@ -34,4 +39,12 @@ class EndConversationNode(BaseNode):
 
     @classmethod
     def config_schema(cls) -> dict:
-        return {}
+        return {
+            "farewell_message": {
+                "type":    "textarea",
+                "label":   "Mensaje de despedida (opcional)",
+                "default": "",
+                "rows":    3,
+                "hint":    "Se envía al usuario al cerrar la conversación. Vacío = sin mensaje. Soporta {{placeholders}}.",
+            },
+        }

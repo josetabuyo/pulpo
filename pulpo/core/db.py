@@ -950,11 +950,24 @@ async def get_waiting_gate_run(bot_id: str, contact_phone: str) -> dict | None:
     }
 
 
-async def expire_old_conversations(max_age_hours: int = 24) -> int:
+async def expire_old_conversations(max_age_hours: int = 24) -> list[dict]:
     """Marca como 'expired' los runs en waiting_gate más viejos que max_age_hours.
-    Retorna la cantidad de runs expirados."""
+    Retorna lista de {bot_id, contact_phone} de los runs expirados."""
     async with AsyncSessionLocal() as session:
-        result = await session.execute(
+        # Primero obtener los afectados para poder mandar despedida
+        rows = (await session.execute(
+            text("""
+                SELECT bot_id, contact_phone
+                FROM flow_runs
+                WHERE status = 'waiting_gate'
+                  AND contact_phone IS NOT NULL
+                  AND started_at < datetime('now', :cutoff)
+            """),
+            {"cutoff": f"-{int(max_age_hours)} hours"},
+        )).fetchall()
+        expired = [{"bot_id": r[0], "contact_phone": r[1]} for r in rows]
+
+        await session.execute(
             text("""
                 UPDATE flow_runs
                 SET status = 'expired', ended_at = CURRENT_TIMESTAMP
@@ -964,7 +977,7 @@ async def expire_old_conversations(max_age_hours: int = 24) -> int:
             {"cutoff": f"-{int(max_age_hours)} hours"},
         )
         await session.commit()
-        return result.rowcount or 0
+        return expired
 
 
 async def close_waiting_conversations(bot_id: str, contact_phone: str) -> int:
