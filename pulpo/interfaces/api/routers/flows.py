@@ -200,6 +200,14 @@ class ApiTriggerBody(BaseModel):
     contact_name: str = "API"
 
 
+@router.post("/conversations/expire")
+async def expire_conversations(max_age_hours: int = 24):
+    """Expira conversaciones en waiting_gate más viejas que max_age_hours."""
+    from pulpo.core import db as _db
+    count = await _db.expire_old_conversations(max_age_hours)
+    return {"expired": count, "max_age_hours": max_age_hours}
+
+
 @router.post("/{flow_id}/trigger/{node_id}")
 async def trigger_flow(flow_id: str, node_id: str, body: ApiTriggerBody = None):
     """

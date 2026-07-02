@@ -148,6 +148,24 @@ NODE_TYPES: dict[str, NodeType] = {
         color="#0e7490",
         description="Busca en una Google Sheet el ítem que coincide con el mensaje. Usa LLM para identificar el valor.",
     ),
+    "wait_user": NodeType(
+        id="wait_user",
+        label="Esperar respuesta",
+        color="#ca8a04",
+        description="Pausa el flow y espera que el contacto responda. El próximo mensaje reanuda desde el nodo siguiente.",
+    ),
+    "detect_conversation": NodeType(
+        id="detect_conversation",
+        label="Detectar conversación",
+        color="#0f766e",
+        description="Detecta si hay una conversación abierta y rutea: resumir | preguntar | nueva.",
+    ),
+    "end_conversation": NodeType(
+        id="end_conversation",
+        label="Cerrar conversación",
+        color="#be123c",
+        description="Cierra explícitamente la conversación actual. El próximo mensaje del contacto abrirá un flow nuevo.",
+    ),
 }
 
 
@@ -180,9 +198,12 @@ _CLASSIFY_SUBSTRINGS: list[tuple[str, str]] = [
     ("telegram_trigger", "telegram_trigger"),
     ("message_join", "message_join"),
     ("gate",          "gate"),
-    ("fetch_sheet",   "fetch_sheet"),
-    ("search_sheet",  "search_sheet"),
-    ("gsheet",        "gsheet"),
+    ("wait_user",          "wait_user"),
+    ("fetch_sheet",        "fetch_sheet"),
+    ("search_sheet",       "search_sheet"),
+    ("gsheet",             "gsheet"),
+    ("detect_conversation", "detect_conversation"),
+    ("end_conversation",    "end_conversation"),
 ]
 
 

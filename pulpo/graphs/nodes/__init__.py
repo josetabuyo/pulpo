@@ -30,9 +30,12 @@ from .whatsapp_trigger import WhatsappTriggerNode
 from .api_trigger import ApiTriggerNode
 from .message_join import MessageJoinNode
 from .gate import GateNode
+from .wait_user import WaitUserNode
 from .fetch_sheet import FetchSheetNode
 from .gsheet import GSheetNode
 from .search_sheet import SearchSheetNode
+from .detect_conversation import DetectConversationNode
+from .end_conversation import EndConversationNode
 
 NODE_REGISTRY: dict[str, type] = {
     "message_trigger":    MessageTriggerNode,
@@ -41,6 +44,7 @@ NODE_REGISTRY: dict[str, type] = {
     "api_trigger":        ApiTriggerNode,
     "message_join":      MessageJoinNode,
     "gate":             GateNode,
+    "wait_user":        WaitUserNode,
     "router":           RouterNode,
     "llm":              LLMNode,
     "send_message":     SendMessageNode,
@@ -52,9 +56,11 @@ NODE_REGISTRY: dict[str, type] = {
     "check_contact":    CheckContactNode,
     "transcribe_audio": TranscribeAudioNode,
     "save_attachment":  SaveAttachmentNode,
-    "fetch_sheet":      FetchSheetNode,
-    "gsheet":           GSheetNode,
-    "search_sheet":     SearchSheetNode,
+    "fetch_sheet":          FetchSheetNode,
+    "gsheet":               GSheetNode,
+    "search_sheet":         SearchSheetNode,
+    "detect_conversation":  DetectConversationNode,
+    "end_conversation":     EndConversationNode,
 }
 
 # Tipos de nodo que actúan como entrada de un flow.
@@ -73,4 +79,7 @@ __all__ = [
     "CheckContactNode",
     "FetchSheetNode", "GSheetNode",
     "GateNode",
+    "WaitUserNode",
+    "DetectConversationNode",
+    "EndConversationNode",
 ]

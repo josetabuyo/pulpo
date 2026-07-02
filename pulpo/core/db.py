@@ -207,6 +207,19 @@ async def init_db():
         await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS idx_flow_runs_started ON flow_runs(started_at)"
         ))
+        # Migraciones wait_user: columnas para dispatcher de reanudación
+        for _col, _default in [
+            ("contact_phone", "NULL"),
+            ("resume_node_id", "NULL"),
+            ("slots_json", "NULL"),
+        ]:
+            try:
+                await conn.execute(text(f"ALTER TABLE flow_runs ADD COLUMN {_col} TEXT DEFAULT {_default}"))
+            except Exception:
+                pass  # Ya existe
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_flow_runs_waiting ON flow_runs(bot_id, contact_phone, status)"
+        ))
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS flow_run_steps (
                 id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -890,6 +903,85 @@ async def end_flow_run(run_id: str, status: str) -> None:
             {"run_id": run_id, "status": status},
         )
         await session.commit()
+
+
+async def set_wait_user_info(
+    run_id: str,
+    contact_phone: str,
+    resume_node_id: str,
+    slots_json: str,
+) -> None:
+    """Persiste el punto de reanudación y el estado cuando wait_user bloquea."""
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            text("""
+                UPDATE flow_runs
+                SET contact_phone=:cp, resume_node_id=:rn, slots_json=:sj
+                WHERE run_id=:run_id
+            """),
+            {"run_id": run_id, "cp": contact_phone, "rn": resume_node_id, "sj": slots_json},
+        )
+        await session.commit()
+
+
+async def get_waiting_gate_run(bot_id: str, contact_phone: str) -> dict | None:
+    """Retorna el run en waiting_gate más reciente para este (bot, contacto), si existe."""
+    async with AsyncSessionLocal() as session:
+        row = (await session.execute(
+            text("""
+                SELECT run_id, flow_id, resume_node_id, slots_json, started_at
+                FROM flow_runs
+                WHERE bot_id=:bot_id
+                  AND contact_phone=:contact_phone
+                  AND status='waiting_gate'
+                ORDER BY started_at DESC
+                LIMIT 1
+            """),
+            {"bot_id": bot_id, "contact_phone": contact_phone},
+        )).fetchone()
+    if not row:
+        return None
+    return {
+        "run_id":         row[0],
+        "flow_id":        row[1],
+        "resume_node_id": row[2],
+        "slots_json":     row[3],
+        "started_at":     str(row[4]),
+    }
+
+
+async def expire_old_conversations(max_age_hours: int = 24) -> int:
+    """Marca como 'expired' los runs en waiting_gate más viejos que max_age_hours.
+    Retorna la cantidad de runs expirados."""
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            text("""
+                UPDATE flow_runs
+                SET status = 'expired', ended_at = CURRENT_TIMESTAMP
+                WHERE status = 'waiting_gate'
+                  AND started_at < datetime('now', :cutoff)
+            """),
+            {"cutoff": f"-{int(max_age_hours)} hours"},
+        )
+        await session.commit()
+        return result.rowcount or 0
+
+
+async def close_waiting_conversations(bot_id: str, contact_phone: str) -> int:
+    """Cierra todos los runs waiting_gate de este (bot, contacto). Retorna cantidad cerrada."""
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            text("""
+                UPDATE flow_runs
+                SET status = 'completed', ended_at = CURRENT_TIMESTAMP
+                WHERE bot_id = :bot_id
+                  AND contact_phone = :contact_phone
+                  AND status = 'waiting_gate'
+            """),
+            {"bot_id": bot_id, "contact_phone": contact_phone},
+        )
+        await session.commit()
+        return result.rowcount or 0
 
 
 async def log_flow_step(

@@ -161,6 +161,21 @@ async def _run_bfs(
                 if run_id and node_type == "gate":
                     from .nodes.gate import _store_waiting_run
                     _store_waiting_run(node_id, state.contact_phone or "", run_id)
+                elif run_id and node_type == "wait_user":
+                    # Persistir punto de reanudación en DB
+                    neighbors = graph.get(current_id, [])
+                    resume_node = neighbors[0][0] if neighbors else None
+                    if resume_node:
+                        try:
+                            from pulpo.core import db as _db
+                            await _db.set_wait_user_info(
+                                run_id=run_id,
+                                contact_phone=state.contact_phone or "",
+                                resume_node_id=resume_node,
+                                slots_json=json.dumps(state.data, default=str),
+                            )
+                        except Exception:
+                            logger.warning("[engine] error guardando wait_user info (non-fatal)", exc_info=True)
             elif node_type == "gate" and run_id:
                 # Gate acaba de abrirse — cerrar el run que quedó en waiting_gate
                 from .nodes.gate import _pop_waiting_run
@@ -393,6 +408,44 @@ async def run_flows(
         bot_entry = next((e for e in config.get("bots", []) if e["id"] == bot_id), {})
         if not state.bot_name:
             state.bot_name = bot_entry.get("name", bot_id)
+
+        # ── Dispatcher wait_user: reanudar conversación pausada ──────────────
+        try:
+            from pulpo.core import db as _db
+            waiting = await _db.get_waiting_gate_run(bot_id, state.contact_phone or "")
+            if waiting and waiting.get("resume_node_id"):
+                flow = await _db.get_flow(waiting["flow_id"])
+                if flow:
+                    # Calcular edad de la conversación en minutos
+                    started = datetime.strptime(waiting["started_at"], "%Y-%m-%d %H:%M:%S")
+                    age_minutes = int((datetime.utcnow() - started).total_seconds() / 60)
+                    # Restaurar slots del turno anterior + inyectar nuevo mensaje
+                    saved = json.loads(waiting["slots_json"] or "{}")
+                    # Preservar claves internas limpias; el mensaje nuevo ya está en state.message
+                    saved.pop("_has_waiting_gate", None)
+                    saved.pop("_gate_blocked", None)
+                    # Resetear contadores de visita si la conversación quedó inactiva >30 min:
+                    # evita agotado instantáneo cuando el usuario retoma una sesión antigua.
+                    if age_minutes > 30:
+                        visits_keys = [k for k in saved if k.startswith("_visits_")]
+                        for k in visits_keys:
+                            saved.pop(k)
+                    state.data.update(saved)
+                    # Inyectar metadatos de conversación abierta (después de restaurar slots
+                    # para que los metadatos no sean sobreescritos por el estado guardado)
+                    state.data["_has_open_conv"] = True
+                    state.data["_conv_age_minutes"] = age_minutes
+                    state.data["_conv_resume_node"] = waiting.get("resume_node_id", "")
+                    await _db.end_flow_run(waiting["run_id"], "completed")
+                    logger.info("[engine] Reanudando wait_user run=%s desde nodo=%s contacto=%s age=%dm",
+                                waiting["run_id"], waiting["resume_node_id"], state.contact_phone, age_minutes)
+                    state = await execute_flow(flow, state, entry_node_id=waiting["resume_node_id"])
+                    continue
+            # Sin conversación abierta — inyectar flag para nodos detect_conversation
+            state.data["_has_open_conv"] = False
+        except Exception:
+            logger.warning("[engine] error en dispatcher wait_user (non-fatal)", exc_info=True)
+        # ─────────────────────────────────────────────────────────────────────
 
         flows = await resolve_flows(bot_id)
 

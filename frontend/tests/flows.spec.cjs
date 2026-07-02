@@ -124,6 +124,45 @@ test('buscador de nodos filtra por texto', async ({ page }) => {
   await expect(palette.getByText('whatsapp_trigger')).toBeVisible()
 })
 
+// ─── Back-edge: curva hacia la izquierda (getLoopBackPath) ────────────────────
+
+test('back-edge usa path con dos segmentos cúbicos (getLoopBackPath)', async ({ page }) => {
+  await page.goto('/')
+  await page.evaluate(() => sessionStorage.clear())
+  await page.goto('/')
+  await page.getByPlaceholder('Contraseña').fill(ADMIN_PASSWORD)
+  await page.getByRole('button', { name: 'Entrar' }).click()
+  await page.waitForURL('/dashboard')
+
+  // Abrir tab Flow del bot Luganense (tiene back-edge sin_direccion → pedir_direccion)
+  const luganenseCard = page.locator('.ec-card', { has: page.locator('text=luganense') })
+  await luganenseCard.waitFor({ state: 'visible', timeout: 8000 })
+  await luganenseCard.getByRole('button', { name: 'Flow' }).click()
+
+  const flowRow = luganenseCard.locator('.flow-row', { has: page.locator('text=Orquestador Vendedor') })
+  await flowRow.waitFor({ state: 'visible', timeout: 8000 })
+  await flowRow.click()
+  await expect(page.getByText('NODOS')).toBeVisible({ timeout: 8000 })
+
+  // La etiqueta del back-edge debe ser visible
+  await expect(page.getByText('sin_direccion')).toBeVisible({ timeout: 8000 })
+
+  // Verificar que al menos un edge SVG usa dos segmentos C (firma de getLoopBackPath)
+  // getBezierPath estándar produce un solo "C"; getLoopBackPath produce dos "C"
+  const paths = page.locator('.react-flow__edge path.react-flow__edge-path')
+  await paths.first().waitFor({ timeout: 8000 })
+  const count = await paths.count()
+  let hasLoopBackPath = false
+  for (let i = 0; i < count; i++) {
+    const d = await paths.nth(i).getAttribute('d')
+    if (d && (d.match(/C .+ C /) || d.split('C').length > 2)) {
+      hasLoopBackPath = true
+      break
+    }
+  }
+  expect(hasLoopBackPath).toBe(true)
+})
+
 test('buscador arranca vacío al reabrir un flow', async ({ page }) => {
   const card = await goToFlowTab(page)
   await clickFlowEdit(card)

@@ -19,10 +19,24 @@ const EdgeActionsCtx = createContext({ deleteMode: false, deleteEdge: null })
 
 // ─── Edge custom ──────────────────────────────────────────────────────────────
 
+function getLoopBackPath(sourceX, sourceY, targetX, targetY) {
+  const leftX = Math.min(sourceX, targetX) - 120
+  const midY  = (sourceY + targetY) / 2
+  const path  = [
+    `M ${sourceX},${sourceY}`,
+    `C ${sourceX},${sourceY + 50} ${leftX},${midY - 10} ${leftX},${midY}`,
+    `C ${leftX},${midY + 10} ${targetX},${targetY - 50} ${targetX},${targetY}`,
+  ].join(' ')
+  return [path, leftX - 8, midY]
+}
+
 function LabeledEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, label, selected, markerEnd, markerStart }) {
   const { deleteMode, deleteEdge } = useContext(EdgeActionsCtx)
 
-  const [edgePath, labelX, labelY] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition })
+  const isBackEdge = targetY < sourceY - 20
+  const [edgePath, labelX, labelY] = isBackEdge
+    ? getLoopBackPath(sourceX, sourceY, targetX, targetY)
+    : getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition })
 
   const onDelete = useCallback((e) => {
     e.stopPropagation()

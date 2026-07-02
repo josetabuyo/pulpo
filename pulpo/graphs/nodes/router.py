@@ -59,7 +59,20 @@ class RouterNode(BaseNode):
         raw_model        = self.config.get("model", "best:instruction|local-first")
         context_source   = self.config.get("context_source", "none")
         pre_route_rules  = self.config.get("pre_route_rules", [])
+        max_visits       = self.config.get("max_visits")
+        max_visits_route = self.config.get("max_visits_route", "")
         model, router_strategy = parse_model_strategy(raw_model, self.config)
+
+        # Contador automático de visitas por nodo en esta conversación
+        if max_visits and max_visits_route:
+            visit_key = f"_visits_{self.config.get('_node_id', 'router')}"
+            visits = int(state.data.get(visit_key, 0) or 0) + 1
+            state.data[visit_key] = visits
+            logger.debug("[RouterNode] visitas=%d/%s node=%s", visits, max_visits, visit_key)
+            if visits >= int(max_visits):
+                logger.info("[RouterNode] max_visits=%s alcanzado → '%s'", max_visits, max_visits_route)
+                state.data["route"] = max_visits_route
+                return state
 
         # Reglas deterministas: se evalúan antes del LLM
         if pre_route_rules:
@@ -112,5 +125,17 @@ class RouterNode(BaseNode):
                     {"value": "context",      "label": "Mensaje + contexto"},
                     {"value": "vars+context", "label": "Mensaje + variables + contexto"},
                 ],
+            },
+            "max_visits": {
+                "type":    "number",
+                "label":   "Máx. visitas (loop limit)",
+                "default": None,
+                "hint":    "Si el nodo se visita ≥ N veces en la misma conversación, redirige a max_visits_route",
+            },
+            "max_visits_route": {
+                "type":    "string",
+                "label":   "Ruta cuando se agota el límite",
+                "default": "",
+                "hint":    "Debe existir como edge de este nodo. Ej: agotado",
             },
         }
