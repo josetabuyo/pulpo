@@ -33,6 +33,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
   const onConnect        = useFlowStore(s => s.onConnect)
   const setSelectedNodeId = useFlowStore(s => s.setSelectedNodeId)
   const addNode          = useFlowStore(s => s.addNode)
+  const updateEdgeBend   = useFlowStore(s => s.updateEdgeBend)
   const reset            = useFlowStore(s => s.reset)
   const undo             = useFlowStore(s => s.undo)
 
@@ -89,6 +90,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
           onConnect={onConnect}
           onDrop={handleDrop}
           onNodeDoubleClick={handleNodeDoubleClick}
+          onEdgeBendChange={updateEdgeBend}
         />
         {/* NodeConfigPanel como popup flotante sobre el canvas */}
         <NodeConfigPanel botId={flow.bot_id} flowId={flow.id} connections={connections} apiCall={apiCall} onGoToUIs={onGoToUIs} />

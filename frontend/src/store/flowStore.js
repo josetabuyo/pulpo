@@ -123,6 +123,7 @@ function nodesToDefinition(rfNodes, rfEdges) {
       source: e.source,
       target: e.target,
       label:  e.label || null,
+      ...(e.data?.bendX != null ? { bendX: e.data.bendX, bendY: e.data.bendY } : {}),
     })),
     viewport: { x: 0, y: 0, zoom: 1 },
   }
@@ -180,7 +181,10 @@ export function createFlowStore() {
     loadFlow: (definition, typeMap) => {
       const tm = typeMap || get().typeMap
       const rfNodes = (definition?.nodes || []).map(n => dbNodeToRF(n, tm))
-      const rfEdges = (definition?.edges || []).map(e => ({ ...e }))
+      const rfEdges = (definition?.edges || []).map(e => ({
+        ...e,
+        ...(e.bendX != null ? { data: { bendX: e.bendX, bendY: e.bendY } } : {}),
+      }))
       // Reparar edges sin label salientes de nodos router
       const repairedEdges = autoAssignRouterLabels(rfNodes, rfEdges)
       set({
@@ -297,6 +301,18 @@ export function createFlowStore() {
         _version: state._version + 1,
       }))
     },
+
+    updateEdgeBend: (edgeId, bendX, bendY) => set(state => ({
+      edges: state.edges.map(e => {
+        if (e.id !== edgeId) return e
+        const base = e.data || {}
+        const { bendX: _bx, bendY: _by, ...rest } = base
+        const data = bendX != null ? { ...rest, bendX, bendY } : rest
+        return { ...e, data }
+      }),
+      isDirty: true,
+      _version: state._version + 1,
+    })),
 
     markClean: () => set({ isDirty: false }),
 

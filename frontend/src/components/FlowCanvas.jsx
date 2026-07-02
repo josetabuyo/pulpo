@@ -7,41 +7,121 @@ import {
   Position,
   BaseEdge,
   EdgeLabelRenderer,
-  getBezierPath,
+  getSmoothStepPath,
   MarkerType,
   Panel,
+  useReactFlow,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
 // ─── Contexto de modo borrar ──────────────────────────────────────────────────
 
-const EdgeActionsCtx = createContext({ deleteMode: false, deleteEdge: null })
+const EdgeActionsCtx = createContext({ deleteMode: false, deleteEdge: null, updateEdgeBend: null })
 
 // ─── Edge custom ──────────────────────────────────────────────────────────────
 
-function getLoopBackPath(sourceX, sourceY, targetX, targetY) {
-  const leftX = Math.min(sourceX, targetX) - 120
-  const midY  = (sourceY + targetY) / 2
-  const path  = [
-    `M ${sourceX},${sourceY}`,
-    `C ${sourceX},${sourceY + 50} ${leftX},${midY - 10} ${leftX},${midY}`,
-    `C ${leftX},${midY + 10} ${targetX},${targetY - 50} ${targetX},${targetY}`,
-  ].join(' ')
-  return [path, leftX - 8, midY]
-}
+function LabeledEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, label, selected, markerEnd, markerStart, data }) {
+  const { deleteMode, deleteEdge, updateEdgeBend } = useContext(EdgeActionsCtx)
+  const { screenToFlowPosition } = useReactFlow()
+  const [localBend, setLocalBend] = useState(null)
 
-function LabeledEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, label, selected, markerEnd, markerStart }) {
-  const { deleteMode, deleteEdge } = useContext(EdgeActionsCtx)
+  const bendX = localBend?.x ?? data?.bendX
+  const bendY = localBend?.y ?? data?.bendY
+  const hasBend = bendX != null && bendY != null
 
-  const isBackEdge = targetY < sourceY - 20
-  const [edgePath, labelX, labelY] = isBackEdge
-    ? getLoopBackPath(sourceX, sourceY, targetX, targetY)
-    : getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition })
+  // ── Path ──────────────────────────────────────────────────────────────────────
+  let edgePath, dotX, dotY
+  if (hasBend) {
+    const bx = bendX, by = bendY
+    const R = 10
+
+    if (targetY < by - 10) {
+      // Back-edge con bend: source→down→horizontal(bx)→up→horizontal(tx)→down→target
+      // El arrowhead siempre entra desde arriba; bendX controla el desvío lateral
+      const topY = targetY - 50
+      const dv1 = by >= sourceY ? 1 : -1
+      const dh1 = bx <= sourceX ? -1 : 1
+      const dh2 = targetX >= bx ? 1 : -1
+      const r1 = Math.min(R, Math.abs(by - sourceY) / 2, Math.abs(bx - sourceX) / 2 || R)
+      const r2 = Math.min(R, Math.abs(bx - sourceX) / 2 || R, Math.abs(by - topY) / 2)
+      const r3 = Math.min(R, Math.abs(by - topY) / 2, Math.abs(targetX - bx) / 2 || R)
+      const r4 = Math.min(R, Math.abs(targetX - bx) / 2 || R, Math.abs(topY - targetY) / 2)
+      edgePath = [
+        `M ${sourceX},${sourceY}`,
+        `L ${sourceX},${by - dv1 * r1}`,
+        `Q ${sourceX},${by} ${sourceX + dh1 * r1},${by}`,
+        `L ${bx - dh1 * r2},${by}`,
+        `Q ${bx},${by} ${bx},${by - r2}`,
+        `L ${bx},${topY + r3}`,
+        `Q ${bx},${topY} ${bx + dh2 * r3},${topY}`,
+        `L ${targetX - dh2 * r4},${topY}`,
+        `Q ${targetX},${topY} ${targetX},${topY + r4}`,
+        `L ${targetX},${targetY}`,
+      ].join(' ')
+      dotX = bx; dotY = by
+    } else {
+      // Forward edge con bend: vertical → horizontal (bendY) → vertical
+      const r = Math.min(R,
+        Math.abs(by - sourceY) / 2,
+        Math.abs(targetY - by) / 2,
+        Math.abs(targetX - sourceX) / 2 || R,
+      )
+      const dv1 = by >= sourceY ? 1 : -1
+      const dv2 = targetY >= by ? 1 : -1
+      const dh  = targetX >= sourceX ? 1 : -1
+      edgePath = [
+        `M ${sourceX},${sourceY}`,
+        `L ${sourceX},${by - dv1 * r}`,
+        `Q ${sourceX},${by} ${sourceX + dh * r},${by}`,
+        `L ${targetX - dh * r},${by}`,
+        `Q ${targetX},${by} ${targetX},${by + dv2 * r}`,
+        `L ${targetX},${targetY}`,
+      ].join(' ')
+      dotX = (sourceX + targetX) / 2; dotY = by
+    }
+  } else {
+    const isBackEdge = targetY < sourceY - 20
+    const args = isBackEdge
+      ? { sourceX, sourceY, sourcePosition: Position.Bottom, targetX, targetY, targetPosition: Position.Top, borderRadius: 16, offset: 50 }
+      : { sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, borderRadius: 16, offset: 20 }
+    ;[edgePath, dotX, dotY] = getSmoothStepPath(args)
+  }
+
+  // ── Drag para reubicar el bend point ─────────────────────────────────────────
+  const startDrag = useCallback((e) => {
+    e.stopPropagation()
+    e.preventDefault()
+    const startX = e.clientX, startY = e.clientY
+    let moved = false
+    const onMove = (ev) => {
+      if (!moved && Math.abs(ev.clientX - startX) < 3 && Math.abs(ev.clientY - startY) < 3) return
+      moved = true
+      setLocalBend(screenToFlowPosition({ x: ev.clientX, y: ev.clientY }))
+    }
+    const onUp = (ev) => {
+      if (moved) {
+        const { x, y } = screenToFlowPosition({ x: ev.clientX, y: ev.clientY })
+        updateEdgeBend?.(id, x, y)
+      }
+      setLocalBend(null)
+      document.removeEventListener('pointermove', onMove)
+      document.removeEventListener('pointerup', onUp)
+    }
+    document.addEventListener('pointermove', onMove)
+    document.addEventListener('pointerup', onUp)
+  }, [id, screenToFlowPosition, updateEdgeBend])
+
+  const removeBend = useCallback((e) => {
+    e.stopPropagation()
+    updateEdgeBend?.(id, null, null)
+  }, [id, updateEdgeBend])
 
   const onDelete = useCallback((e) => {
     e.stopPropagation()
     deleteEdge?.(id)
   }, [id, deleteEdge])
+
+  const showHandle = !deleteMode && (selected || hasBend)
 
   return (
     <>
@@ -54,29 +134,42 @@ function LabeledEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, t
       />
       <EdgeLabelRenderer>
         <div
-          style={{
-            position: 'absolute',
-            transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
-            pointerEvents: 'all',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 4,
-          }}
+          style={{ position: 'absolute', transform: `translate(-50%, -50%) translate(${dotX}px,${dotY}px)`, pointerEvents: 'all', display: 'flex', alignItems: 'center', gap: 4 }}
           className="nodrag nopan"
         >
-          {/* Label de ruta — siempre visible si existe */}
+          {/* Label — drag handle en modo normal */}
           {label && (
-            <span style={{
-              background: '#1e293b',
-              border: '1px solid #334155',
-              borderRadius: 4,
-              color: '#94a3b8',
-              fontSize: 11,
-              padding: '1px 6px',
-              whiteSpace: 'nowrap',
-            }}>
+            <span
+              onPointerDown={!deleteMode ? startDrag : undefined}
+              style={{
+                background: '#1e293b',
+                border: `1px solid ${hasBend && !deleteMode ? '#6366f1' : '#334155'}`,
+                borderRadius: 4,
+                color: '#94a3b8',
+                fontSize: 11,
+                padding: '1px 6px',
+                whiteSpace: 'nowrap',
+                cursor: !deleteMode ? 'grab' : 'default',
+                userSelect: 'none',
+              }}
+            >
               {label}
             </span>
+          )}
+
+          {/* Pelotita — edges sin label, visible al seleccionar o cuando hay bend */}
+          {!label && showHandle && (
+            <div
+              onPointerDown={startDrag}
+              onDoubleClick={hasBend ? removeBend : undefined}
+              title={hasBend ? 'Arrastrá · doble clic para resetear' : 'Arrastrá para doblar la flecha'}
+              style={{
+                width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
+                background: hasBend ? '#6366f1' : '#94a3b8',
+                border: '2px solid #0f172a',
+                cursor: 'grab',
+              }}
+            />
           )}
 
           {/* Botón × — solo en modo borrar */}
@@ -84,21 +177,7 @@ function LabeledEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, t
             <button
               onClick={onDelete}
               title="Borrar conexión"
-              style={{
-                background: '#7f1d1d',
-                border: 'none',
-                borderRadius: '50%',
-                color: '#fca5a5',
-                width: 18,
-                height: 18,
-                fontSize: 12,
-                cursor: 'pointer',
-                padding: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-              }}
+              style={{ background: '#7f1d1d', border: 'none', borderRadius: '50%', color: '#fca5a5', width: 18, height: 18, fontSize: 12, cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
             >
               ×
             </button>
@@ -161,6 +240,7 @@ export default function FlowCanvas({
   onConnect,
   onNodeDoubleClick,
   onDrop: externalOnDrop,
+  onEdgeBendChange,
 }) {
   const reactFlowWrapper = useRef(null)
   const [deleteMode, setDeleteMode] = useState(false)
@@ -186,7 +266,7 @@ export default function FlowCanvas({
   }))
 
   return (
-    <EdgeActionsCtx.Provider value={{ deleteMode, deleteEdge }}>
+    <EdgeActionsCtx.Provider value={{ deleteMode, deleteEdge, updateEdgeBend: onEdgeBendChange }}>
       <div
         ref={reactFlowWrapper}
         style={{ flex: 1, background: '#0f172a', overflow: 'hidden' }}
