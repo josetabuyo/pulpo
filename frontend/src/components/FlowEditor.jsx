@@ -36,6 +36,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
   const updateEdgeBend   = useFlowStore(s => s.updateEdgeBend)
   const reset            = useFlowStore(s => s.reset)
   const undo             = useFlowStore(s => s.undo)
+  const nodeCount        = nodes.length
 
   // Cargar el flow y el typeMap en el store al montar
   useEffect(() => {
@@ -56,7 +57,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [undo])
 
-  // Drop de un nodo desde la paleta
+  // Drop de un nodo desde la paleta (drag-and-drop)
   const handleDrop = useCallback((e) => {
     e.preventDefault()
     const nodeType = e.dataTransfer.getData('nodeType')
@@ -65,6 +66,12 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
     const position = screenToFlowPosition({ x: e.clientX, y: e.clientY })
     addNode(nodeType, position)
   }, [screenToFlowPosition, addNode, typeMap])
+
+  // Agregar nodo desde el botón de la paleta (sin drag)
+  const handleAddNodeFromPalette = useCallback((nodeType) => {
+    const offset = (nodeCount % 8) * 30
+    addNode(nodeType, { x: 200 + offset, y: 180 + offset })
+  }, [addNode, nodeCount])
 
   // Doble clic en un nodo → abrir panel de config
   const handleNodeDoubleClick = useCallback((nodeId) => {
@@ -80,8 +87,8 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
         onBack={onBack}
         onSaved={onSaved}
       />
-      <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
-        <NodePalette key={flow?.id} apiCall={apiCall} typeMap={typeMap} />
+      <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        <NodePalette key={flow?.id} typeMap={typeMap} />
         <FlowCanvas
           nodes={nodes}
           edges={edges}
@@ -92,8 +99,14 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
           onNodeDoubleClick={handleNodeDoubleClick}
           onEdgeBendChange={updateEdgeBend}
         />
-        {/* NodeConfigPanel como popup flotante sobre el canvas */}
-        <NodeConfigPanel botId={flow.bot_id} flowId={flow.id} connections={connections} apiCall={apiCall} onGoToUIs={onGoToUIs} />
+        <NodeConfigPanel
+          botId={flow.bot_id}
+          flowId={flow.id}
+          connections={connections}
+          apiCall={apiCall}
+          onGoToUIs={onGoToUIs}
+          onAddNode={handleAddNodeFromPalette}
+        />
       </div>
     </div>
   )
