@@ -48,12 +48,15 @@ function NodePicker({ typeMap, onSelect, onClose, onStartDrag }) {
           ref={inputRef}
           id="node-picker-search"
           type="text"
-          autoComplete="new-password"
+          autoComplete="off"
           autoCorrect="off"
           autoCapitalize="off"
           spellCheck="false"
           name="x_picker_k9m2"
           placeholder="Buscar nodo..."
+          data-1p-ignore="true"
+          data-lpignore="true"
+          data-form-type="other"
           value={query}
           onChange={e => setQuery(e.target.value)}
           onKeyDown={e => {
