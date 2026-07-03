@@ -71,6 +71,7 @@ Todos se corren desde la raíz de `_/`. **Nunca usar uvicorn directo ni matar pr
 ./start.sh back       # solo backend
 ./start.sh front      # solo frontend (Vite dev)
 ./stop-backend.sh     # detiene backend con SIGTERM (seguro para WhatsApp)
+./stop-frontend.sh    # detiene el Vite dev server con SIGTERM
 ./restart-backend.sh  # stop + sleep 3 + start back
 ```
 
