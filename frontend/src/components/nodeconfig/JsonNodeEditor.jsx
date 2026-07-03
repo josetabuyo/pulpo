@@ -1,4 +1,10 @@
 import { useState, useRef, useCallback, useMemo } from 'react'
+import CodeMirror from '@uiw/react-codemirror'
+import { json } from '@codemirror/lang-json'
+import { EditorView } from '@codemirror/view'
+import { HighlightStyle, syntaxHighlighting, syntaxTree } from '@codemirror/language'
+import { autocompletion } from '@codemirror/autocomplete'
+import { tags } from '@lezer/highlight'
 
 // ─── Sanitize control chars inside strings before parsing ─────────────────────
 
@@ -22,6 +28,123 @@ function sanitize(text) {
   return result
 }
 
+// ─── Autocomplete: sugerir claves del schema como PropertyName ────────────────
+
+function makeKeyCompletionSource(schema) {
+  const keys = (schema || []).filter(f => f.key).map(f => ({
+    label: f.key,
+    detail: f.type,
+    info: f.hint || f.label || undefined,
+    type: 'property',
+  }))
+
+  return (context) => {
+    if (keys.length === 0) return null
+
+    const tree = syntaxTree(context.state)
+    const node = tree.resolveInner(context.pos, -1)
+    const inPropertyName = node.type.name === 'PropertyName'
+    const word = context.matchBefore(/"[\w-]*/)
+
+    if (!inPropertyName && !(word && node.type.name !== 'String')) return null
+    if (!word) return null
+
+    return {
+      from: word.from,
+      options: keys.map(k => ({ ...k, apply: `"${k.label}"` })),
+      filter: true,
+      validFor: /^"[\w-]*$/,
+    }
+  }
+}
+
+// ─── Tema CodeMirror — paleta slate del panel de config ───────────────────────
+
+const pulpoHighlight = HighlightStyle.define([
+  { tag: tags.propertyName, color: '#60a5fa' },
+  { tag: tags.string, color: '#4ade80' },
+  { tag: tags.number, color: '#fbbf24' },
+  { tag: tags.bool, color: '#f472b6' },
+  { tag: tags.null, color: '#64748b' },
+  { tag: tags.punctuation, color: '#64748b' },
+  { tag: tags.brace, color: '#94a3b8' },
+  { tag: tags.squareBracket, color: '#94a3b8' },
+])
+
+const pulpoTheme = EditorView.theme({
+  '&': {
+    backgroundColor: '#060d1a',
+    color: '#e2e8f0',
+    fontSize: '12px',
+    fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', monospace",
+  },
+  '.cm-content': {
+    caretColor: '#60a5fa',
+    padding: '8px 0',
+  },
+  '.cm-cursor': {
+    borderLeftColor: '#60a5fa',
+  },
+  '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
+    backgroundColor: '#1e3a5f !important',
+  },
+  '.cm-gutters': {
+    backgroundColor: '#050c18',
+    color: '#334155',
+    border: 'none',
+    borderRight: '1px solid #1e293b',
+  },
+  '.cm-activeLineGutter': {
+    backgroundColor: '#0f172a',
+  },
+  '.cm-activeLine': {
+    backgroundColor: '#0f172a',
+  },
+  '.cm-foldPlaceholder': {
+    backgroundColor: '#1e293b',
+    color: '#64748b',
+    border: 'none',
+  },
+  '.cm-matchingBracket': {
+    backgroundColor: '#1e3a5f',
+    outline: '1px solid #60a5fa',
+  },
+  '.cm-tooltip': {
+    backgroundColor: '#0f172a',
+    border: '1px solid #334155',
+    borderRadius: '4px',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+  },
+  '.cm-tooltip-autocomplete': {
+    '& > ul': {
+      fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', monospace",
+      fontSize: '11px',
+    },
+    '& > ul > li': {
+      padding: '4px 8px',
+      color: '#e2e8f0',
+    },
+    '& > ul > li[aria-selected]': {
+      backgroundColor: '#1e3a5f',
+      color: '#60a5fa',
+    },
+  },
+  '.cm-completionLabel': {
+    color: '#60a5fa',
+  },
+  '.cm-completionDetail': {
+    color: '#64748b',
+    fontStyle: 'normal',
+    marginLeft: '8px',
+  },
+  '.cm-completionIcon-property': {
+    '&::after': { content: "'◆'" },
+    color: '#4ade80',
+  },
+})
+
+const baseExtensions = [json(), pulpoTheme, syntaxHighlighting(pulpoHighlight), EditorView.lineWrapping]
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function JsonNodeEditor({ config, schema, onChange }) {
@@ -34,7 +157,19 @@ export default function JsonNodeEditor({ config, schema, onChange }) {
 
   const configJson = useMemo(() => stringify(config), [config])
 
-  // Sync external config changes into textarea
+  const extensions = useMemo(() => {
+    const completionSource = makeKeyCompletionSource(schema)
+    return [
+      ...baseExtensions,
+      autocompletion({
+        override: [completionSource],
+        activateOnTyping: true,
+        icons: true,
+      }),
+    ]
+  }, [schema])
+
+  // Sync external config changes into el editor
   const prevConfigJson = useRef(configJson)
   if (configJson !== prevConfigJson.current) {
     prevConfigJson.current = configJson
@@ -48,8 +183,7 @@ export default function JsonNodeEditor({ config, schema, onChange }) {
     }
   }
 
-  const handleChange = useCallback((e) => {
-    const value = e.target.value
+  const handleChange = useCallback((value) => {
     setText(value)
     clearTimeout(debounceTimer.current)
     debounceTimer.current = setTimeout(() => {
@@ -68,42 +202,43 @@ export default function JsonNodeEditor({ config, schema, onChange }) {
     }, 350)
   }, [onChange])
 
-  // Cleanup debounce on unmount
-  const cleanup = useRef()
-  cleanup.current = () => clearTimeout(debounceTimer.current)
-
   const helpFields = (schema || []).filter(f => f.key)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
 
-      {/* Textarea */}
-      <textarea
-        value={text}
-        onChange={handleChange}
-        spellCheck="false"
-        autoComplete="off"
-        autoCorrect="off"
+      {/* Editor */}
+      <div
         style={{
-          width: '100%',
-          boxSizing: 'border-box',
-          minHeight: 200,
-          resize: 'vertical',
-          background: '#060d1a',
-          color: '#e2e8f0',
-          fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', monospace",
-          fontSize: 12,
-          lineHeight: 1.6,
-          border: `1px solid ${parseError ? '#7f1d1d' : '#1e293b'}`,
           borderRadius: 6,
-          padding: '8px 10px',
-          outline: 'none',
+          border: `1px solid ${parseError ? '#7f1d1d' : '#1e293b'}`,
+          overflow: 'hidden',
           transition: 'border-color 0.15s',
-          tabSize: 2,
+          resize: 'vertical',
+          minHeight: 200,
+          height: 200,
+          display: 'flex',
+          flexDirection: 'column',
         }}
-        onFocus={e => { if (!parseError) e.target.style.borderColor = '#334155' }}
-        onBlur={e => { e.target.style.borderColor = parseError ? '#7f1d1d' : '#1e293b' }}
-      />
+      >
+        <CodeMirror
+          value={text}
+          onChange={handleChange}
+          extensions={extensions}
+          theme="none"
+          basicSetup={{
+            lineNumbers: true,
+            foldGutter: true,
+            bracketMatching: true,
+            closeBrackets: true,
+            autocompletion: false,
+            highlightActiveLine: true,
+            highlightSelectionMatches: false,
+            searchKeymap: false,
+          }}
+          style={{ flex: 1, height: '100%', overflow: 'auto' }}
+        />
+      </div>
 
       {/* Parse error */}
       {parseError && (
