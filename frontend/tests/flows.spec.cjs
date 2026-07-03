@@ -49,14 +49,14 @@ test('botón Editar abre el editor', async ({ page }) => {
   const card = await goToFlowTab(page)
   await clickFlowEdit(card)
   await expect(card.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
-  await expect(card.getByRole('button', { name: 'Guardar' })).toBeVisible()
+  await expect(card.getByRole('button', { name: 'Guardar', exact: true })).toBeVisible()
 })
 
 test('editor muestra botón Guardar', async ({ page }) => {
   const card = await goToFlowTab(page)
   await clickFlowEdit(card)
   await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
-  await expect(page.getByRole('button', { name: 'Guardar' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Guardar', exact: true })).toBeVisible()
 })
 
 test('botón volver regresa a la lista', async ({ page }) => {
@@ -269,4 +269,50 @@ test('modo eliminar: cancelar la confirmación no borra el nodo', async ({ page 
 
   await expect(cancelButton).not.toBeVisible()
   await expect(nodes).toHaveCount(countBefore)
+})
+
+// ─── Switch activo/inactivo + Guardar como ─────────────────────────────────
+
+test('switch del header desactiva el flow y aparece en Guardados', async ({ page }) => {
+  const card = await goToFlowTab(page)
+  await clickFlowEdit(card)
+  await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
+
+  const toggle = page.getByRole('switch')
+  await expect(toggle).toBeVisible()
+  await expect(toggle).toHaveAttribute('aria-checked', 'true')
+
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+
+  await page.getByTitle('Volver').click()
+  await expect(card.getByRole('button', { name: /Guardados/ })).toBeVisible({ timeout: 8000 })
+
+  // Reactivar para no dejar el flow inactivo entre corridas de test
+  await card.getByRole('button', { name: /Guardados/ }).click()
+  await card.locator('.flow-row').last().click()
+  const reopenedToggle = page.getByRole('switch')
+  await expect(reopenedToggle).toHaveAttribute('aria-checked', 'false')
+  await reopenedToggle.click()
+  await expect(reopenedToggle).toHaveAttribute('aria-checked', 'true')
+})
+
+test('Guardar como duplica el flow inactivo con nuevo nombre', async ({ page }) => {
+  const card = await goToFlowTab(page)
+  await clickFlowEdit(card)
+  await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
+
+  const newName = `Copia de prueba ${Date.now()}`
+  page.once('dialog', dialog => dialog.accept(newName))
+  await page.getByRole('button', { name: 'Guardar como' }).click()
+
+  // El editor se re-monta mostrando el nuevo flow duplicado
+  await expect(page.locator('input[placeholder="Nombre del flow"]')).toHaveValue(newName, { timeout: 8000 })
+  const toggle = page.getByRole('switch')
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+
+  await page.getByTitle('Volver').click()
+  await expect(card.getByRole('button', { name: /Guardados/ })).toBeVisible({ timeout: 8000 })
+  await card.getByRole('button', { name: /Guardados/ }).click()
+  await expect(card.getByText(newName)).toBeVisible()
 })

@@ -4,6 +4,9 @@
  * Estados:
  *   - list: muestra la tabla de flows + botón "Nuevo flow"
  *   - editor: renderiza FlowEditor para el flow seleccionado
+ *
+ * La lista se divide en "Activos" (siempre visibles) y "Guardados"
+ * (inactivos, colapsados por defecto detrás de un botón contador).
  */
 import { useState, useEffect, useCallback } from 'react'
 import FlowEditor from './FlowEditor.jsx'
@@ -22,6 +25,7 @@ export default function FlowList({ botId, apiCall, connections, onGoToUIs }) {
   const [editing,  setEditing]  = useState(null)   // flow completo (con definition)
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState(null)
+  const [savedExpanded, setSavedExpanded] = useState(false)
 
   const loadFlows = useCallback(async () => {
     setLoading(true)
@@ -86,6 +90,15 @@ export default function FlowList({ botId, apiCall, connections, onGoToUIs }) {
     setDeleting(null)
   }
 
+  // "Guardar como" en el editor crea un flow nuevo (inactivo) — lo abrimos directamente.
+  function handleSavedAs(newFlow) {
+    setFlows(prev => [newFlow, ...prev])
+    setEditing(newFlow)
+  }
+
+  const activeFlows = flows.filter(f => f.active)
+  const savedFlows  = flows.filter(f => !f.active)
+
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
@@ -111,12 +124,14 @@ export default function FlowList({ botId, apiCall, connections, onGoToUIs }) {
           boxShadow: '0 24px 64px rgba(0,0,0,.35)',
         }}>
           <FlowEditor
+            key={editing.id}
             flow={editing}
             connections={connections}
             apiCall={apiCall}
             typeMap={typeMap}
             onBack={() => { setEditing(null); loadFlows() }}
             onSaved={() => loadFlows()}
+            onSavedAs={handleSavedAs}
             onGoToUIs={onGoToUIs}
           />
         </div>
@@ -153,19 +168,69 @@ export default function FlowList({ botId, apiCall, connections, onGoToUIs }) {
       ) : flows.length === 0 ? (
         <div className="empty" style={{ padding: '24px 0' }}>Sin flows. Creá uno para empezar.</div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {flows.map(flow => (
-            <FlowRow
-              key={flow.id}
-              flow={flow}
-              connections={connections}
-              onEdit={() => handleEdit(flow)}
-              onToggle={() => handleToggleActive(flow)}
-              onDelete={() => handleDelete(flow)}
-              isDeleting={deleting === flow.id}
-            />
-          ))}
-        </div>
+        <>
+          {/* Activos */}
+          {activeFlows.length === 0 ? (
+            <div className="empty" style={{ padding: '12px 0' }}>Sin flows activos.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {activeFlows.map(flow => (
+                <FlowRow
+                  key={flow.id}
+                  flow={flow}
+                  connections={connections}
+                  onEdit={() => handleEdit(flow)}
+                  onToggle={() => handleToggleActive(flow)}
+                  onDelete={() => handleDelete(flow)}
+                  isDeleting={deleting === flow.id}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Guardados (inactivos) — colapsable */}
+          {savedFlows.length > 0 && (
+            <div style={{ marginTop: 14 }}>
+              <button
+                onClick={() => setSavedExpanded(v => !v)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  width: '100%',
+                  background: 'none',
+                  border: 'none',
+                  borderTop: '1px solid #1e293b',
+                  color: '#94a3b8',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  padding: '10px 2px 6px',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
+              >
+                <span style={{ display: 'inline-block', transition: 'transform .15s', transform: savedExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
+                Guardados ({savedFlows.length})
+              </button>
+
+              {savedExpanded && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+                  {savedFlows.map(flow => (
+                    <FlowRow
+                      key={flow.id}
+                      flow={flow}
+                      connections={connections}
+                      onEdit={() => handleEdit(flow)}
+                      onToggle={() => handleToggleActive(flow)}
+                      onDelete={() => handleDelete(flow)}
+                      isDeleting={deleting === flow.id}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
     </>

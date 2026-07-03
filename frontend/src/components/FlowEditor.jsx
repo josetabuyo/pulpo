@@ -19,7 +19,7 @@ import FlowHeader     from './FlowHeader.jsx'
 
 // ─── Inner — necesita estar dentro de ReactFlowProvider para useReactFlow ────
 
-function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved, onGoToUIs }) {
+function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved, onSavedAs, onGoToUIs }) {
   const { screenToFlowPosition } = useReactFlow()
   const loadFlow         = useFlowStore(s => s.loadFlow)
   const setTypeMap       = useFlowStore(s => s.setTypeMap)
@@ -86,6 +86,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
         apiCall={apiCall}
         onBack={onBack}
         onSaved={onSaved}
+        onSavedAs={onSavedAs}
       />
       <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
         <FlowCanvas
@@ -113,7 +114,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
 
 // ─── FlowEditor — wrappea con ReactFlowProvider ───────────────────────────────
 
-export default function FlowEditor({ flow, connections, apiCall, typeMap, onBack, onSaved, onGoToUIs }) {
+export default function FlowEditor({ flow, connections, apiCall, typeMap, onBack, onSaved, onSavedAs, onGoToUIs }) {
   const store = useMemo(() => createFlowStore(), [])
   return (
     <FlowStoreContext.Provider value={store}>
@@ -125,6 +126,7 @@ export default function FlowEditor({ flow, connections, apiCall, typeMap, onBack
           typeMap={typeMap}
           onBack={onBack}
           onSaved={onSaved}
+          onSavedAs={onSavedAs}
           onGoToUIs={onGoToUIs}
         />
       </ReactFlowProvider>

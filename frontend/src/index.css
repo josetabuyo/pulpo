@@ -1131,6 +1131,7 @@ main { max-width: 900px; margin: 28px auto; padding: 0 16px; }
 }
 .ec-toggle--on::after  { left: calc(100% - 21px); }
 .ec-toggle--off::after { left: 3px; }
+.ec-toggle--green.ec-toggle--on { background: #16a34a; }
 .ec-config-tab { padding: 20px; }
 .ec-btn-active { background: #ede9fe !important; color: #7c3aed !important; }
 .error { font-size: 13px; color: #c00; }
