@@ -164,6 +164,24 @@ test('back-edge usa path con dos segmentos cúbicos (getLoopBackPath)', async ({
   expect(hasLoopBackPath).toBe(true)
 })
 
+// ─── Panel de configuración colapsable ──────────────────────────────────────
+
+test('panel de configuración se puede colapsar y expandir', async ({ page }) => {
+  const card = await goToFlowTab(page)
+  await clickFlowEdit(card)
+  await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
+
+  // Colapsar: el botón "Nuevo nodo" desaparece, queda el botón para expandir
+  await page.getByTitle('Colapsar panel').click()
+  await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).not.toBeVisible()
+  const expandButton = page.getByTitle('Mostrar panel de configuración')
+  await expect(expandButton).toBeVisible()
+
+  // Expandir: vuelve a verse el botón "Nuevo nodo"
+  await expandButton.click()
+  await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible()
+})
+
 test('buscador del picker arranca vacío al reabrirlo', async ({ page }) => {
   const card = await goToFlowTab(page)
   await clickFlowEdit(card)
