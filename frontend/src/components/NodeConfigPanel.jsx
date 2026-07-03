@@ -6,6 +6,7 @@ import ConfigForm from './nodeconfig/ConfigForm.jsx'
 
 function NodePicker({ typeMap, onSelect, onClose, onStartDrag }) {
   const [query, setQuery] = useState('')
+  const [locked, setLocked] = useState(true)
   const inputRef = useRef(null)
 
   const allNodes = PALETTE_TYPES
@@ -47,7 +48,7 @@ function NodePicker({ typeMap, onSelect, onClose, onStartDrag }) {
         <input
           ref={inputRef}
           id="node-picker-search"
-          type="text"
+          type="search"
           autoComplete="off"
           autoCorrect="off"
           autoCapitalize="off"
@@ -57,6 +58,8 @@ function NodePicker({ typeMap, onSelect, onClose, onStartDrag }) {
           data-1p-ignore="true"
           data-lpignore="true"
           data-form-type="other"
+          readOnly={locked}
+          onFocus={() => setLocked(false)}
           value={query}
           onChange={e => setQuery(e.target.value)}
           onKeyDown={e => {
