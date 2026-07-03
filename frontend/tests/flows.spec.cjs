@@ -125,9 +125,15 @@ test('buscador de nodos filtra por texto', async ({ page }) => {
   await expect(picker.getByText('whatsapp_trigger')).toBeVisible()
 })
 
-// ─── Back-edge: curva hacia la izquierda (getLoopBackPath) ────────────────────
+// ─── Back-edge: loop hacia atrás ────────────────────────────────────────────
+// Nota: el routing de edges pasó de getBezierPath a getSmoothStepPath con bend
+// points (ver commit 686ff00). Un back-edge ya no se identifica por tener dos
+// segmentos cúbicos "C" (eso era de la implementación vieja getLoopBackPath,
+// que ya no existe) — ahora se identifica porque su path baja desde el nodo
+// origen (sourcePosition: Bottom) antes de subir hacia el destino, que está
+// más arriba (ver FlowCanvas.jsx: isBackEdge / getSmoothStepPath).
 
-test('back-edge usa path con dos segmentos cúbicos (getLoopBackPath)', async ({ page }) => {
+test('back-edge se renderiza bajando antes de subir hacia el destino', async ({ page }) => {
   await page.goto('/')
   await page.evaluate(() => sessionStorage.clear())
   await page.goto('/')
@@ -148,20 +154,17 @@ test('back-edge usa path con dos segmentos cúbicos (getLoopBackPath)', async ({
   // La etiqueta del back-edge debe ser visible
   await expect(page.getByText('sin_direccion')).toBeVisible({ timeout: 8000 })
 
-  // Verificar que al menos un edge SVG usa dos segmentos C (firma de getLoopBackPath)
-  // getBezierPath estándar produce un solo "C"; getLoopBackPath produce dos "C"
-  const paths = page.locator('.react-flow__edge path.react-flow__edge-path')
-  await paths.first().waitFor({ timeout: 8000 })
-  const count = await paths.count()
-  let hasLoopBackPath = false
-  for (let i = 0; i < count; i++) {
-    const d = await paths.nth(i).getAttribute('d')
-    if (d && (d.match(/C .+ C /) || d.split('C').length > 2)) {
-      hasLoopBackPath = true
-      break
-    }
-  }
-  expect(hasLoopBackPath).toBe(true)
+  // El edge sin_direccion (validar_direccion → pedir_direccion) es un back-edge:
+  // su path debe bajar (Y aumenta) antes de subir hacia el destino, que está
+  // más arriba que el origen.
+  const backEdgePath = page.locator('[data-testid="rf__edge-e-serv-sindir"] path.react-flow__edge-path')
+  await backEdgePath.waitFor({ timeout: 8000 })
+  const d = await backEdgePath.getAttribute('d')
+  const coords = d.match(/-?\d+(\.\d+)?/g).map(Number)
+  const ys = coords.filter((_, i) => i % 2 === 1)
+  const startY = ys[0]
+  const maxY = Math.max(...ys)
+  expect(maxY).toBeGreaterThan(startY + 10)
 })
 
 // ─── Panel de configuración colapsable ──────────────────────────────────────
@@ -227,7 +230,11 @@ test('modo eliminar: click en un nodo pide confirmación y lo borra', async ({ p
 
   // Click en el último nodo agregado dispara el popup de confirmación
   const nodeToDelete = page.locator('.react-flow__node').last()
-  const nodeLabel = await nodeToDelete.textContent()
+  // El label y el badge de tipo son spans hermanos sin separador de texto;
+  // textContent() del nodo entero los concatena (ej. "Enviar mensajesend_message").
+  // El diálogo de confirmación solo muestra el label, así que hay que leer
+  // únicamente el primer span.
+  const nodeLabel = await nodeToDelete.locator('span').first().textContent()
   await nodeToDelete.click()
 
   const confirmButton = page.getByRole('button', { name: 'Sí, eliminar' })
