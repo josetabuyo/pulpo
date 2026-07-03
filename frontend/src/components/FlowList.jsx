@@ -8,7 +8,7 @@
  * La lista se divide en "Activos" (siempre visibles) y "Guardados"
  * (inactivos, colapsados por defecto detrás de un botón contador).
  */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import FlowEditor from './FlowEditor.jsx'
 
 const CONNECTION_LABELS = { telegram: 'TG' }
@@ -26,6 +26,7 @@ export default function FlowList({ botId, apiCall, connections, onGoToUIs }) {
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState(null)
   const [savedExpanded, setSavedExpanded] = useState(false)
+  const backdropMouseDownRef = useRef(false)
 
   const loadFlows = useCallback(async () => {
     setLoading(true)
@@ -110,7 +111,10 @@ export default function FlowList({ botId, apiCall, connections, onGoToUIs }) {
           background: 'rgba(0,0,0,.55)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}
-        onClick={e => e.target === e.currentTarget && setEditing(null)}
+        onMouseDown={e => { backdropMouseDownRef.current = e.target === e.currentTarget }}
+        onClick={e => {
+          if (backdropMouseDownRef.current && e.target === e.currentTarget) setEditing(null)
+        }}
       >
         <div style={{
           background: '#fff',
