@@ -165,6 +165,7 @@ export default function NodeConfigPanel({ botId, flowId, connections, apiCall, o
   const toggleDeleteMode  = useFlowStore(s => s.toggleDeleteMode)
 
   const [showPicker, setShowPicker] = useState(false)
+  const [collapsed, setCollapsed] = useState(false)
 
   const selectedNode = selectedNodeId ? nodes.find(n => n.id === selectedNodeId) : null
   const schema       = selectedNode ? (typeMap[selectedNode.data.nodeType]?.schema || []) : []
@@ -172,6 +173,42 @@ export default function NodeConfigPanel({ botId, flowId, connections, apiCall, o
   function handleAddNode(typeId) {
     if (onAddNode) onAddNode(typeId)
     setShowPicker(false)
+  }
+
+  if (collapsed) {
+    return (
+      <div style={{
+        width: 36,
+        background: '#0b1120',
+        borderLeft: '1px solid #1e293b',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        flexShrink: 0,
+        height: '100%',
+        paddingTop: 10,
+      }}>
+        <button
+          onClick={() => setCollapsed(false)}
+          title="Mostrar panel de configuración"
+          style={{
+            width: 24,
+            height: 24,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'transparent',
+            border: '1px solid #334155',
+            borderRadius: 6,
+            color: '#94a3b8',
+            cursor: 'pointer',
+            fontSize: 10,
+          }}
+        >
+          ◀
+        </button>
+      </div>
+    )
   }
 
   return (
@@ -186,7 +223,7 @@ export default function NodeConfigPanel({ botId, flowId, connections, apiCall, o
       overflowY: 'auto',
     }}>
 
-      {/* ── Buttons: ADD + DELETE ──────────────────────────────────────── */}
+      {/* ── Buttons: COLLAPSE + ADD + DELETE ────────────────────────────── */}
       <div style={{
         position: 'relative',
         padding: '10px 12px',
@@ -194,6 +231,26 @@ export default function NodeConfigPanel({ botId, flowId, connections, apiCall, o
         flexShrink: 0,
       }}>
         <div style={{ display: 'flex', gap: 6 }}>
+          <button
+            onClick={() => setCollapsed(true)}
+            title="Colapsar panel"
+            style={{
+              width: 28,
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'transparent',
+              border: '1px solid #334155',
+              borderRadius: 6,
+              color: '#94a3b8',
+              cursor: 'pointer',
+              fontSize: 10,
+            }}
+          >
+            ▶
+          </button>
+
           <button
             onClick={() => { if (deleteMode) return; setShowPicker(v => !v) }}
             disabled={deleteMode}

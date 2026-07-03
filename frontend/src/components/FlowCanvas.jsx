@@ -306,6 +306,7 @@ export default function FlowCanvas({
           panOnDrag
           zoomOnScroll
           deleteKeyCode="Delete"
+          proOptions={{ hideAttribution: true }}
         >
           <Background color="#1e293b" gap={16} />
           <Controls showInteractive={false} style={{ background: '#1e293b', border: '1px solid #334155' }} />
