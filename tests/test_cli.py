@@ -43,3 +43,26 @@ def test_flows_node_types_command_exists():
     result = runner.invoke(cli, ["flows", "--help"])
     assert result.exit_code == 0
     assert "node-types" in result.output
+
+
+def test_flows_duplicate_command_exists_and_documented():
+    runner = CliRunner()
+    result = runner.invoke(cli, ["flows", "--help"])
+    assert result.exit_code == 0
+    assert "duplicate" in result.output
+
+    detail = runner.invoke(cli, ["flows", "duplicate", "--help"])
+    assert detail.exit_code == 0
+    assert "--bot-id" in detail.output
+    assert "--flow-id" in detail.output
+    assert "--name" in detail.output
+    # El help debe explicar el comportamiento clave: copia campos y queda inactivo.
+    assert "INACTIVO" in detail.output
+    assert "Guardar como" in detail.output
+
+
+def test_flows_update_help_documents_active_toggle():
+    runner = CliRunner()
+    result = runner.invoke(cli, ["flows", "update", "--help"])
+    assert result.exit_code == 0
+    assert "active" in result.output

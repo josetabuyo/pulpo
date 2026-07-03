@@ -106,8 +106,32 @@ async def create_flow(
         definition=definition,
         connection_id=connection_id,
         contact_phone=contact_phone,
+        contact_filter=contact_filter,
     )
     return await db.get_flow(flow_id)
+
+
+async def duplicate_flow(bot_id: str, flow_id: str, new_name: str) -> dict:
+    """
+    Duplica un flow existente bajo un nuevo nombre (misma definition,
+    connection_id, contact_phone y contact_filter). El duplicado se crea
+    INACTIVO — no debe responder en paralelo al original.
+
+    Raises ValueError si el flow no existe o no pertenece a bot_id.
+    """
+    flow = await db.get_flow(flow_id)
+    if not flow or flow["bot_id"] != bot_id:
+        raise ValueError("Flow no encontrado")
+
+    new_flow = await create_flow(
+        bot_id=bot_id,
+        name=new_name,
+        definition=flow.get("definition"),
+        connection_id=flow.get("connection_id"),
+        contact_phone=flow.get("contact_phone"),
+        contact_filter=flow.get("contact_filter"),
+    )
+    return await update_flow(bot_id, new_flow["id"], {"active": False})
 
 
 async def update_flow(bot_id: str, flow_id: str, updates: dict) -> dict | None:
