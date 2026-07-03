@@ -9,10 +9,10 @@ import {
   EdgeLabelRenderer,
   getSmoothStepPath,
   MarkerType,
-  Panel,
   useReactFlow,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
+import { useFlowStore } from '../store/flowStore.js'
 
 // ─── Contexto de modo borrar ──────────────────────────────────────────────────
 
@@ -196,16 +196,19 @@ function FlowNode({ id, data }) {
   const isStart = data.nodeType === 'start'
   const isEnd   = data.nodeType === 'end'
   const handleStyle = { background: '#64748b', width: 8, height: 8, border: '2px solid #0f172a' }
+  const borderColor = data.deleteMode ? '#ef4444' : (data.selected ? '#fff' : 'transparent')
 
   return (
     <div
-      title={data.description}
-      onDoubleClick={data.onDoubleClick ? () => data.onDoubleClick(id) : undefined}
+      title={data.deleteMode ? 'Clic para eliminar' : data.description}
+      onClick={data.deleteMode ? (e) => { e.stopPropagation(); data.onNodeClick?.(id) } : undefined}
+      onDoubleClick={!data.deleteMode && data.onDoubleClick ? () => data.onDoubleClick(id) : undefined}
       style={{
         background: data.color,
         color: '#fff',
         borderRadius: 8,
-        border: data.selected ? '2px solid #fff' : '2px solid transparent',
+        border: `2px solid ${borderColor}`,
+        boxShadow: data.deleteMode ? '0 0 0 2px rgba(239,68,68,0.25)' : 'none',
         width: 160,
         minHeight: 40,
         display: 'flex',
@@ -243,7 +246,10 @@ export default function FlowCanvas({
   onEdgeBendChange,
 }) {
   const reactFlowWrapper = useRef(null)
-  const [deleteMode, setDeleteMode] = useState(false)
+  const deleteMode            = useFlowStore(s => s.deleteMode)
+  const pendingDeleteNodeId   = useFlowStore(s => s.pendingDeleteNodeId)
+  const setPendingDeleteNodeId = useFlowStore(s => s.setPendingDeleteNodeId)
+  const deleteNode            = useFlowStore(s => s.deleteNode)
 
   const deleteEdge = useCallback((edgeId) => {
     onEdgesChange([{ type: 'remove', id: edgeId }])
@@ -256,8 +262,18 @@ export default function FlowCanvas({
 
   const enrichedNodes = (editNodes || []).map(n => ({
     ...n,
-    data: { ...n.data, editable: true, onDoubleClick: onNodeDoubleClick },
+    data: {
+      ...n.data,
+      editable: true,
+      deleteMode,
+      onDoubleClick: onNodeDoubleClick,
+      onNodeClick: (nodeId) => setPendingDeleteNodeId(nodeId),
+    },
   }))
+
+  const pendingDeleteNode = pendingDeleteNodeId
+    ? (editNodes || []).find(n => n.id === pendingDeleteNodeId)
+    : null
 
   const enrichedEdges = (editEdges || []).map(e => ({
     ...e,
@@ -269,7 +285,7 @@ export default function FlowCanvas({
     <EdgeActionsCtx.Provider value={{ deleteMode, deleteEdge, updateEdgeBend: onEdgeBendChange }}>
       <div
         ref={reactFlowWrapper}
-        style={{ flex: 1, background: '#0f172a', overflow: 'hidden' }}
+        style={{ flex: 1, background: '#0f172a', overflow: 'hidden', position: 'relative' }}
         onDrop={externalOnDrop}
         onDragOver={handleDragOver}
       >
@@ -284,8 +300,8 @@ export default function FlowCanvas({
           onConnect={onConnect}
           fitView
           fitViewOptions={{ padding: 0.3 }}
-          nodesDraggable
-          nodesConnectable
+          nodesDraggable={!deleteMode}
+          nodesConnectable={!deleteMode}
           elementsSelectable
           panOnDrag
           zoomOnScroll
@@ -293,29 +309,53 @@ export default function FlowCanvas({
         >
           <Background color="#1e293b" gap={16} />
           <Controls showInteractive={false} style={{ background: '#1e293b', border: '1px solid #334155' }} />
-          <Panel position="bottom-right">
+        </ReactFlow>
+
+        {pendingDeleteNode && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 16,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 20,
+              background: '#1c0a0a',
+              border: '1px solid #7f1d1d',
+              borderRadius: 8,
+              padding: '10px 14px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+            }}
+          >
+            <span style={{ fontSize: 12, color: '#fca5a5' }}>
+              ¿Eliminar <strong>"{pendingDeleteNode.data?.label}"</strong>?
+            </span>
             <button
-              onClick={() => setDeleteMode(d => !d)}
-              title={deleteMode ? 'Salir del modo borrar' : 'Activar modo borrar conexiones'}
+              onClick={() => { deleteNode(pendingDeleteNode.id); setPendingDeleteNodeId(null) }}
               style={{
-                background: deleteMode ? '#7f1d1d' : '#1e293b',
-                border: `1px solid ${deleteMode ? '#ef4444' : '#334155'}`,
-                borderRadius: 6,
-                color: deleteMode ? '#fca5a5' : '#64748b',
-                fontSize: 16,
-                width: 32,
-                height: 32,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginBottom: 4,
+                padding: '5px 10px',
+                background: '#7f1d1d', border: '1px solid #dc2626',
+                borderRadius: 5, color: '#fca5a5',
+                fontSize: 11, cursor: 'pointer', fontWeight: 600,
               }}
             >
-              🗑
+              Sí, eliminar
             </button>
-          </Panel>
-        </ReactFlow>
+            <button
+              onClick={() => setPendingDeleteNodeId(null)}
+              style={{
+                padding: '5px 10px',
+                background: 'transparent', border: '1px solid #334155',
+                borderRadius: 5, color: '#64748b',
+                fontSize: 11, cursor: 'pointer',
+              }}
+            >
+              Cancelar
+            </button>
+          </div>
+        )}
       </div>
     </EdgeActionsCtx.Provider>
   )

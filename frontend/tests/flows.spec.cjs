@@ -186,3 +186,62 @@ test('buscador del picker arranca vacío al reabrirlo', async ({ page }) => {
   await expect(reopenedPicker.getByPlaceholder('Buscar nodo...')).toHaveValue('')
   await expect(reopenedPicker.getByText('whatsapp_trigger')).toBeVisible()
 })
+
+// ─── Modo eliminar nodos ────────────────────────────────────────────────────
+
+test('modo eliminar: click en un nodo pide confirmación y lo borra', async ({ page }) => {
+  const card = await goToFlowTab(page)
+  await clickFlowEdit(card)
+  await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
+
+  // Agregar un nodo nuevo para borrarlo sin afectar el flow existente
+  await page.getByRole('button', { name: '+ Nuevo nodo' }).click()
+  const picker = page.getByTestId('node-picker')
+  await picker.getByText('send_message').click()
+
+  const countBefore = await page.locator('.react-flow__node').count()
+
+  // Activar modo eliminar
+  await page.getByRole('button', { name: /Eliminar/i }).click()
+
+  // El botón "+ Nuevo nodo" queda deshabilitado mientras el modo eliminar está activo
+  await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeDisabled()
+
+  // Click en el último nodo agregado dispara el popup de confirmación
+  const nodeToDelete = page.locator('.react-flow__node').last()
+  const nodeLabel = await nodeToDelete.textContent()
+  await nodeToDelete.click()
+
+  const confirmButton = page.getByRole('button', { name: 'Sí, eliminar' })
+  await expect(confirmButton).toBeVisible({ timeout: 5000 })
+  if (nodeLabel) {
+    await expect(page.getByText(new RegExp(`¿Eliminar.*${nodeLabel.trim()}`))).toBeVisible()
+  }
+
+  await confirmButton.click()
+
+  await expect(async () => {
+    const countAfter = await page.locator('.react-flow__node').count()
+    expect(countAfter).toBe(countBefore - 1)
+  }).toPass({ timeout: 5000 })
+})
+
+test('modo eliminar: cancelar la confirmación no borra el nodo', async ({ page }) => {
+  const card = await goToFlowTab(page)
+  await clickFlowEdit(card)
+  await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
+
+  const nodes = page.locator('.react-flow__node')
+  const countBefore = await nodes.count()
+  test.skip(countBefore === 0, 'el flow no tiene nodos para probar el cancelar')
+
+  await page.getByRole('button', { name: /Eliminar/i }).click()
+  await nodes.first().click()
+
+  const cancelButton = page.getByRole('button', { name: 'Cancelar' })
+  await expect(cancelButton).toBeVisible({ timeout: 5000 })
+  await cancelButton.click()
+
+  await expect(cancelButton).not.toBeVisible()
+  await expect(nodes).toHaveCount(countBefore)
+})

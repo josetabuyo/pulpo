@@ -175,8 +175,14 @@ export function createFlowStore() {
     typeMap: {},  // { [type_id]: { label, color, description } }
     _history: [],
     _version: 0,
+    deleteMode: false,
+    pendingDeleteNodeId: null,
 
     setTypeMap: (typeMap) => set({ typeMap }),
+
+    toggleDeleteMode: () => set(state => ({ deleteMode: !state.deleteMode, pendingDeleteNodeId: null })),
+
+    setPendingDeleteNodeId: (id) => set({ pendingDeleteNodeId: id }),
 
     loadFlow: (definition, typeMap) => {
       const tm = typeMap || get().typeMap
@@ -284,6 +290,7 @@ export function createFlowStore() {
         nodes: state.nodes.filter(n => n.id !== nodeId),
         edges: state.edges.filter(e => e.source !== nodeId && e.target !== nodeId),
         selectedNodeId: state.selectedNodeId === nodeId ? null : state.selectedNodeId,
+        pendingDeleteNodeId: state.pendingDeleteNodeId === nodeId ? null : state.pendingDeleteNodeId,
         isDirty: true,
         _version: state._version + 1,
       }))
@@ -316,7 +323,7 @@ export function createFlowStore() {
 
     markClean: () => set({ isDirty: false }),
 
-    reset: () => set({ nodes: [], edges: [], selectedNodeId: null, isDirty: false, _history: [], _version: 0 }),
+    reset: () => set({ nodes: [], edges: [], selectedNodeId: null, isDirty: false, _history: [], _version: 0, deleteMode: false, pendingDeleteNodeId: null }),
 
     getDefinition: () => nodesToDefinition(get().nodes, get().edges),
     }

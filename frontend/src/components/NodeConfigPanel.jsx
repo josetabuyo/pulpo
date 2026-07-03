@@ -161,10 +161,10 @@ export default function NodeConfigPanel({ botId, flowId, connections, apiCall, o
   const selectedNodeId    = useFlowStore(s => s.selectedNodeId)
   const setSelectedNodeId = useFlowStore(s => s.setSelectedNodeId)
   const updateNodeLabel   = useFlowStore(s => s.updateNodeLabel)
-  const deleteNode        = useFlowStore(s => s.deleteNode)
+  const deleteMode        = useFlowStore(s => s.deleteMode)
+  const toggleDeleteMode  = useFlowStore(s => s.toggleDeleteMode)
 
-  const [showPicker, setShowPicker]       = useState(false)
-  const [showDelConfirm, setShowDelConfirm] = useState(false)
+  const [showPicker, setShowPicker] = useState(false)
 
   const selectedNode = selectedNodeId ? nodes.find(n => n.id === selectedNodeId) : null
   const schema       = selectedNode ? (typeMap[selectedNode.data.nodeType]?.schema || []) : []
@@ -172,13 +172,6 @@ export default function NodeConfigPanel({ botId, flowId, connections, apiCall, o
   function handleAddNode(typeId) {
     if (onAddNode) onAddNode(typeId)
     setShowPicker(false)
-  }
-
-  function handleDeleteConfirmed() {
-    if (!selectedNodeId) return
-    deleteNode(selectedNodeId)
-    setSelectedNodeId(null)
-    setShowDelConfirm(false)
   }
 
   return (
@@ -202,7 +195,8 @@ export default function NodeConfigPanel({ botId, flowId, connections, apiCall, o
       }}>
         <div style={{ display: 'flex', gap: 6 }}>
           <button
-            onClick={() => { setShowPicker(v => !v); setShowDelConfirm(false) }}
+            onClick={() => { if (deleteMode) return; setShowPicker(v => !v) }}
+            disabled={deleteMode}
             style={{
               flex: 1,
               padding: '7px 10px',
@@ -212,7 +206,8 @@ export default function NodeConfigPanel({ botId, flowId, connections, apiCall, o
               color: showPicker ? '#60a5fa' : '#94a3b8',
               fontSize: 12,
               fontWeight: 600,
-              cursor: 'pointer',
+              cursor: deleteMode ? 'not-allowed' : 'pointer',
+              opacity: deleteMode ? 0.4 : 1,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -225,66 +220,26 @@ export default function NodeConfigPanel({ botId, flowId, connections, apiCall, o
           </button>
 
           <button
-            onClick={() => { setShowDelConfirm(true); setShowPicker(false) }}
-            disabled={!selectedNodeId}
-            title={selectedNodeId ? `Eliminar: ${selectedNode?.data?.label || selectedNodeId}` : 'Seleccioná un nodo'}
+            onClick={() => { toggleDeleteMode(); setShowPicker(false) }}
+            title={deleteMode ? 'Salir del modo eliminar' : 'Activar modo eliminar'}
             style={{
               padding: '7px 12px',
-              background: 'transparent',
-              border: `1px solid ${selectedNodeId ? '#7f1d1d' : '#1e293b'}`,
+              background: deleteMode ? '#7f1d1d' : 'transparent',
+              border: `1px solid ${deleteMode ? '#ef4444' : '#334155'}`,
               borderRadius: 6,
-              color: selectedNodeId ? '#f87171' : '#334155',
+              color: deleteMode ? '#fca5a5' : '#94a3b8',
               fontSize: 11,
-              cursor: selectedNodeId ? 'pointer' : 'not-allowed',
+              cursor: 'pointer',
               fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
               transition: 'all 0.15s',
             }}
           >
-            ✕ Eliminar
+            🗑 Eliminar
           </button>
         </div>
-
-        {/* Confirm delete */}
-        {showDelConfirm && (
-          <div style={{
-            marginTop: 8,
-            background: '#1c0a0a',
-            border: '1px solid #7f1d1d',
-            borderRadius: 6,
-            padding: '10px 12px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8,
-          }}>
-            <div style={{ fontSize: 12, color: '#fca5a5', lineHeight: 1.4 }}>
-              ¿Eliminar <strong>"{selectedNode?.data?.label}"</strong>? Reversible con Ctrl+Z.
-            </div>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button
-                onClick={handleDeleteConfirmed}
-                style={{
-                  flex: 1, padding: '5px 8px',
-                  background: '#7f1d1d', border: '1px solid #dc2626',
-                  borderRadius: 5, color: '#fca5a5',
-                  fontSize: 11, cursor: 'pointer', fontWeight: 600,
-                }}
-              >
-                Sí, eliminar
-              </button>
-              <button
-                onClick={() => setShowDelConfirm(false)}
-                style={{
-                  flex: 1, padding: '5px 8px',
-                  background: 'transparent', border: '1px solid #334155',
-                  borderRadius: 5, color: '#64748b',
-                  fontSize: 11, cursor: 'pointer',
-                }}
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
-        )}
 
         {/* Node picker popup */}
         {showPicker && (
