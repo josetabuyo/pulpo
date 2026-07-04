@@ -30,6 +30,8 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
   const onConnect        = useFlowStore(s => s.onConnect)
   const setSelectedNodeId = useFlowStore(s => s.setSelectedNodeId)
   const addNode          = useFlowStore(s => s.addNode)
+  const duplicateNode    = useFlowStore(s => s.duplicateNode)
+  const selectedNodeId   = useFlowStore(s => s.selectedNodeId)
   const updateEdgeBend   = useFlowStore(s => s.updateEdgeBend)
   const reset            = useFlowStore(s => s.reset)
   const undo             = useFlowStore(s => s.undo)
@@ -73,6 +75,18 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
     addNode(nodeType, pos)
   }, [addNode, nodeCount, screenToFlowPosition])
 
+  // Duplicar el nodo seleccionado → aparece junto al panel, igual que "+ Nuevo nodo"
+  const handleDuplicateNode = useCallback(() => {
+    if (!selectedNodeId) return
+    const offset = (nodeCount % 8) * 25
+    const panelWidth = 400
+    const pos = screenToFlowPosition({
+      x: window.innerWidth - panelWidth - 180 - offset,
+      y: 90 + offset,
+    })
+    duplicateNode(selectedNodeId, pos)
+  }, [duplicateNode, selectedNodeId, nodeCount, screenToFlowPosition])
+
   // Doble clic en un nodo → abrir panel de config
   const handleNodeDoubleClick = useCallback((nodeId) => {
     setSelectedNodeId(nodeId)
@@ -106,6 +120,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
           apiCall={apiCall}
           onGoToUIs={onGoToUIs}
           onAddNode={handleAddNode}
+          onDuplicateNode={handleDuplicateNode}
         />
       </div>
     </div>

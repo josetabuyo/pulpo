@@ -284,6 +284,30 @@ export function createFlowStore() {
       return id
     },
 
+    duplicateNode: (nodeId, position) => {
+      const { nodes } = get()
+      const original = nodes.find(n => n.id === nodeId)
+      if (!original) return null
+      pushToHistory()
+      const id = `node_${Date.now()}`
+      const newNode = {
+        ...original,
+        id,
+        position,
+        selected: false,
+        data: {
+          ...original.data,
+          config: JSON.parse(JSON.stringify(original.data.config || {})),
+        },
+      }
+      set(state => ({
+        nodes: [...state.nodes, newNode],
+        isDirty: true,
+        _version: state._version + 1,
+      }))
+      return id
+    },
+
     deleteNode: (nodeId) => {
       pushToHistory()
       set(state => ({

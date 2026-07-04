@@ -167,6 +167,48 @@ test('back-edge se renderiza bajando antes de subir hacia el destino', async ({ 
   expect(maxY).toBeGreaterThan(startY + 10)
 })
 
+// ─── Duplicar nodo ───────────────────────────────────────────────────────────
+
+test('botón duplicar está deshabilitado sin nodo seleccionado', async ({ page }) => {
+  const card = await goToFlowTab(page)
+  await clickFlowEdit(card)
+  await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
+
+  await expect(page.getByRole('button', { name: '⧉' })).toBeDisabled()
+})
+
+test('duplicar nodo crea una copia con la misma config', async ({ page }) => {
+  const card = await goToFlowTab(page)
+  await clickFlowEdit(card)
+  await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
+
+  const nodes = page.locator('.react-flow__node')
+  const countBefore = await nodes.count()
+  test.skip(countBefore === 0, 'el flow no tiene nodos para duplicar')
+
+  // Seleccionar el primer nodo (doble clic abre el panel de config)
+  await nodes.first().dblclick()
+  await expect(page.getByTitle('Editar nombre del nodo')).toBeVisible({ timeout: 5000 })
+  const originalLabel = await page.getByTitle('Editar nombre del nodo').inputValue()
+  const originalConfig = await page.locator('.cm-content').first().textContent()
+
+  const duplicateButton = page.getByRole('button', { name: '⧉' })
+  await expect(duplicateButton).toBeEnabled()
+  await duplicateButton.click()
+
+  await expect(async () => {
+    expect(await nodes.count()).toBe(countBefore + 1)
+  }).toPass({ timeout: 5000 })
+
+  // El panel sigue mostrando el nodo original (la copia no se selecciona sola)
+  await expect(page.getByTitle('Editar nombre del nodo')).toHaveValue(originalLabel)
+
+  // La copia (último nodo en el DOM) tiene la misma config al abrirla
+  await nodes.last().dblclick()
+  const duplicateConfig = await page.locator('.cm-content').first().textContent()
+  expect(duplicateConfig).toBe(originalConfig)
+})
+
 // ─── Panel de configuración colapsable ──────────────────────────────────────
 
 test('panel de configuración se puede colapsar y expandir', async ({ page }) => {

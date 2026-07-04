@@ -155,7 +155,7 @@ function NodePicker({ typeMap, onSelect, onClose, onStartDrag }) {
 
 // ─── NodeConfigPanel ──────────────────────────────────────────────────────────
 
-export default function NodeConfigPanel({ botId, flowId, connections, apiCall, onGoToUIs, onAddNode }) {
+export default function NodeConfigPanel({ botId, flowId, connections, apiCall, onGoToUIs, onAddNode, onDuplicateNode }) {
   const nodes             = useFlowStore(s => s.nodes)
   const typeMap           = useFlowStore(s => s.typeMap)
   const selectedNodeId    = useFlowStore(s => s.selectedNodeId)
@@ -249,6 +249,28 @@ export default function NodeConfigPanel({ botId, flowId, connections, apiCall, o
             }}
           >
             ▶
+          </button>
+
+          <button
+            onClick={() => { if (deleteMode || !selectedNode) return; onDuplicateNode?.() }}
+            disabled={deleteMode || !selectedNode}
+            title={selectedNode ? 'Duplicar nodo seleccionado' : 'Seleccioná un nodo para duplicarlo'}
+            style={{
+              width: 28,
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'transparent',
+              border: '1px solid #334155',
+              borderRadius: 6,
+              color: '#94a3b8',
+              cursor: (deleteMode || !selectedNode) ? 'not-allowed' : 'pointer',
+              opacity: (deleteMode || !selectedNode) ? 0.4 : 1,
+              fontSize: 13,
+            }}
+          >
+            ⧉
           </button>
 
           <button
