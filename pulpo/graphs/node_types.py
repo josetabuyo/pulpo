@@ -94,6 +94,12 @@ NODE_TYPES: dict[str, NodeType] = {
         color="#1e40af",
         description="Obtiene datos externos: posts de Facebook, imagen de post, o HTTP genérico.",
     ),
+    "metric": NodeType(
+        id="metric",
+        label="Métrica",
+        color="#a16207",
+        description="Registra una métrica de negocio en DB y, opcionalmente, notifica a un sistema externo vía webhook.",
+    ),
     "summarize": NodeType(
         id="summarize",
         label="Sumarizador",
@@ -204,6 +210,7 @@ _CLASSIFY_SUBSTRINGS: list[tuple[str, str]] = [
     ("gsheet",             "gsheet"),
     ("detect_conversation", "detect_conversation"),
     ("end_conversation",    "end_conversation"),
+    ("metric",              "metric"),
 ]
 
 

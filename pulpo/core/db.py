@@ -237,6 +237,25 @@ async def init_db():
         await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS idx_flow_run_steps_run_id ON flow_run_steps(run_id)"
         ))
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS metrics (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                bot_id         TEXT NOT NULL,
+                contact_phone  TEXT,
+                contact_name   TEXT,
+                canal          TEXT,
+                metric_name    TEXT NOT NULL,
+                value          TEXT,
+                metadata       TEXT,
+                created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_metrics_bot_id ON metrics(bot_id)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_metrics_metric_name ON metrics(metric_name)"
+        ))
 
 async def create_job(
     bot_id: str,
@@ -1026,6 +1045,59 @@ async def log_flow_step(
             },
         )
         await session.commit()
+
+
+async def insert_metric(
+    bot_id: str,
+    contact_phone: str,
+    contact_name: str,
+    canal: str,
+    metric_name: str,
+    value: str | None,
+    metadata: str | None,
+) -> None:
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            text("""
+                INSERT INTO metrics (bot_id, contact_phone, contact_name, canal, metric_name, value, metadata)
+                VALUES (:bot_id, :contact_phone, :contact_name, :canal, :metric_name, :value, :metadata)
+            """),
+            {
+                "bot_id": bot_id, "contact_phone": contact_phone, "contact_name": contact_name,
+                "canal": canal, "metric_name": metric_name, "value": value, "metadata": metadata,
+            },
+        )
+        await session.commit()
+
+
+async def get_metrics(bot_id: str, metric_name: str | None = None, limit: int = 200) -> list[dict]:
+    async with AsyncSessionLocal() as session:
+        if metric_name:
+            rows = (await session.execute(
+                text("""
+                    SELECT id, bot_id, contact_phone, contact_name, canal, metric_name, value, metadata, created_at
+                    FROM metrics WHERE bot_id=:bot_id AND metric_name=:metric_name
+                    ORDER BY created_at DESC LIMIT :limit
+                """),
+                {"bot_id": bot_id, "metric_name": metric_name, "limit": limit},
+            )).fetchall()
+        else:
+            rows = (await session.execute(
+                text("""
+                    SELECT id, bot_id, contact_phone, contact_name, canal, metric_name, value, metadata, created_at
+                    FROM metrics WHERE bot_id=:bot_id
+                    ORDER BY created_at DESC LIMIT :limit
+                """),
+                {"bot_id": bot_id, "limit": limit},
+            )).fetchall()
+    return [
+        {
+            "id": r[0], "bot_id": r[1], "contact_phone": r[2], "contact_name": r[3],
+            "canal": r[4], "metric_name": r[5], "value": r[6], "metadata": r[7],
+            "created_at": str(r[8]),
+        }
+        for r in rows
+    ]
 
 
 async def get_flow_runs(bot_id: str, limit: int = 50) -> list[dict]:
