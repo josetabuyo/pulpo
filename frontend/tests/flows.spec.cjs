@@ -227,6 +227,25 @@ test('panel de configuración se puede colapsar y expandir', async ({ page }) =>
   await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible()
 })
 
+test('doble click en un nodo expande el panel si estaba colapsado', async ({ page }) => {
+  const card = await goToFlowTab(page)
+  await clickFlowEdit(card)
+  await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
+
+  const nodes = page.locator('.react-flow__node')
+  const count = await nodes.count()
+  test.skip(count === 0, 'el flow no tiene nodos para configurar')
+
+  // Colapsar el panel
+  await page.getByTitle('Colapsar panel').click()
+  await expect(page.getByTitle('Mostrar panel de configuración')).toBeVisible()
+
+  // Doble clic en un nodo → el panel se debe expandir solo, mostrando su config
+  await nodes.first().dblclick()
+  await expect(page.getByTitle('Mostrar panel de configuración')).not.toBeVisible()
+  await expect(page.getByTitle('Editar nombre del nodo')).toBeVisible({ timeout: 5000 })
+})
+
 test('buscador del picker arranca vacío al reabrirlo', async ({ page }) => {
   const card = await goToFlowTab(page)
   await clickFlowEdit(card)

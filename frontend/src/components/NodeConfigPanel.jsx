@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useFlowStore, PALETTE_TYPES } from '../store/flowStore.js'
 import ConfigForm from './nodeconfig/ConfigForm.jsx'
 
@@ -166,6 +166,11 @@ export default function NodeConfigPanel({ botId, flowId, connections, apiCall, o
 
   const [showPicker, setShowPicker] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
+
+  // Doble clic en un nodo (selectedNodeId cambia) → mostrar el panel si estaba escondido
+  useEffect(() => {
+    if (selectedNodeId) setCollapsed(false)
+  }, [selectedNodeId])
 
   const selectedNode = selectedNodeId ? nodes.find(n => n.id === selectedNodeId) : null
   const schema       = selectedNode ? (typeMap[selectedNode.data.nodeType]?.schema || []) : []
