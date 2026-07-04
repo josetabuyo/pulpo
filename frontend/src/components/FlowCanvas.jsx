@@ -1,4 +1,4 @@
-import { useRef, useCallback, useState, createContext, useContext } from 'react'
+import { useRef, useCallback, useState, useEffect, createContext, useContext } from 'react'
 import {
   ReactFlow,
   Background,
@@ -192,11 +192,12 @@ const EDGE_TYPES = { labeled: LabeledEdge }
 
 // ─── Nodo custom ──────────────────────────────────────────────────────────────
 
-function FlowNode({ id, data }) {
+function FlowNode({ id, data, selected }) {
   const isStart = data.nodeType === 'start'
   const isEnd   = data.nodeType === 'end'
   const handleStyle = { background: '#64748b', width: 8, height: 8, border: '2px solid #0f172a' }
-  const borderColor = data.deleteMode ? '#ef4444' : (data.selected ? '#fff' : 'transparent')
+  const isDanger = data.deleteMode || data.pendingDelete
+  const borderColor = isDanger ? '#ef4444' : (selected ? '#22c55e' : 'transparent')
 
   return (
     <div
@@ -208,7 +209,7 @@ function FlowNode({ id, data }) {
         color: '#fff',
         borderRadius: 8,
         border: `2px solid ${borderColor}`,
-        boxShadow: data.deleteMode ? '0 0 0 2px rgba(239,68,68,0.25)' : 'none',
+        boxShadow: isDanger ? '0 0 0 2px rgba(239,68,68,0.25)' : selected ? '0 0 0 2px rgba(34,197,94,0.25)' : 'none',
         width: 160,
         minHeight: 40,
         display: 'flex',
@@ -246,14 +247,43 @@ export default function FlowCanvas({
   onEdgeBendChange,
 }) {
   const reactFlowWrapper = useRef(null)
+  const { getNodes, getEdges } = useReactFlow()
   const deleteMode            = useFlowStore(s => s.deleteMode)
   const pendingDeleteNodeId   = useFlowStore(s => s.pendingDeleteNodeId)
   const setPendingDeleteNodeId = useFlowStore(s => s.setPendingDeleteNodeId)
   const deleteNode            = useFlowStore(s => s.deleteNode)
+  const pendingDeleteNodeIds   = useFlowStore(s => s.pendingDeleteNodeIds)
+  const setPendingDeleteNodeIds = useFlowStore(s => s.setPendingDeleteNodeIds)
+  const deleteNodes            = useFlowStore(s => s.deleteNodes)
 
   const deleteEdge = useCallback((edgeId) => {
     onEdgesChange([{ type: 'remove', id: edgeId }])
   }, [onEdgesChange])
+
+  // Delete/Backspace: si hay nodos seleccionados (box select o click), pedir
+  // confirmación (se pintan de rojo). Si solo hay edges seleccionadas, borrar directo.
+  useEffect(() => {
+    if (deleteMode) return
+    function handleKeyDown(e) {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return
+      const target = e.target
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
+
+      const selectedNodeIds = getNodes().filter(n => n.selected).map(n => n.id)
+      if (selectedNodeIds.length) {
+        e.preventDefault()
+        setPendingDeleteNodeIds(selectedNodeIds)
+        return
+      }
+      const selectedEdgeIds = getEdges().filter(e => e.selected).map(e => e.id)
+      if (selectedEdgeIds.length) {
+        e.preventDefault()
+        onEdgesChange(selectedEdgeIds.map(id => ({ type: 'remove', id })))
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [deleteMode, getNodes, getEdges, onEdgesChange, setPendingDeleteNodeIds])
 
   function handleDragOver(e) {
     e.preventDefault()
@@ -266,6 +296,7 @@ export default function FlowCanvas({
       ...n.data,
       editable: true,
       deleteMode,
+      pendingDelete: pendingDeleteNodeIds.includes(n.id),
       onDoubleClick: onNodeDoubleClick,
       onNodeClick: (nodeId) => setPendingDeleteNodeId(nodeId),
     },
@@ -274,6 +305,10 @@ export default function FlowCanvas({
   const pendingDeleteNode = pendingDeleteNodeId
     ? (editNodes || []).find(n => n.id === pendingDeleteNodeId)
     : null
+
+  const pendingDeleteNodesList = pendingDeleteNodeIds.length
+    ? (editNodes || []).filter(n => pendingDeleteNodeIds.includes(n.id))
+    : []
 
   const enrichedEdges = (editEdges || []).map(e => ({
     ...e,
@@ -303,9 +338,12 @@ export default function FlowCanvas({
           nodesDraggable={!deleteMode}
           nodesConnectable={!deleteMode}
           elementsSelectable
-          panOnDrag
+          panOnDrag={[1, 2]}
+          selectionOnDrag
+          selectionKeyCode={null}
+          multiSelectionKeyCode="Shift"
           zoomOnScroll
-          deleteKeyCode="Delete"
+          deleteKeyCode={null}
           proOptions={{ hideAttribution: true }}
         >
           <Background color="#1e293b" gap={16} />
@@ -346,6 +384,52 @@ export default function FlowCanvas({
             </button>
             <button
               onClick={() => setPendingDeleteNodeId(null)}
+              style={{
+                padding: '5px 10px',
+                background: 'transparent', border: '1px solid #334155',
+                borderRadius: 5, color: '#64748b',
+                fontSize: 11, cursor: 'pointer',
+              }}
+            >
+              Cancelar
+            </button>
+          </div>
+        )}
+
+        {pendingDeleteNodesList.length > 0 && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 16,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 20,
+              background: '#1c0a0a',
+              border: '1px solid #7f1d1d',
+              borderRadius: 8,
+              padding: '10px 14px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+            }}
+          >
+            <span style={{ fontSize: 12, color: '#fca5a5' }}>
+              ¿Eliminar <strong>{pendingDeleteNodesList.length}</strong> nodo{pendingDeleteNodesList.length === 1 ? '' : 's'}?
+            </span>
+            <button
+              onClick={() => deleteNodes(pendingDeleteNodeIds)}
+              style={{
+                padding: '5px 10px',
+                background: '#7f1d1d', border: '1px solid #dc2626',
+                borderRadius: 5, color: '#fca5a5',
+                fontSize: 11, cursor: 'pointer', fontWeight: 600,
+              }}
+            >
+              Sí, eliminar
+            </button>
+            <button
+              onClick={() => setPendingDeleteNodeIds([])}
               style={{
                 padding: '5px 10px',
                 background: 'transparent', border: '1px solid #334155',

@@ -179,12 +179,15 @@ export function createFlowStore() {
     _version: 0,
     deleteMode: false,
     pendingDeleteNodeId: null,
+    pendingDeleteNodeIds: [],
 
     setTypeMap: (typeMap) => set({ typeMap }),
 
-    toggleDeleteMode: () => set(state => ({ deleteMode: !state.deleteMode, pendingDeleteNodeId: null })),
+    toggleDeleteMode: () => set(state => ({ deleteMode: !state.deleteMode, pendingDeleteNodeId: null, pendingDeleteNodeIds: [] })),
 
     setPendingDeleteNodeId: (id) => set({ pendingDeleteNodeId: id }),
+
+    setPendingDeleteNodeIds: (ids) => set({ pendingDeleteNodeIds: ids }),
 
     loadFlow: (definition, typeMap) => {
       const tm = typeMap || get().typeMap
@@ -322,6 +325,19 @@ export function createFlowStore() {
       }))
     },
 
+    deleteNodes: (nodeIds) => {
+      if (!nodeIds?.length) return
+      pushToHistory()
+      set(state => ({
+        nodes: state.nodes.filter(n => !nodeIds.includes(n.id)),
+        edges: state.edges.filter(e => !nodeIds.includes(e.source) && !nodeIds.includes(e.target)),
+        selectedNodeId: nodeIds.includes(state.selectedNodeId) ? null : state.selectedNodeId,
+        pendingDeleteNodeIds: [],
+        isDirty: true,
+        _version: state._version + 1,
+      }))
+    },
+
     undo: () => {
       const { _history } = get()
       if (!_history.length) return
@@ -349,7 +365,7 @@ export function createFlowStore() {
 
     markClean: () => set({ isDirty: false }),
 
-    reset: () => set({ nodes: [], edges: [], selectedNodeId: null, isDirty: false, _history: [], _version: 0, deleteMode: false, pendingDeleteNodeId: null }),
+    reset: () => set({ nodes: [], edges: [], selectedNodeId: null, isDirty: false, _history: [], _version: 0, deleteMode: false, pendingDeleteNodeId: null, pendingDeleteNodeIds: [] }),
 
     getDefinition: () => nodesToDefinition(get().nodes, get().edges),
     }
