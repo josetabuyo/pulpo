@@ -3,6 +3,7 @@ import {
   ReactFlow,
   Background,
   Controls,
+  ControlButton,
   Handle,
   Position,
   BaseEdge,
@@ -236,6 +237,30 @@ const NODE_TYPES_RF = { flowNode: FlowNode }
 
 // ─── FlowCanvas ───────────────────────────────────────────────────────────────
 
+// ─── Herramienta de canvas: puntero (seleccionar) vs mano (mover) ─────────────
+// Mantener espacio apretado activa la mano temporalmente, como en Figma.
+
+function PointerIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M4 2 L4 20 L9 15.5 L12 22 L15 20.5 L12 14 L18 14 Z" />
+    </svg>
+  )
+}
+
+function HandIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="5 9 2 12 5 15" />
+      <polyline points="9 5 12 2 15 5" />
+      <polyline points="15 19 12 22 9 19" />
+      <polyline points="19 9 22 12 19 15" />
+      <line x1="2" y1="12" x2="22" y2="12" />
+      <line x1="12" y1="2" x2="12" y2="22" />
+    </svg>
+  )
+}
+
 export default function FlowCanvas({
   nodes: editNodes,
   edges: editEdges,
@@ -248,6 +273,9 @@ export default function FlowCanvas({
 }) {
   const reactFlowWrapper = useRef(null)
   const { getNodes, getEdges } = useReactFlow()
+  const [tool, setTool] = useState('select') // 'select' | 'pan'
+  const [spaceHeld, setSpaceHeld] = useState(false)
+  const [isPanning, setIsPanning] = useState(false)
   const deleteMode            = useFlowStore(s => s.deleteMode)
   const pendingDeleteNodeId   = useFlowStore(s => s.pendingDeleteNodeId)
   const setPendingDeleteNodeId = useFlowStore(s => s.setPendingDeleteNodeId)
@@ -290,6 +318,36 @@ export default function FlowCanvas({
     e.dataTransfer.dropEffect = 'move'
   }
 
+  // Espacio apretado → mano temporal (se restaura la herramienta anterior al soltar)
+  useEffect(() => {
+    function isTyping(target) {
+      return target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+    }
+    function handleKeyDown(e) {
+      if (isTyping(e.target) || e.metaKey || e.ctrlKey || e.altKey) return
+      if (e.code === 'Space') {
+        e.preventDefault()
+        setSpaceHeld(true)
+        return
+      }
+      if (e.key === 'v' || e.key === 'V') setTool('select')
+      if (e.key === 'h' || e.key === 'H') setTool('pan')
+    }
+    function handleKeyUp(e) {
+      if (e.code !== 'Space') return
+      setSpaceHeld(false)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+    }
+  }, [])
+
+  const panMode = tool === 'pan' || spaceHeld
+  const canvasCursor = panMode ? (isPanning ? 'grabbing' : 'grab') : 'default'
+
   const enrichedNodes = (editNodes || []).map(n => ({
     ...n,
     data: {
@@ -320,7 +378,7 @@ export default function FlowCanvas({
     <EdgeActionsCtx.Provider value={{ deleteMode, deleteEdge, updateEdgeBend: onEdgeBendChange }}>
       <div
         ref={reactFlowWrapper}
-        style={{ flex: 1, background: '#0f172a', overflow: 'hidden', position: 'relative' }}
+        style={{ flex: 1, background: '#0f172a', overflow: 'hidden', position: 'relative', cursor: canvasCursor }}
         onDrop={externalOnDrop}
         onDragOver={handleDragOver}
       >
@@ -333,13 +391,17 @@ export default function FlowCanvas({
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          onMoveStart={(e) => { if (e) setIsPanning(true) }}
+          onMoveEnd={() => setIsPanning(false)}
           fitView
           fitViewOptions={{ padding: 0.3 }}
-          nodesDraggable={!deleteMode}
+          minZoom={0.1}
+          maxZoom={2}
+          nodesDraggable={!deleteMode && !panMode}
           nodesConnectable={!deleteMode}
-          elementsSelectable
-          panOnDrag={[1, 2]}
-          selectionOnDrag
+          elementsSelectable={!panMode}
+          panOnDrag={panMode ? true : [1, 2]}
+          selectionOnDrag={!panMode}
           selectionKeyCode={null}
           multiSelectionKeyCode="Shift"
           zoomOnScroll
@@ -347,7 +409,22 @@ export default function FlowCanvas({
           proOptions={{ hideAttribution: true }}
         >
           <Background color="#1e293b" gap={16} />
-          <Controls showInteractive={false} style={{ background: '#1e293b', border: '1px solid #334155' }} />
+          <Controls showInteractive={false} style={{ background: '#1e293b', border: '1px solid #334155' }}>
+            <ControlButton
+              onClick={() => setTool('select')}
+              title="Seleccionar (V)"
+              style={{ background: tool === 'select' ? '#334155' : undefined, color: tool === 'select' ? '#e2e8f0' : undefined }}
+            >
+              <PointerIcon />
+            </ControlButton>
+            <ControlButton
+              onClick={() => setTool('pan')}
+              title="Mover el lienzo (mantené espacio para activarlo momentáneamente)"
+              style={{ background: tool === 'pan' ? '#334155' : undefined, color: tool === 'pan' ? '#e2e8f0' : undefined }}
+            >
+              <HandIcon />
+            </ControlButton>
+          </Controls>
         </ReactFlow>
 
         {pendingDeleteNode && (
