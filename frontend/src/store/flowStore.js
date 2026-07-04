@@ -35,6 +35,7 @@ export const PALETTE_TYPES = [
   'fetch_sheet',
   'search_sheet',
   'gsheet',
+  'metric',
 ]
 // Nota: luganense_flow eliminado — era un mega-nodo legacy, reemplazado por nodos individuales
 
@@ -57,6 +58,7 @@ const DEFAULT_CONFIGS = {
   set_state:        { field: '', value: '' },
   save_contact:    { name_field: 'contact_name', phone_field: 'contact_phone', notes_field: 'contact_notes', update_if_exists: true },
   check_contact:   { route_known: 'conocido', route_unknown: 'desconocido' },
+  metric:          { metric_name: '', value: '', metadata: {}, webhook_url: '' },
 }
 
 /**
