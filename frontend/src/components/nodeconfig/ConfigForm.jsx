@@ -107,7 +107,7 @@ export default function ConfigForm({ node, schema, botId, flowId, connections, a
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minHeight: 0 }}>
 
       {/* API trigger endpoint info */}
       {nodeType === 'api_trigger' && flowId && (

@@ -147,6 +147,11 @@ const baseExtensions = [json(), pulpoTheme, syntaxHighlighting(pulpoHighlight), 
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
+const MIN_EDITOR_HEIGHT = 100
+const MAX_EDITOR_HEIGHT = 700
+const DEFAULT_EDITOR_HEIGHT = 200
+const MIN_AYUDA_HEIGHT = 90
+
 export default function JsonNodeEditor({ config, schema, onChange }) {
   const stringify = c => JSON.stringify(c, null, 2)
 
@@ -154,6 +159,38 @@ export default function JsonNodeEditor({ config, schema, onChange }) {
   const [parseError, setParseError] = useState(null)
   const lastExternal = useRef(config)
   const debounceTimer = useRef()
+
+  const [editorHeight, setEditorHeight] = useState(DEFAULT_EDITOR_HEIGHT)
+  const resizingRef = useRef(false)
+  const [copiedId, setCopiedId] = useState(null)
+  const copiedTimer = useRef()
+
+  const handleSplitResizeStart = useCallback((e) => {
+    e.preventDefault()
+    resizingRef.current = true
+    const startY = e.clientY
+    const startHeight = editorHeight
+    function handleMouseMove(ev) {
+      if (!resizingRef.current) return
+      const delta = ev.clientY - startY
+      setEditorHeight(Math.min(MAX_EDITOR_HEIGHT, Math.max(MIN_EDITOR_HEIGHT, startHeight + delta)))
+    }
+    function handleMouseUp() {
+      resizingRef.current = false
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+  }, [editorHeight])
+
+  function copyToClipboard(value, id) {
+    if (value === undefined || value === null) return
+    navigator.clipboard.writeText(String(value))
+    setCopiedId(id)
+    clearTimeout(copiedTimer.current)
+    copiedTimer.current = setTimeout(() => setCopiedId(null), 1200)
+  }
 
   const configJson = useMemo(() => stringify(config), [config])
 
@@ -205,7 +242,7 @@ export default function JsonNodeEditor({ config, schema, onChange }) {
   const helpFields = (schema || []).filter(f => f.key)
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 0 }}>
 
       {/* Editor */}
       <div
@@ -214,9 +251,8 @@ export default function JsonNodeEditor({ config, schema, onChange }) {
           border: `1px solid ${parseError ? '#7f1d1d' : '#1e293b'}`,
           overflow: 'hidden',
           transition: 'border-color 0.15s',
-          resize: 'vertical',
-          minHeight: 200,
-          height: 200,
+          height: editorHeight,
+          flexShrink: 0,
           display: 'flex',
           flexDirection: 'column',
         }}
@@ -253,42 +289,116 @@ export default function JsonNodeEditor({ config, schema, onChange }) {
         </div>
       )}
 
-      {/* Help panel — schema reference */}
+      {/* Help panel — schema + opciones, click para copiar al portapapeles */}
       {helpFields.length > 0 && (
-        <div style={{
-          background: '#050c18',
-          border: '1px solid #1e293b',
-          borderRadius: 6,
-          padding: '8px 10px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 5,
-        }}>
+        <>
+          {/* Resize handle — arrastra el límite entre editor y ayuda */}
+          <div
+            onMouseDown={handleSplitResizeStart}
+            title="Arrastrar para redimensionar"
+            style={{
+              height: 6,
+              margin: '-4px 0',
+              cursor: 'row-resize',
+              position: 'relative',
+              zIndex: 5,
+              flexShrink: 0,
+            }}
+          />
+
           <div style={{
-            fontSize: 9, color: '#334155', fontWeight: 700,
-            letterSpacing: '0.12em', marginBottom: 2,
+            background: '#050c18',
+            border: '1px solid #1e293b',
+            borderRadius: 6,
+            padding: '8px 10px',
+            flex: 1,
+            minHeight: MIN_AYUDA_HEIGHT,
+            overflowY: 'auto',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
           }}>
-            CAMPOS DISPONIBLES
-          </div>
-          {helpFields.map(f => (
-            <div key={f.key} style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 10, color: '#60a5fa', fontFamily: 'monospace' }}>
-                  {f.key}
-                </span>
-                <span style={{ fontSize: 9, color: '#334155' }}>{f.type}</span>
-                {f.required && (
-                  <span style={{ fontSize: 9, color: '#7f1d1d', fontWeight: 700 }}>req</span>
-                )}
-              </div>
-              {(f.hint || f.label) && (
-                <span style={{ fontSize: 10, color: '#475569', paddingLeft: 10 }}>
-                  {f.hint || f.label}
-                </span>
-              )}
+            <div style={{
+              fontSize: 9, color: '#334155', fontWeight: 700,
+              letterSpacing: '0.12em',
+            }}>
+              AYUDA
             </div>
-          ))}
-        </div>
+            {helpFields.map(f => {
+              const fieldId = `field:${f.key}`
+              return (
+                <div key={f.key} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <div
+                    onClick={() => copyToClipboard(f.key, fieldId)}
+                    title="Clic para copiar el nombre del campo"
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+                      padding: '2px 4px', margin: '-2px -4px', borderRadius: 4,
+                      background: copiedId === fieldId ? '#166534' : 'transparent',
+                    }}
+                  >
+                    <span style={{
+                      fontSize: 10, fontFamily: 'monospace',
+                      color: copiedId === fieldId ? '#4ade80' : '#60a5fa',
+                    }}>
+                      {f.key}
+                    </span>
+                    <span style={{ fontSize: 9, color: '#334155' }}>{f.type}</span>
+                    {f.required && (
+                      <span style={{ fontSize: 9, color: '#7f1d1d', fontWeight: 700 }}>req</span>
+                    )}
+                    {copiedId === fieldId && (
+                      <span style={{ fontSize: 9, color: '#4ade80' }}>✓ copiado</span>
+                    )}
+                  </div>
+                  {(f.hint || f.label) && (
+                    <span style={{ fontSize: 10, color: '#475569', paddingLeft: 10 }}>
+                      {f.hint || f.label}
+                    </span>
+                  )}
+                  {Array.isArray(f.options) && f.options.length > 0 && (
+                    <div style={{
+                      marginLeft: 10,
+                      maxHeight: 130,
+                      overflowY: 'auto',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      border: '1px solid #0d1929',
+                      borderRadius: 4,
+                    }}>
+                      {f.options.map(opt => {
+                        const optId = `opt:${f.key}:${opt.value}`
+                        return (
+                          <div
+                            key={optId}
+                            onClick={() => copyToClipboard(opt.value, optId)}
+                            title="Clic para copiar el valor"
+                            style={{
+                              fontSize: 10,
+                              padding: '3px 6px',
+                              cursor: 'pointer',
+                              color: copiedId === optId ? '#4ade80' : '#94a3b8',
+                              background: copiedId === optId ? '#166534' : 'transparent',
+                              borderBottom: '1px solid #0d1929',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              gap: 8,
+                            }}
+                          >
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {opt.label || opt.value}
+                            </span>
+                            {copiedId === optId && <span style={{ flexShrink: 0 }}>✓</span>}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </>
       )}
     </div>
   )

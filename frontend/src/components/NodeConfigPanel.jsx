@@ -402,6 +402,7 @@ export default function NodeConfigPanel({ botId, flowId, connections, apiCall, o
             onWheel={e => e.stopPropagation()}
             style={{
               flex: 1,
+              minHeight: 0,
               overflowY: 'auto',
               display: 'flex',
               flexDirection: 'column',

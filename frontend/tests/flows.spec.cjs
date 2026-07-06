@@ -377,3 +377,84 @@ test('Guardar como duplica el flow inactivo con nuevo nombre', async ({ page }) 
   await card.getByRole('button', { name: /Guardados/ }).click()
   await expect(card.getByText(newName)).toBeVisible()
 })
+
+// ─── Panel de Ayuda (JsonNodeEditor): campos, opciones y copiar al portapapeles ─
+
+// Agrega un nodo LLM nuevo (siempre tiene campos con "options", como model/output)
+// y lo deja seleccionado, con el panel de config abierto.
+// Devuelve el contenedor del panel de Ayuda para escopar los selectores y no
+// pisarse con el texto del editor JSON de arriba (que puede repetir "model", etc).
+async function addAndSelectLlmNode(page) {
+  await page.getByRole('button', { name: '+ Nuevo nodo' }).click()
+  const picker = page.getByTestId('node-picker')
+  await picker.getByPlaceholder('Buscar nodo...').fill('llm')
+  await picker.getByText('llm', { exact: true }).click()
+  await expect(picker).not.toBeVisible()
+
+  // addNode() no selecciona el nodo solo: hay que abrirlo con doble clic, como en el resto de los tests
+  await page.locator('.react-flow__node').last().dblclick()
+  await expect(page.getByTitle('Editar nombre del nodo')).toBeVisible({ timeout: 5000 })
+
+  const ayudaHeader = page.getByText('AYUDA', { exact: true })
+  await expect(ayudaHeader).toBeVisible()
+  return ayudaHeader.locator('..')
+}
+
+test('panel de ayuda muestra header AYUDA con campos y opciones', async ({ page }) => {
+  const card = await goToFlowTab(page)
+  await clickFlowEdit(card)
+  await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
+  const ayuda = await addAndSelectLlmNode(page)
+
+  await expect(ayuda.getByText('model', { exact: true })).toBeVisible()
+  // Opciones del campo "model" (best:<categoria>|<estrategia>)
+  await expect(ayuda.getByText('best:instruction — local', { exact: true })).toBeVisible()
+})
+
+test('clic en una opción de Ayuda la copia al portapapeles', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  const card = await goToFlowTab(page)
+  await clickFlowEdit(card)
+  await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
+  const ayuda = await addAndSelectLlmNode(page)
+
+  await ayuda.getByText('best:instruction — local', { exact: true }).click()
+  const clipboard = await page.evaluate(() => navigator.clipboard.readText())
+  expect(clipboard).toBe('best:instruction|local')
+})
+
+test('clic en el nombre de un campo de Ayuda lo copia al portapapeles', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  const card = await goToFlowTab(page)
+  await clickFlowEdit(card)
+  await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
+  const ayuda = await addAndSelectLlmNode(page)
+
+  await ayuda.getByText('model', { exact: true }).click()
+  await expect(ayuda.getByText('✓ copiado')).toBeVisible()
+  const clipboard = await page.evaluate(() => navigator.clipboard.readText())
+  expect(clipboard).toBe('model')
+})
+
+test('el divisor entre editor y ayuda es arrastrable y ambos llenan el panel', async ({ page }) => {
+  const card = await goToFlowTab(page)
+  await clickFlowEdit(card)
+  await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
+  const ayuda = await addAndSelectLlmNode(page)
+
+  const ayudaBoxBefore = await ayuda.boundingBox()
+  // El panel de config también tiene un handle de resize horizontal con el mismo title;
+  // el de Ayuda (vertical, dentro del editor JSON) es el segundo en el DOM.
+  const handle = page.getByTitle('Arrastrar para redimensionar').last()
+  const handleBox = await handle.boundingBox()
+
+  await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y - 100)
+  await page.mouse.up()
+
+  await expect(async () => {
+    const ayudaBoxAfter = await ayuda.boundingBox()
+    expect(ayudaBoxAfter.height).toBeGreaterThan(ayudaBoxBefore.height + 50)
+  }).toPass({ timeout: 5000 })
+})
