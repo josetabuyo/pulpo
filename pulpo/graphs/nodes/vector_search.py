@@ -83,6 +83,10 @@ async def _identify_field_value(message: str, search_field: str, possible_values
 # ─── Nodo ─────────────────────────────────────────────────────────────────────
 
 class VectorSearchNode(BaseNode):
+    label = "Búsqueda vectorial"
+    color = "#0e7490"
+    description = "Busca en una colección (oficios, auspiciantes, etc.) y popula state.vars."
+
     async def run(self, state: FlowState) -> FlowState:
         mode = self.config.get("mode", "registry")
 

@@ -17,6 +17,10 @@ logger = logging.getLogger(__name__)
 
 
 class MetricNode(BaseNode):
+    label = "Métrica"
+    color = "#a16207"
+    description = "Registra una métrica de negocio en DB y, opcionalmente, notifica a un sistema externo vía webhook."
+
     async def run(self, state: FlowState) -> FlowState:
         metric_name = interpolate(self.config.get("metric_name", ""), state).strip()
         if not metric_name:

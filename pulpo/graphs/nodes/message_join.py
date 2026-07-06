@@ -12,6 +12,10 @@ from .state import FlowState
 
 
 class MessageJoinNode(BaseNode):
+    label = "+"
+    color = "#475569"
+    description = "Nodo de convergencia (fan-in). Úsalo cuando un flow tiene múltiples triggers. No modifica el estado."
+
     async def run(self, state: FlowState) -> FlowState:
         return state
 

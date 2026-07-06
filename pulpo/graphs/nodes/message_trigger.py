@@ -9,5 +9,9 @@ from .base_trigger import BaseTriggerNode
 
 
 class MessageTriggerNode(BaseTriggerNode):
+    label = "Trigger de mensaje"
+    color = "#166534"
+    description = "Punto de entrada genérico (cualquier canal). Usar telegram_trigger para flows nuevos."
+
     channel = None
     connection_label = "Conexión"

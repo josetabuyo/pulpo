@@ -23,6 +23,10 @@ _RESERVED_KEYS = frozenset({"route", "reply", "context", "query", "fb_posts", "s
 
 
 class FetchNode(BaseNode):
+    label = "Fetch externo"
+    color = "#1e40af"
+    description = "Obtiene datos externos: posts de Facebook, imagen de post, o HTTP genérico."
+
     async def run(self, state: FlowState) -> FlowState:
         source = self.config.get("source", "facebook")
 

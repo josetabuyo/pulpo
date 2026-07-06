@@ -15,6 +15,10 @@ logger = logging.getLogger(__name__)
 
 
 class CheckContactNode(BaseNode):
+    label = "¿Contacto conocido?"
+    color = "#0e7490"
+    description = "Consulta la DB y setea la ruta: 'conocido' o 'desconocido'. Sin LLM — decisión pura."
+
     async def run(self, state: FlowState) -> FlowState:
         route_known   = self.config.get("route_known",   "conocido")
         route_unknown = self.config.get("route_unknown", "desconocido")

@@ -103,6 +103,10 @@ def _get_search_value(state: FlowState, source: str) -> str:
 
 
 class GSheetNode(BaseNode):
+    label = "Google Sheet"
+    color = "#16a34a"
+    description = "Busca una fila exacta en una Google Sheet, o agrega una fila nueva."
+
     async def run(self, state: FlowState) -> FlowState:
         mode = self.config.get("mode", "search")
         if mode == "search":

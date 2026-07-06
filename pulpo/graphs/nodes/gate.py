@@ -36,6 +36,10 @@ def _pop_waiting_run(node_id: str, contact: str) -> str | None:
 
 
 class GateNode(BaseNode):
+    label = "×"
+    color = "#475569"
+    description = "Gate AND bloqueante. Espera que todos los caminos configurados lleguen antes de continuar. Acumula mensajes en gate_messages."
+
     async def run(self, state: FlowState) -> FlowState:
         node_id: str = self.config.get("_node_id", "gate")
         wait_for: int = int(self.config.get("_in_degree", 2))

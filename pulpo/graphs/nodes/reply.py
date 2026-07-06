@@ -22,6 +22,10 @@ logger = logging.getLogger(__name__)
 
 
 class SendMessageNode(BaseNode):
+    label = "Enviar mensaje"
+    color = "#15803d"
+    description = "Envía un mensaje al usuario o a un contacto externo vía Telegram."
+
     async def run(self, state: FlowState) -> FlowState:
         if state.from_delta_sync:
             return state

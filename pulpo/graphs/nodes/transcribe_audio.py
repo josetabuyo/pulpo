@@ -30,6 +30,10 @@ _AUDIO_PLACEHOLDERS = frozenset({
 
 
 class TranscribeAudioNode(BaseNode):
+    label = "Transcribir audio"
+    color = "#7c3aed"
+    description = "Transcribe un mensaje de audio a texto usando Whisper. Colocar antes de summarize."
+
 
     async def run(self, state: FlowState) -> FlowState:
         if state.message_type != "audio":

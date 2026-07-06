@@ -9,8 +9,12 @@ Config:
   fallback:        str  — route por defecto si el LLM no responde algo válido
   model:           str  — modelo a usar (best:*, ollama/*, groq/*, o legacy)
   router_strategy: str  — "local-first" | "cloud-first" (solo aplica a best:*)
-  context_source:  str  — qué parte del state inyectar al mensaje del usuario:
-                           "none" (default) | "vars" | "context" | "vars+context"
+
+El LLM siempre recibe el mensaje del vecino más todas las variables del flow
+(state.data — un único lugar para todo lo que los nodos producen, incluida
+la clave reservada "context"). Si el prompt necesita ser específico sobre
+un dato puntual, puede nombrarlo en prosa (ej. "fijate en la variable
+'necesidad'") — no hace falta elegir de antemano qué parte del state ver.
 """
 import json
 import logging
@@ -21,12 +25,11 @@ from .state import FlowState
 logger = logging.getLogger(__name__)
 
 
-def _build_user_message(state: FlowState, context_source: str) -> str:
+def _build_user_message(state: FlowState) -> str:
     parts = [f"Mensaje: {state.message}"]
-    if "vars" in context_source and state.data:
-        parts.append(f"Variables: {json.dumps(state.data, ensure_ascii=False)}")
-    if "context" in context_source and state.data.get("context"):
-        parts.append(f"Contexto: {state.data['context']}")
+    vars_visibles = {k: v for k, v in state.data.items() if not k.startswith("_")}
+    if vars_visibles:
+        parts.append(f"Variables: {json.dumps(vars_visibles, ensure_ascii=False)}")
     return "\n\n".join(parts)
 
 
@@ -52,12 +55,15 @@ def _eval_pre_route_rules(rules: list[dict], state: FlowState) -> str | None:
 
 
 class RouterNode(BaseNode):
+    label = "Router"
+    color = "#854d0e"
+    description = "Clasifica el mensaje con LLM y decide qué rama ejecutar."
+
     async def run(self, state: FlowState) -> FlowState:
         prompt           = self.config.get("prompt", "")
         routes           = self.config.get("routes", [])
         fallback         = self.config.get("fallback", routes[0] if routes else "")
         raw_model        = self.config.get("model", "best:instruction|local-first")
-        context_source   = self.config.get("context_source", "none")
         pre_route_rules  = self.config.get("pre_route_rules", [])
         max_visits       = self.config.get("max_visits")
         max_visits_route = self.config.get("max_visits_route", "")
@@ -87,7 +93,7 @@ class RouterNode(BaseNode):
             state.data["route"] = fallback
             return state
 
-        user_message = _build_user_message(state, context_source)
+        user_message = _build_user_message(state)
 
         try:
             llm = _build_llm(model, temperature=0, json_out=False, router_strategy=router_strategy, max_tokens=10)
@@ -99,7 +105,7 @@ class RouterNode(BaseNode):
             if routes and route not in routes:
                 logger.info("[RouterNode] respuesta '%s' no válida — usando fallback '%s'", route, fallback)
                 route = fallback
-            logger.info("[RouterNode] route → '%s' | msg: %.60s | ctx: %s", route, state.message, context_source)
+            logger.info("[RouterNode] route → '%s' | msg: %.60s", route, state.message)
             state.data["route"] = route
         except Exception as e:
             logger.error("[RouterNode] Error: %s — fallback '%s'", e, fallback)
@@ -115,17 +121,6 @@ class RouterNode(BaseNode):
             "fallback":        {"type": "string",   "label": "Ruta por defecto",        "default": "", "hint": "Si el LLM responde algo inválido"},
             "model":       {"type": "select", "label": "Modelo", "default": "best:instruction|local-first",
                             "options": MODEL_OPTIONS},
-            "context_source":  {
-                "type":    "select",
-                "label":   "Contexto adicional al mensaje",
-                "default": "none",
-                "options": [
-                    {"value": "none",         "label": "Solo el mensaje"},
-                    {"value": "vars",         "label": "Mensaje + variables"},
-                    {"value": "context",      "label": "Mensaje + contexto"},
-                    {"value": "vars+context", "label": "Mensaje + variables + contexto"},
-                ],
-            },
             "max_visits": {
                 "type":    "number",
                 "label":   "Máx. visitas (loop limit)",

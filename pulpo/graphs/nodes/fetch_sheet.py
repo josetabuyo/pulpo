@@ -59,6 +59,10 @@ def _csv_to_format(csv_text: str, fmt: str) -> str:
 
 
 class FetchSheetNode(BaseNode):
+    label = "Leer planilla"
+    color = "#16a34a"
+    description = "Lee una Google Sheet pública y vuelca el contenido completo en state.context."
+
     async def run(self, state: FlowState) -> FlowState:
         sheet_id      = self.config.get("sheet_id", "").strip()
         range_param   = self.config.get("range", "").strip()

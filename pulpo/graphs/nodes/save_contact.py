@@ -16,6 +16,10 @@ logger = logging.getLogger(__name__)
 
 
 class SaveContactNode(BaseNode):
+    label = "Guardar contacto"
+    color = "#059669"
+    description = "Persiste el contacto en la base de datos usando datos del estado."
+
     async def run(self, state: FlowState) -> FlowState:
         bot_id = state.bot_id or ""
         name_field  = self.config.get("name_field",  "contact_name")

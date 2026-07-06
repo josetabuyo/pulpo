@@ -25,6 +25,10 @@ _BASE = Path(__file__).parent.parent.parent.parent / "data" / "summaries"
 
 
 class SaveAttachmentNode(BaseNode):
+    label = "Guardar adjunto"
+    color = "#b45309"
+    description = "Mueve el adjunto a almacenamiento permanente (data/summaries/). Colocar entre transcribe_audio y summarize."
+
 
     async def run(self, state: FlowState) -> FlowState:
         if not state.attachment_path:

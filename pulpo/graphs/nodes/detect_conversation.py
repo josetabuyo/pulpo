@@ -22,6 +22,10 @@ logger = logging.getLogger(__name__)
 
 
 class DetectConversationNode(BaseNode):
+    label = "Detectar conversación"
+    color = "#0f766e"
+    description = "Detecta si hay una conversación abierta y rutea: resumir | preguntar | nueva."
+
     async def run(self, state: FlowState) -> FlowState:
         has_open   = bool(state.data.get("_has_open_conv", False))
         age_min    = int(state.data.get("_conv_age_minutes", 0) or 0)

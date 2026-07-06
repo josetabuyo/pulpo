@@ -17,6 +17,7 @@ from .message_trigger import MessageTriggerNode
 from .reply import SendMessageNode
 from .summarize import SummarizeNode
 from .router import RouterNode
+from .condition import ConditionNode
 from .llm import LLMNode
 from .fetch import FetchNode
 from .vector_search import VectorSearchNode
@@ -47,6 +48,7 @@ NODE_REGISTRY: dict[str, type] = {
     "gate":             GateNode,
     "wait_user":        WaitUserNode,
     "router":           RouterNode,
+    "condition":        ConditionNode,
     "llm":              LLMNode,
     "send_message":     SendMessageNode,
     "fetch":            FetchNode,
@@ -73,7 +75,7 @@ TRIGGER_TYPES: frozenset[str] = frozenset(
 
 __all__ = [
     "NODE_REGISTRY", "TRIGGER_TYPES", "BaseTriggerNode",
-    "MessageTriggerNode", "RouterNode", "LLMNode", "SendMessageNode",
+    "MessageTriggerNode", "RouterNode", "ConditionNode", "LLMNode", "SendMessageNode",
     "FetchNode", "VectorSearchNode", "SummarizeNode",
     "SetStateNode", "SaveContactNode",
     "TranscribeAudioNode", "SaveAttachmentNode",

@@ -28,6 +28,10 @@ def _resolve(template: str, state: FlowState) -> str:
 
 
 class SetStateNode(BaseNode):
+    label = "Establecer estado"
+    color = "#0891b2"
+    description = "Escribe un valor fijo en un campo del estado del flow."
+
     async def run(self, state: FlowState) -> FlowState:
         field = self.config.get("field", "").strip()
         mode  = self.config.get("mode", "set")

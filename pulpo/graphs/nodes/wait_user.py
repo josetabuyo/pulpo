@@ -18,6 +18,10 @@ logger = logging.getLogger(__name__)
 
 
 class WaitUserNode(BaseNode):
+    label = "Esperar respuesta"
+    color = "#ca8a04"
+    description = "Pausa el flow y espera que el contacto responda. El próximo mensaje reanuda desde el nodo siguiente."
+
     async def run(self, state: FlowState) -> FlowState:
         node_id = self.config.get("_node_id", "wait_user")
         logger.info("[wait_user] node=%s contact=%s — pausando flow, esperando respuesta",

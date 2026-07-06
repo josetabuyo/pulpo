@@ -18,6 +18,10 @@ logger = logging.getLogger(__name__)
 
 
 class EndConversationNode(BaseNode):
+    label = "Cerrar conversación"
+    color = "#be123c"
+    description = "Cierra explícitamente la conversación actual. El próximo mensaje del contacto abrirá un flow nuevo."
+
     async def run(self, state: FlowState) -> FlowState:
         bot_id  = state.bot_id or ""
         contact = state.contact_phone or ""

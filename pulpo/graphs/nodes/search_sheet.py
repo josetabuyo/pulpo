@@ -81,6 +81,10 @@ def _tags_match(message: str, tags_str: str) -> bool:
 
 
 class SearchSheetNode(BaseNode):
+    label = "Buscar en planilla"
+    color = "#0e7490"
+    description = "Busca en una Google Sheet el ítem que coincide con el mensaje. Usa LLM para identificar el valor."
+
     async def run(self, state: FlowState) -> FlowState:
         sheet_id      = self.config.get("sheet_id", "").strip()
         range_param   = self.config.get("range", "").strip()

@@ -40,6 +40,13 @@ def interpolate(template: str, state: FlowState) -> str:
 
 
 class BaseNode:
+    # Metadatos de UI del nodo — leídos por graphs/node_types.py para armar el
+    # catálogo que consumen el editor de flows y el CLI (`pulpo flows node-types`).
+    # Toda clase registrada en NODE_REGISTRY debe sobreescribir estos tres.
+    label: str = "Nodo"
+    color: str = "#475569"
+    description: str = ""
+
     def __init__(self, config: dict):
         self.config = config
 

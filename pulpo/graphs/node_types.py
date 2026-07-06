@@ -7,9 +7,13 @@ Un NodeType define todo lo necesario para representar un nodo en el editor:
   - color       → color del nodo en el grafo
   - description → texto del tooltip
 
-Esta es la ÚNICA fuente de verdad. Ni el endpoint ni el frontend hardcodean esto.
+La ÚNICA fuente de verdad es la propia clase de cada nodo (label/color/description
+como class attributes, ver BaseNode en nodes/base.py) registrada en NODE_REGISTRY.
+NODE_TYPES se deriva de ahí — agregar un nodo nuevo nunca requiere tocar este dict.
 """
 from dataclasses import dataclass
+
+from .nodes import NODE_REGISTRY
 
 
 @dataclass(frozen=True)
@@ -20,7 +24,7 @@ class NodeType:
     description: str
 
 
-# Tipos internos (no aparecen en la paleta de usuario)
+# Tipos internos (no aparecen en la paleta de usuario, no tienen clase en NODE_REGISTRY)
 _INTERNAL_TYPES: dict[str, NodeType] = {
     "start": NodeType(id="start", label="Inicio", color="#166534", description="Nodo de inicio del flow."),
     "end":   NodeType(id="end",   label="Fin",    color="#991b1b", description="Nodo de fin del flow."),
@@ -28,150 +32,8 @@ _INTERNAL_TYPES: dict[str, NodeType] = {
 }
 
 NODE_TYPES: dict[str, NodeType] = {
-    "message_trigger": NodeType(
-        id="message_trigger",
-        label="Trigger de mensaje",
-        color="#166534",
-        description="Punto de entrada genérico (cualquier canal). Usar telegram_trigger para flows nuevos.",
-    ),
-    "telegram_trigger": NodeType(
-        id="telegram_trigger",
-        label="Telegram Trigger",
-        color="#0369a1",
-        description="Punto de entrada para mensajes de Telegram. Solo activa el flow si el mensaje viene por TG.",
-    ),
-    "whatsapp_trigger": NodeType(
-        id="whatsapp_trigger",
-        label="WhatsApp Trigger",
-        color="#15803d",
-        description="Punto de entrada para mensajes de WhatsApp (Wavi). Solo activa el flow si el mensaje viene por WA.",
-    ),
-    "api_trigger": NodeType(
-        id="api_trigger",
-        label="API Trigger",
-        color="#7c3aed",
-        description="Punto de entrada via HTTP. Activa el flow con un POST a /api/flows/{flow_id}/trigger.",
-    ),
-    "message_join": NodeType(
-        id="message_join",
-        label="+",
-        color="#475569",
-        description="Nodo de convergencia (fan-in). Úsalo cuando un flow tiene múltiples triggers. No modifica el estado.",
-    ),
-    "gate": NodeType(
-        id="gate",
-        label="×",
-        color="#475569",
-        description="Gate AND bloqueante. Espera que todos los caminos configurados lleguen antes de continuar. Acumula mensajes en gate_messages.",
-    ),
-    "router": NodeType(
-        id="router",
-        label="Router",
-        color="#854d0e",
-        description="Clasifica el mensaje con LLM y decide qué rama ejecutar.",
-    ),
-    "llm": NodeType(
-        id="llm",
-        label="Respuesta LLM",
-        color="#6b21a8",
-        description="Genera una respuesta usando un modelo de lenguaje (Groq).",
-    ),
-    "send_message": NodeType(
-        id="send_message",
-        label="Enviar mensaje",
-        color="#15803d",
-        description="Envía un mensaje al usuario o a un contacto externo vía Telegram.",
-    ),
-    "vector_search": NodeType(
-        id="vector_search",
-        label="Búsqueda vectorial",
-        color="#0e7490",
-        description="Busca en una colección (oficios, auspiciantes, etc.) y popula state.vars.",
-    ),
-    "fetch": NodeType(
-        id="fetch",
-        label="Fetch externo",
-        color="#1e40af",
-        description="Obtiene datos externos: posts de Facebook, imagen de post, o HTTP genérico.",
-    ),
-    "metric": NodeType(
-        id="metric",
-        label="Métrica",
-        color="#a16207",
-        description="Registra una métrica de negocio en DB y, opcionalmente, notifica a un sistema externo vía webhook.",
-    ),
-    "summarize": NodeType(
-        id="summarize",
-        label="Sumarizador",
-        color="#14532d",
-        description="Acumula mensajes en un archivo .md por contacto. Sin reply.",
-    ),
-    "set_state": NodeType(
-        id="set_state",
-        label="Establecer estado",
-        color="#0891b2",
-        description="Escribe un valor fijo en un campo del estado del flow.",
-    ),
-    "save_contact": NodeType(
-        id="save_contact",
-        label="Guardar contacto",
-        color="#059669",
-        description="Persiste el contacto en la base de datos usando datos del estado.",
-    ),
-    "transcribe_audio": NodeType(
-        id="transcribe_audio",
-        label="Transcribir audio",
-        color="#7c3aed",
-        description="Transcribe un mensaje de audio a texto usando Whisper. Colocar antes de summarize.",
-    ),
-    "save_attachment": NodeType(
-        id="save_attachment",
-        label="Guardar adjunto",
-        color="#b45309",
-        description="Mueve el adjunto a almacenamiento permanente (data/summaries/). Colocar entre transcribe_audio y summarize.",
-    ),
-    "check_contact": NodeType(
-        id="check_contact",
-        label="¿Contacto conocido?",
-        color="#0e7490",
-        description="Consulta la DB y setea la ruta: 'conocido' o 'desconocido'. Sin LLM — decisión pura.",
-    ),
-    "fetch_sheet": NodeType(
-        id="fetch_sheet",
-        label="Leer planilla",
-        color="#16a34a",
-        description="Lee una Google Sheet pública y vuelca el contenido completo en state.context.",
-    ),
-    "gsheet": NodeType(
-        id="gsheet",
-        label="Google Sheet",
-        color="#16a34a",
-        description="Busca una fila exacta en una Google Sheet, o agrega una fila nueva.",
-    ),
-    "search_sheet": NodeType(
-        id="search_sheet",
-        label="Buscar en planilla",
-        color="#0e7490",
-        description="Busca en una Google Sheet el ítem que coincide con el mensaje. Usa LLM para identificar el valor.",
-    ),
-    "wait_user": NodeType(
-        id="wait_user",
-        label="Esperar respuesta",
-        color="#ca8a04",
-        description="Pausa el flow y espera que el contacto responda. El próximo mensaje reanuda desde el nodo siguiente.",
-    ),
-    "detect_conversation": NodeType(
-        id="detect_conversation",
-        label="Detectar conversación",
-        color="#0f766e",
-        description="Detecta si hay una conversación abierta y rutea: resumir | preguntar | nueva.",
-    ),
-    "end_conversation": NodeType(
-        id="end_conversation",
-        label="Cerrar conversación",
-        color="#be123c",
-        description="Cierra explícitamente la conversación actual. El próximo mensaje del contacto abrirá un flow nuevo.",
-    ),
+    type_id: NodeType(id=type_id, label=cls.label, color=cls.color, description=cls.description)
+    for type_id, cls in NODE_REGISTRY.items()
 }
 
 
@@ -186,6 +48,7 @@ _CLASSIFY_PATTERNS: list[tuple[str, str]] = [
     ("__end__",   "end"),
 ]
 _CLASSIFY_SUBSTRINGS: list[tuple[str, str]] = [
+    ("condition", "condition"),
     ("router",    "router"),
     ("summariz",  "summarize"),
     ("whatsapp_trigger", "whatsapp_trigger"),

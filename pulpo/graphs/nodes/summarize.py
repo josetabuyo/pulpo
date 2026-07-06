@@ -715,6 +715,10 @@ def get_consolidation_dir(bot_id: str, contact_phone: str) -> "Path | None":
 
 
 class SummarizeNode(BaseNode):
+    label = "Sumarizador"
+    color = "#14532d"
+    description = "Acumula mensajes en un archivo .md por contacto. Sin reply."
+
     """
     Acumula el mensaje en el archivo .md del contacto.
     No produce reply — es un efecto de lado puro.
