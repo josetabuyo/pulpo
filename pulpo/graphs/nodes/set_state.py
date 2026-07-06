@@ -6,25 +6,11 @@ clave de state.data con {{clave}}. Útil para capturar la respuesta del
 usuario después de un wait_user:
   set_state(field=direccion, value={{message}})
 """
-import re
-from .base import BaseNode
+from .base import BaseNode, interpolate
 from .state import FlowState
 
 # Derivado del dataclass — incluye todos los campos fijos excepto "data"
 _META_FIELDS = frozenset(FlowState.__dataclass_fields__) - {"data"}
-
-_TEMPLATE_RE = re.compile(r"\{\{(\w+)\}\}")
-
-
-def _resolve(template: str, state: FlowState) -> str:
-    def _sub(m: re.Match) -> str:
-        key = m.group(1)
-        # Primero buscar en campos del estado
-        if hasattr(state, key):
-            return str(getattr(state, key) or "")
-        # Luego en state.data
-        return str(state.data.get(key, m.group(0)))
-    return _TEMPLATE_RE.sub(_sub, str(template))
 
 
 class SetStateNode(BaseNode):
@@ -41,7 +27,7 @@ class SetStateNode(BaseNode):
             current = int(state.data.get(field, 0) or 0)
             value = str(current + 1)
         else:
-            value = _resolve(self.config.get("value", ""), state)
+            value = interpolate(self.config.get("value", ""), state)
         if field in _META_FIELDS:
             setattr(state, field, value)
         else:

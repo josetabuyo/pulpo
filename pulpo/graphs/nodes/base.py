@@ -1,15 +1,18 @@
 """
 BaseNode — contrato mínimo que todo nodo debe cumplir.
 """
+import logging
 import re
 from .state import FlowState
+
+logger = logging.getLogger(__name__)
 
 
 def interpolate(template: str, state: FlowState) -> str:
     """
     Reemplaza placeholders {{field}} con valores de FlowState.
 
-    Campos meta (siempre disponibles):
+    Campos meta (siempre disponibles, prioridad sobre state.data):
       {{message}}       — mensaje entrante del usuario
       {{contact_name}}  — nombre del contacto
       {{contact_phone}} — teléfono/id del contacto
@@ -28,13 +31,17 @@ def interpolate(template: str, state: FlowState) -> str:
         "bot_id":        state.bot_id or "",
         "canal":         state.canal or "",
     }
-    # data tiene prioridad — solo escalares (listas/dicts se dejan como {{key}} literal)
+    # meta tiene prioridad — no debe poder ser sombreado por una clave de negocio en data.
+    # solo escalares de data (listas/dicts se dejan como {{key}} literal)
     scalar_data = {k: str(v) for k, v in state.data.items() if isinstance(v, (str, int, float, bool))}
-    all_fields = {**meta, **scalar_data}
+    all_fields = {**scalar_data, **meta}
 
     def replace(match):
         key = match.group(1).strip()
-        return all_fields.get(key, match.group(0))  # deja {{unknown}} intacto
+        if key not in all_fields:
+            logger.debug("[interpolate] placeholder sin resolver: {{%s}}", key)
+            return match.group(0)  # deja {{unknown}} intacto
+        return all_fields[key]
 
     return re.sub(r"\{\{(\w+)\}\}", replace, template)
 

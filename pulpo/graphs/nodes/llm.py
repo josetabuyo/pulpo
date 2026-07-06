@@ -6,10 +6,12 @@ Config:
   model:           str   — modelo a usar (best:*, ollama/*, groq/*, o legacy)
   router_strategy: str   — "local-first" | "cloud-first" (solo aplica a best:*)
   temperature:     float — temperatura (default: 0.3)
-  output:          str   — dónde guardar la respuesta:
-                            "reply"   → state.reply (responde al usuario)
-                            "context" → state.context (para el siguiente nodo)
-                            "query"   → state.query (para fetch/search)
+  output:          str   — clave de state.data donde guardar la respuesta (libre).
+                            Convenciones usadas por otros nodos:
+                            "reply"   → responde al usuario
+                            "context" → pasa al siguiente nodo
+                            "query"   → para búsqueda vectorial / fetch
+                            Cualquier otro nombre es una clave de negocio válida.
   json_output:     bool  — pedir respuesta JSON (para nodos que devuelven estructurado)
   json_reply_key:  str   — clave del JSON que contiene el reply (default: "reply")
   json_route_key:  str   — clave del JSON que contiene el route (opcional)
@@ -184,12 +186,7 @@ class LLMNode(BaseNode):
             else:
                 text = content
 
-            if output == "reply":
-                state.data["reply"] = text
-            elif output == "context":
-                state.data["context"] = text
-            elif output == "query":
-                state.data["query"] = text.strip()
+            state.data[output] = text.strip()
 
             logger.info("[LLMNode] output=%s len=%d", output, len(text))
 
@@ -205,13 +202,11 @@ class LLMNode(BaseNode):
             "model":       {"type": "select", "label": "Modelo", "default": "best:instruction|local-first",
                             "options": MODEL_OPTIONS},
             "temperature":     {"type": "float",    "label": "Temperatura",            "default": 0.3},
-            "output":          {"type": "select",   "label": "Destino de la salida",   "default": "reply",
-                                "hint": "reply = responde al usuario · context = pasa al siguiente nodo · query = para búsqueda/fetch",
-                                "options": [
-                                    {"value": "reply",   "label": "reply — responde al usuario"},
-                                    {"value": "context", "label": "context — pasa al siguiente nodo"},
-                                    {"value": "query",   "label": "query — para búsqueda vectorial / fetch"},
-                                ]},
+            "output":          {"type": "string",   "label": "Destino de la salida",   "default": "reply",
+                                "hint": "Clave de state.data donde se guarda la respuesta. "
+                                        "reply = responde al usuario · context = pasa al siguiente nodo · "
+                                        "query = para búsqueda vectorial / fetch · o cualquier nombre custom "
+                                        "(ej: necesidad, mensaje_pedido_necesidad)"},
             "json_output":     {"type": "bool",     "label": "Respuesta JSON",         "default": False},
             "json_reply_key":  {"type": "string",   "label": "Clave JSON del reply",   "default": "reply",
                                 "hint": "Clave dentro del JSON que contiene el texto a responder",
