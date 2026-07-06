@@ -9,7 +9,7 @@
  * El estado vive en useFlowStore (Zustand).
  * El padre (FlowList) pasa `flow` con la definición y `onBack` para volver.
  */
-import { useEffect, useCallback, useMemo } from 'react'
+import { useEffect, useCallback, useMemo, useRef } from 'react'
 import { ReactFlowProvider, useReactFlow } from '@xyflow/react'
 
 import { useFlowStore, createFlowStore, FlowStoreContext } from '../store/flowStore.js'
@@ -36,6 +36,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
   const reset            = useFlowStore(s => s.reset)
   const undo             = useFlowStore(s => s.undo)
   const nodeCount        = nodes.length
+  const panelWidthRef    = useRef(400)
 
   // Cargar el flow y el typeMap en el store al montar
   useEffect(() => {
@@ -67,7 +68,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
   // Click en picker → insertar visible, arriba a la izquierda del panel derecho
   const handleAddNode = useCallback((nodeType) => {
     const offset = (nodeCount % 8) * 25
-    const panelWidth = 400
+    const panelWidth = panelWidthRef.current
     const pos = screenToFlowPosition({
       x: window.innerWidth - panelWidth - 180 - offset,
       y: 90 + offset,
@@ -79,7 +80,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
   const handleDuplicateNode = useCallback(() => {
     if (!selectedNodeId) return
     const offset = (nodeCount % 8) * 25
-    const panelWidth = 400
+    const panelWidth = panelWidthRef.current
     const pos = screenToFlowPosition({
       x: window.innerWidth - panelWidth - 180 - offset,
       y: 90 + offset,
@@ -121,6 +122,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
           onGoToUIs={onGoToUIs}
           onAddNode={handleAddNode}
           onDuplicateNode={handleDuplicateNode}
+          onWidthChange={w => { panelWidthRef.current = w }}
         />
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useFlowStore, PALETTE_TYPES } from '../store/flowStore.js'
 import ConfigForm from './nodeconfig/ConfigForm.jsx'
 
@@ -155,7 +155,11 @@ function NodePicker({ typeMap, onSelect, onClose, onStartDrag }) {
 
 // ─── NodeConfigPanel ──────────────────────────────────────────────────────────
 
-export default function NodeConfigPanel({ botId, flowId, connections, apiCall, onGoToUIs, onAddNode, onDuplicateNode }) {
+const MIN_PANEL_WIDTH = 280
+const MAX_PANEL_WIDTH = 720
+const DEFAULT_PANEL_WIDTH = 400
+
+export default function NodeConfigPanel({ botId, flowId, connections, apiCall, onGoToUIs, onAddNode, onDuplicateNode, onWidthChange }) {
   const nodes             = useFlowStore(s => s.nodes)
   const typeMap           = useFlowStore(s => s.typeMap)
   const selectedNodeId    = useFlowStore(s => s.selectedNodeId)
@@ -166,6 +170,29 @@ export default function NodeConfigPanel({ botId, flowId, connections, apiCall, o
 
   const [showPicker, setShowPicker] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
+  const [width, setWidth] = useState(DEFAULT_PANEL_WIDTH)
+  const resizingRef = useRef(false)
+
+  useEffect(() => { onWidthChange?.(collapsed ? 36 : width) }, [collapsed, width, onWidthChange])
+
+  const handleResizeStart = useCallback((e) => {
+    e.preventDefault()
+    resizingRef.current = true
+    const startX = e.clientX
+    const startWidth = width
+    function handleMouseMove(ev) {
+      if (!resizingRef.current) return
+      const delta = startX - ev.clientX
+      setWidth(Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, startWidth + delta)))
+    }
+    function handleMouseUp() {
+      resizingRef.current = false
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+  }, [width])
 
   // Doble clic en un nodo (selectedNodeId cambia) → mostrar el panel si estaba escondido
   useEffect(() => {
@@ -217,16 +244,34 @@ export default function NodeConfigPanel({ botId, flowId, connections, apiCall, o
   }
 
   return (
-    <div style={{
-      width: 400,
-      background: '#0b1120',
-      borderLeft: '1px solid #1e293b',
-      display: 'flex',
-      flexDirection: 'column',
-      flexShrink: 0,
-      height: '100%',
-      overflowY: 'auto',
-    }}>
+    <div
+      onWheel={e => e.stopPropagation()}
+      style={{
+        position: 'relative',
+        width,
+        background: '#0b1120',
+        borderLeft: '1px solid #1e293b',
+        display: 'flex',
+        flexDirection: 'column',
+        flexShrink: 0,
+        height: '100%',
+        overflowY: 'auto',
+      }}>
+
+      {/* ── Resize handle ────────────────────────────────────────────── */}
+      <div
+        onMouseDown={handleResizeStart}
+        title="Arrastrar para redimensionar"
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: -3,
+          width: 6,
+          height: '100%',
+          cursor: 'col-resize',
+          zIndex: 10,
+        }}
+      />
 
       {/* ── Buttons: COLLAPSE + ADD + DELETE ────────────────────────────── */}
       <div style={{
@@ -353,14 +398,16 @@ export default function NodeConfigPanel({ botId, flowId, connections, apiCall, o
             Doble clic en un nodo<br />para configurarlo
           </div>
         ) : (
-          <div style={{
-            flex: 1,
-            overflowY: 'auto',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 12,
-            padding: '12px 14px',
-          }}>
+          <div
+            onWheel={e => e.stopPropagation()}
+            style={{
+              flex: 1,
+              overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+              padding: '12px 14px',
+            }}>
             {/* ── Node chip ────────────────────────────────────── */}
             <div style={{
               display: 'flex',
