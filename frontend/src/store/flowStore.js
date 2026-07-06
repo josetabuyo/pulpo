@@ -133,12 +133,16 @@ function nodesToDefinition(rfNodes, rfEdges) {
   }
 }
 
+// Tipos de nodo que rutean por `state.data.route` comparado contra el label del edge
+// (ver pulpo/graphs/nodes/condition.py: "el engine sigue solo los edges con label == state.route, igual que RouterNode")
+const ROUTE_BASED_NODE_TYPES = new Set(['router', 'condition'])
+
 /**
- * Para cada nodo router, asigna la primera ruta sin usar a las edges
+ * Para cada nodo router/condition, asigna la primera ruta sin usar a las edges
  * salientes que no tienen label. No modifica edges que ya tienen label.
  */
 function autoAssignRouterLabels(rfNodes, rfEdges) {
-  const routerNodes = rfNodes.filter(n => n.data?.nodeType === 'router')
+  const routerNodes = rfNodes.filter(n => ROUTE_BASED_NODE_TYPES.has(n.data?.nodeType))
   if (!routerNodes.length) return rfEdges
 
   const edgeUpdates = new Map() // edgeId → label
@@ -249,7 +253,7 @@ export function createFlowStore() {
       set(state => {
         const sourceNode = state.nodes.find(n => n.id === connection.source)
         let label
-        if (sourceNode?.data?.nodeType === 'router') {
+        if (ROUTE_BASED_NODE_TYPES.has(sourceNode?.data?.nodeType)) {
           const routes = sourceNode.data.config?.routes || []
           const usedLabels = new Set(
             state.edges.filter(e => e.source === connection.source && e.label).map(e => e.label)
@@ -352,6 +356,12 @@ export function createFlowStore() {
         _version: state._version + 1,
       }))
     },
+
+    updateEdgeLabel: (edgeId, label) => set(state => ({
+      edges: state.edges.map(e => e.id === edgeId ? { ...e, label: label || undefined } : e),
+      isDirty: true,
+      _version: state._version + 1,
+    })),
 
     updateEdgeBend: (edgeId, bendX, bendY) => set(state => ({
       edges: state.edges.map(e => {

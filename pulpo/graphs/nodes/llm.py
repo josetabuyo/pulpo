@@ -145,7 +145,7 @@ def _build_llm(model: str, temperature: float, json_out: bool, router_strategy: 
 class LLMNode(BaseNode):
     label = "Respuesta LLM"
     color = "#6b21a8"
-    description = "Genera una respuesta usando un modelo de lenguaje (Groq)."
+    description = "Genera una respuesta usando un modelo de lenguaje."
 
     async def run(self, state: FlowState) -> FlowState:
         if state.from_delta_sync:

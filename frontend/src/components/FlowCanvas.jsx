@@ -17,14 +17,16 @@ import { useFlowStore } from '../store/flowStore.js'
 
 // ─── Contexto de modo borrar ──────────────────────────────────────────────────
 
-const EdgeActionsCtx = createContext({ deleteMode: false, deleteEdge: null, updateEdgeBend: null })
+const EdgeActionsCtx = createContext({ deleteMode: false, deleteEdge: null, updateEdgeBend: null, updateEdgeLabel: null, getNodeRoutes: null })
 
 // ─── Edge custom ──────────────────────────────────────────────────────────────
 
-function LabeledEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, label, selected, markerEnd, markerStart, data }) {
-  const { deleteMode, deleteEdge, updateEdgeBend } = useContext(EdgeActionsCtx)
+function LabeledEdge({ id, source, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, label, selected, markerEnd, markerStart, data }) {
+  const { deleteMode, deleteEdge, updateEdgeBend, updateEdgeLabel, getNodeRoutes } = useContext(EdgeActionsCtx)
   const { screenToFlowPosition } = useReactFlow()
   const [localBend, setLocalBend] = useState(null)
+  const [editing, setEditing] = useState(false)
+  const routes = getNodeRoutes?.(source) || []
 
   const bendX = localBend?.x ?? data?.bendX
   const bendY = localBend?.y ?? data?.bendY
@@ -103,6 +105,8 @@ function LabeledEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, t
       if (moved) {
         const { x, y } = screenToFlowPosition({ x: ev.clientX, y: ev.clientY })
         updateEdgeBend?.(id, x, y)
+      } else if (updateEdgeLabel) {
+        setEditing(true)
       }
       setLocalBend(null)
       document.removeEventListener('pointermove', onMove)
@@ -110,7 +114,7 @@ function LabeledEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, t
     }
     document.addEventListener('pointermove', onMove)
     document.addEventListener('pointerup', onUp)
-  }, [id, screenToFlowPosition, updateEdgeBend])
+  }, [id, screenToFlowPosition, updateEdgeBend, updateEdgeLabel])
 
   const removeBend = useCallback((e) => {
     e.stopPropagation()
@@ -122,7 +126,7 @@ function LabeledEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, t
     deleteEdge?.(id)
   }, [id, deleteEdge])
 
-  const showHandle = !deleteMode && (selected || hasBend)
+  const showHandle = !deleteMode && (selected || hasBend || (!label && routes.length > 0))
 
   return (
     <>
@@ -158,19 +162,63 @@ function LabeledEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, t
             </span>
           )}
 
-          {/* Pelotita — edges sin label, visible al seleccionar o cuando hay bend */}
+          {/* Pelotita — edges sin label, visible al seleccionar, con bend, o si el nodo origen tiene rutas configurables */}
           {!label && showHandle && (
             <div
               onPointerDown={startDrag}
               onDoubleClick={hasBend ? removeBend : undefined}
-              title={hasBend ? 'Arrastrá · doble clic para resetear' : 'Arrastrá para doblar la flecha'}
+              title={routes.length ? 'Clic para asignar ruta · arrastrá para doblar la flecha' : (hasBend ? 'Arrastrá · doble clic para resetear' : 'Arrastrá para doblar la flecha')}
               style={{
                 width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
-                background: hasBend ? '#6366f1' : '#94a3b8',
+                background: routes.length ? '#f59e0b' : (hasBend ? '#6366f1' : '#94a3b8'),
                 border: '2px solid #0f172a',
                 cursor: 'grab',
               }}
             />
+          )}
+
+          {/* Editor de label — dropdown con las rutas del nodo origen (router/condition) o texto libre */}
+          {editing && (
+            <div
+              className="nodrag nopan"
+              style={{
+                position: 'absolute',
+                bottom: '100%',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                marginBottom: 6,
+                background: '#1e293b',
+                border: '1px solid #6366f1',
+                borderRadius: 6,
+                padding: 4,
+                zIndex: 50,
+                boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+              }}
+            >
+              {routes.length > 0 ? (
+                <select
+                  autoFocus
+                  defaultValue={label || ''}
+                  onChange={(e) => { updateEdgeLabel(id, e.target.value); setEditing(false) }}
+                  onBlur={() => setEditing(false)}
+                  style={{ fontSize: 11, background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 4, padding: '2px 4px' }}
+                >
+                  <option value="">(sin label)</option>
+                  {routes.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              ) : (
+                <input
+                  autoFocus
+                  defaultValue={label || ''}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { updateEdgeLabel(id, e.currentTarget.value); setEditing(false) }
+                    if (e.key === 'Escape') setEditing(false)
+                  }}
+                  onBlur={(e) => { updateEdgeLabel(id, e.target.value); setEditing(false) }}
+                  style={{ fontSize: 11, width: 110, background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 4, padding: '2px 4px' }}
+                />
+              )}
+            </div>
           )}
 
           {/* Botón × — solo en modo borrar */}
@@ -270,6 +318,7 @@ export default function FlowCanvas({
   onNodeDoubleClick,
   onDrop: externalOnDrop,
   onEdgeBendChange,
+  onEdgeLabelChange,
 }) {
   const reactFlowWrapper = useRef(null)
   const { getNodes, getEdges } = useReactFlow()
@@ -374,8 +423,14 @@ export default function FlowCanvas({
     markerEnd: { type: MarkerType.ArrowClosed, color: deleteMode ? '#ef4444' : '#475569' },
   }))
 
+  const getNodeRoutes = useCallback((nodeId) => {
+    const node = (editNodes || []).find(n => n.id === nodeId)
+    if (!node || !['router', 'condition'].includes(node.data?.nodeType)) return []
+    return node.data.config?.routes || []
+  }, [editNodes])
+
   return (
-    <EdgeActionsCtx.Provider value={{ deleteMode, deleteEdge, updateEdgeBend: onEdgeBendChange }}>
+    <EdgeActionsCtx.Provider value={{ deleteMode, deleteEdge, updateEdgeBend: onEdgeBendChange, updateEdgeLabel: onEdgeLabelChange, getNodeRoutes }}>
       <div
         ref={reactFlowWrapper}
         style={{ flex: 1, background: '#0f172a', overflow: 'hidden', position: 'relative', cursor: canvasCursor }}

@@ -33,6 +33,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
   const duplicateNode    = useFlowStore(s => s.duplicateNode)
   const selectedNodeId   = useFlowStore(s => s.selectedNodeId)
   const updateEdgeBend   = useFlowStore(s => s.updateEdgeBend)
+  const updateEdgeLabel  = useFlowStore(s => s.updateEdgeLabel)
   const reset            = useFlowStore(s => s.reset)
   const undo             = useFlowStore(s => s.undo)
   const nodeCount        = nodes.length
@@ -113,6 +114,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
           onDrop={handleDrop}
           onNodeDoubleClick={handleNodeDoubleClick}
           onEdgeBendChange={updateEdgeBend}
+          onEdgeLabelChange={updateEdgeLabel}
         />
         <NodeConfigPanel
           botId={flow.bot_id}
