@@ -108,7 +108,9 @@ async def create_flow(
         contact_phone=contact_phone,
         contact_filter=contact_filter,
     )
-    return await db.get_flow(flow_id)
+    new_flow = await db.get_flow(flow_id)
+    await db.create_flow_version(flow_id, name, new_flow.get("definition", {}))
+    return new_flow
 
 
 async def duplicate_flow(bot_id: str, flow_id: str, new_name: str) -> dict:
@@ -134,11 +136,14 @@ async def duplicate_flow(bot_id: str, flow_id: str, new_name: str) -> dict:
     return await update_flow(bot_id, new_flow["id"], {"active": False})
 
 
-async def update_flow(bot_id: str, flow_id: str, updates: dict) -> dict | None:
+async def update_flow(bot_id: str, flow_id: str, updates: dict, save_version: bool = False) -> dict | None:
     """
     Updates a flow and returns the updated flow dict.
     Returns None if flow not found or not owned by bot_id.
     Also patches message_trigger node config when definition+connection_id or contact_filter change.
+
+    If save_version and "definition" is part of the update, the flow's current
+    (pre-update) definition is snapshotted into flow_versions first.
     """
     flow = await db.get_flow(flow_id)
     if not flow or flow["bot_id"] != bot_id:
@@ -158,9 +163,31 @@ async def update_flow(bot_id: str, flow_id: str, updates: dict) -> dict | None:
                     cfg["contact_filter"] = new_cf
                 break
 
+    if save_version and "definition" in updates:
+        await db.create_flow_version(flow_id, flow["name"], flow["definition"])
+
     if updates:
         await db.update_flow(flow_id, **updates)
     return await db.get_flow(flow_id)
+
+
+async def get_flow_versions(bot_id: str, flow_id: str) -> list[dict] | None:
+    """Returns the saved version history (without definition) for a flow, or None if not owned."""
+    flow = await db.get_flow(flow_id)
+    if not flow or flow["bot_id"] != bot_id:
+        return None
+    return await db.get_flow_versions(flow_id)
+
+
+async def get_flow_version(bot_id: str, flow_id: str, version_id: int) -> dict | None:
+    """Returns a single saved version (with full definition), or None if not found/not owned."""
+    flow = await db.get_flow(flow_id)
+    if not flow or flow["bot_id"] != bot_id:
+        return None
+    version = await db.get_flow_version(version_id)
+    if not version or version["flow_id"] != flow_id:
+        return None
+    return version
 
 
 async def delete_flow(bot_id: str, flow_id: str) -> bool:

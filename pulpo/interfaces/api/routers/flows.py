@@ -89,6 +89,7 @@ class FlowUpdate(BaseModel):
     contact_phone: str | None = None
     contact_filter: dict | None = None
     active: bool | None = None
+    save_version: bool = False
 
 
 # ─── CRUD ────────────────────────────────────────────────────────────────────
@@ -138,17 +139,36 @@ async def get_flow(bot_id: str, flow_id: str):
 
 @router.put("/bots/{bot_id}/{flow_id}")
 async def update_flow(bot_id: str, flow_id: str, body: FlowUpdate):
+    updates = body.model_dump(exclude_none=True)
+    save_version = updates.pop("save_version", False)
     try:
         result = await flows_svc.update_flow(
             bot_id=bot_id,
             flow_id=flow_id,
-            updates=body.model_dump(exclude_none=True),
+            updates=updates,
+            save_version=save_version,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     if result is None:
         raise HTTPException(status_code=404, detail="Flow no encontrado")
     return result
+
+
+@router.get("/bots/{bot_id}/{flow_id}/versions")
+async def list_flow_versions(bot_id: str, flow_id: str):
+    versions = await flows_svc.get_flow_versions(bot_id=bot_id, flow_id=flow_id)
+    if versions is None:
+        raise HTTPException(status_code=404, detail="Flow no encontrado")
+    return versions
+
+
+@router.get("/bots/{bot_id}/{flow_id}/versions/{version_id}")
+async def get_flow_version(bot_id: str, flow_id: str, version_id: int):
+    version = await flows_svc.get_flow_version(bot_id=bot_id, flow_id=flow_id, version_id=version_id)
+    if version is None:
+        raise HTTPException(status_code=404, detail="Versión no encontrada")
+    return version
 
 
 @router.post("/bots/{bot_id}/{flow_id}/replay")

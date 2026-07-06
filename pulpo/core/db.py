@@ -132,6 +132,20 @@ async def init_db():
         except Exception:
             pass  # Ya existe
 
+        # ─── Flow Versions — historial de guardados explícitos ──────
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS flow_versions (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                flow_id    TEXT NOT NULL REFERENCES flows(id) ON DELETE CASCADE,
+                name       TEXT NOT NULL,
+                definition TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_flow_versions_flow_id ON flow_versions(flow_id, created_at)"
+        ))
+
         # Eliminar tabla legacy contact_suggestions (scraper WA removido)
         await conn.execute(text("DROP TABLE IF EXISTS contact_suggestions"))
 
@@ -760,6 +774,70 @@ async def delete_flow(flow_id: str) -> bool:
         )
         await session.commit()
     return result.rowcount > 0
+
+
+_FLOW_VERSIONS_LIMIT = 50
+
+
+async def create_flow_version(flow_id: str, name: str, definition: dict) -> None:
+    """Guarda un snapshot del flow y poda al límite de últimas 50 versiones."""
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            text("""
+                INSERT INTO flow_versions (flow_id, name, definition)
+                VALUES (:flow_id, :name, :definition)
+            """),
+            {"flow_id": flow_id, "name": name, "definition": _json.dumps(definition)},
+        )
+        await session.execute(
+            text(f"""
+                DELETE FROM flow_versions WHERE flow_id=:flow_id AND id NOT IN (
+                    SELECT id FROM flow_versions WHERE flow_id=:flow_id
+                    ORDER BY created_at DESC LIMIT {_FLOW_VERSIONS_LIMIT}
+                )
+            """),
+            {"flow_id": flow_id},
+        )
+        await session.commit()
+
+
+async def get_flow_versions(flow_id: str, limit: int = _FLOW_VERSIONS_LIMIT) -> list[dict]:
+    async with AsyncSessionLocal() as session:
+        rows = (await session.execute(
+            text("""
+                SELECT id, flow_id, name, created_at FROM flow_versions
+                WHERE flow_id = :flow_id ORDER BY created_at DESC LIMIT :limit
+            """),
+            {"flow_id": flow_id, "limit": limit},
+        )).fetchall()
+    return [
+        {"id": r[0], "flow_id": r[1], "name": r[2], "created_at": str(r[3])}
+        for r in rows
+    ]
+
+
+async def get_flow_version(version_id: int) -> dict | None:
+    async with AsyncSessionLocal() as session:
+        row = (await session.execute(
+            text("""
+                SELECT id, flow_id, name, definition, created_at FROM flow_versions
+                WHERE id = :id
+            """),
+            {"id": version_id},
+        )).fetchone()
+    if not row:
+        return None
+    try:
+        definition = _json.loads(row[3])
+    except _json.JSONDecodeError:
+        definition = {"nodes": [], "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1}}
+    return {
+        "id": row[0],
+        "flow_id": row[1],
+        "name": row[2],
+        "definition": definition,
+        "created_at": str(row[4]),
+    }
 
 
 async def flow_exists_for_bot(bot_id: str) -> bool:

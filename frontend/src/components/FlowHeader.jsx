@@ -19,15 +19,25 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
   const version       = useFlowStore(s => s._version)
   const getDefinition = useFlowStore(s => s.getDefinition)
   const markClean     = useFlowStore(s => s.markClean)
+  const loadFlow      = useFlowStore(s => s.loadFlow)
+
+  const [versions, setVersions] = useState(null)   // null = no cargadas aún
+  const [versionIndex, setVersionIndex] = useState(-1) // -1 = viendo el flow en vivo
+  const [navigating, setNavigating] = useState(false)
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(() => {
+    return localStorage.getItem('pulpo:autosave-enabled') !== 'false'
+  })
 
   useEffect(() => { setActive(!!flow.active) }, [flow.id, flow.active])
+  // Al cambiar de flow, descartar el historial de navegación cargado
+  useEffect(() => { setVersions(null); setVersionIndex(-1) }, [flow.id])
 
   const nameRef = useRef(name)
   useEffect(() => { nameRef.current = name }, [name])
 
   const autoSaveTimer = useRef(null)
 
-  const handleSave = useCallback(async (nameOverride) => {
+  const handleSave = useCallback(async (nameOverride, { explicit = false } = {}) => {
     const saveName = (nameOverride ?? nameRef.current).trim()
     if (!saveName) { setSaveErr('El nombre es obligatorio'); return }
     setSaving(true)
@@ -37,8 +47,10 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
       await apiCall('PUT', `/flows/bots/${flow.bot_id}/${flow.id}`, {
         name: saveName,
         definition,
+        save_version: explicit,
       })
       markClean()
+      if (explicit) { setVersions(null); setVersionIndex(-1) }
       onSaved?.()
     } catch {
       setSaveErr('Error al guardar')
@@ -47,13 +59,70 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
     }
   }, [apiCall, flow.bot_id, flow.id, getDefinition, markClean, onSaved])
 
-  // Auto-save: 2.5 s después del último cambio
+  const toggleAutoSave = useCallback(() => {
+    setAutoSaveEnabled(prev => {
+      const next = !prev
+      localStorage.setItem('pulpo:autosave-enabled', String(next))
+      return next
+    })
+  }, [])
+
+  // Auto-save: 2.5 s después del último cambio. No corre si el usuario lo
+  // desactivó, ni mientras se está navegando por versiones guardadas (ahí
+  // solo un click explícito en "Guardar" debe persistir).
   useEffect(() => {
-    if (!isDirty) return
+    if (!isDirty || !autoSaveEnabled || versionIndex !== -1) return
     clearTimeout(autoSaveTimer.current)
     autoSaveTimer.current = setTimeout(() => handleSave(), 2500)
     return () => clearTimeout(autoSaveTimer.current)
-  }, [version, isDirty])
+  }, [version, isDirty, autoSaveEnabled, versionIndex])
+
+  const ensureVersionsLoaded = useCallback(async () => {
+    if (versions) return versions
+    const list = await apiCall('GET', `/flows/bots/${flow.bot_id}/${flow.id}/versions`)
+    setVersions(list)
+    return list
+  }, [apiCall, flow.bot_id, flow.id, versions])
+
+  const goToIndex = useCallback(async (list, index) => {
+    if (index === -1) {
+      loadFlow(flow.definition, undefined, { dirty: true })
+      setVersionIndex(-1)
+      return
+    }
+    const target = list[index]
+    if (!target) return
+    const full = await apiCall('GET', `/flows/bots/${flow.bot_id}/${flow.id}/versions/${target.id}`)
+    loadFlow(full.definition, undefined, { dirty: true })
+    setVersionIndex(index)
+  }, [apiCall, flow.bot_id, flow.id, flow.definition, loadFlow])
+
+  const handleBack = useCallback(async () => {
+    setNavigating(true)
+    try {
+      const list = await ensureVersionsLoaded()
+      const nextIndex = Math.min(versionIndex + 1, list.length - 1)
+      if (nextIndex === versionIndex) return
+      await goToIndex(list, nextIndex)
+    } finally {
+      setNavigating(false)
+    }
+  }, [ensureVersionsLoaded, goToIndex, versionIndex])
+
+  const handleForward = useCallback(async () => {
+    setNavigating(true)
+    try {
+      const list = await ensureVersionsLoaded()
+      const nextIndex = versionIndex - 1
+      if (nextIndex < -1) return
+      await goToIndex(list, nextIndex)
+    } finally {
+      setNavigating(false)
+    }
+  }, [ensureVersionsLoaded, goToIndex, versionIndex])
+
+  const canGoBack    = !navigating && (versions === null || versionIndex < versions.length - 1)
+  const canGoForward = !navigating && versionIndex > -1
 
   const handleToggleActive = useCallback(async () => {
     const next = !active
@@ -157,7 +226,47 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
         {saveErr && <span style={{ fontSize: 11, color: '#ef4444' }}>{saveErr}</span>}
         {isDirty && !saveErr && <span style={{ fontSize: 11, color: '#f59e0b' }}>Sin guardar</span>}
         <button
-          onClick={() => { clearTimeout(autoSaveTimer.current); handleSave() }}
+          onClick={handleBack}
+          disabled={!canGoBack}
+          title="Versión anterior"
+          style={{
+            background: 'none',
+            border: '1px solid #334155',
+            borderRadius: 6,
+            color: canGoBack ? '#e2e8f0' : '#475569',
+            fontSize: 13,
+            padding: '5px 10px',
+            cursor: canGoBack ? 'pointer' : 'default',
+          }}
+        >◀</button>
+        <button
+          onClick={handleForward}
+          disabled={!canGoForward}
+          title="Versión siguiente"
+          style={{
+            background: 'none',
+            border: '1px solid #334155',
+            borderRadius: 6,
+            color: canGoForward ? '#e2e8f0' : '#475569',
+            fontSize: 13,
+            padding: '5px 10px',
+            cursor: canGoForward ? 'pointer' : 'default',
+          }}
+        >▶</button>
+        <label
+          title="Guardar automáticamente 2.5s después de cada cambio"
+          style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#64748b', cursor: 'pointer', whiteSpace: 'nowrap' }}
+        >
+          <input
+            type="checkbox"
+            checked={autoSaveEnabled}
+            onChange={toggleAutoSave}
+            style={{ cursor: 'pointer' }}
+          />
+          Auto
+        </label>
+        <button
+          onClick={() => { clearTimeout(autoSaveTimer.current); handleSave(undefined, { explicit: true }) }}
           disabled={saving}
           style={{
             background: isDirty ? '#16a34a' : '#1e293b',

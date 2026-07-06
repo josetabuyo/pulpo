@@ -195,7 +195,7 @@ export function createFlowStore() {
 
     setPendingDeleteNodeIds: (ids) => set({ pendingDeleteNodeIds: ids }),
 
-    loadFlow: (definition, typeMap) => {
+    loadFlow: (definition, typeMap, { dirty = false } = {}) => {
       const tm = typeMap || get().typeMap
       const rfNodes = (definition?.nodes || []).map(n => dbNodeToRF(n, tm))
       const rfEdges = (definition?.edges || []).map(e => ({
@@ -208,7 +208,7 @@ export function createFlowStore() {
         nodes: rfNodes,
         edges: repairedEdges,
         selectedNodeId: null,
-        isDirty: false,
+        isDirty: dirty,
         _history: [],
         _version: 0,
       })
