@@ -22,7 +22,7 @@ from datetime import datetime
 
 from .cooldown import cooldown_hours, flow_cooldown
 from .nodes import NODE_REGISTRY, TRIGGER_TYPES
-from .nodes.state import FlowState
+from .nodes.state import FlowState, append_conversation_entry
 from .trigger_match import select_trigger
 
 logger = logging.getLogger(__name__)
@@ -437,6 +437,9 @@ async def run_flows(
                     state.data["_has_open_conv"] = True
                     state.data["_conv_age_minutes"] = age_minutes
                     state.data["_conv_resume_node"] = waiting.get("resume_node_id", "")
+                    # El array conversation viaja dentro de saved (es parte de data) —
+                    # acá solo agregamos el turno nuevo que trajo esta reanudación.
+                    append_conversation_entry(state, "user", state.message)
                     await _db.end_flow_run(waiting["run_id"], "completed")
                     logger.info("[engine] Reanudando wait_user run=%s desde nodo=%s contacto=%s age=%dm",
                                 waiting["run_id"], waiting["resume_node_id"], state.contact_phone, age_minutes)
@@ -444,6 +447,10 @@ async def run_flows(
                     continue
             # Sin conversación abierta — inyectar flag para nodos detect_conversation
             state.data["_has_open_conv"] = False
+            # Flow recién disparado (no es una reanudación) — arrancar la conversación
+            # con el primer turno del usuario, una sola vez por mensaje entrante.
+            if not state.data.get("conversation"):
+                append_conversation_entry(state, "user", state.message)
         except Exception:
             logger.warning("[engine] error en dispatcher wait_user (non-fatal)", exc_info=True)
         # ─────────────────────────────────────────────────────────────────────

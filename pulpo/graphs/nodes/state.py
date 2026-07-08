@@ -19,11 +19,30 @@ No hay campos separados para context, query, route, reply, vars, etc.
 Cada nodo escribe en la clave que corresponde al negocio que resuelve.
 
 Claves con semántica reservada por el engine:
-  data["reply"]    → respuesta saliente (el adapter la envía al usuario)
-  data["route"]    → decisión del RouterNode (el engine sigue el edge con ese label)
-  data["context"]  → clave default para contexto de LLM (configurable en cada nodo)
-  data["query"]    → clave default para query expandida (configurable en cada nodo)
-  data["fb_posts"] → posts de Facebook (FetchNode los deja acá)
+  data["reply"]        → respuesta saliente (el adapter la envía al usuario)
+  data["route"]        → decisión del RouterNode (el engine sigue el edge con ese label)
+  data["context"]      → clave default para contexto de LLM (configurable en cada nodo)
+  data["query"]        → clave default para query expandida (configurable en cada nodo)
+  data["fb_posts"]     → posts de Facebook (FetchNode los deja acá)
+  data["conversation"] → lista de turnos de esta ejecución de flow (ver abajo)
+
+── Conversación ────────────────────────────────────────────────────────────
+`data["conversation"]` acumula todos los turnos de una misma ejecución de flow,
+incluyendo las pausas/reanudaciones vía wait_user (viaja dentro de `data` y por
+lo tanto se persiste en slots_json como cualquier otra clave de negocio). Cada
+entrada es un dict `{"origin": ..., "content": ...}`.
+
+Origins usados hoy:
+  "user"      → texto entrante del usuario en ese turno
+  "bot_reply" → texto que el bot le respondió al usuario (SendMessageNode)
+
+El origin es un string libre a propósito: el día de mañana se puede agregar
+otro tipo de entrada (ej. una nota interna) que se acumule sin mostrarse en
+el chat — hoy solo existen "user" y "bot_reply".
+
+Los nodos acceden a la conversación vía placeholders (ver interpolate() en
+base.py): {{conversation}} (transcripción completa), {{conversation.first}},
+{{conversation.last}}, {{conversation[i]}}, y variantes con `.origin`/`.content`.
 """
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -55,3 +74,10 @@ class FlowState:
 
     # ── Estado de flujo — todo lo que los nodos producen y consumen ───────────
     data: dict = field(default_factory=dict)
+
+
+def append_conversation_entry(state: FlowState, origin: str, content: str | None) -> None:
+    """Agrega un turno a data["conversation"] si content no está vacío."""
+    if not content:
+        return
+    state.data.setdefault("conversation", []).append({"origin": origin, "content": content})

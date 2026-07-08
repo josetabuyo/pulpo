@@ -8,12 +8,54 @@ from .state import FlowState
 logger = logging.getLogger(__name__)
 
 
+_CONV_ORIGIN_LABELS = {"user": "Usuario", "bot_reply": "Bot"}
+
+# {{conversation}} | {{conversation.first}} | {{conversation.last}} | {{conversation[i]}}
+# con sufijo opcional .origin / .content (default: .content)
+_CONVERSATION_RE = re.compile(
+    r"\{\{conversation(?:\.(first|last)|\[(-?\d+)\])?(?:\.(origin|content))?\}\}"
+)
+
+
+def _format_conversation(entries: list[dict]) -> str:
+    lines = []
+    for entry in entries:
+        origin = entry.get("origin", "")
+        label = _CONV_ORIGIN_LABELS.get(origin, origin)
+        lines.append(f"{label}: {entry.get('content', '')}")
+    return "\n".join(lines)
+
+
+def _replace_conversation(template: str, state: FlowState) -> str:
+    entries = state.data.get("conversation") or []
+
+    def replace(match):
+        first_last, idx_str, field = match.groups()
+        if first_last is None and idx_str is None:
+            return _format_conversation(entries)
+        idx = 0 if first_last == "first" else -1 if first_last == "last" else int(idx_str)
+        try:
+            entry = entries[idx]
+        except IndexError:
+            logger.debug("[interpolate] conversation[%s] fuera de rango", idx)
+            return match.group(0)  # deja el placeholder intacto
+        return str(entry.get(field or "content", ""))
+
+    return _CONVERSATION_RE.sub(replace, template)
+
+
 def interpolate(template: str, state: FlowState) -> str:
     """
     Reemplaza placeholders {{field}} con valores de FlowState.
 
+    Conversación (turnos acumulados de esta ejecución de flow, ver state.py):
+      {{conversation}}              — transcripción completa ("Usuario: ...\\nBot: ...")
+      {{conversation.first}}        — contenido del primer turno
+      {{conversation.last}}         — contenido del último turno
+      {{conversation[i]}}           — contenido del turno en el índice i (soporta negativos)
+      {{conversation.last.origin}}  — origin del turno ("user" | "bot_reply"), idem con [i]/.first
+
     Campos meta (siempre disponibles, prioridad sobre state.data):
-      {{message}}       — mensaje entrante del usuario
       {{contact_name}}  — nombre del contacto
       {{contact_phone}} — teléfono/id del contacto
       {{bot_name}}      — nombre del bot
@@ -23,8 +65,9 @@ def interpolate(template: str, state: FlowState) -> str:
     Cualquier clave en state.data también es un placeholder válido:
       {{reply}}, {{context}}, {{route}}, {{nombre}}, {{trabajador}}, etc.
     """
+    template = _replace_conversation(template, state)
+
     meta = {
-        "message":       state.message or "",
         "contact_name":  state.contact_name or "",
         "contact_phone": state.contact_phone or "",
         "bot_name":      state.bot_name or "",
