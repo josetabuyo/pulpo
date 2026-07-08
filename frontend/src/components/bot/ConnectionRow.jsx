@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { StatusPill } from './widgets.jsx'
 
-export default function ConnectionRow({ conn, mode, simMode, botId, apiCall, onDelete, onReconnect, onToggleMass }) {
+export default function ConnectionRow({ conn, mode, botId, apiCall, onDelete, onReconnect, onToggleMass }) {
   const [localStatus, setLocalStatus] = useState(conn.status)
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0, openUp: false })
@@ -47,7 +47,6 @@ export default function ConnectionRow({ conn, mode, simMode, botId, apiCall, onD
       <div className="ec-conn-main">
         <span className="ec-chan-badge ec-chan-badge--tg">TG</span>
         <span className="ec-conn-id">{displayId}</span>
-        {simMode && <span className="ec-sim-badge">SIM</span>}
         <StatusPill status={localStatus} isTg={true} />
         <div className="ec-conn-actions">
           <div style={{ position: 'relative' }}>
@@ -74,7 +73,7 @@ export default function ConnectionRow({ conn, mode, simMode, botId, apiCall, onD
                     Desconectar
                   </button>
                 )}
-                {mode === 'admin' && ['stopped', 'failed', 'disconnected'].includes(localStatus) && !simMode && (
+                {mode === 'admin' && ['stopped', 'failed', 'disconnected'].includes(localStatus) && (
                   <button className="conn-menu-item" onClick={() => { onReconnect?.(conn); setMenuOpen(false) }}>
                     Reconectar
                   </button>

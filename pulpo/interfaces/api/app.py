@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from .routers import bots, connections, flows, messages, contacts, settings, sim, wavi, logs, architecture, runs
+from .routers import bots, connections, flows, messages, contacts, settings, wavi, logs, architecture, runs
 
 
 def create_api_app() -> FastAPI:
@@ -10,7 +10,6 @@ def create_api_app() -> FastAPI:
     app.include_router(messages.router, prefix="/messages", tags=["messages"])
     app.include_router(contacts.router, prefix="/contacts", tags=["contacts"])
     app.include_router(settings.router, tags=["settings"])
-    app.include_router(sim.router, prefix="/sim", tags=["sim"])
     app.include_router(wavi.router, prefix="/wavi", tags=["wavi"])
     app.include_router(logs.router, prefix="/logs", tags=["logs"])
     app.include_router(architecture.router, prefix="/architecture", tags=["architecture"])

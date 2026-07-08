@@ -21,7 +21,6 @@ MODULES_TO_CHECK = [
     "pulpo.business.architecture",
     "pulpo.business.bots",
     "pulpo.business.flows",
-    "pulpo.business.sim",
     "pulpo.core.config",
     "pulpo.core.db",
     "pulpo.core.state",

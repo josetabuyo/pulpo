@@ -39,7 +39,6 @@ export function normalizeBot(bot) {
 export default function BotCard({
   mode,         // 'admin' | 'bot'
   bot,          // { id, name, connections: [{id, type, number, status}] }
-  simMode = false,
   apiCall,      // (method, path, body) => Promise — auth-agnostic
   onRefresh,    // callback cuando se produce algún cambio que el padre debe recargar
   onExpand,     // admin only — abre la card en popup fullscreen
@@ -164,7 +163,6 @@ export default function BotCard({
             <div className="ec-header-title-row">
               <span className="ec-bot-name">{bot.name}</span>
               <span className="ec-bot-id">{bot.id}</span>
-              {simMode && <span className="ec-sim-mode-badge">MODO SIM</span>}
               <CopyLinkBtn botId={bot.id} />
             </div>
           </div>
@@ -233,7 +231,7 @@ export default function BotCard({
                 <div className="ec-section-label ec-section-label--tg">Telegram</div>
                 {tgConns.map(conn => (
                   <ConnectionRow
-                    key={conn.id} conn={conn} mode={mode} simMode={simMode}
+                    key={conn.id} conn={conn} mode={mode}
                     botId={botId} apiCall={apiCall}
                     onDelete={mode === 'admin' ? conn => onDeleteTelegram?.(conn) : conn => handleRemoveConn(conn)}
                     onReconnect={conn => onReconnectTg?.(conn)}

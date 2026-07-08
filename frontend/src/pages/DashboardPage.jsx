@@ -191,7 +191,6 @@ export default function DashboardPage() {
 
   const [bots, setBots] = useState([])
   const [loading, setLoading] = useState(true)
-  const [simMode, setSimMode] = useState(false)
 
   // Modales
   const [botModal, setBotModal] = useState({ open: false, editBot: null })
@@ -228,9 +227,6 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!pwd) return
-    api('GET', '/mode', null, pwd).then(data => {
-      if (data?.mode === 'sim') setSimMode(true)
-    })
     apiQuiet('GET', '/config/settings', null, pwd)
       .then(s => { if (s) setPollMinutes(Math.round((s.wa_poll_interval_seconds || 300) / 60)) })
     loadBots()
@@ -464,7 +460,6 @@ export default function DashboardPage() {
               mode="admin"
               bot={normalizeBot(bot)}
               onExpand={b => openBotModal({ bot, normalized: b })}
-              simMode={simMode}
               apiCall={call}
               onRefresh={loadBots}
               onEditBot={b => setBotModal({ open: true, editBot: b })}
@@ -517,7 +512,6 @@ export default function DashboardPage() {
             <BotCard
               mode="admin"
               bot={expandedBot.normalized}
-              simMode={simMode}
               apiCall={call}
               onRefresh={loadBots}
               onEditBot={b => { openBotModal(null); setBotModal({ open: true, editBot: b }) }}
