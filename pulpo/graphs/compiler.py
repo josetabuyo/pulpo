@@ -33,9 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 def _serialize_state(state: FlowState) -> str:
-    return json.dumps({
-        "message": state.message,
-        "message_type": state.message_type,
+    payload = {
         "canal": state.canal,
         "connection_id": state.connection_id,
         "bot_id": state.bot_id,
@@ -43,7 +41,14 @@ def _serialize_state(state: FlowState) -> str:
         "contact_phone": state.contact_phone,
         "contact_name": state.contact_name,
         "data": state.data,
-    }, default=str)
+    }
+    # message/message_type ya viajan como el primer turno de data["conversation"]
+    # (ver graphs/conversation.py) — solo se repiten acá si por algún motivo esa
+    # conversación no llegó a crearse (state.message vino vacío).
+    if "conversation" not in state.data:
+        payload["message"] = state.message
+        payload["message_type"] = state.message_type
+    return json.dumps(payload, default=str)
 
 
 async def _log_step(
@@ -181,13 +186,15 @@ async def _run_bfs(
                         except Exception:
                             logger.warning("[engine] error guardando wait_user info (non-fatal)", exc_info=True)
             elif node_type == "gate" and run_id:
-                # Gate acaba de abrirse — cerrar el run que quedó en waiting_gate
+                # Gate acaba de abrirse — cerrar el run que quedó en waiting_gate.
+                # "handed_off" (no "completed"): ese run nunca llegó a un final natural,
+                # quedó bloqueado en el gate — este run nuevo es el que sigue la posta.
                 from .nodes.gate import _pop_waiting_run
                 waiting_run_id = _pop_waiting_run(node_id, state.contact_phone or "")
                 if waiting_run_id and waiting_run_id != run_id:
                     try:
                         from pulpo.core import db as _db
-                        await _db.end_flow_run(waiting_run_id, "completed")
+                        await _db.end_flow_run(waiting_run_id, "handed_off")
                     except Exception:
                         logger.warning("[engine] error cerrando waiting_gate run %s", waiting_run_id, exc_info=True)
             logger.debug("[engine] nodo '%s' (%s) ejecutado%s", node_id, node_type,
@@ -240,6 +247,12 @@ async def execute_flow(
         if entry_node_id not in node_by_id:
             logger.debug("[engine] entry_node_id '%s' no encontrado en el flow", entry_node_id)
             return state
+
+        # Reanudación de wait_user ya llamó continue_conversation() antes de esta
+        # llamada (ver dispatch_message) — el guard de start_conversation() la hace
+        # no-op ahí. Para api_trigger "puro" (trigger_flow), esto es lo que arranca
+        # la conversación de ese run — ver graphs/conversation.py.
+        conversation.start_conversation(state)
 
         run_id: str | None = str(uuid.uuid4())
         try:
@@ -451,7 +464,10 @@ async def dispatch_message(
                     # acá solo agregamos el turno nuevo que trajo esta reanudación.
                     # Reanudar un wait_user ES por definición continuar una conversación.
                     conversation.continue_conversation(state)
-                    await _db.end_flow_run(waiting["run_id"], "completed")
+                    # "handed_off" (no "completed"): este run nunca llegó a un final
+                    # natural — quedó bloqueado en wait_user y el run nuevo (con
+                    # entry_node_id=resume_node_id) es el que sigue la ejecución.
+                    await _db.end_flow_run(waiting["run_id"], "handed_off")
                     logger.info("[engine] Reanudando wait_user run=%s desde nodo=%s contacto=%s age=%dm",
                                 waiting["run_id"], waiting["resume_node_id"], state.contact_phone, age_minutes)
                     state = await execute_flow(flow, state, entry_node_id=waiting["resume_node_id"])

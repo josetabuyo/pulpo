@@ -26,7 +26,9 @@ def test_canales_de_mensajeria_son_conversacionales():
 def test_start_conversation_siembra_primer_turno():
     state = _state(message="quiero un plomero")
     start_conversation(state)
-    assert state.data["conversation"] == [{"origin": "user", "content": "quiero un plomero"}]
+    assert state.data["conversation"] == [
+        {"origin": "user", "content": "quiero un plomero", "type": "text"}
+    ]
 
 
 def test_start_conversation_es_idempotente():
@@ -40,11 +42,13 @@ def test_start_conversation_es_idempotente():
 def test_continue_conversation_agrega_turno_nuevo():
     state = _state(message="se me tapo la pileta")
     state.data["conversation"] = [
-        {"origin": "user", "content": "necesito un plomero"},
-        {"origin": "bot_reply", "content": "¿qué te pasó?"},
+        {"origin": "user", "content": "necesito un plomero", "type": "text"},
+        {"origin": "bot_reply", "content": "¿qué te pasó?", "type": "text"},
     ]
     continue_conversation(state)
-    assert state.data["conversation"][-1] == {"origin": "user", "content": "se me tapo la pileta"}
+    assert state.data["conversation"][-1] == {
+        "origin": "user", "content": "se me tapo la pileta", "type": "text"
+    }
     assert len(state.data["conversation"]) == 3
 
 
@@ -58,4 +62,6 @@ def test_record_bot_reply_agrega_turno_si_hay_conversacion():
     state = _state()
     start_conversation(state)
     record_bot_reply(state, "¿en qué te ayudo?")
-    assert state.data["conversation"][-1] == {"origin": "bot_reply", "content": "¿en qué te ayudo?"}
+    assert state.data["conversation"][-1] == {
+        "origin": "bot_reply", "content": "¿en qué te ayudo?", "type": "text"
+    }

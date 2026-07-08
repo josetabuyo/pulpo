@@ -73,7 +73,7 @@ const DEFAULT_CONFIGS = {
  * "__end__"            → null (nodo interno → fallback)
  * "main_node"          → null (nombre genérico → fallback)
  */
-function humanizeId(id) {
+export function humanizeId(id) {
   if (/^node_\d+$/.test(id)) return null   // auto-generado
   if (/^__/.test(id)) return null           // interno LangGraph
   if (/_\d+$/.test(id)) return null         // sufijo numérico (message_trigger_1)

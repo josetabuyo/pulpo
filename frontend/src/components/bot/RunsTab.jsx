@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { humanizeId } from '../../store/flowStore.js'
 
 function statusColor(s) {
   if (s === 'completed') return '#16a34a'
@@ -13,8 +14,63 @@ function duration(started, ended) {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`
 }
 
-function StepRow({ step }) {
+// ─── Visor JSON colapsable ──────────────────────────────────────────────
+function JsonNode({ label, value, depth }) {
+  const isObj = value !== null && typeof value === 'object'
+  const isEmpty = isObj && Object.keys(value).length === 0
+  const [open, setOpen] = useState(depth < 1)
+
+  if (!isObj || isEmpty) {
+    return (
+      <div style={{ padding: '1px 0 1px 14px' }}>
+        {label != null && <span style={{ color: '#0369a1' }}>{label}: </span>}
+        <span style={{ color: '#334155' }}>
+          {isEmpty ? (Array.isArray(value) ? '[]' : '{}') : JSON.stringify(value)}
+        </span>
+      </div>
+    )
+  }
+
+  const isArray = Array.isArray(value)
+  const entries = isArray ? value.map((v, i) => [i, v]) : Object.entries(value)
+
+  return (
+    <div>
+      <div
+        onClick={() => setOpen(o => !o)}
+        style={{ padding: '1px 0 1px 14px', cursor: 'pointer', userSelect: 'none' }}
+      >
+        <span style={{ color: '#94a3b8', display: 'inline-block', width: 12 }}>
+          {open ? '▾' : '▸'}
+        </span>
+        {label != null && <span style={{ color: '#0369a1' }}>{label}: </span>}
+        <span style={{ color: '#94a3b8' }}>
+          {isArray ? `Array(${entries.length})` : `{${entries.length}}`}
+        </span>
+      </div>
+      {open && (
+        <div style={{ borderLeft: '1px solid #e2e8f0', marginLeft: 5 }}>
+          {entries.map(([k, v]) => (
+            <JsonNode key={k} label={k} value={v} depth={depth + 1} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function JsonViewer({ data }) {
+  if (data == null) return <div style={{ color: '#94a3b8', fontSize: 12, padding: 8 }}>null</div>
+  return (
+    <div style={{ fontFamily: 'monospace', fontSize: 12, lineHeight: 1.6 }}>
+      <JsonNode label={null} value={data} depth={0} />
+    </div>
+  )
+}
+
+function StepRow({ step, nodeLabels }) {
   const [open, setOpen] = useState(false)
+  const label = nodeLabels?.[step.node_id] || step.node_id
   return (
     <>
       <tr
@@ -22,8 +78,8 @@ function StepRow({ step }) {
         style={{ cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
       >
         <td style={{ padding: '6px 8px', fontWeight: 500 }}>{step.node_type}</td>
-        <td style={{ padding: '6px 8px', fontFamily: 'monospace', fontSize: 11, color: '#64748b' }}>
-          {step.node_id.slice(0, 12)}
+        <td style={{ padding: '6px 8px', fontSize: 12, color: '#334155' }}>
+          {label}
         </td>
         <td style={{ padding: '6px 8px', color: statusColor(step.status), fontWeight: 600 }}>
           {step.status}
@@ -42,14 +98,14 @@ function StepRow({ step }) {
                   <div style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', marginBottom: 4, letterSpacing: 1 }}>
                     {label}
                   </div>
-                  <pre style={{
-                    fontSize: 11, margin: 0, background: '#fff',
+                  <div style={{
+                    background: '#fff',
                     border: '1px solid #e2e8f0', borderRadius: 4,
-                    padding: '6px 8px', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                    padding: '6px 8px',
                     maxHeight: 200, overflow: 'auto',
                   }}>
-                    {data ? JSON.stringify(data, null, 2) : 'null'}
-                  </pre>
+                    <JsonViewer data={data} />
+                  </div>
                 </div>
               ))}
             </div>
@@ -60,8 +116,28 @@ function StepRow({ step }) {
   )
 }
 
-function RunDetail({ run, onClose }) {
+function RunDetail({ run, onClose, botId, apiCall }) {
   const trigger = run.trigger_data ?? {}
+  // El mensaje que disparó el run vive en conversation[0] (ver graphs/conversation.py);
+  // trigger.message solo existe como fallback en runs viejos o sin conversación.
+  const firstMessage = trigger.data?.conversation?.[0]?.content ?? trigger.message
+  const [nodeLabels, setNodeLabels] = useState({})
+
+  useEffect(() => {
+    let cancelled = false
+    apiCall('GET', `/flows/bots/${botId}/${run.flow_id}`, null)
+      .then(flow => {
+        if (cancelled || !flow?.definition?.nodes) return
+        const map = {}
+        for (const n of flow.definition.nodes) {
+          map[n.id] = n.label || humanizeId(n.id) || n.type
+        }
+        setNodeLabels(map)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [botId, run.flow_id, apiCall])
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
@@ -79,15 +155,23 @@ function RunDetail({ run, onClose }) {
         <button className="btn-ghost btn-sm" onClick={onClose}>← Volver</button>
       </div>
 
-      {trigger.message && (
+      {firstMessage && (
         <div style={{
-          fontSize: 12, color: '#475569', marginBottom: 12,
-          background: '#f8fafc', borderRadius: 6, padding: '6px 10px',
-          borderLeft: '3px solid #cbd5e1',
+          fontSize: 12, color: '#475569', marginBottom: 6,
+          background: '#f8fafc', borderRadius: '6px 6px 0 0', padding: '6px 10px',
+          borderLeft: '3px solid #cbd5e1', borderBottom: '1px solid #e2e8f0',
         }}>
-          <strong>{trigger.canal}</strong> · {trigger.contact_phone} · "{trigger.message}"
+          <strong>{trigger.canal}</strong> · {trigger.contact_phone} · "{firstMessage}"
         </div>
       )}
+
+      <div style={{
+        resize: 'vertical', overflow: 'auto', height: 220, minHeight: 90, maxHeight: 600,
+        border: '1px solid #e2e8f0', borderRadius: firstMessage ? '0 0 6px 6px' : 6,
+        marginBottom: 14, background: '#fff', padding: '4px 0',
+      }}>
+        <JsonViewer data={trigger} />
+      </div>
 
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
         <thead>
@@ -100,7 +184,7 @@ function RunDetail({ run, onClose }) {
         <tbody>
           {(run.steps ?? []).length === 0
             ? <tr><td colSpan={5} style={{ textAlign: 'center', padding: 24, color: '#94a3b8' }}>Sin steps</td></tr>
-            : (run.steps ?? []).map(s => <StepRow key={s.id} step={s} />)
+            : (run.steps ?? []).map(s => <StepRow key={s.id} step={s} nodeLabels={nodeLabels} />)
           }
         </tbody>
       </table>
@@ -127,7 +211,7 @@ export default function RunsTab({ botId, apiCall }) {
     if (data?.run_id) setSelected(data)
   }
 
-  if (selected) return <RunDetail run={selected} onClose={() => setSelected(null)} />
+  if (selected) return <RunDetail run={selected} onClose={() => setSelected(null)} botId={botId} apiCall={apiCall} />
 
   return (
     <div>

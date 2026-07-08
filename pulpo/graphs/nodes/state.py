@@ -40,6 +40,10 @@ El origin es un string libre a propósito: el día de mañana se puede agregar
 otro tipo de entrada (ej. una nota interna) que se acumule sin mostrarse en
 el chat — hoy solo existen "user" y "bot_reply".
 
+Cada entrada además lleva "type" (text/audio/image/document, igual que
+FlowState.message_type) para que el historial sea autosuficiente: no hace
+falta ningún campo aparte para saber qué tipo de mensaje fue cada turno.
+
 Los nodos acceden a la conversación vía placeholders (ver interpolate() en
 base.py): {{conversation}} (transcripción completa), {{conversation.first}},
 {{conversation.last}}, {{conversation[i]}}, y variantes con `.origin`/`.content`.
@@ -76,8 +80,12 @@ class FlowState:
     data: dict = field(default_factory=dict)
 
 
-def append_conversation_entry(state: FlowState, origin: str, content: str | None) -> None:
+def append_conversation_entry(
+    state: FlowState, origin: str, content: str | None, msg_type: str = "text"
+) -> None:
     """Agrega un turno a data["conversation"] si content no está vacío."""
     if not content:
         return
-    state.data.setdefault("conversation", []).append({"origin": origin, "content": content})
+    state.data.setdefault("conversation", []).append(
+        {"origin": origin, "content": content, "type": msg_type}
+    )

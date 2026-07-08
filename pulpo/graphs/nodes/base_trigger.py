@@ -13,11 +13,12 @@ NODE_REGISTRY: TRIGGER_TYPES se deriva automáticamente y el engine
 no necesita cambios.
 
 Un flow no es intrínsecamente una conversación — puede ser cualquier cosa
-(un webhook que prende una luz). BaseMessageTriggerNode marca los triggers
-que sí representan un canal de mensajería humana (WhatsApp, Telegram, y los
-que se agreguen a futuro — Instagram, Facebook, etc.): solo esos flows
-acumulan data["conversation"] (ver graphs/conversation.py). api_trigger,
-por ejemplo, se queda en BaseTriggerNode — no es conversacional.
+(un webhook que prende una luz). Aun así, toda ejecución de flow arranca
+data["conversation"] con al menos un turno (ver graphs/conversation.py) —
+BaseMessageTriggerNode marca específicamente los triggers que representan un
+canal de mensajería humana con turnos ida y vuelta (WhatsApp, Telegram, y los
+que se agreguen a futuro), a diferencia de api_trigger (queda en
+BaseTriggerNode), que arranca conversación pero normalmente no la continúa.
 """
 from .base import BaseNode
 from .state import FlowState

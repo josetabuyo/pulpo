@@ -18,14 +18,17 @@ async def test_reply_al_usuario_agrega_turno_bot_reply():
     state.data["conversation"] = [{"origin": "user", "content": "hola"}]
     state = await node.run(state)
     assert state.data["reply"] == "¿en qué te ayudo?"
-    assert state.data["conversation"][-1] == {"origin": "bot_reply", "content": "¿en qué te ayudo?"}
+    assert state.data["conversation"][-1] == {
+        "origin": "bot_reply", "content": "¿en qué te ayudo?", "type": "text"
+    }
 
 
 @pytest.mark.asyncio
 async def test_reply_sin_conversacion_previa_no_crea_una_huerfana():
     """record_bot_reply no debe iniciar una conversación por sí solo — solo
-    la continúa. Un flow no-conversacional (ej. api_trigger) que responde con
-    `to` vacío no debe terminar con un data["conversation"] de un solo turno."""
+    la continúa. Si conversation nunca se creó (ej. start_conversation no
+    corrió, o corrió con message vacío) no debe aparecer un data["conversation"]
+    huérfano de un solo turno bot_reply."""
     node = SendMessageNode({"message": "ok"})
     state = await node.run(_state())
     assert state.data["reply"] == "ok"
@@ -39,7 +42,9 @@ async def test_reply_interpola_conversation_last():
     state.data["conversation"] = [{"origin": "user", "content": "hola"}]
     state = await node.run(state)
     assert state.data["reply"] == "dijiste: hola"
-    assert state.data["conversation"][-1] == {"origin": "bot_reply", "content": "dijiste: hola"}
+    assert state.data["conversation"][-1] == {
+        "origin": "bot_reply", "content": "dijiste: hola", "type": "text"
+    }
 
 
 @pytest.mark.asyncio
