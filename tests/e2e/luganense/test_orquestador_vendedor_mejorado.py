@@ -188,6 +188,34 @@ def test_ruta_comercio_incluye_contacto():
     )
 
 
+async def _ruta_comercio_nombre_propio_sin_rubro():
+    async with TeliConversation(_BOT) as conv:
+        return await _send_con_reintento(
+            conv, "es Kiosco Don Jorge, me decís su teléfono?", "necesitás"
+        )
+
+
+def test_ruta_comercio_nombre_propio_sin_rubro():
+    """
+    Regresión (2026-07-08): el clasificador de necesidad (node_1783192800831)
+    devolvía UNCLEAR ante un nombre propio de comercio sin rubro explícito
+    ("es Kiosco Don Jorge, me decís su teléfono?"), forzando al vecino a repetir
+    el nombre 2-3 veces antes de que el flow lo reconociera. Se corrigió el
+    prompt para que un nombre propio de comercio/persona/lugar cuente como
+    necesidad identificada de una — este test verifica que resuelve en un
+    solo turno, sin pedir rubro/calle/aclaración de por medio.
+    """
+    reply = _run(_ruta_comercio_nombre_propio_sin_rubro())
+    assert reply, "El bot no respondió dentro del timeout"
+    lower = reply.lower()
+    assert "kiosco don jorge" in lower or "riestra" in lower, (
+        f"No resolvió el comercio por nombre propio en un solo turno: {reply!r}"
+    )
+    assert "rubro" not in lower and "en qué calle" not in lower, (
+        f"Volvió a pedir rubro/calle en vez de resolver directo: {reply!r}"
+    )
+
+
 async def _ruta_producto_pizza():
     async with TeliConversation(_BOT) as conv:
         return await _send_con_reintento(conv, "quiero pedir una pizza", "necesitás")
