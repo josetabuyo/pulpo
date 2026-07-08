@@ -2,7 +2,7 @@
 import pytest
 
 from .set_state import SetStateNode
-from .state import FlowState
+from .state import FlowState, append_conversation_entry
 
 
 def _state(**kwargs) -> FlowState:
@@ -19,9 +19,11 @@ async def test_set_valor_fijo_en_data():
 
 
 @pytest.mark.asyncio
-async def test_set_con_template_de_meta_y_data():
-    node = SetStateNode({"field": "resumen", "value": "{{contact_name}}: {{message}}"})
-    state = await node.run(_state(contact_name="Ana", message="quiero reservar"))
+async def test_set_con_template_de_meta_y_conversation():
+    node = SetStateNode({"field": "resumen", "value": "{{contact_name}}: {{conversation.last}}"})
+    state = _state(contact_name="Ana")
+    append_conversation_entry(state, "user", "quiero reservar")
+    state = await node.run(state)
     assert state.data["resumen"] == "Ana: quiero reservar"
 
 

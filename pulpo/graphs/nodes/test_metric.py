@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from .metric import MetricNode
-from .state import FlowState
+from .state import FlowState, append_conversation_entry
 
 
 def _state(**kwargs) -> FlowState:
@@ -40,9 +40,11 @@ async def test_metric_name_vacio_no_persiste():
 
 @pytest.mark.asyncio
 async def test_templates_en_metric_name_y_value():
-    node = MetricNode({"metric_name": "canal_{{canal}}", "value": "{{message}}"})
+    node = MetricNode({"metric_name": "canal_{{canal}}", "value": "{{conversation.last}}"})
+    state = _state()
+    append_conversation_entry(state, "user", "quiero reservar")
     with patch("pulpo.core.db.insert_metric", new_callable=AsyncMock) as mock_insert:
-        await node.run(_state(message="quiero reservar"))
+        await node.run(state)
 
     kwargs = mock_insert.call_args.kwargs
     assert kwargs["metric_name"] == "canal_telegram"

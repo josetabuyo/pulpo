@@ -84,7 +84,7 @@ class MetricNode(BaseNode):
                 "type":     "string",
                 "label":    "Valor",
                 "default":  "",
-                "hint":     "Soporta {{templates}}, ej: {{message}} o {{route}}",
+                "hint":     "Soporta {{templates}}, ej: {{conversation.last}} o {{route}}",
                 "required": True,
             },
             "metadata": {

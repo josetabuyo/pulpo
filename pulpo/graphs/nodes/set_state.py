@@ -1,10 +1,10 @@
 """
 SetStateNode — escribe un valor en un campo del FlowState.
 
-Soporta templates en `value`: {{message}}, {{contact_name}}, y cualquier
+Soporta templates en `value`: {{conversation.last}}, {{contact_name}}, y cualquier
 clave de state.data con {{clave}}. Útil para capturar la respuesta del
 usuario después de un wait_user:
-  set_state(field=direccion, value={{message}})
+  set_state(field=direccion, value={{conversation.last}})
 """
 from .base import BaseNode, interpolate
 from .state import FlowState

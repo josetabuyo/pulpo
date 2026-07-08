@@ -1,6 +1,11 @@
 """
 LLMNode — llama a un LLM con prompt configurable.
 
+El prompt (system) se interpola normalmente ({{conversation}}, {{conversation.last}}, etc.
+— ver interpolate() en base.py). Además, los turnos de state.data["conversation"] se mandan
+completos como mensajes user/assistant (no solo el último), para que el modelo tenga memoria
+real de la conversación.
+
 Config:
   prompt:          str   — system prompt
   model:           str   — modelo a usar (best:*, ollama/*, groq/*, o legacy)
@@ -172,10 +177,21 @@ class LLMNode(BaseNode):
         try:
             llm = _build_llm(model, temperature, json_out, router_strategy)
 
-            result = await llm.ainvoke([
-                {"role": "system", "content": system},
-                {"role": "user",   "content": state.message},
-            ])
+            # El historial de turnos (user/bot_reply) de esta ejecución de flow
+            # se manda completo como user/assistant — le da memoria real al LLM
+            # en vez de solo el último mensaje entrante.
+            messages = [{"role": "system", "content": system}]
+            conversation = state.data.get("conversation") or []
+            if conversation:
+                role_by_origin = {"user": "user", "bot_reply": "assistant"}
+                messages += [
+                    {"role": role_by_origin.get(entry.get("origin"), "user"), "content": entry.get("content", "")}
+                    for entry in conversation
+                ]
+            else:
+                messages.append({"role": "user", "content": state.message})
+
+            result = await llm.ainvoke(messages)
             content = result.content
 
             if json_out:

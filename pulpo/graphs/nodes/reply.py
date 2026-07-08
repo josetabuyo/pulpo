@@ -16,7 +16,7 @@ Config:
 import logging
 from datetime import datetime
 from .base import BaseNode, interpolate
-from .state import FlowState
+from .state import FlowState, append_conversation_entry
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,9 @@ class SendMessageNode(BaseNode):
                     )
                     return state
             state.data["reply"] = message
+            # Solo el reply al usuario (no los envíos a terceros) forma parte
+            # de la conversación con él.
+            append_conversation_entry(state, "bot_reply", message)
             return state
 
         await self._send(to, message, channel, state)
