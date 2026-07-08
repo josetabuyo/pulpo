@@ -9,7 +9,7 @@ def create_api_app() -> FastAPI:
     app.include_router(flows.router, prefix="/flows", tags=["flows"])
     app.include_router(messages.router, prefix="/messages", tags=["messages"])
     app.include_router(contacts.router, prefix="/contacts", tags=["contacts"])
-    app.include_router(settings.router, prefix="/settings", tags=["settings"])
+    app.include_router(settings.router, tags=["settings"])
     app.include_router(sim.router, prefix="/sim", tags=["sim"])
     app.include_router(wavi.router, prefix="/wavi", tags=["wavi"])
     app.include_router(logs.router, prefix="/logs", tags=["logs"])

@@ -1,12 +1,10 @@
 """
-Router: /settings
+Router: /config/settings
 
 Thin FastAPI wrapper over the business layer. No auth — auth is applied
 by interfaces/ui/app.py at mount time.
 
-Route layout (parent mounts at /settings):
-  GET /config/settings
-  PUT /config/settings
+Mounted without prefix (app.py) — routes below are the full path.
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
