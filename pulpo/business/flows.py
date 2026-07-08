@@ -3,6 +3,7 @@ Business logic for flow (agent graph) management.
 No FastAPI, no HTTPException, no Pydantic — plain Python types only.
 """
 
+import logging
 import os
 import json
 
@@ -10,6 +11,8 @@ import pulpo.core.db as db
 from pulpo.core.config import load_config
 from pulpo.graphs.node_types import NODE_TYPES
 from pulpo.graphs.nodes import NODE_REGISTRY, TRIGGER_TYPES
+
+logger = logging.getLogger(__name__)
 
 
 def list_node_types() -> list[dict]:
@@ -339,6 +342,36 @@ def seed_default_flows() -> None:
     No-op. Flows require an explicit connection_id and cannot be seeded automatically.
     """
     pass
+
+
+async def migrate_fetch_node_types() -> None:
+    """
+    Migración one-shot (idempotente): separa el viejo nodo genérico "fetch"
+    (con config.source: "http"|"facebook") en dos tipos con responsabilidad
+    única: "fetch_http" y "fetch_fb". Corre en cada startup; si no encuentra
+    nodos "fetch" no hace nada.
+    """
+    flow_ids = await db.get_all_flow_ids()
+    for flow_id in flow_ids:
+        flow = await db.get_flow(flow_id)
+        if not flow:
+            continue
+        definition = flow.get("definition") or {}
+        nodes = definition.get("nodes", [])
+        changed = False
+        for node in nodes:
+            if node.get("type") != "fetch":
+                continue
+            config = node.get("config", {})
+            source = config.pop("source", "facebook")
+            node["type"] = "fetch_fb" if source == "facebook" else "fetch_http"
+            changed = True
+            logger.info(
+                "[migrate_fetch_node_types] flow=%s node=%s: fetch(source=%s) → %s",
+                flow_id, node.get("id"), source, node["type"],
+            )
+        if changed:
+            await db.update_flow(flow_id, definition=definition)
 
 
 async def list_bot_google_accounts(bot_id: str) -> list[dict]:

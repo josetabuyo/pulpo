@@ -20,28 +20,38 @@ No existe `backend/` — fue eliminado. Ver `docs/adr/001-paquete-pulpo.md`.
 
 ```
 pulpo/
-  business/       # lógica de dominio: flows, contactos, sim, wavi, bots
-  connections/    # drivers de canal: telegram, wavi_poller, teli_poller
+  business/       # lógica de dominio: flows, contactos, sim, wavi, bots,
+                  #   connections_phones (WhatsApp/connections.json),
+                  #   connections_google (Google service accounts/DB)
   core/           # db, config, state, lifespan
-  graphs/         # compilador de flows + nodos (uno por subdirectorio)
+  graphs/         # compilador de flows + nodos (uno por archivo en graphs/nodes/)
   interfaces/
-    api/          # FastAPI puro — 17 routers bajo /api
+    api/          # FastAPI puro — routers bajo /api
     ui/           # API + SPA estática — entrypoint de producción
     cli/          # CLI Click: pulpo server ui|api, pulpo db init
     lib/          # PulpoClient — Python API in-process
-  tools/          # todo lo externo: wavi_driver, teli_driver, telegram, transcription, browser
+  bots/           # driver de Telegram (telegram_bot.py, python-telegram-bot)
+  tools/          # todo lo externo que un nodo puede usar: wavi_driver (WhatsApp),
+                  #   facebook/ (scraping), transcription, browser
 frontend/         # React + Vite (dev: :5173, prod: dist/ compilado)
 tests/            # integration tests + e2e tests (ver ADR-004)
+scripts/          # scripts operacionales standalone (ver "Renovar cookies de FB" abajo)
 docs/adr/         # decisiones de arquitectura
 ```
 
+> No existe `pulpo/connections/` como paquete — es un nombre de dominio, no un
+> directorio. Los drivers de canal reales viven en `tools/` (WhatsApp vía wavi_driver)
+> y en `bots/` (Telegram). Si en algún momento se justifica unificarlos bajo un
+> paquete propio, actualizar este documento en el mismo commit que el movimiento.
+
 **Regla de oro:** la lógica va en `pulpo/business/` o `pulpo/graphs/`.
 Las interfaces solo coordinan. Los tests unitarios van inline junto al código
-que testean (`pulpo/graphs/nodes/reply/test_reply.py`).
+que testean (`pulpo/graphs/nodes/test_router.py`, `pulpo/business/test_flows.py`).
 
-**`tools/` es todo lo externo que un nodo puede usar** — drivers de canal (wavi, teli,
-telegram), transcripción, browser. Los nodos importan directamente de `tools/`. Nadie más.
-`business/` solo recibe FlowState — sin conocimiento de canal.
+**`tools/` es todo lo externo que un nodo puede usar** — drivers de canal (wavi,
+telegram), scraping de Facebook, transcripción, browser. Los nodos importan
+directamente de `tools/`. Nadie más. `business/` solo recibe FlowState — sin
+conocimiento de canal.
 
 **Cada ejecución de flow tiene un `run_id`** (ADR-006). El compilador loguea cada step
 en `flow_run_steps` con el FlowState de entrada y salida. Permite debug visual y gates
@@ -74,6 +84,16 @@ Todos se corren desde la raíz de `_/`. **Nunca usar uvicorn directo ni matar pr
 ./stop-frontend.sh    # detiene el Vite dev server con SIGTERM
 ./restart-backend.sh  # stop + sleep 3 + start back
 ```
+
+**Cookies de Facebook (Luganense scrapea FB para noticias del barrio):**
+
+```bash
+python scripts/fb_login.py          # renovar cookies — abre browser visible, resolver 2FA/captcha a mano
+python scripts/fb_check_cookies.py  # chequear expiración — alerta por Telegram al admin si hay problema
+python scripts/test_fb_debug.py     # smoke-test manual del scraping + cache (no es pytest)
+```
+
+`fb_check_cookies.py` está pensado para correr por cron diario (ver docstring del script).
 
 ---
 

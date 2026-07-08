@@ -23,7 +23,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from pulpo.nodes import fb_cache as _fb_cache
+from pulpo.tools.facebook import fb_cache as _fb_cache
 
 logger = logging.getLogger(__name__)
 

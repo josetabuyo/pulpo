@@ -179,3 +179,13 @@
 /* ── Estados de carga ── */
 .arch-loading { padding: 40px; text-align: center; color: var(--atext-dim); }
 .arch-error { padding: 30px; text-align: center; color: var(--ared); font-size: 12px; }
+
+/* ── Diagramas mermaid ── */
+.arch-diagram-note { color: var(--atext-dim); font-size: 12px; margin: -6px 0 14px; }
+.arch-diagram { margin-bottom: 22px; }
+.arch-diagram h4 { margin: 0 0 8px; font-size: 12px; color: var(--atext-dim); text-transform: uppercase; letter-spacing: 0.06em; }
+.arch-diagram-svg {
+  background: var(--asurface); border: 1px solid var(--aborder); border-radius: 10px;
+  padding: 16px; overflow-x: auto;
+}
+.arch-diagram-svg svg { display: block; margin: 0 auto; max-width: none; }

@@ -10,10 +10,13 @@
  */
 import { useState, useEffect, useRef } from 'react'
 import { apiQuiet } from '../api.js'
+import MermaidDiagram from './MermaidDiagram.jsx'
+import { LAYERS_DIAGRAM, CONNECTIONS_DIAGRAM } from '../architectureDiagrams.js'
 import './architecture.css'
 
 const SECTIONS = [
   ['vision', 'Visión'],
+  ['diagramas', 'Diagramas'],
   ['stack', 'Stack'],
   ['flows', 'Motor de flows'],
   ['api', 'API'],
@@ -129,11 +132,21 @@ export default function ArchitectureSection({ pwd, collapsed }) {
           <span className="arch-badge">FastAPI <b>:8000</b></span>
           <span className="arch-badge">React + Vite <b>:5173</b></span>
           <span className="arch-badge">SQLite</span>
-          <span className="arch-badge"><b>{channels.bots}</b> bots</span>
+          <span className="arch-badge"><b>{channels.bots_active}</b>/{channels.bots_total} bots activos</span>
           <span className="arch-badge"><b>{channels.telegram_bots}</b> bots TG</span>
           <span className="arch-badge"><b>{channels.wavi_sessions}</b> sesiones wavi</span>
           <span className="arch-badge"><b>{apiInfo.total_routes}</b> rutas API</span>
         </div>
+      </div>
+
+      {/* ── Diagramas ── */}
+      <div className="arch-section" id="arch-diagramas">
+        <h3><span className="arch-hash">#</span>Diagramas</h3>
+        <p className="arch-diagram-note">
+          Mantenidos a mano — revisar cuando se mueven o renombran módulos (ver CLAUDE.md).
+        </p>
+        <MermaidDiagram source={LAYERS_DIAGRAM} title="Capas — quién puede importar a quién" />
+        <MermaidDiagram source={CONNECTIONS_DIAGRAM} title="Conexiones — canales, drivers y dónde persiste cada uno" />
       </div>
 
       {/* ── Stack y módulos ── */}
@@ -241,7 +254,7 @@ export default function ArchitectureSection({ pwd, collapsed }) {
       <div className="arch-section" id="arch-tests">
         <h3><span className="arch-hash">#</span>Tests — resultados reales de la última corrida</h3>
         <div className="arch-tests">
-          <TestPanel title="Backend — pytest" cmd="cd backend && pytest tests/ -v" report={tests.backend} />
+          <TestPanel title="Backend — pytest (unit + integración)" cmd="uv run pytest pulpo/ tests/ -v" report={tests.backend} />
           <TestPanel title="Frontend — Playwright" cmd="cd frontend && npx playwright test" report={tests.frontend} />
         </div>
       </div>

@@ -13,7 +13,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from pulpo.business import connections as connections_svc
+from pulpo.business import connections_phones as connections_svc
 
 logger = logging.getLogger(__name__)
 

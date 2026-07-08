@@ -107,14 +107,19 @@ def _flow_engine_nodes() -> list[dict]:
     return nodes
 
 
-async def get_architecture(routes: list[dict], monitor_dir: Path, root_dir: Path) -> dict:
+async def get_architecture(routes: list[dict], monitor_dir: Path, reports_dir: Path, root_dir: Path) -> dict:
+    from pulpo.core.paused import is_paused
+
     config = load_config()
 
-    backend_report = _load_json_or_none(monitor_dir / "test_report_backend.json")
+    backend_report = _load_json_or_none(reports_dir / "test-report.json")
     frontend_raw = _load_json_or_none(monitor_dir / "test_report_frontend.json")
     frontend_report = _normalize_playwright(frontend_raw) if frontend_raw else None
 
     import pulpo.tools.wavi_driver as wd
+
+    bots = config.get("bots", [])
+    bots_active = [b for b in bots if not is_paused(b["id"])]
 
     return {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -139,7 +144,8 @@ async def get_architecture(routes: list[dict], monitor_dir: Path, root_dir: Path
         "channels": {
             "telegram_bots": len(get_telegram_connections(config)),
             "wavi_sessions": len(wd.list_session_names()),
-            "bots": len(config.get("bots", [])),
+            "bots_total": len(bots),
+            "bots_active": len(bots_active),
             "wa_poll_interval_seconds": get_wa_poll_interval(),
         },
         "tests": {

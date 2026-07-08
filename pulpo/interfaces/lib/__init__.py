@@ -13,10 +13,12 @@ from pulpo.business.bots import (
     update_bot,
     delete_bot,
 )
-from pulpo.business.connections import (
+from pulpo.business.connections_phones import (
     list_connections,
     create_connection,
     delete_connection,
+)
+from pulpo.business.connections_google import (
     list_google_connections,
     create_google_connection,
     delete_google_connection,

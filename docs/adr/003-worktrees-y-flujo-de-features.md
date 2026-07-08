@@ -20,8 +20,8 @@ base de datos aislada. El worktree corre en **modo simulado** (`ENABLE_BOTS=fals
    git worktree add /Users/josetabuyo/Development/pulpo/<rama> -b <rama>
 
 2. Setup (symlinks + .env con puertos únicos)
-   ln -s /Users/josetabuyo/Development/pulpo/_/node_modules <wdir>/node_modules
-   ln -s /Users/josetabuyo/Development/pulpo/_/phones.json  <wdir>/phones.json
+   ln -s /Users/josetabuyo/Development/pulpo/_/frontend/node_modules <wdir>/frontend/node_modules
+   ln -s /Users/josetabuyo/Development/pulpo/_/connections.json      <wdir>/connections.json
    # NO linkear data/ — cada worktree tiene su propia DB aislada
    mkdir -p <wdir>/data
 

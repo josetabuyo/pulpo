@@ -1,7 +1,7 @@
 import asyncio
 import json
 import click
-from pulpo.business import connections as svc
+from pulpo.business import connections_phones as svc
 
 
 @click.group()

@@ -9,7 +9,11 @@ import logging
 import os
 from datetime import datetime
 
-SIM_MODE = os.environ.get("ENABLE_BOTS", "true").lower() != "true"
+# Fail-safe: si ENABLE_BOTS no está seteado (ej. corriendo `pulpo` directo sin
+# pasar por start.sh/launchd, que son los que cargan el .env), el default debe
+# ser modo simulado — nunca conectar bots reales por accidente. Producción
+# (com.josetabuyo.pulpo.plist) setea ENABLE_BOTS=true explícitamente.
+SIM_MODE = os.environ.get("ENABLE_BOTS", "false").lower() != "true"
 logger = logging.getLogger(__name__)
 
 # { session_id: [{ role, text, from_name, ts }] }

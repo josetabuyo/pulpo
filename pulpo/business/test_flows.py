@@ -137,3 +137,52 @@ async def test_get_flow_version_denies_other_bot():
         assert await svc.get_flow_version("otro_bot", flow["id"], versions[0]["id"]) is None
     finally:
         await _cleanup(flow["id"])
+
+
+@pytest.mark.asyncio
+async def test_migrate_fetch_node_types_separa_por_source():
+    definition = {
+        "nodes": [
+            {"id": "buscar_fb", "type": "fetch", "config": {"source": "facebook", "fb_page_id": "luganense"}},
+            {"id": "buscar_dir", "type": "fetch", "config": {"source": "http", "url": "https://x.test/{query}"}},
+            {"id": "buscar_default", "type": "fetch", "config": {}},
+            {"id": "otro", "type": "llm", "config": {"prompt": "hola"}},
+        ],
+        "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1},
+    }
+    flow = await svc.create_flow(
+        bot_id=BOT_ID, name="Con nodos fetch viejos", definition=definition,
+        connection_id="conn-1", contact_phone=None, contact_filter=None,
+    )
+    try:
+        await svc.migrate_fetch_node_types()
+        migrated = await svc.get_flow(flow["id"], BOT_ID)
+        by_id = {n["id"]: n for n in migrated["definition"]["nodes"]}
+
+        assert by_id["buscar_fb"]["type"] == "fetch_fb"
+        assert "source" not in by_id["buscar_fb"]["config"]
+        assert by_id["buscar_dir"]["type"] == "fetch_http"
+        assert "source" not in by_id["buscar_dir"]["config"]
+        assert by_id["buscar_default"]["type"] == "fetch_fb"  # default histórico era "facebook"
+        assert by_id["otro"]["type"] == "llm"  # no tocado
+    finally:
+        await _cleanup(flow["id"])
+
+
+@pytest.mark.asyncio
+async def test_migrate_fetch_node_types_es_idempotente():
+    definition = {
+        "nodes": [{"id": "buscar_fb", "type": "fetch", "config": {"source": "facebook"}}],
+        "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1},
+    }
+    flow = await svc.create_flow(
+        bot_id=BOT_ID, name="Idempotencia", definition=definition,
+        connection_id="conn-1", contact_phone=None, contact_filter=None,
+    )
+    try:
+        await svc.migrate_fetch_node_types()
+        await svc.migrate_fetch_node_types()  # segunda corrida no debe romper nada
+        migrated = await svc.get_flow(flow["id"], BOT_ID)
+        assert migrated["definition"]["nodes"][0]["type"] == "fetch_fb"
+    finally:
+        await _cleanup(flow["id"])

@@ -700,6 +700,13 @@ async def create_flow(
     return flow_id
 
 
+async def get_all_flow_ids() -> list[str]:
+    """Todos los flow ids, sin filtrar por bot — solo para migraciones one-shot."""
+    async with AsyncSessionLocal() as session:
+        rows = (await session.execute(text("SELECT id FROM flows"))).fetchall()
+    return [r[0] for r in rows]
+
+
 async def get_flows(bot_id: str) -> list[dict]:
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(
