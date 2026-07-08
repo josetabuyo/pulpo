@@ -6,6 +6,41 @@ import { HighlightStyle, syntaxHighlighting, syntaxTree } from '@codemirror/lang
 import { autocompletion } from '@codemirror/autocomplete'
 import { tags } from '@lezer/highlight'
 
+// ─── Triple-quote strings (estilo Python) — legibles, sin \n literales ────────
+// """texto\nmultilínea""" se convierte a un string JSON válido antes de parsear.
+// No soporta """ dentro del contenido (misma limitación que Python).
+
+function convertTripleQuotes(text) {
+  return text.replace(/"""([\s\S]*?)"""/g, (_, content) => JSON.stringify(content))
+}
+
+// Serializa un valor con el mismo formato que JSON.stringify(v, null, 2),
+// salvo que los strings con saltos de línea reales se emiten como """...""".
+function stringifyPretty(value, indent = 0) {
+  const pad = '  '.repeat(indent)
+  const padInner = '  '.repeat(indent + 1)
+  if (value === null || value === undefined) return 'null'
+  if (typeof value === 'number' || typeof value === 'boolean') return JSON.stringify(value)
+  if (typeof value === 'string') {
+    if (value.includes('\n') && !value.includes('"""')) {
+      return `"""${value}"""`
+    }
+    return JSON.stringify(value)
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '[]'
+    const items = value.map(v => padInner + stringifyPretty(v, indent + 1))
+    return '[\n' + items.join(',\n') + '\n' + pad + ']'
+  }
+  if (typeof value === 'object') {
+    const keys = Object.keys(value)
+    if (keys.length === 0) return '{}'
+    const items = keys.map(k => padInner + JSON.stringify(k) + ': ' + stringifyPretty(value[k], indent + 1))
+    return '{\n' + items.join(',\n') + '\n' + pad + '}'
+  }
+  return JSON.stringify(value)
+}
+
 // ─── Sanitize control chars inside strings before parsing ─────────────────────
 
 function sanitize(text) {
@@ -153,7 +188,7 @@ const DEFAULT_EDITOR_HEIGHT = 200
 const MIN_AYUDA_HEIGHT = 90
 
 export default function JsonNodeEditor({ config, schema, onChange }) {
-  const stringify = c => JSON.stringify(c, null, 2)
+  const stringify = c => stringifyPretty(c)
 
   const [text, setText] = useState(() => stringify(config))
   const [parseError, setParseError] = useState(null)
@@ -225,7 +260,7 @@ export default function JsonNodeEditor({ config, schema, onChange }) {
     clearTimeout(debounceTimer.current)
     debounceTimer.current = setTimeout(() => {
       try {
-        const parsed = JSON.parse(sanitize(value))
+        const parsed = JSON.parse(sanitize(convertTripleQuotes(value)))
         if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
           setParseError('La config debe ser un objeto JSON')
           return
