@@ -43,7 +43,7 @@ Llama al LLM con el mensaje del usuario + un prompt configurable. Puede responde
   "output": "reply"
 }
 ```
-- `output`: `"reply"` (responde al usuario) o `"context"` (guarda en `state.context` para el siguiente nodo)
+- `output`: clave libre de `state.data` donde se guarda la respuesta. Convención: `"reply"` (responde al usuario), `"context"` (pasa al siguiente nodo), `"query"` (para búsqueda/fetch) — pero puede ser cualquier nombre custom (ej: `"necesidad"`).
 
 ---
 
@@ -55,7 +55,7 @@ Nodo especializado que toma el mensaje del usuario y genera una query optimizada
   "output": "query"
 }
 ```
-- Guarda el resultado en `state.query` para que un `search` o `fetch` lo use.
+- Guarda el resultado en `state.data["query"]` para que un `search` o `fetch` lo use.
 
 ---
 
