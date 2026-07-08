@@ -75,7 +75,7 @@ Compartí el link de tu bot (`t.me/herreria_soporte_bot`) con tus clientes. Cuan
 | API REST      | FastAPI + uvicorn                               |
 | Frontend      | React + Vite                                    |
 | Base de datos | SQLite async (`data/messages.db`)               |
-| WhatsApp      | Playwright headless (perfil Chrome persistente) |
+| WhatsApp      | vía wavi (CLI propio, poller + sesión Chrome persistente) |
 | Telegram      | python-telegram-bot v21                         |
 | Exposición    | ngrok (etapa 1) → Cloudflare Tunnel (etapa 2)  |
 
@@ -85,9 +85,9 @@ Compartí el link de tu bot (`t.me/herreria_soporte_bot`) con tus clientes. Cuan
 
 ### Requisitos
 
-- Python 3.11+
+- Python 3.11+ (paquete `pulpo`, instalado en modo editable — ver `CLAUDE.md`)
 - Node 18+
-- `phones.json` con la configuración de bots
+- `connections.json` con la configuración de bots
 
 ### Arrancar
 
@@ -106,49 +106,27 @@ ADMIN_PASSWORD=...
 ### Tests
 
 ```bash
-# Backend (requiere server corriendo)
-cd backend
-pytest tests/ -v
+# Unitarios (sin server)
+uv run pytest pulpo/ -v
+
+# Integración (requiere server en BACKEND_PORT)
+uv run pytest tests/ -v
 
 # Frontend Playwright (requiere server corriendo)
 cd frontend
-node_modules/.bin/playwright test
+npx playwright test
 ```
 
 ---
 
 ## 🗂️ Estructura del proyecto
 
-```
-_/
-├── backend/
-│   ├── main.py              # FastAPI app, lifespan, routers
-│   ├── sim.py               # Simulador (activo cuando ENABLE_BOTS=false)
-│   ├── state.py             # clients dict + wa_session singleton
-│   ├── config.py            # lee phones.json
-│   ├── db.py                # SQLite async
-│   ├── api/                 # routers: auth, bots, phones, whatsapp,
-│   │                        #          telegram, messages, sim, bot, logs
-│   ├── automation/
-│   │   └── whatsapp.py      # lógica WA Web con Playwright
-│   ├── bots/
-│   │   └── telegram_bot.py  # bot de Telegram
-│   └── tests/               # pytest: auth, logs, sim
-├── frontend/
-│   ├── src/
-│   │   ├── pages/
-│   │   │   ├── DashboardPage.jsx    # panel admin
-│   │   │   ├── BotPage.jsx      # portal de bot (login + dashboard)
-│   │   │   └── NewBotPage.jsx # onboarding nueva bot
-│   │   └── components/
-│   │       ├── ChatWidget.jsx       # chat inline reutilizable
-│   │       └── MonitorPanel.jsx     # drawer de monitoring en tiempo real
-│   └── tests/               # Playwright: login, monitor
-├── management/              # planes, visión, arquitectura
-├── phones.json              # config de bots y teléfonos (gitignoreado)
-├── data/                    # DB y sesiones Chrome (gitignoreado)
-└── start.sh                 # arranque unificado
-```
+La estructura de `pulpo/` (paquete pip editable, 4 interfaces) y las reglas de
+dónde va cada cosa están documentadas en `CLAUDE.md` — es la fuente de verdad,
+se mantiene junto al código en cada cambio. Los diagramas de arquitectura
+(capas, conexiones/canales) están en `docs/adr/007-diagramas-arquitectura.md`
+y también se ven renderizados en vivo en el panel admin
+(`/dashboard?arquitectura=1`).
 
 ---
 
@@ -162,13 +140,13 @@ Cada feature se desarrolla en su propio worktree — un servidor independiente c
 | dev-1        | 8001    | 5174     | Libre      |
 | dev-2        | 8002    | 5175     | Libre      |
 
-Ver `CLAUDE.md` para el flujo completo de creación de worktrees, symlinks y setup.
+Ver `docs/adr/003-worktrees-y-flujo-de-features.md` para el flujo completo de creación de worktrees, symlinks y setup.
 
 ---
 
 ## 🗺️ Roadmap
 
-- [x] Bots de WhatsApp (Playwright headless)
+- [x] Bots de WhatsApp (vía wavi)
 - [x] Bots de Telegram (python-telegram-bot)
 - [x] Respuesta automática configurable por bot
 - [x] Portal de bot — gestión de canales + chat inline
