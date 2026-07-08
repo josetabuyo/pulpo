@@ -91,6 +91,30 @@ async def _start_tg_bot(cfg: dict, build_telegram_app, clients: dict) -> tuple |
     return tg_app, session_id, bot_info
 
 
+async def _tg_health_watchdog(tg_app, label: str):
+    """
+    El Updater reintenta getUpdates solo ante fallas de red, pero nunca loguea
+    cuándo se recupera — solo silencio. Este watchdog chequea la conexión cada
+    30s con un get_me() liviano y deja un rastro claro de inicio/fin de caída,
+    para no depender de "no hay más tracebacks" como única señal de que volvió.
+    """
+    down_since = None
+    while True:
+        await asyncio.sleep(30)
+        try:
+            await asyncio.wait_for(tg_app.bot.get_me(), timeout=10)
+            if down_since is not None:
+                duration = asyncio.get_event_loop().time() - down_since
+                logger.info(f"{label} ✅ Conexión con Telegram recuperada tras {duration:.0f}s de caída.")
+                down_since = None
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            if down_since is None:
+                down_since = asyncio.get_event_loop().time()
+                logger.error(f"{label} ⚠️ Sin conexión con Telegram — reintentando cada 30s hasta que se recupere.")
+
+
 async def _seed_pulpo_google_connection():
     """Si GOOGLE_SERVICE_ACCOUNT_JSON está en .env y no existe 'pulpo-default', lo crea."""
     import json as _json
@@ -151,6 +175,7 @@ async def pulpo_lifespan(app):
         config = load_config()
         tg_configs = get_telegram_connections(config)
         _tg_apps = []
+        _tg_watchdogs = []
 
         for cfg in tg_configs:
             result = await _start_tg_bot(cfg, build_telegram_app, clients)
@@ -165,9 +190,9 @@ async def pulpo_lifespan(app):
                 }
                 _tg_apps.append(tg_app)
                 token_id = cfg["token"].split(":")[0]
-                logger.info(
-                    f"[{cfg['connection_id']}/tg-{token_id}] Bot de Telegram listo — @{bot_info.username}."
-                )
+                label = f"[{cfg['connection_id']}/tg-{token_id}]"
+                logger.info(f"{label} Bot de Telegram listo — @{bot_info.username}.")
+                _tg_watchdogs.append(asyncio.create_task(_tg_health_watchdog(tg_app, label)))
 
         if not tg_configs:
             logger.warning("No hay bots de Telegram configurados en connections.json.")
@@ -192,9 +217,13 @@ async def pulpo_lifespan(app):
 
         app.state._tg_apps = _tg_apps
 
+        app.state._tg_watchdogs = _tg_watchdogs
+
     yield
 
     if not sim_engine.SIM_MODE:
+        for task in getattr(app.state, '_tg_watchdogs', []):
+            task.cancel()
         for tg_app in getattr(app.state, '_tg_apps', []):
             await tg_app.updater.stop()
             await tg_app.stop()

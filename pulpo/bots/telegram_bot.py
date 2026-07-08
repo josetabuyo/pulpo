@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from telegram import Update
@@ -6,6 +7,14 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTyp
 from pulpo.core.db import log_message, mark_answered
 
 logger = logging.getLogger(__name__)
+
+_SEND_MAX_RETRIES = 3
+_SEND_RETRY_BACKOFF = 1.5  # segundos, se duplica en cada intento
+
+_DISCULPAS_MSG = (
+    "Uy, perdón — tuvimos un problema técnico y no pudimos mandarte la respuesta a tiempo. "
+    "¿Me lo repetís en un ratito? 🙏"
+)
 
 
 def build_telegram_app(bot_config: dict):
@@ -98,14 +107,35 @@ def build_telegram_app(bot_config: dict):
         if not reply or text == reply:
             return
 
-        try:
-            await msg.reply_text(reply, parse_mode="Markdown")
+        sent = False
+        last_error: Exception | None = None
+        for attempt in range(1, _SEND_MAX_RETRIES + 1):
+            try:
+                await msg.reply_text(reply, parse_mode="Markdown")
+                sent = True
+                break
+            except Exception as e:
+                last_error = e
+                logger.warning(f"{label}   → Intento {attempt}/{_SEND_MAX_RETRIES} falló al responder: {e}")
+                if attempt < _SEND_MAX_RETRIES:
+                    await asyncio.sleep(_SEND_RETRY_BACKOFF * attempt)
+
+        if sent:
             for eid, mid in msg_ids.items():
                 await mark_answered(mid)
                 await log_message(eid, token_id, sender_id, "Bot", reply, outbound=True)
             logger.info(f"{label}   → Respuesta enviada: {reply[:500]}")
+            return
+
+        logger.error(f"{label}   → Agotados los {_SEND_MAX_RETRIES} intentos al responder: {last_error}")
+        try:
+            await msg.reply_text(_DISCULPAS_MSG)
+            for eid, mid in msg_ids.items():
+                await mark_answered(mid)
+                await log_message(eid, token_id, sender_id, "Bot", _DISCULPAS_MSG, outbound=True)
+            logger.info(f"{label}   → Disculpas enviadas tras fallo de envío")
         except Exception as e:
-            logger.error(f"{label}   → Error al responder: {e}")
+            logger.error(f"{label}   → No se pudo ni siquiera enviar el mensaje de disculpas: {e}")
 
     async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         err = context.error

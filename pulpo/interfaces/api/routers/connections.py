@@ -8,9 +8,7 @@ Note: the original source had bot-or-admin auth on filter-config endpoints
 and google-connection endpoints. In this layer all endpoints are auth-free;
 access control is handled by the parent mount.
 """
-import json
 import logging
-import uuid
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -142,57 +140,3 @@ def delete_connection_filter(number: str):
     return {"ok": True}
 
 
-# ─── Google connections (bot-scoped, under /bots/{bot_id}/google-connections) ─
-# These are defined here alongside the rest of connections logic even though
-# their path prefix differs — the parent app mounts them without a prefix so
-# we use full sub-paths.
-
-class GoogleConnectionCreate(BaseModel):
-    credentials_json: str
-    label: str | None = None
-
-
-@router.get("/bots/{bot_id}/google-connections")
-async def list_google_connections(bot_id: str):
-    try:
-        return await connections_svc.list_google_connections(bot_id=bot_id)
-    except KeyError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-
-@router.post("/bots/{bot_id}/google-connections", status_code=201)
-async def create_google_connection(bot_id: str, body: GoogleConnectionCreate):
-    try:
-        info = json.loads(body.credentials_json)
-    except Exception:
-        raise HTTPException(status_code=400, detail="credentials_json no es JSON válido")
-    email = info.get("client_email", "")
-    if not email or "private_key" not in info:
-        raise HTTPException(status_code=400, detail="El JSON debe tener client_email y private_key")
-    conn_id = str(uuid.uuid4())
-    label = body.label or email.split("@")[0]
-    try:
-        return await connections_svc.create_google_connection(
-            conn_id=conn_id,
-            bot_id=bot_id,
-            credentials_json=body.credentials_json,
-            email=email,
-            label=label,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@router.delete("/bots/{bot_id}/google-connections/{conn_id}")
-async def delete_google_connection(bot_id: str, conn_id: str):
-    if conn_id == "pulpo-default":
-        raise HTTPException(status_code=403, detail="La conexión Pulpo no se puede eliminar")
-    try:
-        return await connections_svc.delete_google_connection(
-            bot_id=bot_id,
-            conn_id=conn_id,
-        )
-    except KeyError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e))

@@ -105,9 +105,11 @@ class FetchNode(BaseNode):
         if not url:
             logger.warning("[FetchNode] http sin url configurada")
             return
-        # Template substitution: {message} and {query} are replaced with user input
+        # Template substitution: {message} and {query} are replaced with user input.
+        # {query} prioriza la necesidad ya identificada (más limpia para buscar) sobre
+        # el mensaje crudo — "query" recién se define más adelante, en la rama noticias.
         url = url.replace("{message}", state.message or "")
-        url = url.replace("{query}", state.data.get("query") or state.message or "")
+        url = url.replace("{query}", state.data.get("query") or state.data.get("necesidad") or state.message or "")
         try:
             import httpx
             async with httpx.AsyncClient(timeout=15) as client:
