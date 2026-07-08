@@ -26,6 +26,7 @@ router = APIRouter()
 # architecture.py vive en pulpo/interfaces/api/routers/ → subir 5 niveles llega a _/ (worktree root)
 _ROOT = Path(__file__).parent.parent.parent.parent.parent
 _MONITOR = _ROOT / "monitor"
+_REPORTS = _ROOT / "reports"
 
 
 def _collect_routes(route_list, prefix: str = "") -> list[dict]:
@@ -61,6 +62,7 @@ async def get_architecture(request: Request) -> dict:
         return await architecture_svc.get_architecture(
             routes=routes,
             monitor_dir=_MONITOR,
+            reports_dir=_REPORTS,
             root_dir=_ROOT,
         )
     except ValueError as e:

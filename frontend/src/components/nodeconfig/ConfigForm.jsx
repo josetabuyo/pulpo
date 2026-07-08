@@ -25,7 +25,7 @@ export default function ConfigForm({ node, schema, botId, flowId, connections, a
   const [showBackupConfirm, setShowBackupConfirm] = useState(false)
 
   const isTrigger = TRIGGER_TYPES.has(nodeType)
-  const isFbFetch = nodeType === 'fetch' && config.source === 'facebook'
+  const isFbFetch = nodeType === 'fetch_fb'
 
   function handleChange(newConfig) { updateNodeConfig(node.id, newConfig) }
 

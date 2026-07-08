@@ -19,7 +19,8 @@ from .summarize import SummarizeNode
 from .router import RouterNode
 from .condition import ConditionNode
 from .llm import LLMNode
-from .fetch import FetchNode
+from .fetch_http import FetchHttpNode
+from .fetch_fb import FetchFbNode
 from .vector_search import VectorSearchNode
 from .set_state import SetStateNode
 from .save_contact import SaveContactNode
@@ -51,7 +52,8 @@ NODE_REGISTRY: dict[str, type] = {
     "condition":        ConditionNode,
     "llm":              LLMNode,
     "send_message":     SendMessageNode,
-    "fetch":            FetchNode,
+    "fetch_http":       FetchHttpNode,
+    "fetch_fb":         FetchFbNode,
     "vector_search":    VectorSearchNode,
     "summarize":        SummarizeNode,
     "set_state":        SetStateNode,
@@ -76,7 +78,7 @@ TRIGGER_TYPES: frozenset[str] = frozenset(
 __all__ = [
     "NODE_REGISTRY", "TRIGGER_TYPES", "BaseTriggerNode",
     "MessageTriggerNode", "RouterNode", "ConditionNode", "LLMNode", "SendMessageNode",
-    "FetchNode", "VectorSearchNode", "SummarizeNode",
+    "FetchHttpNode", "FetchFbNode", "VectorSearchNode", "SummarizeNode",
     "SetStateNode", "SaveContactNode",
     "TranscribeAudioNode", "SaveAttachmentNode",
     "TelegramTriggerNode", "WhatsappTriggerNode", "ApiTriggerNode", "MessageJoinNode",

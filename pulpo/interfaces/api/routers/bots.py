@@ -4,15 +4,13 @@ Router: /bots
 Thin FastAPI wrapper over the business layer. No auth — auth is applied
 by interfaces/ui/app.py at mount time.
 """
-import json
 import logging
-import uuid
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from pulpo.business import bots as bots_svc
-from pulpo.business import connections as connections_svc
+from pulpo.business import connections_google as connections_svc
 
 logger = logging.getLogger(__name__)
 
@@ -101,21 +99,10 @@ async def list_google_connections(bot_id: str):
 @router.post("/{bot_id}/google-connections", status_code=201)
 async def create_google_connection(bot_id: str, body: GoogleConnectionCreate):
     try:
-        info = json.loads(body.credentials_json)
-    except Exception:
-        raise HTTPException(status_code=400, detail="credentials_json no es JSON válido")
-    email = info.get("client_email", "")
-    if not email or "private_key" not in info:
-        raise HTTPException(status_code=400, detail="El JSON debe tener client_email y private_key")
-    conn_id = str(uuid.uuid4())
-    label = body.label or email.split("@")[0]
-    try:
         return await connections_svc.create_google_connection(
-            conn_id=conn_id,
             bot_id=bot_id,
             credentials_json=body.credentials_json,
-            email=email,
-            label=label,
+            label=body.label,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
