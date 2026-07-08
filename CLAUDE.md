@@ -69,6 +69,7 @@ bloqueantes (flows que esperan un evento externo para reanudar).
 | [004](docs/adr/004-estrategia-de-tests.md) | Unit / integration / e2e — cuándo correr qué |
 | [005](docs/adr/005-produccion-launchd.md) | Launchd, `.venv-pulpo`, comandos de prod |
 | [006](docs/adr/006-durable-workflow-journal.md) | Flow runs con journal en DB — debug visual y gates bloqueantes |
+| [007](docs/adr/007-diagramas-arquitectura.md) | Diagramas de arquitectura, dominio conexiones separado, fetch dividido en fetch_http/fetch_fb |
 
 ---
 
