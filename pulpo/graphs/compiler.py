@@ -3,15 +3,18 @@ Flow Engine — el motor que ejecuta flows.
 
 Responsabilidades:
   - resolve_flows(): encuentra los flows activos de una bot
-  - execute_flow(): corre los nodos de un flow en BFS desde su trigger
-  - run_flows(): orquesta ambos y devuelve el FlowState con reply
+  - execute_flow(): corre los nodos de UN flow en BFS desde su trigger
+  - dispatch_message(): orquesta execute_flow() sobre TODOS los flows de una
+    bot para un mensaje entrante, y devuelve el FlowState con reply
 
 Colaboradores:
   - trigger_match.select_trigger(): decide si un trigger aplica al mensaje
   - cooldown.flow_cooldown: rate limit de replies por (flow, contacto)
+  - conversation.py: dueño de cuándo un flow acumula data["conversation"]
+    (el engine acá es agnóstico a mensajería — ver ese módulo)
 
 Los adapters (Telegram, Wavi, Sim) normalizan el mensaje a FlowState
-y llaman a run_flows(). El engine no sabe nada de protocolos.
+y llaman a dispatch_message(). El engine no sabe nada de protocolos.
 """
 import copy
 import json
@@ -20,9 +23,10 @@ import os
 import uuid
 from datetime import datetime
 
+from . import conversation
 from .cooldown import cooldown_hours, flow_cooldown
-from .nodes import NODE_REGISTRY, TRIGGER_TYPES
-from .nodes.state import FlowState, append_conversation_entry
+from .nodes import NODE_REGISTRY, TRIGGER_TYPES, MESSAGE_TRIGGER_TYPES
+from .nodes.state import FlowState
 from .trigger_match import select_trigger
 
 logger = logging.getLogger(__name__)
@@ -281,6 +285,8 @@ async def execute_flow(
             return state
 
         entry_id = match.node["id"]
+        if match.type in MESSAGE_TRIGGER_TYPES:
+            conversation.start_conversation(state)
     else:
         # Compatibilidad hacia atrás: sin triggers → usar __start__
         if "__start__" not in node_by_id:
@@ -292,6 +298,9 @@ async def execute_flow(
                          db_contact, state.contact_phone)
             return state
         entry_id = "__start__"
+        # Legacy: flows sin triggers son de antes de que existieran — siempre
+        # fueron message-based (contact_phone en DB), así que son conversación.
+        conversation.start_conversation(state)
 
     # ─── Journal: crear run antes de ejecutar (ADR-006) ──────────────────────
     run_id: str | None = str(uuid.uuid4())
@@ -373,15 +382,16 @@ def _message_predates_flow(state: FlowState, flow: dict) -> bool:
         return False  # sin created_at o formato raro: ejecutar igual (safe default)
 
 
-async def run_flows(
+async def dispatch_message(
     state: FlowState,
     connection_id: str,
 ) -> FlowState:
     """
-    Punto de entrada principal para los adapters.
+    Punto de entrada principal para los adapters — UN mensaje entrante,
+    despachado sobre TODOS los flows de las bots dueñas de connection_id.
 
     1. Encuentra las bots dueñas de este connection_id
-    2. Para cada bot: resuelve sus flows activos y los ejecuta
+    2. Para cada bot: resuelve sus flows activos y los ejecuta (execute_flow)
     3. Primer reply no-None gana; todos los nodos sin reply (ej: SummarizeNode) corren igual
 
     Retorna el FlowState con reply si algún nodo lo produjo.
@@ -390,7 +400,7 @@ async def run_flows(
     from pulpo.core.paused import is_paused
 
     bot_ids = get_bots_for_connection(connection_id)
-    logger.debug("[engine] run_flows: connection=%s contact=%s bots=%s",
+    logger.debug("[engine] dispatch_message: connection=%s contact=%s bots=%s",
                  connection_id, state.contact_phone, bot_ids)
     if not bot_ids:
         return state
@@ -439,18 +449,17 @@ async def run_flows(
                     state.data["_conv_resume_node"] = waiting.get("resume_node_id", "")
                     # El array conversation viaja dentro de saved (es parte de data) —
                     # acá solo agregamos el turno nuevo que trajo esta reanudación.
-                    append_conversation_entry(state, "user", state.message)
+                    # Reanudar un wait_user ES por definición continuar una conversación.
+                    conversation.continue_conversation(state)
                     await _db.end_flow_run(waiting["run_id"], "completed")
                     logger.info("[engine] Reanudando wait_user run=%s desde nodo=%s contacto=%s age=%dm",
                                 waiting["run_id"], waiting["resume_node_id"], state.contact_phone, age_minutes)
                     state = await execute_flow(flow, state, entry_node_id=waiting["resume_node_id"])
                     continue
-            # Sin conversación abierta — inyectar flag para nodos detect_conversation
+            # Sin conversación abierta — inyectar flag para nodos detect_conversation.
+            # (El primer turno de una conversación nueva lo siembra execute_flow(),
+            # gateado por el tipo de trigger — ver graphs/conversation.py)
             state.data["_has_open_conv"] = False
-            # Flow recién disparado (no es una reanudación) — arrancar la conversación
-            # con el primer turno del usuario, una sola vez por mensaje entrante.
-            if not state.data.get("conversation"):
-                append_conversation_entry(state, "user", state.message)
         except Exception:
             logger.warning("[engine] error en dispatcher wait_user (non-fatal)", exc_info=True)
         # ─────────────────────────────────────────────────────────────────────

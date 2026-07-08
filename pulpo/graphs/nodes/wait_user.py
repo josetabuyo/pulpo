@@ -4,8 +4,9 @@ WaitUserNode — pausa el flow y espera la próxima respuesta del contacto.
 Diferencia vs GateNode (AND-join): este nodo siempre bloquea la primera vez.
 El compiler detecta el bloqueo, persiste el estado (slots) y el nodo de reanudación
 en DB, y marca el run como 'waiting_gate'. Cuando el mismo contacto envía un
-nuevo mensaje, el dispatcher en run_flows retoma la ejecución desde el nodo
-siguiente a este, con el estado previo restaurado y el nuevo mensaje en state.message.
+nuevo mensaje, el dispatcher en dispatch_message (compiler.py) retoma la ejecución
+desde el nodo siguiente a este, con el estado previo restaurado, el nuevo mensaje
+en state.message, y ese turno agregado a data["conversation"] (graphs/conversation.py).
 
 No tiene config: basta con conectarlo en el flow. El timeout/expiración de
 conversaciones colgadas se maneja externamente (no en este nodo).

@@ -15,8 +15,9 @@ Config:
 """
 import logging
 from datetime import datetime
+from ..conversation import record_bot_reply
 from .base import BaseNode, interpolate
-from .state import FlowState, append_conversation_entry
+from .state import FlowState
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +50,9 @@ class SendMessageNode(BaseNode):
                     return state
             state.data["reply"] = message
             # Solo el reply al usuario (no los envíos a terceros) forma parte
-            # de la conversación con él.
-            append_conversation_entry(state, "bot_reply", message)
+            # de la conversación con él — y solo si esta ejecución ya es una
+            # conversación (ver graphs/conversation.py).
+            record_bot_reply(state, message)
             return state
 
         await self._send(to, message, channel, state)

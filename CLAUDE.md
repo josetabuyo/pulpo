@@ -175,8 +175,9 @@ BACKEND_PORT=8000 ADMIN_PASSWORD=... uv run pytest pulpo/ tests/ -v
 | `pulpo/core/lifespan.py` | Startup: DB, bots Telegram, wavi poller |
 | `pulpo/core/db.py` | SQLite async (aiosqlite) |
 | `pulpo/core/config.py` | Lee `connections.json` |
-| `pulpo/graphs/compiler.py` | Compila y ejecuta flows |
-| `pulpo/business/flows.py` | CRUD de flows + `run_flows()` |
+| `pulpo/graphs/compiler.py` | Motor de flows: `execute_flow()` (un flow) y `dispatch_message()` (todos los flows de una bot para un mensaje entrante) |
+| `pulpo/graphs/conversation.py` | Dueño de cuándo un flow acumula `data["conversation"]` (triggers de canal humano, wait_user) |
+| `pulpo/business/flows.py` | CRUD de flows + `trigger_flow()` (entrada vía api_trigger) |
 | `connections.json` | Config de bots y conexiones (gitignoreado) |
 | `data/messages.db` | Base de datos (gitignoreado, auto-creada) |
 | `start-backend-launchd.sh` | Script de arranque para launchd |

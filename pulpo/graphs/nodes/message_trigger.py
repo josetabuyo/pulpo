@@ -5,10 +5,10 @@ Retrocompatibilidad con flows creados antes de los triggers por canal
 (telegram_trigger, whatsapp_trigger). Para flows nuevos conviene usar
 el trigger específico del canal.
 """
-from .base_trigger import BaseTriggerNode
+from .base_trigger import BaseMessageTriggerNode
 
 
-class MessageTriggerNode(BaseTriggerNode):
+class MessageTriggerNode(BaseMessageTriggerNode):
     label = "Trigger de mensaje"
     color = "#166534"
     description = "Punto de entrada genérico (cualquier canal). Usar telegram_trigger para flows nuevos."

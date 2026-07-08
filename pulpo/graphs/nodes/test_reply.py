@@ -14,9 +14,22 @@ def _state(**kwargs) -> FlowState:
 @pytest.mark.asyncio
 async def test_reply_al_usuario_agrega_turno_bot_reply():
     node = SendMessageNode({"message": "¿en qué te ayudo?"})
-    state = await node.run(_state())
+    state = _state()
+    state.data["conversation"] = [{"origin": "user", "content": "hola"}]
+    state = await node.run(state)
     assert state.data["reply"] == "¿en qué te ayudo?"
-    assert state.data["conversation"] == [{"origin": "bot_reply", "content": "¿en qué te ayudo?"}]
+    assert state.data["conversation"][-1] == {"origin": "bot_reply", "content": "¿en qué te ayudo?"}
+
+
+@pytest.mark.asyncio
+async def test_reply_sin_conversacion_previa_no_crea_una_huerfana():
+    """record_bot_reply no debe iniciar una conversación por sí solo — solo
+    la continúa. Un flow no-conversacional (ej. api_trigger) que responde con
+    `to` vacío no debe terminar con un data["conversation"] de un solo turno."""
+    node = SendMessageNode({"message": "ok"})
+    state = await node.run(_state())
+    assert state.data["reply"] == "ok"
+    assert "conversation" not in state.data
 
 
 @pytest.mark.asyncio

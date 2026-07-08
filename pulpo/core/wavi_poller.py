@@ -16,7 +16,7 @@ import logging
 import pulpo.tools.wavi_driver as wd
 from pulpo.core.config import get_wa_poll_interval, get_bots_for_connection
 from pulpo.core.db import log_message, wavi_msg_hash, wavi_seen_add, wavi_seen_has, wavi_seen_prune
-from pulpo.graphs.compiler import run_flows
+from pulpo.graphs.compiler import dispatch_message
 from pulpo.graphs.nodes.state import FlowState
 from pulpo.core.state import wavi_status
 
@@ -124,9 +124,9 @@ async def _poll_session(session: str):
             connection_id=session,
         )
         try:
-            state = await run_flows(state, connection_id=session)
+            state = await dispatch_message(state, connection_id=session)
         except Exception:
-            logger.exception("[wavi-poll] run_flows error for %s/%s", session, name)
+            logger.exception("[wavi-poll] dispatch_message error for %s/%s", session, name)
             continue
 
         reply = state.data.get("reply") or ""

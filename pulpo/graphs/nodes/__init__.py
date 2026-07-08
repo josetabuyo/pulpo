@@ -11,8 +11,13 @@ Para agregar un nodo nuevo:
 
 TRIGGER_TYPES se deriva del registro: todo nodo que subclasee BaseTriggerNode
 es un trigger — no hace falta tocar el engine para agregar uno nuevo.
+
+MESSAGE_TRIGGER_TYPES es el subconjunto que subclasea BaseMessageTriggerNode —
+triggers de un canal de mensajería humana (WhatsApp, Telegram, y los que se
+agreguen a futuro). Solo esos flows acumulan conversación (ver graphs/conversation.py):
+un flow puede existir sin ser una conversación (ej. api_trigger).
 """
-from .base_trigger import BaseTriggerNode
+from .base_trigger import BaseTriggerNode, BaseMessageTriggerNode
 from .message_trigger import MessageTriggerNode
 from .reply import SendMessageNode
 from .summarize import SummarizeNode
@@ -75,8 +80,15 @@ TRIGGER_TYPES: frozenset[str] = frozenset(
     if issubclass(cls, BaseTriggerNode)
 )
 
+# Subconjunto de TRIGGER_TYPES que representa un canal de mensajería humana.
+MESSAGE_TRIGGER_TYPES: frozenset[str] = frozenset(
+    type_id for type_id, cls in NODE_REGISTRY.items()
+    if issubclass(cls, BaseMessageTriggerNode)
+)
+
 __all__ = [
-    "NODE_REGISTRY", "TRIGGER_TYPES", "BaseTriggerNode",
+    "NODE_REGISTRY", "TRIGGER_TYPES", "MESSAGE_TRIGGER_TYPES",
+    "BaseTriggerNode", "BaseMessageTriggerNode",
     "MessageTriggerNode", "RouterNode", "ConditionNode", "LLMNode", "SendMessageNode",
     "FetchHttpNode", "FetchFbNode", "VectorSearchNode", "SummarizeNode",
     "SetStateNode", "SaveContactNode",
