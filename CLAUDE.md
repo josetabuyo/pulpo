@@ -65,7 +65,7 @@ bloqueantes (flows que esperan un evento externo para reanudar).
 |-----|------|
 | [001](docs/adr/001-paquete-pulpo.md) | Por qué `pulpo/` reemplazó `backend/` |
 | [002](docs/adr/002-cuatro-interfaces.md) | Las 4 interfaces y cuándo agregar a cada una |
-| [003](docs/adr/003-worktrees-y-flujo-de-features.md) | Features en worktrees, merge desde master |
+| [003](docs/adr/003-worktrees-y-flujo-de-features.md) | Features en worktrees, merge desde master — **en pausa**, ver "Flujo para una feature nueva" |
 | [004](docs/adr/004-estrategia-de-tests.md) | Unit / integration / e2e — cuándo correr qué |
 | [005](docs/adr/005-produccion-launchd.md) | Launchd, `.venv-pulpo`, comandos de prod |
 | [006](docs/adr/006-durable-workflow-journal.md) | Flow runs con journal en DB — debug visual y gates bloqueantes |
@@ -108,17 +108,23 @@ python scripts/test_fb_debug.py     # smoke-test manual del scraping + cache (no
 
 ---
 
-## Flujo para una feature nueva
+## Flujo para una feature nueva (actual — sin worktrees)
+
+Por ahora trabajamos **directo en `master`**, sin worktrees por feature. El flujo de
+ADR-003 (worktree por rama, `ENABLE_BOTS=false`, merge desde `_`) queda documentado
+pero en pausa — se retoma cuando haya 2+ clientes en producción o salgamos a prod
+en serio. Ahí vamos a introducir una rama/ambiente `development` o worktrees por
+tarea. Hasta entonces:
 
 ```
-1. Crear worktree  →  git worktree add ../pulpo/<rama> -b <rama>
-2. Setup symlinks  →  ver ADR-003
-3. Desarrollar     →  ENABLE_BOTS=false (simulador), puerto distinto al 8000
-4. Tests           →  uv run pytest pulpo/ tests/ -v
-5. Si toca flows   →  uv run pytest tests/ -m e2e -v (bots reales, antes del merge)
-6. Merge           →  desde _ : git merge <rama> --no-ff && git push origin master
-7. Limpiar         →  stop-backend en worktree → git worktree remove <rama>
+1. Desarrollar  →  directo en master (_/), ENABLE_BOTS=true, bots reales conectados
+2. Tests        →  uv run pytest pulpo/ tests/ -v
+3. Si toca flows →  probar contra bots reales antes de dar por cerrado
+4. Commit       →  directo en master, sin merge
 ```
+
+**Cuidado:** al no haber ambiente separado, cualquier cambio corre contra producción
+con bots reales desde el primer momento. Ver "Producción" arriba.
 
 ---
 
@@ -136,14 +142,13 @@ ls session/haiku-done.flag session/opus-done.flag 2>/dev/null
 
 ## Rol de Claude en este proyecto
 
-Claude en `_` (master) es el **orquestador y guardián de producción**:
+Claude en `_` (master) es el **guardián de producción** — por ahora trabajamos
+todo directo acá, sin worktrees (ver "Flujo para una feature nueva" arriba):
 
 1. **Guardián de prod** — nada se toca en producción sin criterio. Sesiones WA son valiosas:
    nunca `pkill -9` en Chromium, nunca borrar `data/sessions/` sin confirmación.
 
-2. **Orquestador** — crea worktrees con setup completo y documenta el scope en `management/`.
-
-3. **Merges y push** — siempre desde `_/`, nunca desde un worktree.
+2. **Commits y push** — directo en `master`, avisando antes de pushear (ver reglas globales).
 
 ---
 
