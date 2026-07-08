@@ -11,6 +11,13 @@ contact_filter, message_pattern, cooldown_hours) y estos atributos de clase:
 Para agregar un trigger nuevo alcanza con subclasear y registrarlo en
 NODE_REGISTRY: TRIGGER_TYPES se deriva automáticamente y el engine
 no necesita cambios.
+
+Un flow no es intrínsecamente una conversación — puede ser cualquier cosa
+(un webhook que prende una luz). BaseMessageTriggerNode marca los triggers
+que sí representan un canal de mensajería humana (WhatsApp, Telegram, y los
+que se agreguen a futuro — Instagram, Facebook, etc.): solo esos flows
+acumulan data["conversation"] (ver graphs/conversation.py). api_trigger,
+por ejemplo, se queda en BaseTriggerNode — no es conversacional.
 """
 from .base import BaseNode
 from .state import FlowState
@@ -56,3 +63,7 @@ class BaseTriggerNode(BaseNode):
                 "hint": "Tiempo mínimo entre respuestas al mismo contacto. 0 = sin límite.",
             },
         }
+
+
+class BaseMessageTriggerNode(BaseTriggerNode):
+    """Trigger de un canal de mensajería humana — ver docstring del módulo."""

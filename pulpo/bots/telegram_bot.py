@@ -82,7 +82,7 @@ def build_telegram_app(bot_config: dict):
         logger.info(f"{label} Mensaje de {sender_name}: \"{text}\"")
 
         # Flow engine
-        from pulpo.graphs.compiler import run_flows
+        from pulpo.graphs.compiler import dispatch_message
         from pulpo.graphs.nodes.state import FlowState
 
         state = FlowState(
@@ -93,7 +93,7 @@ def build_telegram_app(bot_config: dict):
             contact_name=sender_name,
             canal="telegram",
         )
-        state = await run_flows(state, connection_id=session_id)
+        state = await dispatch_message(state, connection_id=session_id)
         reply = state.data.get("reply") or ""
 
         # Appendar URLs de fuentes en código (el LLM no lo hace consistentemente)

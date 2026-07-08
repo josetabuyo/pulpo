@@ -92,7 +92,7 @@ async def sim_receive(
         logger.info("[sim] AUDIO transcrito de %s: %s", from_phone, text[:80])
 
     # Flow engine
-    from pulpo.graphs.compiler import run_flows
+    from pulpo.graphs.compiler import dispatch_message
     from pulpo.graphs.nodes.state import FlowState
 
     state = FlowState(
@@ -103,7 +103,7 @@ async def sim_receive(
         contact_name=from_name,
         canal=channel_type,
     )
-    state = await run_flows(state, connection_id=session_id)
+    state = await dispatch_message(state, connection_id=session_id)
     reply = state.data.get("reply")
 
     if reply:

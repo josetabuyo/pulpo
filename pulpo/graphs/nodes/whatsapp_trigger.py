@@ -3,10 +3,10 @@ WhatsappTriggerNode — trigger específico de WhatsApp via Wavi.
 
 Solo activa flows cuando state.canal == "wavi".
 """
-from .base_trigger import BaseTriggerNode
+from .base_trigger import BaseMessageTriggerNode
 
 
-class WhatsappTriggerNode(BaseTriggerNode):
+class WhatsappTriggerNode(BaseMessageTriggerNode):
     label = "WhatsApp Trigger"
     color = "#15803d"
     description = "Punto de entrada para mensajes de WhatsApp (Wavi). Solo activa el flow si el mensaje viene por WA."
