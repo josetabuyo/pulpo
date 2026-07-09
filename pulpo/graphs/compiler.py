@@ -277,6 +277,7 @@ async def execute_flow(
                 waiting = result.data.pop("_has_waiting_gate", False)
                 final_status = "error" if errors else ("waiting_gate" if waiting else "completed")
                 await _db.end_flow_run(run_id, final_status)
+                await _save_open_conversation_if_applicable(result, flow, waiting)
             except Exception:
                 logger.warning("[engine] error al cerrar flow_run de api_trigger (non-fatal)", exc_info=True)
 
@@ -340,10 +341,39 @@ async def execute_flow(
             waiting = result.data.pop("_has_waiting_gate", False)
             final_status = "error" if errors else ("waiting_gate" if waiting else "completed")
             await _db.end_flow_run(run_id, final_status)
+            await _save_open_conversation_if_applicable(result, flow, waiting)
         except Exception:
             logger.warning("[engine] error al cerrar flow_run (non-fatal)", exc_info=True)
 
     return result
+
+
+async def _save_open_conversation_if_applicable(state: FlowState, flow: dict, waiting: bool) -> None:
+    """
+    Conversación abierta más allá del wait_user (Escenarios A+B — ver
+    management/NEXT_SESSION_MENSAJES_RAPIDOS.md). Se excluye el caso
+    waiting_gate a propósito: ese ya tiene su propio mecanismo de reanudación
+    (slots_json + get_waiting_gate_run) — no conviene que compitan dos fuentes
+    de verdad para el mismo run. Estado explícito, sin ventana de tiempo: el
+    cierre por abandono lo hace un proceso aparte (ver db.prune_open_conversations).
+    """
+    if waiting or not state.contact_phone:
+        return
+    if state.data.pop("_conversation_closed", False):
+        # end_conversation ya cerró la fila explícitamente en este mismo run —
+        # no resucitarla acá solo porque state.data["conversation"] sigue en memoria.
+        return
+    conv = state.data.get("conversation")
+    if not conv:
+        return
+    from pulpo.core import db as _db
+    await _db.save_open_conversation(
+        bot_id=state.bot_id or flow.get("bot_id", ""),
+        contact_phone=state.contact_phone,
+        connection_id=state.connection_id,
+        flow_id=flow.get("id", ""),
+        conversation_json=json.dumps(conv, default=str),
+    )
 
 
 async def resolve_flows(bot_id: str) -> list[dict]:
@@ -395,6 +425,41 @@ def _message_predates_flow(state: FlowState, flow: dict) -> bool:
         return False  # sin created_at o formato raro: ejecutar igual (safe default)
 
 
+# ── Lock en memoria por (bot_id, contact_phone) ──────────────────────────
+# Evita que un segundo mensaje dispare una ejecución PARALELA del mismo flow
+# para el mismo contacto mientras la primera sigue corriendo (fuera de
+# wait_user, que ya se serializa solo porque el run queda parqueado en DB).
+# Un mensaje que llega con el lock tomado no arranca un flow nuevo: se
+# acumula en _PENDING_MESSAGES y se despacha en cadena — uno a la vez,
+# reusando wait_user/open_conversations para el contexto — apenas se libera
+# el lock. Ver management/NEXT_SESSION_MENSAJES_RAPIDOS.md.
+_IN_FLIGHT: set[tuple[str, str]] = set()
+_PENDING_MESSAGES: dict[tuple[str, str], list[FlowState]] = {}
+
+
+def _clone_state_for_replay(state: FlowState, bot_id: str) -> FlowState:
+    """
+    Copia liviana para encolar en _PENDING_MESSAGES: mismos datos de canal/
+    contacto/mensaje, pero data={} fresco — nunca comparte el dict mutable
+    del state original (que sigue viajando por el resto del loop de bots).
+    """
+    return FlowState(
+        message=state.message,
+        message_type=state.message_type,
+        attachment_path=state.attachment_path,
+        connection_id=state.connection_id,
+        bot_name="",
+        bot_id=bot_id,
+        contact_phone=state.contact_phone,
+        contact_name=state.contact_name,
+        canal=state.canal,
+        from_poll=state.from_poll,
+        from_delta_sync=state.from_delta_sync,
+        timestamp=state.timestamp,
+        group_sender=state.group_sender,
+    )
+
+
 async def dispatch_message(
     state: FlowState,
     connection_id: str,
@@ -434,6 +499,9 @@ async def dispatch_message(
         state.data.setdefault("_conv_ttl_hours", bot_entry.get("conversation_ttl_hours", 24))
 
         # ── Dispatcher wait_user: reanudar conversación pausada ──────────────
+        # Corre siempre, sin lock: un run parqueado en wait_user ya está
+        # serializado por definición (nada está "en vuelo").
+        resumed_wait_user = False
         try:
             from pulpo.core import db as _db
             waiting = await _db.get_waiting_gate_run(bot_id, state.contact_phone or "")
@@ -471,50 +539,97 @@ async def dispatch_message(
                     logger.info("[engine] Reanudando wait_user run=%s desde nodo=%s contacto=%s age=%dm",
                                 waiting["run_id"], waiting["resume_node_id"], state.contact_phone, age_minutes)
                     state = await execute_flow(flow, state, entry_node_id=waiting["resume_node_id"])
-                    continue
-            # Sin conversación abierta — inyectar flag para nodos detect_conversation.
-            # (El primer turno de una conversación nueva lo siembra execute_flow(),
-            # gateado por el tipo de trigger — ver graphs/conversation.py)
-            state.data["_has_open_conv"] = False
+                    resumed_wait_user = True
         except Exception:
             logger.warning("[engine] error en dispatcher wait_user (non-fatal)", exc_info=True)
         # ─────────────────────────────────────────────────────────────────────
-
-        flows = await resolve_flows(bot_id)
-
-        # Bot pausado — la conexión sigue viva pero no genera replies.
-        # Se ejecuta igual sobre una copia para que summarize y otros
-        # efectos de lado sigan funcionando.
-        if is_paused(bot_id):
-            logger.info("[engine] Bot pausado: %s — flows ejecutados sin reply", bot_id)
-            state_copy = FlowState(**{f: getattr(state, f) for f in state.__dataclass_fields__})
-            state_copy.data = copy.deepcopy(state.data)
-            state_copy.from_delta_sync = True  # bloquea replies en todos los nodos
-            for flow in flows:
-                state_copy.bot_id = bot_id
-                state_copy.bot_name = state.bot_name
-                await execute_flow(flow, state_copy)
+        if resumed_wait_user:
             continue
 
-        for flow in flows:
-            if _message_predates_flow(state, flow):
-                logger.debug("[engine] Mensaje anterior a flow '%s' (msg:%s) — skip",
-                             flow["name"], state.timestamp)
+        # ── Lock en memoria: sin wait_user pendiente, evitar una ejecución
+        # paralela del mismo flow para este contacto. Si ya hay una corriendo,
+        # este mensaje se acumula (_PENDING_MESSAGES) y se despacha en cadena
+        # al liberar — no arranca un flow nuevo acá. Ver _IN_FLIGHT arriba.
+        key = (bot_id, state.contact_phone or "")
+        if key in _IN_FLIGHT:
+            _PENDING_MESSAGES.setdefault(key, []).append(_clone_state_for_replay(state, bot_id))
+            logger.info("[engine] mensaje encolado (flow en vuelo) bot=%s contacto=%s",
+                        bot_id, state.contact_phone)
+            continue
+
+        _IN_FLIGHT.add(key)
+        try:
+            # Sin wait_user pendiente — ¿hay una conversación abierta igual
+            # (el flow terminó normalmente pero la charla sigue viva)? El
+            # trigger de mensaje simplemente encola el turno nuevo en esa
+            # conversación y deja que el flow siga su curso normal más abajo
+            # (execute_flow() no-opea start_conversation() si "conversation"
+            # ya está en state.data). Sin ventana de tiempo: es estado
+            # explícito, se cierra por end_conversation o por el cron externo
+            # de prune_open_conversations — ver management/NEXT_SESSION_MENSAJES_RAPIDOS.md.
+            try:
+                from pulpo.core import db as _db
+                open_conv = await _db.get_open_conversation(bot_id, state.contact_phone or "")
+                if open_conv:
+                    state.data["conversation"] = json.loads(open_conv["conversation_json"])
+                    state.data["_has_open_conv"] = True
+                    updated = datetime.strptime(open_conv["updated_at"], "%Y-%m-%d %H:%M:%S")
+                    state.data["_conv_age_minutes"] = int((datetime.utcnow() - updated).total_seconds() / 60)
+                    conversation.continue_conversation(state)
+                else:
+                    # Sin conversación abierta — inyectar flag para nodos detect_conversation.
+                    # (El primer turno de una conversación nueva lo siembra execute_flow(),
+                    # gateado por el tipo de trigger — ver graphs/conversation.py)
+                    state.data["_has_open_conv"] = False
+            except Exception:
+                logger.warning("[engine] error chequeando open_conversation (non-fatal)", exc_info=True)
+
+            flows = await resolve_flows(bot_id)
+
+            # Bot pausado — la conexión sigue viva pero no genera replies.
+            # Se ejecuta igual sobre una copia para que summarize y otros
+            # efectos de lado sigan funcionando.
+            if is_paused(bot_id):
+                logger.info("[engine] Bot pausado: %s — flows ejecutados sin reply", bot_id)
+                state_copy = FlowState(**{f: getattr(state, f) for f in state.__dataclass_fields__})
+                state_copy.data = copy.deepcopy(state.data)
+                state_copy.from_delta_sync = True  # bloquea replies en todos los nodos
+                for flow in flows:
+                    state_copy.bot_id = bot_id
+                    state_copy.bot_name = state.bot_name
+                    await execute_flow(flow, state_copy)
                 continue
 
-            prev_reply = state.data.get("reply")
-            state = await execute_flow(flow, state)
-            # Si este flow generó un reply nuevo, registrar timestamp para cooldown
-            if state.data.get("reply") and state.data.get("reply") != prev_reply:
-                entry = next(
-                    (n for n in flow.get("definition", {}).get("nodes", [])
-                     if n.get("type") in TRIGGER_TYPES),
-                    None,
-                )
-                if entry:
-                    ch = cooldown_hours(entry.get("config") or {}, entry.get("type", ""))
-                    if ch > 0:
-                        flow_cooldown.mark(flow["id"], state.contact_phone or "")
+            for flow in flows:
+                if _message_predates_flow(state, flow):
+                    logger.debug("[engine] Mensaje anterior a flow '%s' (msg:%s) — skip",
+                                 flow["name"], state.timestamp)
+                    continue
+
+                prev_reply = state.data.get("reply")
+                state = await execute_flow(flow, state)
+                # Si este flow generó un reply nuevo, registrar timestamp para cooldown
+                if state.data.get("reply") and state.data.get("reply") != prev_reply:
+                    entry = next(
+                        (n for n in flow.get("definition", {}).get("nodes", [])
+                         if n.get("type") in TRIGGER_TYPES),
+                        None,
+                    )
+                    if entry:
+                        ch = cooldown_hours(entry.get("config") or {}, entry.get("type", ""))
+                        if ch > 0:
+                            flow_cooldown.mark(flow["id"], state.contact_phone or "")
+        finally:
+            _IN_FLIGHT.discard(key)
+            pending = _PENDING_MESSAGES.pop(key, [])
+            if pending:
+                next_state = pending.pop(0)
+                if pending:
+                    _PENDING_MESSAGES[key] = pending
+                # Encadenar — reusa wait_user/open_conversations para el
+                # contexto, no duplica la ejecución del flow que acaba de
+                # terminar (o de quedar parqueado en wait_user) acá arriba.
+                await dispatch_message(next_state, connection_id=connection_id)
 
     if disable_reply and state.data.get("reply") is not None:
         logger.info("[engine] Kill switch activado — reply descartado (connection_id=%s)",

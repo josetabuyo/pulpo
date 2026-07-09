@@ -237,10 +237,13 @@ async def expire_conversations(
     farewell: str | None = None,
 ):
     """Expira conversaciones en waiting_gate más viejas que max_age_hours.
-    Si farewell no es 'no', manda un mensaje de despedida a cada contacto expirado."""
+    Si farewell no es 'no', manda un mensaje de despedida a cada contacto expirado.
+    También poda open_conversations abandonadas (sin despedida — esos flows ya
+    habían terminado solos, no hay wait_user a mitad de camino que cortar)."""
     from pulpo.core import db as _db
     expired = await _db.expire_old_conversations(max_age_hours)
     count = len(expired)
+    pruned = await _db.prune_open_conversations(max_age_hours)
 
     send_farewell = farewell != "no"
     if send_farewell and expired:
@@ -279,7 +282,7 @@ async def expire_conversations(
             except Exception as e:
                 _log.warning("[expire] Error farewell → %s: %s", contact, e)
 
-    return {"expired": count, "max_age_hours": max_age_hours}
+    return {"expired": count, "open_conversations_pruned": pruned, "max_age_hours": max_age_hours}
 
 
 @router.post("/{flow_id}/trigger/{node_id}")

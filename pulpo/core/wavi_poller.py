@@ -97,47 +97,61 @@ async def _poll_session(session: str):
         if not name or not preview:
             continue
 
-        # Dedup on the sidebar preview (check-updates signal).
+        # Dedup on the sidebar preview (check-updates signal) — filtro barato
+        # para no pedir el detalle completo si no hay nada nuevo.
         if await _already_seen(session, name, preview):
             logger.debug("[wavi-poll] skip duplicate %s/%s", session, name)
             continue
-        await _mark_seen(session, name, preview)
 
-        # Fetch the full message text via wavi get --newest.
-        full_text = await wd.get_last_inbound(session, name)
-        if full_text is None:
-            logger.warning("[wavi-poll] get_last_inbound failed for %s/%s, falling back to preview", session, name)
-            full_text = preview
+        # Traer varios mensajes recientes (no solo el último) y quedarnos con
+        # los que todavía no procesamos, en orden cronológico — una ráfaga de
+        # 3 mensajes del usuario entre polls ya no pierde los 2 primeros.
+        recent_texts = await wd.get_recent_inbound_texts(session, name)
+        if not recent_texts:
+            logger.warning("[wavi-poll] get_recent_inbound_texts vacío para %s/%s, usando preview", session, name)
+            recent_texts = [preview]
 
-        for bot_id in bot_ids:
+        new_texts = []  # cronológico: más vieja primero
+        for text in recent_texts:  # recent_texts viene más nueva primero
+            if await _already_seen(session, name, text):
+                break  # ya vimos este y todo lo que sigue (más viejo)
+            new_texts.append(text)
+        new_texts.reverse()
+        if not new_texts:
+            new_texts = [preview]  # fallback: al menos el que gatilló el poll
+
+        for full_text in new_texts:
+            await _mark_seen(session, name, full_text)
+
+            for bot_id in bot_ids:
+                try:
+                    await log_message(bot_id, session, name, name, full_text)
+                except Exception as e:
+                    logger.warning("[wavi-poll] log_message error: %s", e)
+
+            state = FlowState(
+                message=full_text,
+                message_type="text",
+                contact_phone=name,
+                contact_name=name,
+                canal="wavi",
+                connection_id=session,
+            )
             try:
-                await log_message(bot_id, session, name, name, full_text)
-            except Exception as e:
-                logger.warning("[wavi-poll] log_message error: %s", e)
-
-        state = FlowState(
-            message=full_text,
-            message_type="text",
-            contact_phone=name,
-            contact_name=name,
-            canal="wavi",
-            connection_id=session,
-        )
-        try:
-            state = await dispatch_message(state, connection_id=session)
-        except Exception:
-            logger.exception("[wavi-poll] dispatch_message error for %s/%s", session, name)
-            continue
-
-        reply = state.data.get("reply") or ""
-        if reply:
-            try:
-                await wd.send(session, name, reply)
-                for bot_id in bot_ids:
-                    await log_message(bot_id, session, name, "Bot", reply, outbound=True)
-                await _mark_seen(session, name, reply)  # dedup the outbound too
+                state = await dispatch_message(state, connection_id=session)
             except Exception:
-                logger.exception("[wavi-poll] send error for %s/%s", session, name)
+                logger.exception("[wavi-poll] dispatch_message error for %s/%s", session, name)
+                continue
+
+            reply = state.data.get("reply") or ""
+            if reply:
+                try:
+                    await wd.send(session, name, reply)
+                    for bot_id in bot_ids:
+                        await log_message(bot_id, session, name, "Bot", reply, outbound=True)
+                    await _mark_seen(session, name, reply)  # dedup the outbound too
+                except Exception:
+                    logger.exception("[wavi-poll] send error for %s/%s", session, name)
 
 
 async def _loop():

@@ -271,6 +271,23 @@ async def init_db():
             "CREATE INDEX IF NOT EXISTS idx_metrics_metric_name ON metrics(metric_name)"
         ))
 
+        # ─── Conversación abierta más allá del wait_user ─────────────
+        # Estado explícito (no derivado de tiempo transcurrido): un mensaje nuevo
+        # sin wait_user pendiente encuentra acá si hay charla en curso para
+        # continuar. Se cierra por end_conversation (explícito) o por un cron
+        # externo que llama prune_open_conversations() (abandono).
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS open_conversations (
+                bot_id            TEXT NOT NULL,
+                contact_phone     TEXT NOT NULL,
+                connection_id     TEXT,
+                flow_id           TEXT,
+                conversation_json TEXT NOT NULL,
+                updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (bot_id, contact_phone)
+            )
+        """))
+
 async def create_job(
     bot_id: str,
     cliente_phone: str,
@@ -1096,6 +1113,77 @@ async def close_waiting_conversations(bot_id: str, contact_phone: str) -> int:
                   AND status = 'waiting_gate'
             """),
             {"bot_id": bot_id, "contact_phone": contact_phone},
+        )
+        await session.commit()
+        return result.rowcount or 0
+
+
+async def save_open_conversation(
+    bot_id: str,
+    contact_phone: str,
+    connection_id: str | None,
+    flow_id: str,
+    conversation_json: str,
+) -> None:
+    """Upsert de la conversación en curso para (bot, contacto) — sin wait_user."""
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            text("""
+                INSERT INTO open_conversations
+                    (bot_id, contact_phone, connection_id, flow_id, conversation_json, updated_at)
+                VALUES (:bot_id, :contact_phone, :connection_id, :flow_id, :conversation_json, CURRENT_TIMESTAMP)
+                ON CONFLICT(bot_id, contact_phone) DO UPDATE SET
+                    connection_id=excluded.connection_id,
+                    flow_id=excluded.flow_id,
+                    conversation_json=excluded.conversation_json,
+                    updated_at=CURRENT_TIMESTAMP
+            """),
+            {
+                "bot_id": bot_id, "contact_phone": contact_phone,
+                "connection_id": connection_id, "flow_id": flow_id,
+                "conversation_json": conversation_json,
+            },
+        )
+        await session.commit()
+
+
+async def get_open_conversation(bot_id: str, contact_phone: str) -> dict | None:
+    """Conversación en curso para (bot, contacto), sin filtro de tiempo — el
+    cierre por abandono lo hace prune_open_conversations() aparte."""
+    async with AsyncSessionLocal() as session:
+        row = (await session.execute(
+            text("""
+                SELECT flow_id, conversation_json, updated_at
+                FROM open_conversations
+                WHERE bot_id=:bot_id AND contact_phone=:contact_phone
+            """),
+            {"bot_id": bot_id, "contact_phone": contact_phone},
+        )).fetchone()
+    if not row:
+        return None
+    return {"flow_id": row[0], "conversation_json": row[1], "updated_at": str(row[2])}
+
+
+async def close_open_conversation(bot_id: str, contact_phone: str) -> None:
+    """Cierre explícito (ej. nodo end_conversation) — borra la fila."""
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            text("DELETE FROM open_conversations WHERE bot_id=:bot_id AND contact_phone=:contact_phone"),
+            {"bot_id": bot_id, "contact_phone": contact_phone},
+        )
+        await session.commit()
+
+
+async def prune_open_conversations(max_age_hours: int = 24) -> int:
+    """Cierre por abandono — llamado por un proceso aparte (cron externo vía
+    /conversations/expire), nunca desde dispatch_message. Retorna cantidad podada."""
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            text("""
+                DELETE FROM open_conversations
+                WHERE updated_at < datetime('now', :cutoff)
+            """),
+            {"cutoff": f"-{int(max_age_hours)} hours"},
         )
         await session.commit()
         return result.rowcount or 0

@@ -118,10 +118,13 @@ async def check_updates(session: str, reset: bool = False) -> dict:
         return {"status": "error", "error": str(e), "new_inbound": []}
 
 
-async def get_last_inbound(session: str, contact: str) -> str | None:
+async def get_recent_inbound_texts(session: str, contact: str, limit: int = 8) -> list[str]:
     """
-    Fetch the last full inbound text message from a contact via wavi get --newest.
-    Returns the message text, or None if unavailable.
+    Fetch up to `limit` recent inbound text messages from a contact via wavi
+    get --newest, newest first. A single call to get_last_inbound() only
+    returned the single newest bubble — in a burst of consecutive messages
+    from the user, the older ones in between polls were silently lost.
+    Returns [] if unavailable.
     """
     from wavi.runner import run_enhanced
     contact_slug = contact.lower().replace(" ", "_")
@@ -134,13 +137,16 @@ async def get_last_inbound(session: str, contact: str) -> str | None:
             max_iterations=1,
             newest=True,
         )
+        texts = []
         for b in result["bubbles"]:
             if b.sender == "other" and b.msg_type == "text" and b.text.strip():
-                return b.text.strip()
-        return None
+                texts.append(b.text.strip())
+                if len(texts) >= limit:
+                    break
+        return texts
     except Exception as e:
-        logger.warning("[wavi] get_last_inbound %s/%s error: %s", session, contact, e)
-        return None
+        logger.warning("[wavi] get_recent_inbound_texts %s/%s error: %s", session, contact, e)
+        return []
 
 
 async def send(session: str, contact: str, message: str) -> dict:

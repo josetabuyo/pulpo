@@ -36,6 +36,12 @@ class EndConversationNode(BaseNode):
         try:
             from pulpo.core import db as _db
             closed = await _db.close_waiting_conversations(bot_id, contact)
+            await _db.close_open_conversation(bot_id, contact)
+            # Señal para execute_flow(): no re-crear la fila que este nodo
+            # acaba de borrar — el guardado de fin de run es incondicional
+            # si state.data["conversation"] sigue poblado (que sigue estándolo,
+            # solo lo vaciamos de open_conversations, no de la memoria del run).
+            state.data["_conversation_closed"] = True
             logger.info("[end_conv] bot=%s contact=%s cerró %d run(s)", bot_id, contact, closed)
         except Exception:
             logger.warning("[end_conv] error cerrando conversaciones (non-fatal)", exc_info=True)
