@@ -1,11 +1,24 @@
 import { useState, useEffect, useCallback } from 'react'
 import { humanizeId } from '../../store/flowStore.js'
+import SimulatePanel from './SimulatePanel.jsx'
 
 function statusColor(s) {
   if (s === 'completed') return '#16a34a'
   if (s === 'error')     return '#dc2626'
   if (s === 'running')   return '#2563eb'
   return '#94a3b8'
+}
+
+function SimBadge() {
+  return (
+    <span style={{
+      marginLeft: 6, fontSize: 10, fontWeight: 700, letterSpacing: '0.04em',
+      color: '#a78bfa', background: 'rgba(167, 139, 250, 0.12)',
+      border: '1px solid #6d28d9', borderRadius: 4, padding: '1px 5px',
+    }}>
+      SIMULADO
+    </span>
+  )
 }
 
 function duration(started, ended) {
@@ -148,6 +161,7 @@ function RunDetail({ run, onClose, botId, apiCall }) {
           <span style={{ color: statusColor(run.status), fontWeight: 600, fontSize: 13 }}>
             {run.status}
           </span>
+          {run.is_sim && <SimBadge />}
           <span style={{ fontSize: 12, color: '#64748b' }}>
             {duration(run.started_at, run.ended_at)}
           </span>
@@ -215,6 +229,8 @@ export default function RunsTab({ botId, apiCall }) {
 
   return (
     <div>
+      <SimulatePanel botId={botId} apiCall={apiCall} onSent={load} />
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <span style={{ fontSize: 12, color: '#94a3b8' }}>
           {runs.length === 0 ? 'Sin ejecuciones' : `${runs.length} ejecuciones recientes`}
@@ -248,6 +264,7 @@ export default function RunsTab({ botId, apiCall }) {
                 </td>
                 <td style={{ padding: '7px 8px' }}>
                   <span style={{ color: statusColor(run.status), fontWeight: 600 }}>{run.status}</span>
+                  {run.is_sim && <SimBadge />}
                 </td>
                 <td style={{ padding: '7px 8px', color: '#94a3b8', fontSize: 12 }}>
                   {duration(run.started_at, run.ended_at)}

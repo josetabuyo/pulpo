@@ -89,6 +89,13 @@ def interpolate(template: str, state: FlowState) -> str:
     return re.sub(r"\{\{(\w+)\}\}", replace, template)
 
 
+def is_sim(state: FlowState) -> bool:
+    """True si el FlowState corresponde a una ejecución de simulación in-band
+    (ver management/HANDOFF_SIMULACION_V2.md — setea `state.data["_sim"]`
+    el endpoint `/api/flows/{flow_id}/simulate`)."""
+    return bool(state.data.get("_sim"))
+
+
 class BaseNode:
     # Metadatos de UI del nodo — leídos por graphs/node_types.py para armar el
     # catálogo que consumen el editor de flows y el CLI (`pulpo flows node-types`).
@@ -96,6 +103,13 @@ class BaseNode:
     label: str = "Nodo"
     color: str = "#475569"
     description: str = ""
+
+    # Simulación in-band (management/HANDOFF_SIMULACION_V2.md):
+    #   "real"    — corre sin cambios en simulación (default).
+    #   "guarded" — corre su lógica real, pero saltea el side-effect externo
+    #               peligroso cuando is_sim(state) es True (ver cada nodo).
+    #   "mock"    — reservado, no usado hoy.
+    SIM_MODE: str = "real"
 
     def __init__(self, config: dict):
         self.config = config

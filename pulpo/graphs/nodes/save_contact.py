@@ -9,7 +9,7 @@ Flujo típico:
 """
 import logging
 
-from .base import BaseNode
+from .base import BaseNode, is_sim
 from .state import FlowState
 
 logger = logging.getLogger(__name__)
@@ -19,6 +19,7 @@ class SaveContactNode(BaseNode):
     label = "Guardar contacto"
     color = "#059669"
     description = "Persiste el contacto en la base de datos usando datos del estado."
+    SIM_MODE = "guarded"
 
     async def run(self, state: FlowState) -> FlowState:
         bot_id = state.bot_id or ""
@@ -38,6 +39,11 @@ class SaveContactNode(BaseNode):
         notes = _get(notes_field)
 
         if not name or not bot_id:
+            return state
+
+        if is_sim(state):
+            logger.info("[SaveContact] [sim] no se persiste: name=%s phone=%s notes=%s (bot=%s)",
+                        name, phone, notes, bot_id)
             return state
 
         from pulpo.core import db

@@ -64,6 +64,7 @@ asyncio_mode = "auto"
 markers = [
     "integration: tests that require a running server on BACKEND_PORT",
     "e2e: end-to-end tests that require the real Telegram bot running and teli configured",
+    "e2e_sim: end-to-end tests over the in-band flow simulator (simulate_flow) — only requires a running local backend, no Telegram/teli",
 ]
 
 [dependency-groups]

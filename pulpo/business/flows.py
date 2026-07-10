@@ -6,6 +6,7 @@ No FastAPI, no HTTPException, no Pydantic — plain Python types only.
 import logging
 import os
 import json
+import uuid
 
 import pulpo.core.db as db
 from pulpo.core.config import load_config
@@ -337,6 +338,97 @@ async def trigger_flow(
     return {"ok": True, "reply": state.data.get("reply")}
 
 
+async def simulate_message(
+    bot_id: str,
+    message: str,
+    sim_id: str | None = None,
+    contact_name: str = "Simulación",
+) -> dict:
+    """
+    Simula un mensaje entrante a una bot in-band (management/HANDOFF_SIMULACION_V2.md):
+    equivalente a mandarle ese mensaje por Telegram, salvo que no sale de acá —
+    mismo motor (execute_flow, resolve_flows) y misma resolución automática de
+    flow/trigger que un mensaje real, sin que el caller tenga que indicar
+    flow_id ni trigger_node_id (no hay nada que "aclarar": un mensaje real
+    tampoco lo hace).
+
+    Namespaceado por sim_id como contact_phone (nunca colisiona con un
+    contacto real) y con state.data["_sim"]=True para que los nodos `guarded`
+    salteen side-effects externos (envío real, persistencia de negocio,
+    webhooks, escritura en Sheets). sim_id SIEMPRE se namespacea con prefijo
+    "sim-" (se lo agregamos si el caller no lo puso).
+
+    Soporta reanudación de wait_user: si ya hay un run parqueado para
+    (bot_id, sim_id), el `message` nuevo continúa esa conversación.
+
+    Recorre los flows activos de la bot (igual que dispatch_message) y corre
+    el primero que tenga un trigger de mensajería (telegram/whatsapp/message);
+    el primer reply no-None gana. Raises ValueError si la bot no tiene ningún
+    flow activo con un trigger de ese tipo.
+    Returns {ok: True, reply: str | None, run_id: str | None, sim_id: str}.
+    """
+    sim_id = sim_id or f"sim-{uuid.uuid4().hex[:8]}"
+    if not sim_id.startswith("sim-"):
+        sim_id = f"sim-{sim_id}"
+
+    from pulpo.graphs.compiler import execute_flow, resume_wait_user_run, resolve_flows
+    from pulpo.graphs.nodes import MESSAGE_TRIGGER_TYPES
+    from pulpo.graphs.nodes.state import FlowState
+
+    waiting = await db.get_waiting_gate_run(bot_id, sim_id)
+    if waiting and waiting.get("resume_node_id"):
+        resume_flow = await db.get_flow(waiting["flow_id"])
+        if resume_flow:
+            state = FlowState(
+                message=message,
+                canal="telegram",
+                contact_phone=sim_id,
+                contact_name=contact_name,
+                bot_id=bot_id,
+            )
+            state.data["_sim"] = True
+            state.data["_sim_id"] = sim_id
+            state = await resume_wait_user_run(waiting, resume_flow, state)
+            return {
+                "ok": True,
+                "reply": state.data.get("reply"),
+                "run_id": state.data.get("_run_id"),
+                "sim_id": sim_id,
+            }
+
+    flows = await resolve_flows(bot_id)
+    for flow in flows:
+        nodes = flow.get("definition", {}).get("nodes", [])
+        trigger_node = next(
+            (n for n in nodes if n.get("type") in MESSAGE_TRIGGER_TYPES), None
+        )
+        if not trigger_node:
+            continue
+
+        trigger_cls = NODE_REGISTRY.get(trigger_node.get("type", ""))
+        canal = getattr(trigger_cls, "channel", None) or "telegram"
+
+        state = FlowState(
+            message=message,
+            canal=canal,
+            contact_phone=sim_id,
+            contact_name=contact_name,
+            bot_id=bot_id,
+        )
+        state.data["_sim"] = True
+        state.data["_sim_id"] = sim_id
+
+        state = await execute_flow(flow, state, entry_node_id=trigger_node["id"])
+        return {
+            "ok": True,
+            "reply": state.data.get("reply"),
+            "run_id": state.data.get("_run_id"),
+            "sim_id": sim_id,
+        }
+
+    raise ValueError("Esta bot no tiene ningún flow activo con un trigger de mensajería")
+
+
 def seed_default_flows() -> None:
     """
     No-op. Flows require an explicit connection_id and cannot be seeded automatically.
@@ -346,10 +438,11 @@ def seed_default_flows() -> None:
 
 async def migrate_fetch_node_types() -> None:
     """
-    Migración one-shot (idempotente): separa el viejo nodo genérico "fetch"
-    (con config.source: "http"|"facebook") en dos tipos con responsabilidad
-    única: "fetch_http" y "fetch_fb". Corre en cada startup; si no encuentra
-    nodos "fetch" no hace nada.
+    Migración one-shot (idempotente): el viejo nodo genérico "fetch" (con
+    config.source: "http"|"facebook") pasa a "fetch_http" — desde ADR-011,
+    Facebook ya no es un source distinto, todo consumo de APIs externas
+    (incluida Luganense) es un GET HTTP simple. Corre en cada startup; si no
+    encuentra nodos "fetch" no hace nada.
     """
     flow_ids = await db.get_all_flow_ids()
     for flow_id in flow_ids:
@@ -362,13 +455,12 @@ async def migrate_fetch_node_types() -> None:
         for node in nodes:
             if node.get("type") != "fetch":
                 continue
-            config = node.get("config", {})
-            source = config.pop("source", "facebook")
-            node["type"] = "fetch_fb" if source == "facebook" else "fetch_http"
+            node.get("config", {}).pop("source", None)
+            node["type"] = "fetch_http"
             changed = True
             logger.info(
-                "[migrate_fetch_node_types] flow=%s node=%s: fetch(source=%s) → %s",
-                flow_id, node.get("id"), source, node["type"],
+                "[migrate_fetch_node_types] flow=%s node=%s: fetch → fetch_http",
+                flow_id, node.get("id"),
             )
         if changed:
             await db.update_flow(flow_id, definition=definition)

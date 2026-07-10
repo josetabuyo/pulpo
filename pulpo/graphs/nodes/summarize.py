@@ -15,7 +15,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-from .base import BaseNode
+from .base import BaseNode, is_sim
 from .state import FlowState
 
 logger = logging.getLogger(__name__)
@@ -718,6 +718,7 @@ class SummarizeNode(BaseNode):
     label = "Sumarizador"
     color = "#14532d"
     description = "Acumula mensajes en un archivo .md por contacto. Sin reply."
+    SIM_MODE = "guarded"
 
     """
     Acumula el mensaje en el archivo .md del contacto.
@@ -729,6 +730,10 @@ class SummarizeNode(BaseNode):
     """
 
     async def run(self, state: FlowState) -> FlowState:
+        if is_sim(state):
+            logger.info("[SummarizeNode] [sim] no se escribe .md (contact=%s)", state.contact_phone)
+            return state
+
         # Construir contenido: si hay adjunto guardado, registrarlo
         if state.attachment_path:
             from pathlib import Path as _Path

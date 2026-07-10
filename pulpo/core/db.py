@@ -231,6 +231,11 @@ async def init_db():
                 await conn.execute(text(f"ALTER TABLE flow_runs ADD COLUMN {_col} TEXT DEFAULT {_default}"))
             except Exception:
                 pass  # Ya existe
+        # Migración simulación in-band (management/HANDOFF_SIMULACION_V2.md)
+        try:
+            await conn.execute(text("ALTER TABLE flow_runs ADD COLUMN is_sim BOOLEAN DEFAULT 0"))
+        except Exception:
+            pass  # Ya existe
         await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS idx_flow_runs_waiting ON flow_runs(bot_id, contact_phone, status)"
         ))
@@ -1004,15 +1009,17 @@ async def start_flow_run(
     bot_id: str,
     connection_id: str | None,
     trigger_data: str | None,
+    is_sim: bool = False,
 ) -> None:
     async with AsyncSessionLocal() as session:
         await session.execute(
             text("""
-                INSERT INTO flow_runs (run_id, flow_id, bot_id, connection_id, trigger_data)
-                VALUES (:run_id, :flow_id, :bot_id, :connection_id, :trigger_data)
+                INSERT INTO flow_runs (run_id, flow_id, bot_id, connection_id, trigger_data, is_sim)
+                VALUES (:run_id, :flow_id, :bot_id, :connection_id, :trigger_data, :is_sim)
             """),
             {"run_id": run_id, "flow_id": flow_id, "bot_id": bot_id,
-             "connection_id": connection_id, "trigger_data": trigger_data},
+             "connection_id": connection_id, "trigger_data": trigger_data,
+             "is_sim": 1 if is_sim else 0},
         )
         await session.commit()
 
@@ -1277,7 +1284,7 @@ async def get_flow_runs(bot_id: str, limit: int = 50) -> list[dict]:
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(
             text("""
-                SELECT run_id, flow_id, bot_id, connection_id, started_at, ended_at, status
+                SELECT run_id, flow_id, bot_id, connection_id, started_at, ended_at, status, is_sim
                 FROM flow_runs
                 WHERE bot_id = :bot_id
                 ORDER BY started_at DESC
@@ -1287,7 +1294,8 @@ async def get_flow_runs(bot_id: str, limit: int = 50) -> list[dict]:
         )).fetchall()
     return [
         {"run_id": r[0], "flow_id": r[1], "bot_id": r[2], "connection_id": r[3],
-         "started_at": str(r[4]), "ended_at": str(r[5]) if r[5] else None, "status": r[6]}
+         "started_at": str(r[4]), "ended_at": str(r[5]) if r[5] else None, "status": r[6],
+         "is_sim": bool(r[7])}
         for r in rows
     ]
 
@@ -1297,7 +1305,7 @@ async def get_flow_run(run_id: str) -> dict | None:
         row = (await session.execute(
             text("""
                 SELECT run_id, flow_id, bot_id, connection_id,
-                       started_at, ended_at, status, trigger_data
+                       started_at, ended_at, status, trigger_data, is_sim
                 FROM flow_runs WHERE run_id=:run_id
             """),
             {"run_id": run_id},
@@ -1309,6 +1317,7 @@ async def get_flow_run(run_id: str) -> dict | None:
         "started_at": str(row[4]), "ended_at": str(row[5]) if row[5] else None,
         "status": row[6],
         "trigger_data": _json.loads(row[7]) if row[7] else None,
+        "is_sim": bool(row[8]),
     }
 
 

@@ -32,10 +32,10 @@ pulpo/
     lib/          # PulpoClient — Python API in-process
   bots/           # driver de Telegram (telegram_bot.py, python-telegram-bot)
   tools/          # todo lo externo que un nodo puede usar: wavi_driver (WhatsApp),
-                  #   facebook/ (scraping), transcription, browser
+                  #   transcription, browser
 frontend/         # React + Vite (dev: :5173, prod: dist/ compilado)
 tests/            # integration tests + e2e tests (ver ADR-004)
-scripts/          # scripts operacionales standalone (ver "Renovar cookies de FB" abajo)
+scripts/          # scripts operacionales standalone (expirar conversaciones, migraciones ad-hoc)
 docs/adr/         # decisiones de arquitectura
 ```
 
@@ -49,9 +49,11 @@ Las interfaces solo coordinan. Los tests unitarios van inline junto al código
 que testean (`pulpo/graphs/nodes/test_router.py`, `pulpo/business/test_flows.py`).
 
 **`tools/` es todo lo externo que un nodo puede usar** — drivers de canal (wavi,
-telegram), scraping de Facebook, transcripción, browser. Los nodos importan
-directamente de `tools/`. Nadie más. `business/` solo recibe FlowState — sin
-conocimiento de canal.
+telegram), transcripción, browser. Los nodos importan directamente de `tools/`.
+Nadie más. `business/` solo recibe FlowState — sin conocimiento de canal.
+Consultas HTTP genéricas a APIs externas (Luganense incluida) no necesitan un
+módulo dedicado en `tools/` — se resuelven con `FetchHttpNode` configurado
+directo en el editor de flows (ver ADR-011).
 
 **Cada ejecución de flow tiene un `run_id`** (ADR-006). El compilador loguea cada step
 en `flow_run_steps` con el FlowState de entrada y salida. Permite debug visual y gates
@@ -69,7 +71,11 @@ bloqueantes (flows que esperan un evento externo para reanudar).
 | [004](docs/adr/004-estrategia-de-tests.md) | Unit / integration / e2e — cuándo correr qué |
 | [005](docs/adr/005-produccion-launchd.md) | Launchd, `.venv-pulpo`, comandos de prod |
 | [006](docs/adr/006-durable-workflow-journal.md) | Flow runs con journal en DB — debug visual y gates bloqueantes |
-| [007](docs/adr/007-diagramas-arquitectura.md) | Diagramas de arquitectura, dominio conexiones separado, fetch dividido en fetch_http/fetch_fb |
+| [007](docs/adr/007-diagramas-arquitectura.md) | Diagramas de arquitectura, dominio conexiones separado, fetch dividido en fetch_http/fetch_fb — el split original está superado por 011 |
+| [008](docs/adr/008-noticias-dominio-luganense.md) | Tabla de noticias pasa a ser dominio de Luganense (vía HTTP, no más SQLite local) — superado por 009 |
+| [009](docs/adr/009-scraping-dominio-fabi.md) | El scraping de Facebook en sí (no solo la cache) pasa a ser dominio de Fabi, servicio propio — parcialmente superado por 011 |
+| [010](docs/adr/010-noticias-http-directo-a-luganense.md) | Pulpo consulta `/api/noticias` de Luganense directo por HTTP GET, sin dependencia en tiempo de ejecución de Fabi — superado del todo por 011 |
+| [011](docs/adr/011-fetch-fb-eliminado-todo-via-fetch-http.md) | Se elimina `FetchFbNode` — todo consumo de APIs externas (Luganense incluida) es `FetchHttpNode` genérico configurado en el editor |
 
 ---
 
@@ -86,15 +92,22 @@ Todos se corren desde la raíz de `_/`. **Nunca usar uvicorn directo ni matar pr
 ./restart-backend.sh  # stop + sleep 3 + start back
 ```
 
-**Cookies de Facebook (Luganense scrapea FB para noticias del barrio):**
+**Facebook — no es parte de Pulpo, ni en código ni en el editor de flows (ver
+ADR-011).** Pulpo no scrapea Facebook, no maneja cookies de FB, no importa
+ningún módulo de `fabi`, y no tiene ningún nodo dedicado a Facebook. El
+scraping y la inyección a Luganense viven enteros en
+`/Users/josetabuyo/Development/Fabi` (proyecto propio, agente LAS, patrón
+`wavi`), corriendo por su cuenta — Pulpo no lo dispara ni lo sabe. Cookies de
+FB, login, renovación: `fabi login <page_id>` / `fabi status` desde el repo
+de Fabi, no acá.
 
-```bash
-python scripts/fb_login.py          # renovar cookies — abre browser visible, resolver 2FA/captcha a mano
-python scripts/fb_check_cookies.py  # chequear expiración — alerta por Telegram al admin si hay problema
-python scripts/test_fb_debug.py     # smoke-test manual del scraping + cache (no es pytest)
-```
-
-`fb_check_cookies.py` está pensado para correr por cron diario (ver docstring del script).
+Para consumir noticias del barrio, el flow de Luganense usa un `FetchHttpNode`
+genérico apuntando a `GET /api/noticias?page_id=&q={query}` — mismo patrón que
+`/api/directorio/buscar` para comercios/servicios. Sin límite de resultados
+todavía (el endpoint no pagina); si hace falta un flow conversacional de
+noticias ("traer de a 3", "contame más"), coordinar con Luganense (agente LAS
+propio) para agregar `limit`/`offset` al contrato — spec por escrito, esperar
+confirmación antes de integrar (mismo criterio que ADR-008).
 
 ---
 

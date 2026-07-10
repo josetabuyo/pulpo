@@ -56,3 +56,29 @@ async def test_envio_a_tercero_no_se_acumula_en_conversation():
     node = SendMessageNode({"to": "12345", "message": "nuevo pedido"})
     state = await node.run(_state())
     assert "conversation" not in state.data
+
+
+@pytest.mark.asyncio
+async def test_sim_no_envia_telegram_real(monkeypatch, caplog):
+    """En simulación (_sim=True), _send_telegram no debe intentar acceder a
+    pulpo.core.state.clients — debe salir apenas loguea [sim], incluso con
+    ENABLE_BOTS=true (namespaceado por-run, no por proceso)."""
+    monkeypatch.setenv("ENABLE_BOTS", "true")
+    node = SendMessageNode({"to": "12345", "message": "nuevo pedido", "channel": "telegram"})
+    state = _state()
+    state.data["_sim"] = True
+    with caplog.at_level("INFO"):
+        result = await node.run(state)
+    assert "conversation" not in result.data
+    assert any("[sim] TG" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_sim_no_envia_teli_real(monkeypatch, caplog):
+    monkeypatch.setenv("ENABLE_BOTS", "true")
+    node = SendMessageNode({"to": "12345", "message": "nuevo pedido", "channel": "teli"})
+    state = _state()
+    state.data["_sim"] = True
+    with caplog.at_level("INFO"):
+        await node.run(state)
+    assert any("[sim] teli" in r.message for r in caplog.records)

@@ -165,6 +165,7 @@ class LLMNode(BaseNode):
         json_out    = bool(self.config.get("json_output", False))
         reply_key   = self.config.get("json_reply_key", "reply")
         route_key   = self.config.get("json_route_key", "")
+        max_tokens  = self.config.get("max_tokens") or None
         model, router_strategy = parse_model_strategy(raw_model, self.config)
 
         # Interpolar placeholders en el prompt y construir system.
@@ -175,7 +176,7 @@ class LLMNode(BaseNode):
             system += f"\n\nContexto:\n{context}"
 
         try:
-            llm = _build_llm(model, temperature, json_out, router_strategy)
+            llm = _build_llm(model, temperature, json_out, router_strategy, max_tokens)
 
             # El historial de turnos (user/bot_reply) de esta ejecución de flow
             # se manda completo como user/assistant — le da memoria real al LLM
@@ -227,4 +228,8 @@ class LLMNode(BaseNode):
             "json_reply_key":  {"type": "string",   "label": "Clave JSON del reply",   "default": "reply",
                                 "hint": "Clave dentro del JSON que contiene el texto a responder",
                                 "show_if": {"json_output": True}},
+            "max_tokens":      {"type": "int",      "label": "Máximo de tokens (opcional)", "default": None,
+                                "hint": "Vacío = default del router de modelos. Subilo si las respuestas "
+                                        "se cortan a mitad de frase (pasa seguido con prompts que piden "
+                                        "citar URLs largas + una línea de cierre)."},
         }

@@ -83,6 +83,22 @@ async def test_webhook_ok_no_afecta_persistencia():
 
 
 @pytest.mark.asyncio
+async def test_sim_no_persiste_ni_llama_webhook(caplog):
+    """En simulación (_sim=True): no INSERT en DB, no webhook — solo log."""
+    node = MetricNode({"metric_name": "m", "value": "v", "webhook_url": "http://ext.local/hook"})
+    state = _state()
+    state.data["_sim"] = True
+    with patch("pulpo.core.db.insert_metric", new_callable=AsyncMock) as mock_insert, \
+         patch("httpx.AsyncClient") as mock_client_cls, \
+         caplog.at_level("INFO"):
+        await node.run(state)
+
+    mock_insert.assert_not_awaited()
+    mock_client_cls.assert_not_called()
+    assert any("[sim]" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
 async def test_webhook_falla_no_interrumpe_el_flow(caplog):
     node = MetricNode({"metric_name": "m", "value": "v", "webhook_url": "http://ext.local/hook"})
     with patch("pulpo.core.db.insert_metric", new_callable=AsyncMock) as mock_insert, \

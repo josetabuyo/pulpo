@@ -3,13 +3,9 @@ import { useFlowStore } from '../../store/flowStore.js'
 import { S } from './styles.js'
 import SummarizeInfo from './SummarizeInfo.jsx'
 import SheetCacheButton from './SheetCacheButton.jsx'
-import FbCacheModal from './FbCacheModal.jsx'
 import JsonNodeEditor from './JsonNodeEditor.jsx'
 
 const TRIGGER_TYPES = new Set(['telegram_trigger', 'message_trigger', 'whatsapp_trigger', 'api_trigger'])
-
-const FB_POLL_MS = 3_000
-const FB_MAX_WAIT_MS = 130_000
 
 export default function ConfigForm({ node, schema, botId, flowId, connections, apiCall, onGoToUIs }) {
   const updateNodeConfig = useFlowStore(s => s.updateNodeConfig)
@@ -17,50 +13,13 @@ export default function ConfigForm({ node, schema, botId, flowId, connections, a
 
   const [cloning, setCloning]           = useState(false)
   const [cloneMsg, setCloneMsg]         = useState('')
-  const [fbRefreshing, setFbRefreshing] = useState(false)
-  const [fbRefreshMsg, setFbRefreshMsg] = useState('')
-  const [showFbCache, setShowFbCache]   = useState(false)
   const [backupMsg, setBackupMsg]       = useState('')
   const [backingUp, setBackingUp]       = useState(false)
   const [showBackupConfirm, setShowBackupConfirm] = useState(false)
 
   const isTrigger = TRIGGER_TYPES.has(nodeType)
-  const isFbFetch = nodeType === 'fetch_fb'
 
   function handleChange(newConfig) { updateNodeConfig(node.id, newConfig) }
-
-  async function handleFbRefresh() {
-    const pageId = config.fb_page_id || botId || 'luganense'
-    setFbRefreshing(true)
-    setFbRefreshMsg('Abriendo browser…')
-    try {
-      const res = await apiCall('POST', `/fb/refresh-session?page_id=${pageId}`, {})
-      if (!res.ok) {
-        setFbRefreshMsg('⚠ ' + (res.message || 'Error'))
-        setTimeout(() => { setFbRefreshMsg(''); setFbRefreshing(false) }, 5000)
-        return
-      }
-      setFbRefreshMsg('Esperando login en browser…')
-      const poll = setInterval(async () => {
-        try {
-          const st = await apiCall('GET', `/fb/session-status?page_id=${pageId}`, null)
-          if (st.state === 'ok') {
-            setFbRefreshMsg('✓ Sesión renovada')
-            clearInterval(poll)
-            setTimeout(() => { setFbRefreshMsg(''); setFbRefreshing(false) }, 4000)
-          } else if (st.state === 'error') {
-            setFbRefreshMsg('⚠ ' + (st.message || 'Error'))
-            clearInterval(poll)
-            setTimeout(() => { setFbRefreshMsg(''); setFbRefreshing(false) }, 5000)
-          }
-        } catch { clearInterval(poll); setFbRefreshMsg(''); setFbRefreshing(false) }
-      }, FB_POLL_MS)
-      setTimeout(() => { clearInterval(poll); setFbRefreshMsg(''); setFbRefreshing(false) }, FB_MAX_WAIT_MS)
-    } catch {
-      setFbRefreshMsg('⚠ Error de red')
-      setTimeout(() => { setFbRefreshMsg(''); setFbRefreshing(false) }, 4000)
-    }
-  }
 
   async function handleBackupAndClean() {
     setBackingUp(true)
@@ -234,48 +193,6 @@ export default function ConfigForm({ node, schema, botId, flowId, connections, a
         </div>
       )}
 
-      {/* FB fetch */}
-      {isFbFetch && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <button
-            onClick={handleFbRefresh}
-            disabled={fbRefreshing}
-            style={{
-              width: '100%', padding: '7px 12px',
-              background: 'transparent', border: '1px solid #1e3a5f',
-              borderRadius: 6, color: '#60a5fa', fontSize: 12, cursor: 'pointer', fontWeight: 600,
-            }}
-          >
-            {fbRefreshing ? '⏳ Esperando login…' : '↺ Renovar sesión FB'}
-          </button>
-          {fbRefreshMsg && (
-            <div style={{
-              fontSize: 11, textAlign: 'center',
-              color: fbRefreshMsg.startsWith('✓') ? '#4ade80' : fbRefreshMsg.startsWith('⚠') ? '#f87171' : '#60a5fa',
-            }}>
-              {fbRefreshMsg}
-            </div>
-          )}
-          <button
-            onClick={() => setShowFbCache(true)}
-            style={{
-              width: '100%', padding: '7px 12px',
-              background: 'transparent', border: '1px solid #1e293b',
-              borderRadius: 6, color: '#64748b', fontSize: 12, cursor: 'pointer',
-            }}
-          >
-            Ver cache FB
-          </button>
-        </div>
-      )}
-
-      {showFbCache && (
-        <FbCacheModal
-          pageId={config.fb_page_id || 'luganense'}
-          apiCall={apiCall}
-          onClose={() => setShowFbCache(false)}
-        />
-      )}
     </div>
   )
 }

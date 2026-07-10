@@ -56,7 +56,6 @@ _CLASSIFY_SUBSTRINGS: list[tuple[str, str]] = [
     ("api_trigger",      "api_trigger"),
     ("trigger",   "message_trigger"),
     ("llm",       "llm"),
-    ("fetch_fb",  "fetch_fb"),
     ("fetch_http", "fetch_http"),
     ("vector",    "vector_search"),
     ("send",      "send_message"),

@@ -29,6 +29,22 @@ async def test_output_reply_convencion():
 
 
 @pytest.mark.asyncio
+async def test_max_tokens_se_pasa_a_build_llm():
+    node = LLMNode({"prompt": "system", "max_tokens": 500})
+    with patch("pulpo.graphs.nodes.llm._build_llm", return_value=_mock_llm("hola")) as mock_build:
+        await node.run(_state())
+    assert mock_build.call_args.args[-1] == 500
+
+
+@pytest.mark.asyncio
+async def test_sin_max_tokens_pasa_none():
+    node = LLMNode({"prompt": "system"})
+    with patch("pulpo.graphs.nodes.llm._build_llm", return_value=_mock_llm("hola")) as mock_build:
+        await node.run(_state())
+    assert mock_build.call_args.args[-1] is None
+
+
+@pytest.mark.asyncio
 async def test_output_clave_custom_no_se_pierde():
     """Regresión del bug: output con nombre custom debe escribirse en state.data."""
     node = LLMNode({"prompt": "system", "output": "necesidad"})

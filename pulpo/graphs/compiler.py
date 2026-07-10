@@ -263,10 +263,14 @@ async def execute_flow(
                 bot_id=state.bot_id or flow.get("bot_id", ""),
                 connection_id=state.connection_id or None,
                 trigger_data=_serialize_state(state),
+                is_sim=bool(state.data.get("_sim")),
             )
         except Exception:
             logger.warning("[engine] error al crear flow_run para api_trigger (non-fatal)", exc_info=True)
             run_id = None
+
+        if run_id:
+            state.data["_run_id"] = run_id
 
         result = await _run_bfs(entry_node_id, node_by_id, graph, state, run_id=run_id)
 
@@ -326,11 +330,15 @@ async def execute_flow(
             bot_id=state.bot_id or flow.get("bot_id", ""),
             connection_id=state.connection_id or None,
             trigger_data=_serialize_state(state),
+            is_sim=bool(state.data.get("_sim")),
         )
     except Exception:
         logger.warning("[engine] error al crear flow_run (non-fatal)", exc_info=True)
         run_id = None
     # ─────────────────────────────────────────────────────────────────────────
+
+    if run_id:
+        state.data["_run_id"] = run_id
 
     result = await _run_bfs(entry_id, node_by_id, graph, state, run_id=run_id)
 
@@ -374,6 +382,50 @@ async def _save_open_conversation_if_applicable(state: FlowState, flow: dict, wa
         flow_id=flow.get("id", ""),
         conversation_json=json.dumps(conv, default=str),
     )
+
+
+async def resume_wait_user_run(waiting: dict, flow: dict, state: FlowState) -> FlowState:
+    """
+    Reanuda un run parqueado en wait_user. `waiting` es el dict devuelto por
+    `db.get_waiting_gate_run(bot_id, contact_phone)` (ya confirmado con
+    resume_node_id presente por el caller). Restaura slots_json en
+    state.data, inyecta el mensaje nuevo (state.message) como turno de
+    conversación, cierra el run viejo ("handed_off") y ejecuta el flow desde
+    resume_node_id. Comparten esta lógica dispatch_message() (canales reales)
+    y business/flows.simulate_flow() (simulación in-band).
+    """
+    from pulpo.core import db as _db
+
+    started = datetime.strptime(waiting["started_at"], "%Y-%m-%d %H:%M:%S")
+    age_minutes = int((datetime.utcnow() - started).total_seconds() / 60)
+    # Restaurar slots del turno anterior + inyectar nuevo mensaje
+    saved = json.loads(waiting["slots_json"] or "{}")
+    # Preservar claves internas limpias; el mensaje nuevo ya está en state.message
+    saved.pop("_has_waiting_gate", None)
+    saved.pop("_gate_blocked", None)
+    # Resetear contadores de visita si la conversación quedó inactiva >30 min:
+    # evita agotado instantáneo cuando el usuario retoma una sesión antigua.
+    if age_minutes > 30:
+        visits_keys = [k for k in saved if k.startswith("_visits_")]
+        for k in visits_keys:
+            saved.pop(k)
+    state.data.update(saved)
+    # Inyectar metadatos de conversación abierta (después de restaurar slots
+    # para que los metadatos no sean sobreescritos por el estado guardado)
+    state.data["_has_open_conv"] = True
+    state.data["_conv_age_minutes"] = age_minutes
+    state.data["_conv_resume_node"] = waiting.get("resume_node_id", "")
+    # El array conversation viaja dentro de saved (es parte de data) —
+    # acá solo agregamos el turno nuevo que trajo esta reanudación.
+    # Reanudar un wait_user ES por definición continuar una conversación.
+    conversation.continue_conversation(state)
+    # "handed_off" (no "completed"): este run nunca llegó a un final
+    # natural — quedó bloqueado en wait_user y el run nuevo (con
+    # entry_node_id=resume_node_id) es el que sigue la ejecución.
+    await _db.end_flow_run(waiting["run_id"], "handed_off")
+    logger.info("[engine] Reanudando wait_user run=%s desde nodo=%s contacto=%s age=%dm",
+                waiting["run_id"], waiting["resume_node_id"], state.contact_phone, age_minutes)
+    return await execute_flow(flow, state, entry_node_id=waiting["resume_node_id"])
 
 
 async def resolve_flows(bot_id: str) -> list[dict]:
@@ -508,37 +560,7 @@ async def dispatch_message(
             if waiting and waiting.get("resume_node_id"):
                 flow = await _db.get_flow(waiting["flow_id"])
                 if flow:
-                    # Calcular edad de la conversación en minutos
-                    started = datetime.strptime(waiting["started_at"], "%Y-%m-%d %H:%M:%S")
-                    age_minutes = int((datetime.utcnow() - started).total_seconds() / 60)
-                    # Restaurar slots del turno anterior + inyectar nuevo mensaje
-                    saved = json.loads(waiting["slots_json"] or "{}")
-                    # Preservar claves internas limpias; el mensaje nuevo ya está en state.message
-                    saved.pop("_has_waiting_gate", None)
-                    saved.pop("_gate_blocked", None)
-                    # Resetear contadores de visita si la conversación quedó inactiva >30 min:
-                    # evita agotado instantáneo cuando el usuario retoma una sesión antigua.
-                    if age_minutes > 30:
-                        visits_keys = [k for k in saved if k.startswith("_visits_")]
-                        for k in visits_keys:
-                            saved.pop(k)
-                    state.data.update(saved)
-                    # Inyectar metadatos de conversación abierta (después de restaurar slots
-                    # para que los metadatos no sean sobreescritos por el estado guardado)
-                    state.data["_has_open_conv"] = True
-                    state.data["_conv_age_minutes"] = age_minutes
-                    state.data["_conv_resume_node"] = waiting.get("resume_node_id", "")
-                    # El array conversation viaja dentro de saved (es parte de data) —
-                    # acá solo agregamos el turno nuevo que trajo esta reanudación.
-                    # Reanudar un wait_user ES por definición continuar una conversación.
-                    conversation.continue_conversation(state)
-                    # "handed_off" (no "completed"): este run nunca llegó a un final
-                    # natural — quedó bloqueado en wait_user y el run nuevo (con
-                    # entry_node_id=resume_node_id) es el que sigue la ejecución.
-                    await _db.end_flow_run(waiting["run_id"], "handed_off")
-                    logger.info("[engine] Reanudando wait_user run=%s desde nodo=%s contacto=%s age=%dm",
-                                waiting["run_id"], waiting["resume_node_id"], state.contact_phone, age_minutes)
-                    state = await execute_flow(flow, state, entry_node_id=waiting["resume_node_id"])
+                    state = await resume_wait_user_run(waiting, flow, state)
                     resumed_wait_user = True
         except Exception:
             logger.warning("[engine] error en dispatcher wait_user (non-fatal)", exc_info=True)

@@ -44,19 +44,40 @@ tests/
 - Se corren con: `BACKEND_PORT=9004 uv run pytest tests/ -v`
 - Marcador: `@pytest.mark.integration` para los que requieren servidor.
 
-### Capa 3 — E2E tests (`tests/test_e2e_*.py`)
+### Capa 3 — E2E tests (`tests/test_e2e_*.py`, `tests/e2e/**`)
 
 Tests que mandan mensajes reales a bots reales via Telethon y verifican las respuestas.
 
 ```
 tests/
-  test_e2e_luganense_teli.py   # 4 rutas del Orquestador Vendedor
+  test_e2e_luganense_teli.py   # 4 rutas del Orquestador Vendedor (flow viejo, referencia)
+  e2e/luganense/
+    test_conectividad_telegram.py       # único smoke real por Telegram (marker e2e)
+    test_orquestador_vendedor_sim.py    # lógica de negocio, vía simulador (marker e2e_sim)
 ```
 
 - **Requieren** `ENABLE_BOTS=true`, flows en DB, y sesión `teli user_me` activa.
 - Tardan ~2-3 minutos por run (polling de Telegram).
 - Se corren **solo antes de un merge a master**, no en CI automático.
 - Se corren con: `uv run pytest tests/ -m e2e -v`
+
+### Capa 3b — E2E simulado (`tests/e2e/**`, marker `e2e_sim`)
+
+Tests que ejercitan el motor real de flows (`execute_flow`/`flow_runs`, ADR-006)
+a través del simulador in-band `POST /api/flows/{flow_id}/simulate`
+(`pulpo/business/flows.py::simulate_flow`, ver `management/HANDOFF_SIMULACION_V2.md`),
+sin pasar por Telegram. Los nodos LLM corren reales (misma flakiness de
+clasificación que en producción), pero se elimina el settle-time de Telegram
+(~180s) y los side-effects externos (`send_message`, `metric`, `save_contact`,
+etc.) se saltean vía `state.data["_sim"]`.
+
+- **Requieren** solo el backend local corriendo (`BACKEND_PORT`), no `ENABLE_BOTS`
+  ni teli.
+- Corren en segundos, no minutos.
+- Se corren con: `uv run pytest tests/e2e/ -m e2e_sim -v`
+- Es la forma preferida de probar lógica de negocio de un flow de punta a
+  punta; el marker `e2e` (Telegram real) queda reservado para un smoke de
+  conectividad por bot (ver `test_conectividad_telegram.py` en Luganense).
 
 ## Cuándo correr qué
 

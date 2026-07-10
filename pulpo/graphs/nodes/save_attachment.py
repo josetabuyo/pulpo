@@ -15,7 +15,7 @@ import logging
 import shutil
 from pathlib import Path
 
-from .base import BaseNode
+from .base import BaseNode, is_sim
 from .state import FlowState
 from .summarize import slugify as _slugify
 
@@ -28,6 +28,7 @@ class SaveAttachmentNode(BaseNode):
     label = "Guardar adjunto"
     color = "#b45309"
     description = "Mueve el adjunto a almacenamiento permanente (data/summaries/). Colocar entre transcribe_audio y summarize."
+    SIM_MODE = "guarded"
 
 
     async def run(self, state: FlowState) -> FlowState:
@@ -36,6 +37,11 @@ class SaveAttachmentNode(BaseNode):
 
         src = Path(state.attachment_path)
         if not src.exists():
+            return state
+
+        if is_sim(state):
+            logger.info("[SaveAttachmentNode] [sim] no se mueve archivo: %s (bot=%s, contact=%s)",
+                        src, state.bot_id, state.contact_phone)
             return state
 
         bot_id    = state.bot_id or "unknown"

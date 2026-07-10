@@ -113,6 +113,36 @@ def delete_flow(bot_id, flow_id):
     click.echo("Deleted." if ok else "Not found.")
 
 
+@flows.command("simulate")
+@click.option("--bot-id", required=True, help="Bot a la que simular el mensaje")
+@click.option("--message", required=True, help="Mensaje de entrada del usuario simulado")
+@click.option("--sim-id", default=None, help="ID de la simulación (para continuar una conversación existente)")
+@click.option("--contact-name", default="Simulación", help="Nombre de contacto mostrado en la simulación")
+def simulate_message(bot_id, message, sim_id, contact_name):
+    """
+    Manda un mensaje simulado a una bot sin pasar por Telegram/WhatsApp real
+    (in-band, ver management/HANDOFF_SIMULACION_V2.md) — equivalente a
+    mandarlo por Telegram: el flow/trigger que aplica se resuelve solo,
+    igual que con un mensaje real.
+
+    Reusar el mismo --sim-id en llamadas sucesivas continúa la misma
+    conversación simulada, incluso a través de un wait_user.
+    """
+    try:
+        result = asyncio.run(
+            svc.simulate_message(
+                bot_id=bot_id,
+                message=message,
+                sim_id=sim_id,
+                contact_name=contact_name,
+            )
+        )
+        click.echo(json.dumps(result, indent=2, ensure_ascii=False))
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise SystemExit(1)
+
+
 @flows.command("node-types")
 def node_types():
     """Lista el catálogo de tipos de nodo disponibles para armar flows (id, label, schema de config)."""

@@ -10,7 +10,7 @@ flow — pero el fallo queda logueado a nivel ERROR para poder detectarlo.
 import json
 import logging
 
-from .base import BaseNode, interpolate
+from .base import BaseNode, interpolate, is_sim
 from .state import FlowState
 
 logger = logging.getLogger(__name__)
@@ -20,6 +20,7 @@ class MetricNode(BaseNode):
     label = "Métrica"
     color = "#a16207"
     description = "Registra una métrica de negocio en DB y, opcionalmente, notifica a un sistema externo vía webhook."
+    SIM_MODE = "guarded"
 
     async def run(self, state: FlowState) -> FlowState:
         metric_name = interpolate(self.config.get("metric_name", ""), state).strip()
@@ -31,6 +32,11 @@ class MetricNode(BaseNode):
 
         raw_metadata = self.config.get("metadata") or {}
         metadata = {k: interpolate(str(v), state) for k, v in raw_metadata.items()} if isinstance(raw_metadata, dict) else {}
+
+        if is_sim(state):
+            logger.info("[MetricNode] [sim] no se guarda: %s=%s (bot=%s, contact=%s)",
+                        metric_name, value, state.bot_id, state.contact_phone)
+            return state
 
         from pulpo.core import db
         await db.insert_metric(

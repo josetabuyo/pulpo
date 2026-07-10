@@ -16,6 +16,7 @@ Route mapping (parent mounts at /flows):
   GET  /bots/{bot_id}/has-node/{node_type}
   POST /bots/{bot_id}/{flow_id}/replay
   POST /{flow_id}/trigger/{node_id}
+  POST /bots/{bot_id}/simulate
   GET  /bots/{bot_id}/google-accounts
 """
 import logging
@@ -299,6 +300,42 @@ async def trigger_flow(flow_id: str, node_id: str, body: ApiTriggerBody = None):
             node_id=node_id,
             message=body.message,
             contact_phone=body.contact_phone,
+            contact_name=body.contact_name,
+        )
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ─── Simulación in-band ─────────────────────────────────────────────────────
+
+class SimulateBody(BaseModel):
+    message: str
+    sim_id: str | None = None
+    contact_name: str = "Simulación"
+
+
+@router.post("/bots/{bot_id}/simulate")
+async def simulate_message(bot_id: str, body: SimulateBody):
+    """
+    Simula un mensaje entrante a una bot in-band (management/HANDOFF_SIMULACION_V2.md):
+    equivalente a mandarlo por Telegram — mismo motor y misma resolución
+    automática de flow/trigger que un mensaje real, sin flow_id ni
+    trigger_node_id (se resuelven solos, igual que con un mensaje real).
+    `state.data["_sim"]=True` hace que los nodos `guarded` salteen
+    side-effects externos (envío real, persistencia de negocio, webhooks,
+    escritura en Sheets). El `sim_id` namespacea la conversación como
+    contact_phone — reusar el mismo sim_id continúa la misma conversación
+    simulada (incluso a través de wait_user).
+
+    Retorna {ok: true, reply, run_id, sim_id}.
+    """
+    try:
+        return await flows_svc.simulate_message(
+            bot_id=bot_id,
+            message=body.message,
+            sim_id=body.sim_id,
             contact_name=body.contact_name,
         )
     except KeyError as e:

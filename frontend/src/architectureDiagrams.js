@@ -27,7 +27,6 @@ graph TD
   subgraph External["tools/ + bots/ — todo lo externo que un nodo usa"]
     WAVI["tools/wavi_driver.py<br/>WhatsApp"]
     TELEGRAM["bots/telegram_bot.py<br/>Telegram (polling)"]
-    FB["tools/facebook/<br/>scraping + cache"]
     TRANSCRIBE["tools/transcription.py"]
   end
 
@@ -49,7 +48,7 @@ graph TD
   classDef core fill:#2e2e1a,stroke:#eab308,color:#e2e8f0
   class API,UI,CLI,LIB iface
   class BOTS_SVC,FLOWS_SVC,CONN_PHONES,CONN_GOOGLE,COMPILER,NODES domain
-  class WAVI,TELEGRAM,FB,TRANSCRIBE ext
+  class WAVI,TELEGRAM,TRANSCRIBE ext
   class CORE core
 `.trim()
 

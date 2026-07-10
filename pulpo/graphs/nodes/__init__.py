@@ -25,7 +25,6 @@ from .router import RouterNode
 from .condition import ConditionNode
 from .llm import LLMNode
 from .fetch_http import FetchHttpNode
-from .fetch_fb import FetchFbNode
 from .vector_search import VectorSearchNode
 from .set_state import SetStateNode
 from .save_contact import SaveContactNode
@@ -58,7 +57,6 @@ NODE_REGISTRY: dict[str, type] = {
     "llm":              LLMNode,
     "send_message":     SendMessageNode,
     "fetch_http":       FetchHttpNode,
-    "fetch_fb":         FetchFbNode,
     "vector_search":    VectorSearchNode,
     "summarize":        SummarizeNode,
     "set_state":        SetStateNode,
@@ -90,7 +88,7 @@ __all__ = [
     "NODE_REGISTRY", "TRIGGER_TYPES", "MESSAGE_TRIGGER_TYPES",
     "BaseTriggerNode", "BaseMessageTriggerNode",
     "MessageTriggerNode", "RouterNode", "ConditionNode", "LLMNode", "SendMessageNode",
-    "FetchHttpNode", "FetchFbNode", "VectorSearchNode", "SummarizeNode",
+    "FetchHttpNode", "VectorSearchNode", "SummarizeNode",
     "SetStateNode", "SaveContactNode",
     "TranscribeAudioNode", "SaveAttachmentNode",
     "TelegramTriggerNode", "WhatsappTriggerNode", "ApiTriggerNode", "MessageJoinNode",

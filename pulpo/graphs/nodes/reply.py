@@ -16,7 +16,7 @@ Config:
 import logging
 from datetime import datetime
 from ..conversation import record_bot_reply
-from .base import BaseNode, interpolate
+from .base import BaseNode, interpolate, is_sim
 from .state import FlowState
 
 logger = logging.getLogger(__name__)
@@ -26,6 +26,7 @@ class SendMessageNode(BaseNode):
     label = "Enviar mensaje"
     color = "#15803d"
     description = "Envía un mensaje al usuario o a un contacto externo vía Telegram."
+    SIM_MODE = "guarded"
 
     async def run(self, state: FlowState) -> FlowState:
         if state.from_delta_sync:
@@ -60,13 +61,17 @@ class SendMessageNode(BaseNode):
 
     async def _send(self, to: str, message: str, channel: str, state: FlowState) -> None:
         if channel == "telegram":
-            await self._send_telegram(to, message, state.bot_id)
+            await self._send_telegram(to, message, state.bot_id, state)
         elif channel == "teli":
-            await self._send_teli(to, message)
+            await self._send_teli(to, message, state)
         else:
             logger.warning("[SendMessageNode] canal desconocido: %s", channel)
 
-    async def _send_telegram(self, chat_id: str, message: str, bot_id: str) -> None:
+    async def _send_telegram(self, chat_id: str, message: str, bot_id: str, state: FlowState) -> None:
+        if is_sim(state):
+            logger.info("[SendMessageNode] [sim] TG → %s: %s", chat_id, message[:80])
+            return
+
         import os
         if os.getenv("ENABLE_BOTS", "false").lower() != "true":
             logger.info("[SendMessageNode] [sim] TG → %s: %s", chat_id, message[:80])
@@ -95,7 +100,11 @@ class SendMessageNode(BaseNode):
             except Exception as e:
                 logger.error("[SendMessageNode] Error TG → %s: %s", chat_id, e)
 
-    async def _send_teli(self, to: str, message: str) -> None:
+    async def _send_teli(self, to: str, message: str, state: FlowState) -> None:
+        if is_sim(state):
+            logger.info("[SendMessageNode] [sim] teli → %s: %s", to, message[:80])
+            return
+
         import os
         if os.getenv("ENABLE_BOTS", "false").lower() != "true":
             logger.info("[SendMessageNode] [sim] teli → %s: %s", to, message[:80])

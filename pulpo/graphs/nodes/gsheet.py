@@ -18,7 +18,7 @@ import logging
 import os
 import time
 import httpx
-from .base import BaseNode, interpolate
+from .base import BaseNode, interpolate, is_sim
 from .state import FlowState
 
 logger = logging.getLogger(__name__)
@@ -213,12 +213,17 @@ class GSheetNode(BaseNode):
             logger.warning("[GSheetNode] append: sheet_id no configurado")
             return state
 
+        values = [_get_search_value(state, col.get("source", "")) for col in columns]
+
+        if is_sim(state):
+            logger.info("[GSheetNode] [sim] append no ejecutado — payload que se habría escrito: "
+                        "sheet_id=%s sheet_name=%s values=%s", sheet_id, sheet_name, values)
+            return state
+
         sa_json = await _resolve_credentials(self.config)
         if not sa_json:
             logger.error("[GSheetNode] append: no hay credenciales Google configuradas")
             return state
-
-        values = [_get_search_value(state, col.get("source", "")) for col in columns]
 
         try:
             import google.auth

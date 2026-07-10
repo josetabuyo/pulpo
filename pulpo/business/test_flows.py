@@ -140,7 +140,7 @@ async def test_get_flow_version_denies_other_bot():
 
 
 @pytest.mark.asyncio
-async def test_migrate_fetch_node_types_separa_por_source():
+async def test_migrate_fetch_node_types_a_fetch_http():
     definition = {
         "nodes": [
             {"id": "buscar_fb", "type": "fetch", "config": {"source": "facebook", "fb_page_id": "luganense"}},
@@ -159,12 +159,152 @@ async def test_migrate_fetch_node_types_separa_por_source():
         migrated = await svc.get_flow(flow["id"], BOT_ID)
         by_id = {n["id"]: n for n in migrated["definition"]["nodes"]}
 
-        assert by_id["buscar_fb"]["type"] == "fetch_fb"
+        assert by_id["buscar_fb"]["type"] == "fetch_http"
         assert "source" not in by_id["buscar_fb"]["config"]
         assert by_id["buscar_dir"]["type"] == "fetch_http"
         assert "source" not in by_id["buscar_dir"]["config"]
-        assert by_id["buscar_default"]["type"] == "fetch_fb"  # default histórico era "facebook"
+        assert by_id["buscar_default"]["type"] == "fetch_http"
         assert by_id["otro"]["type"] == "llm"  # no tocado
+    finally:
+        await _cleanup(flow["id"])
+
+
+BOT_ID_SIM = "__test_bot_simulate_message__"
+
+
+@pytest.mark.asyncio
+async def test_simulate_message_new_conversation_returns_reply_and_marks_is_sim():
+    """
+    Igual que un mensaje real: no se especifica flow_id ni trigger_node_id —
+    simulate_message los resuelve solo, igual que dispatch_message.
+    """
+    definition = {
+        "nodes": [
+            {"id": "trigger1", "type": "telegram_trigger", "config": {}},
+            {"id": "reply1", "type": "send_message", "config": {"message": "hola {{contact_name}}"}},
+        ],
+        "edges": [{"source": "trigger1", "target": "reply1"}],
+        "viewport": {"x": 0, "y": 0, "zoom": 1},
+    }
+    flow = await svc.create_flow(
+        bot_id=BOT_ID_SIM, name="Simulable", definition=definition,
+        connection_id="conn-1", contact_phone=None, contact_filter=None,
+    )
+    try:
+        result = await svc.simulate_message(bot_id=BOT_ID_SIM, message="necesito un plomero")
+        assert result["ok"] is True
+        assert result["reply"] == "hola Simulación"
+        assert result["sim_id"].startswith("sim-")
+        assert result["run_id"]
+
+        async with db.AsyncSessionLocal() as session:
+            r = (await session.execute(
+                db.text("SELECT is_sim FROM flow_runs WHERE run_id = :rid"),
+                {"rid": result["run_id"]},
+            )).fetchone()
+        assert r is not None
+        assert r[0] == 1
+    finally:
+        await _cleanup(flow["id"])
+
+
+@pytest.mark.asyncio
+async def test_simulate_message_raises_if_bot_has_no_active_message_flow():
+    with pytest.raises(ValueError):
+        await svc.simulate_message(bot_id="__bot_sin_flows__", message="hola")
+
+
+@pytest.mark.asyncio
+async def test_simulate_message_ignores_inactive_flow():
+    """
+    A diferencia de un mensaje real, simular no debe "encontrar" un flow
+    inactivo — mismo criterio que dispatch_message (resolve_flows solo trae
+    flows activos): si la bot no tiene ningún flow activo, simular falla
+    igual que fallaría un mensaje real (nadie respondería).
+    """
+    definition = {
+        "nodes": [
+            {"id": "trigger1", "type": "telegram_trigger", "config": {}},
+            {"id": "reply1", "type": "send_message", "config": {"message": "hola"}},
+        ],
+        "edges": [{"source": "trigger1", "target": "reply1"}],
+        "viewport": {"x": 0, "y": 0, "zoom": 1},
+    }
+    flow = await svc.create_flow(
+        bot_id=BOT_ID_SIM, name="Inactivo", definition=definition,
+        connection_id="conn-1", contact_phone=None, contact_filter=None,
+    )
+    try:
+        await svc.update_flow(BOT_ID_SIM, flow["id"], {"active": False})
+        with pytest.raises(ValueError):
+            await svc.simulate_message(bot_id=BOT_ID_SIM, message="hola")
+    finally:
+        await _cleanup(flow["id"])
+
+
+@pytest.mark.asyncio
+async def test_simulate_message_forces_sim_prefix_on_caller_supplied_sim_id():
+    """
+    Un contact_phone real jamás debe poder colarse como identidad de una
+    simulación — wait_user/open_conversations indexan por contact_phone sin
+    chequear is_sim, así que un sim_id sin namespacear podría contaminar el
+    estado de un contacto real.
+    """
+    definition = {
+        "nodes": [
+            {"id": "trigger1", "type": "telegram_trigger", "config": {}},
+            {"id": "reply1", "type": "send_message", "config": {"message": "hola"}},
+        ],
+        "edges": [{"source": "trigger1", "target": "reply1"}],
+        "viewport": {"x": 0, "y": 0, "zoom": 1},
+    }
+    flow = await svc.create_flow(
+        bot_id=BOT_ID_SIM, name="Namespacing", definition=definition,
+        connection_id="conn-1", contact_phone=None, contact_filter=None,
+    )
+    try:
+        result = await svc.simulate_message(
+            bot_id=BOT_ID_SIM, message="hola", sim_id="6593910266",
+        )
+        assert result["sim_id"] == "sim-6593910266"
+    finally:
+        await _cleanup(flow["id"])
+
+
+@pytest.mark.asyncio
+async def test_simulate_message_resumes_wait_user_with_same_sim_id():
+    """
+    Flow: telegram_trigger → wait_user → reply. El primer turno queda
+    parqueado en wait_user; el segundo turno con el mismo sim_id debe
+    reanudar y producir reply.
+    """
+    definition = {
+        "nodes": [
+            {"id": "trigger1", "type": "telegram_trigger", "config": {}},
+            {"id": "wait1", "type": "wait_user", "config": {}},
+            {"id": "reply1", "type": "send_message", "config": {"message": "recibido: {{conversation.last}}"}},
+        ],
+        "edges": [
+            {"source": "trigger1", "target": "wait1"},
+            {"source": "wait1", "target": "reply1"},
+        ],
+        "viewport": {"x": 0, "y": 0, "zoom": 1},
+    }
+    flow = await svc.create_flow(
+        bot_id=BOT_ID_SIM, name="Con wait_user", definition=definition,
+        connection_id="conn-1", contact_phone=None, contact_filter=None,
+    )
+    try:
+        first = await svc.simulate_message(bot_id=BOT_ID_SIM, message="hola")
+        assert first["ok"] is True
+        assert first["reply"] is None  # bloqueado en wait_user, sin reply todavía
+
+        second = await svc.simulate_message(
+            bot_id=BOT_ID_SIM, message="segundo mensaje", sim_id=first["sim_id"],
+        )
+        assert second["ok"] is True
+        assert second["reply"] == "recibido: segundo mensaje"
+        assert second["sim_id"] == first["sim_id"]
     finally:
         await _cleanup(flow["id"])
 
@@ -183,6 +323,6 @@ async def test_migrate_fetch_node_types_es_idempotente():
         await svc.migrate_fetch_node_types()
         await svc.migrate_fetch_node_types()  # segunda corrida no debe romper nada
         migrated = await svc.get_flow(flow["id"], BOT_ID)
-        assert migrated["definition"]["nodes"][0]["type"] == "fetch_fb"
+        assert migrated["definition"]["nodes"][0]["type"] == "fetch_http"
     finally:
         await _cleanup(flow["id"])

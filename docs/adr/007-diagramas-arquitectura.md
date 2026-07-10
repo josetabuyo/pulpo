@@ -41,7 +41,9 @@ Además, una auditoría forense (git log + referencias reales de uso, no solo
    una responsabilidad y un modelo de persistencia por archivo.
 3. **`FetchNode` → `FetchHttpNode` + `FetchFbNode`**, sin selector `source`.
    Migración one-shot idempotente (`migrate_fetch_node_types`, corre en cada
-   startup) reescribe los flows ya persistidos en la DB.
+   startup) reescribe los flows ya persistidos en la DB. *(Superado por
+   [ADR-011](011-fetch-fb-eliminado-todo-via-fetch-http.md): `FetchFbNode` se
+   borró del todo, la migración ahora manda todo a `FetchHttpNode`.)*
 4. **`sim_engine.SIM_MODE` default corregido a fail-safe**: sin `ENABLE_BOTS`
    seteado, el sistema arranca en modo simulado. Producción sigue seteando
    `ENABLE_BOTS=true` explícitamente vía el plist de launchd — no cambia nada
@@ -74,7 +76,6 @@ graph TD
   subgraph External["tools/ + bots/ — todo lo externo que un nodo usa"]
     WAVI["tools/wavi_driver.py<br/>WhatsApp"]
     TELEGRAM["bots/telegram_bot.py<br/>Telegram (polling)"]
-    FB["tools/facebook/<br/>scraping + cache"]
     TRANSCRIBE["tools/transcription.py"]
   end
 
