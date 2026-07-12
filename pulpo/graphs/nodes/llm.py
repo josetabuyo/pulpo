@@ -8,8 +8,7 @@ real de la conversación.
 
 Config:
   prompt:          str   — system prompt
-  model:           str   — modelo a usar (best:*, ollama/*, groq/*, o legacy)
-  router_strategy: str   — "local-first" | "cloud-first" (solo aplica a best:*)
+  model:           str   — modelo a usar (best:cat|strategy, ollama/*, groq/*, o legacy)
   temperature:     float — temperatura (default: 0.3)
   output:          str   — clave de state.data donde guardar la respuesta (libre).
                             Convenciones usadas por otros nodos:
@@ -63,12 +62,12 @@ _STRATEGY_MAP = {
 }
 
 
-def parse_model_strategy(raw: str, config: dict) -> tuple[str, str]:
-    """Parse 'best:cat|strategy' → (model, router_strategy). Backward-compat with old configs."""
+def parse_model_strategy(raw: str) -> tuple[str, str]:
+    """Parse 'best:cat|strategy' → (model, router_strategy)."""
     if "|" in raw:
         model, alias = raw.split("|", 1)
         return model, _STRATEGY_MAP.get(alias, "local-first")
-    return raw, config.get("router_strategy", "local-first")
+    return raw, "local-first"
 
 
 def _build_llm(model: str, temperature: float, json_out: bool, router_strategy: str, max_tokens: int | None = None):
@@ -173,7 +172,7 @@ class LLMNode(BaseNode):
         route_key   = self.config.get("json_route_key", "")
         as_list     = bool(self.config.get("output_as_list", False))
         max_tokens  = self.config.get("max_tokens") or None
-        model, router_strategy = parse_model_strategy(raw_model, self.config)
+        model, router_strategy = parse_model_strategy(raw_model)
 
         # Interpolar placeholders en el prompt y construir system.
         # Compat: si el prompt no menciona {{context}} pero hay contexto, se agrega al final.

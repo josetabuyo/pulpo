@@ -1,6 +1,7 @@
 """
 BaseNode — contrato mínimo que todo nodo debe cumplir.
 """
+import json
 import logging
 import re
 from .state import FlowState
@@ -44,6 +45,15 @@ def _replace_conversation(template: str, state: FlowState) -> str:
     return _CONVERSATION_RE.sub(replace, template)
 
 
+def _stringify(value) -> str:
+    if isinstance(value, (str, int, float, bool)):
+        return str(value)
+    try:
+        return json.dumps(value, ensure_ascii=False, indent=2)
+    except TypeError:
+        return str(value)
+
+
 def interpolate(template: str, state: FlowState) -> str:
     """
     Reemplaza placeholders {{field}} con valores de FlowState.
@@ -64,6 +74,8 @@ def interpolate(template: str, state: FlowState) -> str:
 
     Cualquier clave en state.data también es un placeholder válido:
       {{reply}}, {{context}}, {{route}}, {{nombre}}, {{trabajador}}, etc.
+      Listas y dicts (ej. salida de un FetchHttpNode con array_input, o de un
+      LLMNode con output_as_list) se insertan serializados como JSON.
     """
     template = _replace_conversation(template, state)
 
@@ -75,9 +87,10 @@ def interpolate(template: str, state: FlowState) -> str:
         "canal":         state.canal or "",
     }
     # meta tiene prioridad — no debe poder ser sombreado por una clave de negocio en data.
-    # solo escalares de data (listas/dicts se dejan como {{key}} literal)
-    scalar_data = {k: str(v) for k, v in state.data.items() if isinstance(v, (str, int, float, bool))}
-    all_fields = {**scalar_data, **meta}
+    # None se excluye a propósito: deja el placeholder {{key}} sin resolver en vez de
+    # ocultar el fallo con un string vacío — más fácil de detectar en el prompt final.
+    business_data = {k: _stringify(v) for k, v in state.data.items() if v is not None}
+    all_fields = {**business_data, **meta}
 
     def replace(match):
         key = match.group(1).strip()

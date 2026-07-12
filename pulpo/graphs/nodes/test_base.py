@@ -1,4 +1,6 @@
 """Tests unitarios para interpolate() — el motor compartido de templates {{var}}."""
+import json
+
 from .base import interpolate
 from .state import FlowState, append_conversation_entry
 
@@ -31,10 +33,31 @@ def test_placeholder_desconocido_queda_literal():
     assert interpolate("hola {{no_existe}}", state) == "hola {{no_existe}}"
 
 
-def test_ignora_valores_no_escalares_en_data():
+def test_inserta_listas_como_json():
     state = _state()
     state.data["lista"] = [1, 2, 3]
-    assert interpolate("{{lista}}", state) == "{{lista}}"
+    assert interpolate("{{lista}}", state) == "[\n  1,\n  2,\n  3\n]"
+
+
+def test_inserta_dicts_como_json():
+    state = _state()
+    state.data["resultado"] = {"nombre": "Plomería Pérez", "zona": "Lugano"}
+    assert interpolate("{{resultado}}", state) == json.dumps(
+        {"nombre": "Plomería Pérez", "zona": "Lugano"}, ensure_ascii=False, indent=2
+    )
+
+
+def test_lista_vacia_se_inserta_como_json_vacio():
+    state = _state()
+    state.data["lista"] = []
+    assert interpolate("{{lista}}", state) == "[]"
+
+
+def test_valor_none_deja_placeholder_literal():
+    """None no se resuelve como "" ni "{}" — queda {{key}} para detectar el fallo."""
+    state = _state()
+    state.data["resultado"] = None
+    assert interpolate("{{resultado}}", state) == "{{resultado}}"
 
 
 def test_conversation_first_last_e_indices():

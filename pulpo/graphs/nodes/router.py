@@ -7,8 +7,7 @@ Config:
   prompt:          str  — system prompt para el clasificador
   routes:          list — valores válidos (ej: ["noticias", "oficio", "auspiciante"])
   fallback:        str  — route por defecto si el LLM no responde algo válido
-  model:           str  — modelo a usar (best:*, ollama/*, groq/*, o legacy)
-  router_strategy: str  — "local-first" | "cloud-first" (solo aplica a best:*)
+  model:           str  — modelo a usar (best:cat|strategy, ollama/*, groq/*, o legacy)
 
 El LLM siempre recibe el mensaje del vecino más todas las variables del flow
 (state.data — un único lugar para todo lo que los nodos producen, incluida
@@ -67,7 +66,7 @@ class RouterNode(BaseNode):
         pre_route_rules  = self.config.get("pre_route_rules", [])
         max_visits       = self.config.get("max_visits")
         max_visits_route = self.config.get("max_visits_route", "")
-        model, router_strategy = parse_model_strategy(raw_model, self.config)
+        model, router_strategy = parse_model_strategy(raw_model)
 
         # Contador automático de visitas por nodo en esta conversación
         if max_visits and max_visits_route:
