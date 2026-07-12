@@ -1,6 +1,7 @@
 import { createStore, useStore } from 'zustand'
 import { applyNodeChanges, applyEdgeChanges, addEdge } from '@xyflow/react'
 import { createContext, useContext } from 'react'
+import { NODE_WIDTH, snapPoint } from '../utils/grid.js'
 
 export const FlowStoreContext = createContext(null)
 
@@ -98,7 +99,7 @@ export function dbNodeToRF(node, typeMap = {}) {
     id: node.id,
     type: 'flowNode',
     position: node.position || { x: 0, y: 0 },
-    width: 160,
+    width: NODE_WIDTH,
     height: 40,
     data: {
       nodeType:    node.type,
@@ -280,8 +281,8 @@ export function createFlowStore() {
       const newNode = {
         id,
         type: 'flowNode',
-        position,
-        width: 160,
+        position: snapPoint(position),
+        width: NODE_WIDTH,
         height: 40,
         data: {
           nodeType,
@@ -308,7 +309,7 @@ export function createFlowStore() {
       const newNode = {
         ...original,
         id,
-        position,
+        position: snapPoint(position),
         selected: false,
         data: {
           ...original.data,
@@ -372,7 +373,11 @@ export function createFlowStore() {
         if (e.id !== edgeId) return e
         const base = e.data || {}
         const { bendX: _bx, bendY: _by, ...rest } = base
-        const data = bendX != null ? { ...rest, bendX, bendY } : rest
+        let data = rest
+        if (bendX != null) {
+          const snapped = snapPoint({ x: bendX, y: bendY })
+          data = { ...rest, bendX: snapped.x, bendY: snapped.y }
+        }
         return { ...e, data }
       }),
       isDirty: true,

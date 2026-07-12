@@ -14,6 +14,7 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useFlowStore } from '../store/flowStore.js'
+import { GRID_SIZE, NODE_WIDTH, snapPoint } from '../utils/grid.js'
 
 // ─── Contexto de modo borrar ──────────────────────────────────────────────────
 
@@ -99,11 +100,11 @@ function LabeledEdge({ id, source, sourceX, sourceY, targetX, targetY, sourcePos
     const onMove = (ev) => {
       if (!moved && Math.abs(ev.clientX - startX) < 3 && Math.abs(ev.clientY - startY) < 3) return
       moved = true
-      setLocalBend(screenToFlowPosition({ x: ev.clientX, y: ev.clientY }))
+      setLocalBend(snapPoint(screenToFlowPosition({ x: ev.clientX, y: ev.clientY })))
     }
     const onUp = (ev) => {
       if (moved) {
-        const { x, y } = screenToFlowPosition({ x: ev.clientX, y: ev.clientY })
+        const { x, y } = snapPoint(screenToFlowPosition({ x: ev.clientX, y: ev.clientY }))
         updateEdgeBend?.(id, x, y)
       } else if (updateEdgeLabel) {
         setEditing(true)
@@ -259,7 +260,7 @@ function FlowNode({ id, data, selected }) {
         borderRadius: 8,
         border: `2px solid ${borderColor}`,
         boxShadow: isDanger ? '0 0 0 2px rgba(239,68,68,0.25)' : selected ? '0 0 0 2px rgba(34,197,94,0.25)' : 'none',
-        width: 160,
+        width: NODE_WIDTH,
         minHeight: 40,
         display: 'flex',
         flexDirection: 'column',
@@ -452,6 +453,8 @@ export default function FlowCanvas({
           fitViewOptions={{ padding: 0.3 }}
           minZoom={0.1}
           maxZoom={2}
+          snapToGrid
+          snapGrid={[GRID_SIZE, GRID_SIZE]}
           nodesDraggable={!deleteMode && !panMode}
           nodesConnectable={!deleteMode}
           elementsSelectable={!panMode}
@@ -463,7 +466,7 @@ export default function FlowCanvas({
           deleteKeyCode={null}
           proOptions={{ hideAttribution: true }}
         >
-          <Background color="#1e293b" gap={16} />
+          <Background color="#1e293b" gap={GRID_SIZE} />
           <Controls showInteractive={false} style={{ background: '#1e293b', border: '1px solid #334155' }}>
             <ControlButton
               onClick={() => setTool('select')}
