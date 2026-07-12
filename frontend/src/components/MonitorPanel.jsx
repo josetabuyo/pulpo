@@ -111,7 +111,7 @@ const SERIES = [
   { key: 'warnings', label: 'Warnings',             color: '#ff9800' },
 ]
 
-function MetricChart({ metrics, labels, windowCfg }) {
+function MetricChart({ metrics, labels }) {
   const W = 1000, H = 130
   const PAD = { top: 12, right: 16, bottom: 26, left: 36 }
   const iW = W - PAD.left - PAD.right
@@ -260,7 +260,7 @@ export default function MonitorPanel({ pwd, onAlertsChange, active = true }) {
   useEffect(() => { onAlertsChange?.(alerts.length) }, [alerts.length])
 
   const metrics = useMemo(() => buildMetrics(lines, windowCfg), [lines, windowCfg])
-  const labels  = useMemo(() => buildBucketLabels(windowCfg),   [windowCfg, lines])
+  const labels  = useMemo(() => buildBucketLabels(windowCfg),   [windowCfg])
 
   const totals = useMemo(() => ({
     received: metrics.received.reduce((a, b) => a + b, 0),
@@ -342,7 +342,7 @@ export default function MonitorPanel({ pwd, onAlertsChange, active = true }) {
             ))}
           </div>
         </div>
-        <MetricChart metrics={metrics} labels={labels} windowCfg={windowCfg} />
+        <MetricChart metrics={metrics} labels={labels} />
       </div>
 
       {/* Alerts */}

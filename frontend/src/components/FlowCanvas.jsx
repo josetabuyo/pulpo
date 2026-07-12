@@ -501,7 +501,7 @@ export default function FlowCanvas({
             }}
           >
             <span style={{ fontSize: 12, color: '#fca5a5' }}>
-              ¿Eliminar <strong>"{pendingDeleteNode.data?.label}"</strong>?
+              ¿Eliminar <strong>&quot;{pendingDeleteNode.data?.label}&quot;</strong>?
             </span>
             <button
               onClick={() => { deleteNode(pendingDeleteNode.id); setPendingDeleteNodeId(null) }}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors,
@@ -31,15 +31,6 @@ function safeShortDate(isoTs) {
   if (!isoTs) return '?'
   const d = new Date(isoTs)
   return isNaN(d.getTime()) ? '?' : d.toLocaleDateString('es-AR')
-}
-
-function addSecond(isoTs) {
-  if (!isoTs) return new Date().toISOString()
-  try {
-    return new Date(new Date(isoTs).getTime() + 1000).toISOString()
-  } catch {
-    return new Date().toISOString()
-  }
 }
 
 // ─── Highlight helper ────────────────────────────────────────────────────────

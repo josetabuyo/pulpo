@@ -317,7 +317,7 @@ export default function BotCard({
             botId={botId}
             botName={bot.name}
             apiCall={apiCall}
-            onNameChange={name => onRefresh?.()}
+            onNameChange={() => onRefresh?.()}
           />
         )}
       </div>

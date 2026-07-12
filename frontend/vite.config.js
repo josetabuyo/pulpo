@@ -1,6 +1,5 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { loadEnv } from 'vite'
 import path from 'path'
 import fs from 'fs'
 import { fileURLToPath } from 'url'

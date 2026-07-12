@@ -12,7 +12,7 @@ function botApi(method, path, body) {
 
 // ─── Fila de conexión Telegram ────────────────────────────────────────────────
 
-export function ConexionRow({ conn, botId, onDelete }) {
+export function ConexionRow({ conn, onDelete }) {
   const [status, setStatus] = useState(conn.status)
   useEffect(() => setStatus(conn.status), [conn.status])
 

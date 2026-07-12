@@ -7,7 +7,7 @@ import JsonNodeEditor from './JsonNodeEditor.jsx'
 
 const TRIGGER_TYPES = new Set(['telegram_trigger', 'message_trigger', 'whatsapp_trigger', 'api_trigger'])
 
-export default function ConfigForm({ node, schema, botId, flowId, connections, apiCall, onGoToUIs }) {
+export default function ConfigForm({ node, schema, botId, flowId, apiCall, onGoToUIs }) {
   const updateNodeConfig = useFlowStore(s => s.updateNodeConfig)
   const { nodeType, config } = node.data
 

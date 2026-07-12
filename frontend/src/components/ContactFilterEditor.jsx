@@ -12,7 +12,7 @@
  *   contacts  — [{ id, name, channels, ... }]  (contactos registrados en DB)
  *   suggested — [{ name, phone, has_messages }] (vistos en conversaciones)
  */
-import { useState, useCallback } from 'react'
+import { useState } from 'react'
 
 export const DEFAULT_FILTER = {
   include_all_known: false,

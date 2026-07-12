@@ -31,7 +31,10 @@ function WaviModal({ open, onClose, pwd, session }) {
       try {
         const res = await fetch('/api/wavi/qr-page', { headers: { 'x-password': pwd } })
         if (res.ok) setQrHtml(await res.text())
-      } catch (_) {}
+      } catch (e) {
+        // El polling reintenta solo en el próximo tick; el rastro queda en consola
+        console.warn('[DashboardPage] fetch de QR falló', e)
+      }
     }
     fetchQr()
     const id = setInterval(fetchQr, 5000)
@@ -68,7 +71,7 @@ function WaviModal({ open, onClose, pwd, session }) {
           {starting ? 'Iniciando…' : isSpecificSession ? '↻ Reconectar + QR' : '▶ Iniciar daemon + QR'}
         </button>
         <iframe
-          srcdoc={qrHtml}
+          srcDoc={qrHtml}
           style={{ width: '100%', height: 360, border: '1px solid #333', borderRadius: 6 }}
           title="WhatsApp QR"
         />
@@ -89,7 +92,7 @@ function WaviModal({ open, onClose, pwd, session }) {
 
 // ─── Modales inline ────────────────────────────────────────────────────────────
 
-function Modal({ open, onClose, title, width, children }) {
+function Modal({ open, onClose, width, children }) {
   useEffect(() => {
     if (!open) return
     const handler = e => { if (e.key === 'Escape') onClose() }
@@ -129,7 +132,7 @@ function BotModal({ open, onClose, editBot, onSave }) {
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="">
+    <Modal open={open} onClose={onClose}>
       <h3>{isEdit ? 'Editar bot' : 'Nueva bot'}</h3>
       {!isEdit && (
         <div className="fg">

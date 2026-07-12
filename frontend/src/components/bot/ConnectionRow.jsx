@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { StatusPill } from './widgets.jsx'
 
-export default function ConnectionRow({ conn, mode, botId, apiCall, onDelete, onReconnect, onToggleMass }) {
+export default function ConnectionRow({ conn, mode, botId, onDelete, onReconnect, onToggleMass }) {
   const [localStatus, setLocalStatus] = useState(conn.status)
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0, openUp: false })

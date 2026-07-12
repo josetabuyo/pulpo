@@ -175,7 +175,7 @@ function RunDetail({ run, onClose, botId, apiCall }) {
           background: '#f8fafc', borderRadius: '6px 6px 0 0', padding: '6px 10px',
           borderLeft: '3px solid #cbd5e1', borderBottom: '1px solid #e2e8f0',
         }}>
-          <strong>{trigger.canal}</strong> · {trigger.contact_phone} · "{firstMessage}"
+          <strong>{trigger.canal}</strong> · {trigger.contact_phone} · &quot;{firstMessage}&quot;
         </div>
       )}
 

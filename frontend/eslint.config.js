@@ -29,6 +29,14 @@ export default [
       ...react.configs['jsx-runtime'].rules,
       ...reactHooks.configs.recommended.rules,
       'react/jsx-no-target-blank': 'off',
+      // El proyecto nunca usó PropTypes (no está ni instalado el paquete) —
+      // esta regla viene prendida por defecto en react.configs.recommended y
+      // generaba ~500 falsos "error" en componentes que jamás la necesitaron.
+      // Si en algún momento se adopta TypeScript o PropTypes, reactivar acá.
+      'react/prop-types': 'off',
+      // Patrón estándar de "excluir por destructuring" (const { x: _x, ...rest } = obj)
+      // — las variables descartadas son intencionalmente no usadas.
+      'no-unused-vars': ['error', { ignoreRestSiblings: true }],
       'react-refresh/only-export-components': [
         'warn',
         { allowConstantExport: true },
