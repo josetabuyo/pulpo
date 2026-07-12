@@ -47,8 +47,18 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
   }, [flow.id])
 
   // Ctrl+Z / Cmd+Z → deshacer
+  // Si el foco está en un campo editable (input, textarea, o el JSON editor
+  // de CodeMirror en NodeConfigPanel), dejamos que el undo de texto nativo
+  // del navegador/editor haga lo suyo — no debe tocar el historial del flow.
   useEffect(() => {
+    function isEditableTarget(el) {
+      if (!el) return false
+      const tag = el.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return true
+      return !!el.isContentEditable
+    }
     function handleKeyDown(e) {
+      if (isEditableTarget(e.target)) return
       if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
         e.preventDefault()
         undo()

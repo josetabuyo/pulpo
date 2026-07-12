@@ -28,16 +28,28 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
     return localStorage.getItem('pulpo:autosave-enabled') !== 'false'
   })
 
+  // Snapshot del estado "en vivo" tomado justo antes de empezar a navegar el
+  // historial (primer ◀). `flow.definition` es la foto del fetch inicial al
+  // abrir el editor — nunca se refresca — así que usarla para volver a -1
+  // tiraba cualquier cambio hecho durante la sesión (auto o manual, incluso
+  // ya persistido). liveSnapshotRef guarda el estado real justo antes de
+  // navegar, para restaurarlo exacto al volver con ▶.
+  const liveSnapshotRef = useRef(null)
+
   useEffect(() => { setActive(!!flow.active) }, [flow.id, flow.active])
   // Al cambiar de flow, descartar el historial de navegación cargado
-  useEffect(() => { setVersions(null); setVersionIndex(-1) }, [flow.id])
+  useEffect(() => { setVersions(null); setVersionIndex(-1); liveSnapshotRef.current = null }, [flow.id])
 
   const nameRef = useRef(name)
   useEffect(() => { nameRef.current = name }, [name])
 
   const autoSaveTimer = useRef(null)
 
-  const handleSave = useCallback(async (nameOverride, { explicit = false } = {}) => {
+  // Todo guardado — automático o manual — snapshotea versión. Como el
+  // autoguardado solo corre cuando isDirty (hubo cambios reales), auto y
+  // manual quedan indistinguibles para el historial: ◀ ▶ navegan por igual
+  // sin importar cuál de los dos disparó cada guardado.
+  const handleSave = useCallback(async (nameOverride) => {
     const saveName = (nameOverride ?? nameRef.current).trim()
     if (!saveName) { setSaveErr('El nombre es obligatorio'); return }
     setSaving(true)
@@ -47,10 +59,10 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
       await apiCall('PUT', `/flows/bots/${flow.bot_id}/${flow.id}`, {
         name: saveName,
         definition,
-        save_version: explicit,
+        save_version: true,
       })
       markClean()
-      if (explicit) { setVersions(null); setVersionIndex(-1) }
+      setVersions(null); setVersionIndex(-1)
       onSaved?.()
     } catch {
       setSaveErr('Error al guardar')
@@ -86,7 +98,9 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
 
   const goToIndex = useCallback(async (list, index) => {
     if (index === -1) {
-      loadFlow(flow.definition, undefined, { dirty: true })
+      // Restaurar el snapshot tomado antes de empezar a navegar — no la foto
+      // vieja de `flow.definition` (ver comentario en liveSnapshotRef arriba).
+      loadFlow(liveSnapshotRef.current ?? flow.definition, undefined, { dirty: true })
       setVersionIndex(-1)
       return
     }
@@ -103,11 +117,12 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
       const list = await ensureVersionsLoaded()
       const nextIndex = Math.min(versionIndex + 1, list.length - 1)
       if (nextIndex === versionIndex) return
+      if (versionIndex === -1) liveSnapshotRef.current = getDefinition()
       await goToIndex(list, nextIndex)
     } finally {
       setNavigating(false)
     }
-  }, [ensureVersionsLoaded, goToIndex, versionIndex])
+  }, [ensureVersionsLoaded, goToIndex, versionIndex, getDefinition])
 
   const handleForward = useCallback(async () => {
     setNavigating(true)
@@ -266,7 +281,7 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
           Auto
         </label>
         <button
-          onClick={() => { clearTimeout(autoSaveTimer.current); handleSave(undefined, { explicit: true }) }}
+          onClick={() => { clearTimeout(autoSaveTimer.current); handleSave() }}
           disabled={saving}
           style={{
             background: isDirty ? '#16a34a' : '#1e293b',

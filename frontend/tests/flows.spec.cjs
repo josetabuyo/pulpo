@@ -67,14 +67,22 @@ test('botón volver regresa a la lista', async ({ page }) => {
   await expect(card.getByRole('button', { name: /Nuevo flow/i })).toBeVisible()
 })
 
+// Si el flow no tiene nodos, agrega uno descartable (nunca se guarda) para
+// que el test no dependa de que el primer flow de la lista tenga contenido.
+async function ensureAtLeastOneNode(page) {
+  const nodes = page.locator('.react-flow__node')
+  if (await nodes.count() > 0) return nodes
+  await page.getByRole('button', { name: '+ Nuevo nodo' }).click()
+  await page.getByTestId('node-picker').getByText('send_message').click()
+  return nodes
+}
+
 test('doble click en un nodo abre el panel de configuración', async ({ page }) => {
   const card = await goToFlowTab(page)
   await clickFlowEdit(card)
   await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
 
-  const nodes = page.locator('.react-flow__node')
-  const count = await nodes.count()
-  test.skip(count === 0, 'el flow no tiene nodos para configurar')
+  const nodes = await ensureAtLeastOneNode(page)
 
   await nodes.first().dblclick()
   // El panel (components/nodeconfig/ConfigForm) muestra el header con el label editable
@@ -151,8 +159,15 @@ test('back-edge se renderiza bajando antes de subir hacia el destino', async ({ 
   await flowRow.click()
   await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
 
-  // La etiqueta del back-edge debe ser visible
-  await expect(page.getByText('sin_direccion')).toBeVisible({ timeout: 8000 })
+  // La etiqueta del back-edge debe ser visible. Acotada al contenedor de
+  // labels de React Flow y con texto exacto: un getByText sin acotar
+  // matchea por substring contra CUALQUIER texto de la página, incluidas
+  // las líneas del panel de Monitor (logs reales de producción) — si algún
+  // log alguna vez contiene "sin_direccion" como substring, "strict mode
+  // violation" por match ambiguo entre múltiples elementos.
+  await expect(
+    page.locator('.react-flow__edgelabel-renderer').getByText('sin_direccion', { exact: true })
+  ).toBeVisible({ timeout: 8000 })
 
   // El edge sin_direccion (validar_direccion → pedir_direccion) es un back-edge:
   // su path debe bajar (Y aumenta) antes de subir hacia el destino, que está
@@ -182,9 +197,8 @@ test('duplicar nodo crea una copia con la misma config', async ({ page }) => {
   await clickFlowEdit(card)
   await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
 
-  const nodes = page.locator('.react-flow__node')
+  const nodes = await ensureAtLeastOneNode(page)
   const countBefore = await nodes.count()
-  test.skip(countBefore === 0, 'el flow no tiene nodos para duplicar')
 
   // Seleccionar el primer nodo (doble clic abre el panel de config)
   await nodes.first().dblclick()
@@ -232,9 +246,7 @@ test('doble click en un nodo expande el panel si estaba colapsado', async ({ pag
   await clickFlowEdit(card)
   await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
 
-  const nodes = page.locator('.react-flow__node')
-  const count = await nodes.count()
-  test.skip(count === 0, 'el flow no tiene nodos para configurar')
+  const nodes = await ensureAtLeastOneNode(page)
 
   // Colapsar el panel
   await page.getByTitle('Colapsar panel').click()
@@ -317,9 +329,8 @@ test('modo eliminar: cancelar la confirmación no borra el nodo', async ({ page 
   await clickFlowEdit(card)
   await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
 
-  const nodes = page.locator('.react-flow__node')
+  const nodes = await ensureAtLeastOneNode(page)
   const countBefore = await nodes.count()
-  test.skip(countBefore === 0, 'el flow no tiene nodos para probar el cancelar')
 
   await page.getByRole('button', { name: /Eliminar/i }).click()
   await nodes.first().click()
@@ -457,4 +468,176 @@ test('el divisor entre editor y ayuda es arrastrable y ambos llenan el panel', a
     const ayudaBoxAfter = await ayuda.boundingBox()
     expect(ayudaBoxAfter.height).toBeGreaterThan(ayudaBoxBefore.height + 50)
   }).toPass({ timeout: 5000 })
+})
+
+// ─── isDirty solo debe prenderse con cambios de contenido reales ──────────────
+// (regresión: seleccionar/deseleccionar un nodo prendía "Sin guardar" sin que
+// hubiera ningún cambio, por un evento 'select' de React Flow tratado como dirty)
+
+test('seleccionar un nodo con doble click no marca "Sin guardar"', async ({ page }) => {
+  const card = await goToFlowTab(page)
+  await clickFlowEdit(card)
+  await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
+
+  // Nodo descartable, para no depender de que el flow ya tenga nodos.
+  // Se guarda para poder llegar a un estado "limpio" (isDirty=false) real.
+  await page.getByRole('button', { name: '+ Nuevo nodo' }).click()
+  const picker = page.getByTestId('node-picker')
+  await picker.getByText('send_message').click()
+  await expect(page.getByText('Sin guardar')).toBeVisible()
+  await page.getByRole('button', { name: 'Guardar', exact: true }).click()
+  await expect(page.getByText('Sin guardar')).not.toBeVisible({ timeout: 5000 })
+
+  const node = page.locator('.react-flow__node').last()
+  await node.dblclick()
+  await expect(page.getByTitle('Editar nombre del nodo')).toBeVisible({ timeout: 5000 })
+  await expect(page.getByText('Sin guardar')).not.toBeVisible()
+
+  // Deseleccionar clickeando el paño (esquina vacía) tampoco debe ensuciar el flow
+  await page.locator('.react-flow__pane').click({ position: { x: 15, y: 15 } })
+  await expect(page.getByText('Sin guardar')).not.toBeVisible()
+
+  // Limpieza: este test sí guardó el nodo de prueba — borrarlo y persistir
+  await page.getByRole('button', { name: /Eliminar/i }).click()
+  await node.click()
+  await page.getByRole('button', { name: 'Sí, eliminar' }).click()
+  await page.getByRole('button', { name: /Eliminar/i }).click() // salir del modo eliminar
+  await page.getByRole('button', { name: 'Guardar', exact: true }).click()
+  await expect(page.getByText('Sin guardar')).not.toBeVisible({ timeout: 5000 })
+})
+
+// ─── Cmd+Z / Ctrl+Z desacoplado del undo del canvas cuando el foco ────────────
+// está en un campo de texto editable (regresión: undo global pisaba el flow
+// mientras se escribía en el editor JSON del NodeConfigPanel)
+
+test('Cmd+Z dentro del editor JSON deshace el texto sin tocar el canvas', async ({ page }) => {
+  const card = await goToFlowTab(page)
+  await clickFlowEdit(card)
+  await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
+
+  // Nodo descartable, para no depender del contenido real del flow
+  await page.getByRole('button', { name: '+ Nuevo nodo' }).click()
+  const picker = page.getByTestId('node-picker')
+  await picker.getByText('send_message').click()
+  const countAfterAdd = await page.locator('.react-flow__node').count()
+
+  const newNode = page.locator('.react-flow__node').last()
+  await newNode.dblclick()
+  await expect(page.getByTitle('Editar nombre del nodo')).toBeVisible({ timeout: 5000 })
+
+  const editor = page.locator('.cm-content').first()
+  await editor.click()
+  await page.keyboard.type('X')
+  await expect(editor).toContainText('X')
+
+  const undoShortcut = process.platform === 'darwin' ? 'Meta+z' : 'Control+z'
+  await page.keyboard.press(undoShortcut)
+
+  // El undo nativo de CodeMirror deshace el tipeo...
+  await expect(editor).not.toContainText('X')
+  // ...pero el nodo agregado sigue en el canvas: el atajo no debe disparar
+  // el undo() del store del flow mientras el foco está en el editor de texto.
+  expect(await page.locator('.react-flow__node').count()).toBe(countAfterAdd)
+
+  // Limpieza: borrar el nodo de prueba para no dejar basura en el flow real
+  await page.getByRole('button', { name: /Eliminar/i }).click()
+  await newNode.click()
+  await page.getByRole('button', { name: 'Sí, eliminar' }).click()
+  await expect(async () => {
+    expect(await page.locator('.react-flow__node').count()).toBe(countAfterAdd - 1)
+  }).toPass({ timeout: 5000 })
+})
+
+// ─── Autoguardado deja versión navegable, igual que el guardado manual ───────
+// (antes solo "Guardar" explícito snapshoteaba flow_versions; el autoguardado
+// pisaba el definition en vivo sin dejar checkpoint — ◀ ▶ saltaban de largo
+// todo lo autoguardado)
+
+test('el autoguardado deja una versión navegable con ◀', async ({ page }) => {
+  const card = await goToFlowTab(page)
+  await clickFlowEdit(card)
+  await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
+
+  const backButton = page.getByTitle('Versión anterior')
+
+  // Cambio real y descartable: agregar un nodo (no necesita que el flow
+  // tenga nodos previos)
+  await page.getByRole('button', { name: '+ Nuevo nodo' }).click()
+  const picker = page.getByTestId('node-picker')
+  await picker.getByText('send_message').click()
+  await expect(page.getByText('Sin guardar')).toBeVisible()
+
+  // Esperar el autoguardado (debounce de 2.5s) — "Sin guardar" desaparece
+  // solo, sin haber tocado el botón "Guardar"
+  await expect(page.getByText('Sin guardar')).not.toBeVisible({ timeout: 6000 })
+
+  // El autoguardado dejó un checkpoint navegable, igual que un guardado manual
+  await expect(backButton).toBeEnabled({ timeout: 5000 })
+
+  // Volver al estado live sin dejar la vista de versión abierta
+  await backButton.click()
+  const forwardButton = page.getByTitle('Versión siguiente')
+  await expect(forwardButton).toBeEnabled()
+  await forwardButton.click()
+
+  // Limpieza: el nodo quedó autoguardado en la DB — borrarlo y persistir
+  const node = page.locator('.react-flow__node').last()
+  await page.getByRole('button', { name: /Eliminar/i }).click()
+  await node.click()
+  await page.getByRole('button', { name: 'Sí, eliminar' }).click()
+  await page.getByRole('button', { name: /Eliminar/i }).click() // salir del modo eliminar
+  await page.getByRole('button', { name: 'Guardar', exact: true }).click()
+  await expect(page.getByText('Sin guardar')).not.toBeVisible({ timeout: 5000 })
+})
+
+// ─── ▶ debe volver al estado real de la sesión, no a la foto del momento ─────
+// de abrir el editor (regresión: goToIndex(-1) usaba `flow.definition`, un
+// prop que nunca se refresca — navegar ◀ y después ▶ tiraba cualquier cambio
+// hecho durante la sesión, incluso ya autoguardado/guardado)
+
+test('◀ y después ▶ no pierde cambios ya guardados en la sesión', async ({ page }) => {
+  const card = await goToFlowTab(page)
+  await clickFlowEdit(card)
+  await expect(page.getByRole('button', { name: '+ Nuevo nodo' })).toBeVisible({ timeout: 8000 })
+
+  const nodes = page.locator('.react-flow__node')
+  const n0 = await nodes.count()
+  const picker = page.getByTestId('node-picker')
+
+  // Nodo A: agregado y guardado explícitamente — "trabajo ya persistido esta sesión"
+  await page.getByRole('button', { name: '+ Nuevo nodo' }).click()
+  await picker.getByText('send_message').click()
+  await expect(nodes).toHaveCount(n0 + 1)
+  await page.getByRole('button', { name: 'Guardar', exact: true }).click()
+  await expect(page.getByText('Sin guardar')).not.toBeVisible({ timeout: 5000 })
+
+  // Nodo B: agregado sin guardar — "trabajo en curso"
+  await page.getByRole('button', { name: '+ Nuevo nodo' }).click()
+  await picker.getByText('send_message').click()
+  await expect(nodes).toHaveCount(n0 + 2)
+
+  // ◀ muestra una versión vieja (menos nodos)...
+  await page.getByTitle('Versión anterior').click()
+  await expect(async () => {
+    expect(await nodes.count()).toBeLessThan(n0 + 2)
+  }).toPass({ timeout: 5000 })
+
+  // ...▶ debe volver exacto al estado de la sesión (n0 + 2), no a la foto de
+  // cuando se abrió el editor (que sería n0)
+  await page.getByTitle('Versión siguiente').click()
+  await expect(async () => {
+    expect(await nodes.count()).toBe(n0 + 2)
+  }).toPass({ timeout: 5000 })
+
+  // Limpieza: sacar los dos nodos de prueba y persistir
+  await page.getByRole('button', { name: /Eliminar/i }).click()
+  await nodes.last().click()
+  await page.getByRole('button', { name: 'Sí, eliminar' }).click()
+  await expect(nodes).toHaveCount(n0 + 1, { timeout: 5000 })
+  await nodes.last().click()
+  await page.getByRole('button', { name: 'Sí, eliminar' }).click()
+  await expect(nodes).toHaveCount(n0, { timeout: 5000 })
+  await page.getByRole('button', { name: /Eliminar/i }).click() // salir del modo eliminar
+  await page.getByRole('button', { name: 'Guardar', exact: true }).click()
+  await expect(page.getByText('Sin guardar')).not.toBeVisible({ timeout: 5000 })
 })

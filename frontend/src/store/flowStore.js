@@ -232,19 +232,23 @@ export function createFlowStore() {
       _version: state._version + 1,
     })),
 
-    onNodesChange: (changes) => set(state => ({
-      nodes: applyNodeChanges(changes, state.nodes),
-      isDirty: true,
-      _version: state._version + 1,
-    })),
+    onNodesChange: (changes) => {
+      // 'select' y 'dimensions' no son cambios de contenido — clickear/deseleccionar
+      // un nodo (p.ej. al abrir el NodeConfigPanel) no debe prender "Sin guardar".
+      const isDirtyChange = changes.some(c => c.type !== 'select' && c.type !== 'dimensions')
+      set(state => ({
+        nodes: applyNodeChanges(changes, state.nodes),
+        ...(isDirtyChange ? { isDirty: true, _version: state._version + 1 } : {}),
+      }))
+    },
 
     onEdgesChange: (changes) => {
       const hasRemove = changes.some(c => c.type === 'remove')
       if (hasRemove) pushToHistory()
+      const isDirtyChange = changes.some(c => c.type !== 'select' && c.type !== 'dimensions')
       set(state => ({
         edges: applyEdgeChanges(changes, state.edges),
-        isDirty: true,
-        _version: state._version + 1,
+        ...(isDirtyChange ? { isDirty: true, _version: state._version + 1 } : {}),
       }))
     },
 
