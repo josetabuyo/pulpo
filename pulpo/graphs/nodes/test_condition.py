@@ -88,3 +88,33 @@ async def test_sin_reglas_usa_fallback():
     node = ConditionNode({"rules": [], "fallback": "pedir_mas_info"})
     state = await node.run(_state(data={"necesidad": "plomero"}))
     assert state.data["route"] == "pedir_mas_info"
+
+
+@pytest.mark.asyncio
+async def test_max_visits_redirige_a_max_visits_route_sin_evaluar_reglas():
+    node = ConditionNode({
+        "rules": [{"var": "necesidad", "op": "not_empty", "then": "necesidad_identificada"}],
+        "fallback": "pedir_mas_info",
+        "max_visits": 2,
+        "max_visits_route": "agotado",
+        "_node_id": "n1",
+    })
+    state = await node.run(_state(data={"necesidad": "plomero"}))
+    assert state.data["route"] == "necesidad_identificada"
+
+    state = await node.run(state)
+    assert state.data["route"] == "agotado"
+
+
+@pytest.mark.asyncio
+async def test_sin_max_visits_route_no_cuenta_visitas():
+    node = ConditionNode({
+        "rules": [{"var": "necesidad", "op": "not_empty", "then": "necesidad_identificada"}],
+        "fallback": "pedir_mas_info",
+        "max_visits": 2,
+        "_node_id": "n1",
+    })
+    state = await node.run(_state(data={"necesidad": "plomero"}))
+    state = await node.run(state)
+    assert state.data["route"] == "necesidad_identificada"
+    assert "_visits_n1" not in state.data

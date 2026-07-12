@@ -9,6 +9,8 @@ Config:
             Operadores: equals, not_equals, in, not_in, empty, not_empty, contains
   fallback: str  — route si ninguna regla matchea
   routes:   list — valores válidos (documentación de los edges disponibles)
+  max_visits: int — si el nodo se visita ≥ N veces en la misma conversación, redirige a max_visits_route
+  max_visits_route: str — route a la que redirige al agotar max_visits
 """
 import logging
 from .base import BaseNode
@@ -51,6 +53,18 @@ class ConditionNode(BaseNode):
     async def run(self, state: FlowState) -> FlowState:
         rules = self.config.get("rules", [])
         fallback = self.config.get("fallback", "")
+        max_visits = self.config.get("max_visits")
+        max_visits_route = self.config.get("max_visits_route", "")
+
+        if max_visits and max_visits_route:
+            visit_key = f"_visits_{self.config.get('_node_id', 'condition')}"
+            visits = int(state.data.get(visit_key, 0) or 0) + 1
+            state.data[visit_key] = visits
+            logger.debug("[ConditionNode] visitas=%d/%s node=%s", visits, max_visits, visit_key)
+            if visits >= int(max_visits):
+                logger.info("[ConditionNode] max_visits=%s alcanzado → '%s'", max_visits, max_visits_route)
+                state.data["route"] = max_visits_route
+                return state
 
         for rule in rules:
             if _eval_rule(rule, state):
@@ -85,5 +99,17 @@ class ConditionNode(BaseNode):
                 "label":   "Rutas válidas",
                 "default": [],
                 "hint":    "Separadas por coma — documentación de los edges disponibles",
+            },
+            "max_visits": {
+                "type":    "number",
+                "label":   "Máx. visitas (loop limit)",
+                "default": None,
+                "hint":    "Si el nodo se visita ≥ N veces en la misma conversación, redirige a max_visits_route",
+            },
+            "max_visits_route": {
+                "type":    "string",
+                "label":   "Ruta cuando se agota el límite",
+                "default": "",
+                "hint":    "Debe existir como edge de este nodo. Ej: agotado",
             },
         }
