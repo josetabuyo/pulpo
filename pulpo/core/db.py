@@ -822,7 +822,7 @@ async def create_flow_version(flow_id: str, name: str, definition: dict) -> None
             text(f"""
                 DELETE FROM flow_versions WHERE flow_id=:flow_id AND id NOT IN (
                     SELECT id FROM flow_versions WHERE flow_id=:flow_id
-                    ORDER BY created_at DESC LIMIT {_FLOW_VERSIONS_LIMIT}
+                    ORDER BY created_at DESC, id DESC LIMIT {_FLOW_VERSIONS_LIMIT}
                 )
             """),
             {"flow_id": flow_id},
@@ -835,7 +835,7 @@ async def get_flow_versions(flow_id: str, limit: int = _FLOW_VERSIONS_LIMIT) -> 
         rows = (await session.execute(
             text("""
                 SELECT id, flow_id, name, created_at FROM flow_versions
-                WHERE flow_id = :flow_id ORDER BY created_at DESC LIMIT :limit
+                WHERE flow_id = :flow_id ORDER BY created_at DESC, id DESC LIMIT :limit
             """),
             {"flow_id": flow_id, "limit": limit},
         )).fetchall()
