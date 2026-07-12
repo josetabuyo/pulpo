@@ -18,7 +18,7 @@ un dato puntual, puede nombrarlo en prosa (ej. "fijate en la variable
 """
 import json
 import logging
-from .base import BaseNode
+from .base import BaseNode, interpolate
 from .llm import MODEL_OPTIONS, _build_llm, parse_model_strategy
 from .state import FlowState
 
@@ -93,6 +93,7 @@ class RouterNode(BaseNode):
             state.data["route"] = fallback
             return state
 
+        prompt = interpolate(prompt, state)
         user_message = _build_user_message(state)
 
         try:

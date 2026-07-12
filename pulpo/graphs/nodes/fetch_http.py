@@ -3,16 +3,20 @@ FetchHttpNode — hace un GET HTTP a una URL externa y guarda el resultado en
 state.data["context"] (y opcionalmente extrae el primer resultado a variables).
 
 Config:
-  url:       str — URL para el GET. Soporta templates: {message} y {query} se
-                    sustituyen con el input del usuario antes de hacer el request.
-                    Ej: https://api.ejemplo.com/buscar?q={message}
+  url:       str — URL para el GET. Soporta los mismos templates que el resto de
+                    los nodos (ver interpolate() en base.py): {{conversation.last}},
+                    {{necesidad}}, {{contact_name}}, etc. Además, {{query}} tiene
+                    fallback propio: state.data["query"] → state.data["necesidad"] →
+                    último mensaje de la conversación — url-encodeado.
+                    Ej: https://api.ejemplo.com/buscar?q={{query}}
   extract:   str — "text" | "json" | "html"
   extract_first_result_to_vars: bool — si extract="json" y la respuesta tiene
                     forma {"results": [...]}, vuelca el primer resultado a state.data
 """
 import logging
+from urllib.parse import quote
 
-from .base import BaseNode
+from .base import BaseNode, interpolate
 from .state import FlowState
 
 logger = logging.getLogger(__name__)
@@ -34,11 +38,19 @@ class FetchHttpNode(BaseNode):
             logger.warning("[FetchHttpNode] sin url configurada")
             return state
 
-        # Template substitution: {message} and {query} are replaced with user input.
-        # {query} prioriza la necesidad ya identificada (más limpia para buscar) sobre
-        # el mensaje crudo — "query" recién se define más adelante, en la rama noticias.
-        url = url.replace("{message}", state.message or "")
-        url = url.replace("{query}", state.data.get("query") or state.data.get("necesidad") or state.message or "")
+        # {{query}} tiene fallback propio (más limpio para buscar que el mensaje crudo):
+        # state.data["query"] → state.data["necesidad"] → último mensaje de la conversación.
+        conversation = state.data.get("conversation") or []
+        last_message = conversation[-1].get("content", "") if conversation else (state.message or "")
+        query_value = state.data.get("query") or state.data.get("necesidad") or last_message or ""
+        url = url.replace("{{query}}", quote(str(query_value), safe=""))
+        url = url.replace("{{message}}", quote(str(last_message), safe=""))
+        # Sintaxis legacy de una sola llave (flows viejos) — mismo fallback.
+        url = url.replace("{query}", quote(str(query_value), safe=""))
+        url = url.replace("{message}", quote(str(last_message), safe=""))
+
+        # Cualquier otro placeholder ({{necesidad}}, {{contact_name}}, {{conversation...}}, etc.)
+        url = interpolate(url, state)
 
         try:
             import httpx
@@ -93,7 +105,7 @@ class FetchHttpNode(BaseNode):
                 "type":    "string",
                 "label":   "URL",
                 "default": "",
-                "hint":    "https://api.ejemplo.com/buscar?q={message} — {message} y {query} se reemplazan con el input del usuario",
+                "hint":    "https://api.ejemplo.com/buscar?q={{query}} — soporta {{query}}, {{conversation.last}} y cualquier variable del flow",
             },
             "extract": {
                 "type":    "select",
