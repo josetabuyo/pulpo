@@ -182,7 +182,16 @@ uv run pytest tests/ -m e2e -v
 
 # Todo junto
 BACKEND_PORT=8000 ADMIN_PASSWORD=... uv run pytest pulpo/ tests/ -v
+
+# Frontend — unit tests de lógica pura (vitest, sin browser)
+cd frontend && npm run test:unit
+
+# Frontend — e2e/UI (Playwright, requiere front + back corriendo)
+cd frontend && npm test
 ```
+
+Ver [ADR-004](docs/adr/004-estrategia-de-tests.md) para el detalle de cuándo
+usar cada capa (backend tiene tres, frontend tiene dos).
 
 ---
 

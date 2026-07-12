@@ -79,6 +79,50 @@ etc.) se saltean vía `state.data["_sim"]`.
   punta; el marker `e2e` (Telegram real) queda reservado para un smoke de
   conectividad por bot (ver `test_conectividad_telegram.py` en Luganense).
 
+## Frontend (`frontend/`)
+
+El frontend tiene sus propias dos capas, independientes de las tres de arriba
+(esas son todas del backend `pulpo/`):
+
+### Unit tests — lógica pura (`src/**/*.test.js`, vitest)
+
+Para lógica que no depende del DOM ni de xyflow/React (matemática de
+posicionamiento, transformaciones de datos, helpers del store que no
+requieren un canvas real). Agregado en julio 2026 junto con el snapping a
+grilla del editor de flows (`src/utils/grid.js`,
+`src/store/flowStore.test.js`) — antes de eso el frontend no tenía forma de
+testear lógica pura sin levantar un browser.
+
+```
+src/utils/grid.js
+src/utils/grid.test.js       ← acá, al lado del código que testea
+src/store/flowStore.js
+src/store/flowStore.test.js
+```
+
+- **Sin browser, sin servidor** — corren en milisegundos.
+- Config en `frontend/vitest.config.js`, con `include: ['src/**/*.test.js']`
+  para no pisarse con los `.spec.cjs` de Playwright.
+- Se corren con: `cd frontend && npm run test:unit`
+
+### E2E / UI tests (`tests/*.spec.cjs`, Playwright)
+
+Tests que levantan un browser real contra el Vite dev server y ejercitan la
+UI completa (login, tabs, editor de flows, etc.) — ver `tests/flows.spec.cjs`,
+`tests/login.spec.cjs`, etc.
+
+- **Requieren** el frontend (`npm run dev`) y el backend corriendo.
+- Se corren con: `cd frontend && npm test` (alias de `npm run test`,
+  configurado en `playwright.config.cjs`). Reporta a
+  `monitor/test_report_frontend.json`, que alimenta la sección Arquitectura
+  del dashboard.
+
+Regla general: si la lógica se puede aislar de React/xyflow, va a
+`*.test.js` (vitest, rápido, cero flakiness de drag/DOM). Si depende de
+interacción real de usuario en el canvas (arrastrar un nodo con el mouse,
+por ejemplo), queda para verificación manual o, si se automatiza, para un
+`.spec.cjs` de Playwright — no vale la pena simular drags de xyflow en vitest.
+
 ## Cuándo correr qué
 
 | Situación | Qué correr |
@@ -87,6 +131,8 @@ etc.) se saltean vía `state.data["_sim"]`.
 | PR listo para merge | `pytest pulpo/ tests/ -v` (todo menos e2e) |
 | Merge con cambios en flows o Telegram | `pytest tests/ -m e2e -v` + verificar prod |
 | Hotfix urgente en prod | Al menos unit tests del módulo tocado |
+| Cambio en lógica pura del frontend (store, utils) | `cd frontend && npm run test:unit` |
+| Cambio en UI/interacción del editor de flows | `cd frontend && npm run test:unit` + smoke manual del canvas |
 
 ## Consecuencias
 
