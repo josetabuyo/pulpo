@@ -62,6 +62,19 @@ async def test_output_strip_uniforme():
 
 
 @pytest.mark.asyncio
+async def test_output_as_list_parte_por_lineas():
+    node = LLMNode({"prompt": "system", "output": "queries_servicio", "output_as_list": True})
+    respuesta = "plomero pérdida de agua\n\nplomero\npérdida de agua"
+    with patch("pulpo.graphs.nodes.llm._build_llm", return_value=_mock_llm(respuesta)):
+        state = await node.run(_state())
+    assert state.data["queries_servicio"] == [
+        {"text": "plomero pérdida de agua"},
+        {"text": "plomero"},
+        {"text": "pérdida de agua"},
+    ]
+
+
+@pytest.mark.asyncio
 async def test_from_delta_sync_no_llama_llm():
     node = LLMNode({"prompt": "system", "output": "reply"})
     with patch("pulpo.graphs.nodes.llm._build_llm") as mock_build:

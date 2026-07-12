@@ -20,6 +20,12 @@ Config:
   json_output:     bool  — pedir respuesta JSON (para nodos que devuelven estructurado)
   json_reply_key:  str   — clave del JSON que contiene el reply (default: "reply")
   json_route_key:  str   — clave del JSON que contiene el route (opcional)
+  output_as_list:  bool  — en vez de guardar la respuesta como texto plano, la parte
+                            por líneas y guarda una lista de {"text": línea} en
+                            state.data[output]. Pensado para prompts que piden "una
+                            búsqueda por línea" y alimentan un FetchHttpNode con
+                            array_input — cada item queda referenciable como
+                            {{item.text}} en la URL del fetch.
 """
 import json
 import logging
@@ -165,6 +171,7 @@ class LLMNode(BaseNode):
         json_out    = bool(self.config.get("json_output", False))
         reply_key   = self.config.get("json_reply_key", "reply")
         route_key   = self.config.get("json_route_key", "")
+        as_list     = bool(self.config.get("output_as_list", False))
         max_tokens  = self.config.get("max_tokens") or None
         model, router_strategy = parse_model_strategy(raw_model, self.config)
 
@@ -203,9 +210,13 @@ class LLMNode(BaseNode):
             else:
                 text = content
 
-            state.data[output] = text.strip()
-
-            logger.info("[LLMNode] output=%s len=%d", output, len(text))
+            if as_list:
+                items = [{"text": line.strip()} for line in text.splitlines() if line.strip()]
+                state.data[output] = items
+                logger.info("[LLMNode] output=%s items=%d", output, len(items))
+            else:
+                state.data[output] = text.strip()
+                logger.info("[LLMNode] output=%s len=%d", output, len(text))
 
         except Exception as e:
             logger.error("[LLMNode] Error: %s", e)
@@ -228,6 +239,10 @@ class LLMNode(BaseNode):
             "json_reply_key":  {"type": "string",   "label": "Clave JSON del reply",   "default": "reply",
                                 "hint": "Clave dentro del JSON que contiene el texto a responder",
                                 "show_if": {"json_output": True}},
+            "output_as_list":  {"type": "bool",     "label": "Salida como lista (una por línea)", "default": False,
+                                "hint": "Parte la respuesta por líneas y guarda [{\"text\": línea}, ...] "
+                                        "en vez de texto plano. Para alimentar un FetchHttpNode con "
+                                        "array_input, referenciando {{item.text}} en la URL."},
             "max_tokens":      {"type": "int",      "label": "Máximo de tokens (opcional)", "default": None,
                                 "hint": "Vacío = default del router de modelos. Subilo si las respuestas "
                                         "se cortan a mitad de frase (pasa seguido con prompts que piden "
