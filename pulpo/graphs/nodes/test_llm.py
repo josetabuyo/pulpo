@@ -84,8 +84,7 @@ async def test_from_delta_sync_no_llama_llm():
 
 
 @pytest.mark.asyncio
-async def test_sin_conversation_usa_state_message_como_fallback():
-    """Compat: si no hay conversation acumulada, se manda solo state.message (como antes)."""
+async def test_sin_conversation_usa_state_message():
     node = LLMNode({"prompt": "system", "output": "reply"})
     llm = _mock_llm("ok")
     with patch("pulpo.graphs.nodes.llm._build_llm", return_value=llm):
@@ -98,9 +97,11 @@ async def test_sin_conversation_usa_state_message_como_fallback():
 
 
 @pytest.mark.asyncio
-async def test_con_conversation_manda_historial_completo():
-    node = LLMNode({"prompt": "system", "output": "reply"})
-    state = _state()
+async def test_con_conversation_no_duplica_el_historial_como_turnos():
+    """El historial, si el prompt lo necesita, se pide explícito con {{conversation}}
+    (interpolado en `system`) — no se manda además como turnos user/assistant separados."""
+    node = LLMNode({"prompt": "Conversación:\n{{conversation}}", "output": "reply"})
+    state = _state(message="quiero reservar")
     append_conversation_entry(state, "user", "hola")
     append_conversation_entry(state, "bot_reply", "¿en qué te ayudo?")
     append_conversation_entry(state, "user", "quiero reservar")
@@ -111,11 +112,24 @@ async def test_con_conversation_manda_historial_completo():
 
     messages = llm.ainvoke.call_args.args[0]
     assert messages == [
-        {"role": "system", "content": "system"},
-        {"role": "user", "content": "hola"},
-        {"role": "assistant", "content": "¿en qué te ayudo?"},
+        {"role": "system", "content": "Conversación:\nUsuario: hola\nBot: ¿en qué te ayudo?\nUsuario: quiero reservar"},
         {"role": "user", "content": "quiero reservar"},
     ]
+
+
+@pytest.mark.asyncio
+async def test_context_no_se_agrega_si_el_prompt_no_lo_pide():
+    """Ya no hay auto-append de {{context}} — si el prompt no lo menciona, no se manda."""
+    node = LLMNode({"prompt": "system", "output": "reply"})
+    state = _state()
+    state.data["context"] = "info que no debería viajar"
+
+    llm = _mock_llm("ok")
+    with patch("pulpo.graphs.nodes.llm._build_llm", return_value=llm):
+        await node.run(state)
+
+    messages = llm.ainvoke.call_args.args[0]
+    assert messages[0]["content"] == "system"
 
 
 @pytest.mark.asyncio

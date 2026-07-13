@@ -95,21 +95,35 @@ def esc(s):
 
 
 def render_scenario(sc, result: ScenarioResult, idx):
-    all_ok = all(c.passed for c in result.checks)
+    # El status del escenario (OK/REVISAR) solo depende de los "assert" —
+    # los "log" son informativos (decisiones semánticas de un LLM, no
+    # deterministas) y nunca lo cambian, ver docstring del módulo de escenarios.
+    asserts = [c for c in result.checks if c.kind == "assert"]
+    all_ok = all(c.passed for c in asserts)
     status = "OK" if all_ok else "REVISAR"
     status_color = "#22c55e" if all_ok else "#f59e0b"
     bubbles = "".join(
         f'<div class="bubble {role}"><span class="role">{"Vecino" if role=="user" else "Luganense"}</span>{esc(text)}</div>'
         for role, text in result.turns
     )
-    checks_html = "".join(
-        f'<li class="{"pass" if c.passed else "fail"}">'
-        f'<span class="mark">{"✓" if c.passed else "✗"}</span>'
-        f'<div><div>{esc(c.label)}</div>'
-        + (f'<div class="detail">{esc(c.detail)}</div>' if c.detail else "")
-        + "</div></li>"
-        for c in result.checks
-    )
+
+    def _render_check(c):
+        if c.kind == "log":
+            return (
+                '<li class="info"><span class="mark">·</span>'
+                f'<div><div>{esc(c.label)}</div>'
+                + (f'<div class="detail">{esc(c.detail)}</div>' if c.detail else "")
+                + "</div></li>"
+            )
+        return (
+            f'<li class="{"pass" if c.passed else "fail"}">'
+            f'<span class="mark">{"✓" if c.passed else "✗"}</span>'
+            f'<div><div>{esc(c.label)}</div>'
+            + (f'<div class="detail">{esc(c.detail)}</div>' if c.detail else "")
+            + "</div></li>"
+        )
+
+    checks_html = "".join(_render_check(c) for c in result.checks)
     badge = '<span class="tg-badge">TELEGRAM REAL</span>' if sc.real_telegram else ""
     return f"""
     <section class="scenario" id="{sc.id}">
@@ -128,7 +142,7 @@ def render_scenario(sc, result: ScenarioResult, idx):
 
 def render_html(diagram_html, pairs, meta):
     total = len(pairs)
-    ok = sum(1 for _, r in pairs if all(c.passed for c in r.checks))
+    ok = sum(1 for _, r in pairs if all(c.passed for c in r.checks if c.kind == "assert"))
     scenario_html = "".join(render_scenario(sc, r, i + 1) for i, (sc, r) in enumerate(pairs))
     return f"""<!doctype html>
 <html lang="es">
@@ -172,6 +186,8 @@ def render_html(diagram_html, pairs, meta):
   .validation .mark {{ font-weight: 700; width: 16px; flex-shrink: 0; }}
   .validation li.pass .mark {{ color: #4ade80; }}
   .validation li.fail .mark {{ color: #f87171; }}
+  .validation li.info {{ opacity: .7; }}
+  .validation li.info .mark {{ color: #64748b; }}
   .validation .detail {{ font-size: 11px; color: #64748b; margin-top: 2px; }}
   footer {{ text-align: center; color: #475569; font-size: 12px; padding: 30px; }}
   #diagram-lightbox {{

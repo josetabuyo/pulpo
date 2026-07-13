@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from .router import RouterNode, _build_user_message
+from .router import RouterNode
 from .state import FlowState
 
 
@@ -19,28 +19,24 @@ def _fake_llm(response_text: str):
     return llm
 
 
-def test_build_user_message_incluye_todas_las_variables():
-    state = _state(message="necesito un plomero", data={"necesidad": "plomero", "context": "info extra"})
-    msg = _build_user_message(state)
+@pytest.mark.asyncio
+async def test_router_no_manda_variables_de_mas_por_default():
+    node = RouterNode({
+        "prompt": "clasificá",
+        "routes": ["necesidad_identificada", "pedir_mas_info"],
+        "fallback": "pedir_mas_info",
+    })
+    with patch("pulpo.graphs.nodes.router._build_llm", return_value=_fake_llm("necesidad_identificada")) as mock_build_llm:
+        state = await node.run(_state(message="necesito un plomero", data={"necesidad": "plomero", "_visits_router": 2}))
 
-    assert "Mensaje: necesito un plomero" in msg
-    assert '"necesidad": "plomero"' in msg
-    assert '"context": "info extra"' in msg
+    llm = mock_build_llm.return_value
+    messages = llm.ainvoke.call_args[0][0]
+    user_message = messages[1]["content"]
 
-
-def test_build_user_message_oculta_claves_internas():
-    state = _state(data={"necesidad": "plomero", "_visits_router": 2})
-    msg = _build_user_message(state)
-
-    assert '"necesidad"' in msg
-    assert "_visits_router" not in msg
-
-
-def test_build_user_message_sin_variables():
-    state = _state(data={})
-    msg = _build_user_message(state)
-
-    assert msg == "Mensaje: hola"
+    assert user_message == "Mensaje: necesito un plomero"
+    assert "plomero" not in user_message.replace("necesito un plomero", "")
+    assert "_visits_router" not in user_message
+    assert state.data["route"] == "necesidad_identificada"
 
 
 @pytest.mark.asyncio

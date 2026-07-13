@@ -14,8 +14,10 @@ tests/e2e/luganense/scenarios_orquestador_vendedor_mejorado.py como ejemplo.
 `TeliConversation` → marca pytest.mark.e2e (Telegram real, lento, solo antes de
 merge). `SimConversation` → marca pytest.mark.e2e_sim (motor real de flows,
 sin Telegram, requiere solo el backend local corriendo — ver ADR-004).
-No reemplaza tests/test_e2e_luganense_teli.py (flow viejo, referencia intacta) —
-esa suite queda tal cual; los flows nuevos usan esta infraestructura.
+`tests/test_e2e_luganense_teli.py` (suite vieja de rutas de un solo turno, sin
+la convención bot+flow) se borró 2026-07-13 — reemplazada por la cobertura de
+`scenarios_orquestador_vendedor_mejorado.py`, que prueba las mismas 4 rutas
+dentro de conversaciones completas de punta a punta.
 
 TODO(N-flows): `SimConversation`/`send_and_wait` no reciben `flow_id` — el
 motor (`simulate_message` en pulpo/business/flows.py) resuelve el flow activo

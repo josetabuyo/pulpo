@@ -9,27 +9,18 @@ Config:
   fallback:        str  — route por defecto si el LLM no responde algo válido
   model:           str  — modelo a usar (best:cat|strategy, ollama/*, groq/*, o legacy)
 
-El LLM siempre recibe el mensaje del vecino más todas las variables del flow
-(state.data — un único lugar para todo lo que los nodos producen, incluida
-la clave reservada "context"). Si el prompt necesita ser específico sobre
-un dato puntual, puede nombrarlo en prosa (ej. "fijate en la variable
-'necesidad'") — no hace falta elegir de antemano qué parte del state ver.
+El LLM recibe el mensaje del vecino como turno de usuario. Nada de state.data
+se manda de más: si el prompt necesita una variable puntual (ej. "necesidad")
+o el historial de conversación, tiene que referenciarla explícita como
+{{necesidad}} o {{conversation}} — interpolada en el prompt (ver interpolate()
+en base.py) antes de llamar al LLM.
 """
-import json
 import logging
 from .base import BaseNode, interpolate
 from .llm import MODEL_OPTIONS, _build_llm, parse_model_strategy
 from .state import FlowState
 
 logger = logging.getLogger(__name__)
-
-
-def _build_user_message(state: FlowState) -> str:
-    parts = [f"Mensaje: {state.message}"]
-    vars_visibles = {k: v for k, v in state.data.items() if not k.startswith("_")}
-    if vars_visibles:
-        parts.append(f"Variables: {json.dumps(vars_visibles, ensure_ascii=False)}")
-    return "\n\n".join(parts)
 
 
 def _eval_pre_route_rules(rules: list[dict], state: FlowState) -> str | None:
@@ -93,13 +84,12 @@ class RouterNode(BaseNode):
             return state
 
         prompt = interpolate(prompt, state)
-        user_message = _build_user_message(state)
 
         try:
             llm = _build_llm(model, temperature=0, json_out=False, router_strategy=router_strategy, max_tokens=10)
             result = await llm.ainvoke([
                 {"role": "system", "content": prompt},
-                {"role": "user",   "content": user_message},
+                {"role": "user",   "content": f"Mensaje: {state.message}"},
             ])
             route = result.content.strip().lower()
             if routes and route not in routes:

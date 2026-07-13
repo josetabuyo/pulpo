@@ -1,10 +1,12 @@
 """
 LLMNode — llama a un LLM con prompt configurable.
 
-El prompt (system) se interpola normalmente ({{conversation}}, {{conversation.last}}, etc.
-— ver interpolate() en base.py). Además, los turnos de state.data["conversation"] se mandan
-completos como mensajes user/assistant (no solo el último), para que el modelo tenga memoria
-real de la conversación.
+El prompt (system) se interpola normalmente ({{conversation}}, {{conversation.last}}, {{context}},
+etc. — ver interpolate() en base.py). No se manda nada de más por default: si el nodo necesita
+el historial de la conversación o el contexto de un fetch previo, tiene que pedirlo explícito
+con esos placeholders en el prompt. El único turno de usuario que se manda siempre es el mensaje
+entrante actual (state.message) — evita duplicar tokens mandando la conversación dos veces
+(una como texto interpolado, otra como turnos user/assistant separados).
 
 Config:
   prompt:          str   — system prompt
@@ -174,29 +176,22 @@ class LLMNode(BaseNode):
         max_tokens  = self.config.get("max_tokens") or None
         model, router_strategy = parse_model_strategy(raw_model)
 
-        # Interpolar placeholders en el prompt y construir system.
-        # Compat: si el prompt no menciona {{context}} pero hay contexto, se agrega al final.
+        # Interpolar placeholders en el prompt y construir system. Nada se agrega de más:
+        # si el prompt necesita {{context}} o {{conversation}}, tiene que pedirlo explícito
+        # (ver interpolate() en base.py) — evita mandar contexto/historial no solicitado.
         system = interpolate(prompt, state)
-        context = state.data.get("context", "")
-        if context and "{{context}}" not in prompt:
-            system += f"\n\nContexto:\n{context}"
 
         try:
             llm = _build_llm(model, temperature, json_out, router_strategy, max_tokens)
 
-            # El historial de turnos (user/bot_reply) de esta ejecución de flow
-            # se manda completo como user/assistant — le da memoria real al LLM
-            # en vez de solo el último mensaje entrante.
-            messages = [{"role": "system", "content": system}]
-            conversation = state.data.get("conversation") or []
-            if conversation:
-                role_by_origin = {"user": "user", "bot_reply": "assistant"}
-                messages += [
-                    {"role": role_by_origin.get(entry.get("origin"), "user"), "content": entry.get("content", "")}
-                    for entry in conversation
-                ]
-            else:
-                messages.append({"role": "user", "content": state.message})
+            # Un solo turno de usuario: el mensaje entrante actual. El historial completo
+            # de la conversación, si el nodo lo necesita, ya quedó embebido como texto en
+            # `system` vía {{conversation}} — no se duplica mandándolo también como
+            # turnos user/assistant separados.
+            messages = [
+                {"role": "system", "content": system},
+                {"role": "user", "content": state.message},
+            ]
 
             result = await llm.ainvoke(messages)
             content = result.content

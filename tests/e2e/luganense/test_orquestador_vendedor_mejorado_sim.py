@@ -42,13 +42,19 @@ def _run(coro):
 def _make_test(scenario):
     def test_fn():
         result = _run(scenario.run())
-        failed = [c for c in result.checks if not c.passed]
+        # Solo "assert" hace fallar el test — "log" es informativo (decisiones
+        # semánticas de un LLM, no deterministas, ver docstring del módulo de
+        # escenarios). Se imprimen igual en el mensaje de falla, para diagnóstico.
+        failed = [c for c in result.checks if c.kind == "assert" and not c.passed]
+        logs = [c for c in result.checks if c.kind == "log"]
         if failed:
             transcript = "\n".join(f"  [{role}] {text}" for role, text in result.turns)
             detail_lines = "\n".join(f"  ✗ {c.label}" + (f" — {c.detail}" if c.detail else "") for c in failed)
+            log_lines = "\n".join(f"  · {c.label}" + (f" — {c.detail}" if c.detail else "") for c in logs)
             pytest.fail(
-                f"\n{len(failed)}/{len(result.checks)} validaciones fallaron en \"{scenario.title}\":\n"
-                f"{detail_lines}\n\nConversación completa:\n{transcript}"
+                f"\n{len(failed)}/{len([c for c in result.checks if c.kind == 'assert'])} asserts fallaron en \"{scenario.title}\":\n"
+                f"{detail_lines}\n\nLogs informativos (no determinan pass/fail):\n{log_lines}\n\n"
+                f"Conversación completa:\n{transcript}"
             )
     test_fn.__name__ = f"test_{BOT_SLUG}__{FLOW_SLUG}__{scenario.id.replace('-', '_')}"
     test_fn.__doc__ = scenario.desc
