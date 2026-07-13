@@ -13,11 +13,15 @@ el editor.
 Espera a `window.__flowReady === true` (seteado por `EmbedFlowPage` recién
 después de cargar el flow y que React Flow confirme `onInit`, con doble
 `requestAnimationFrame` para no capturar un frame a medio encuadrar), y
-recorta el screenshot al bounding box real de los nodos (`.react-flow__node`,
-con un margen chico) — no a todo el elemento `.react-flow`, que es el
-viewport completo y dejaría de fondo el margen vacío que sobra del `fitView`
-con `padding` — a `scale`x de densidad de píxeles para que el PNG quede
-nítido en el reporte.
+recorta el screenshot al bounding box real del diagrama — nodos
+(`.react-flow__node`) Y edges (`.react-flow__edge`, cuyas flechas/curvas
+pueden sobresalir del bounding box de los nodos — un edge con bend queda
+más arriba/afuera que cualquier nodo) Y las labels de edge
+(`.react-flow__edgelabel-renderer` — viven en su propia capa, no dentro del
+`<path>`) — no a todo el elemento `.react-flow`, que es el viewport completo
+y dejaría de fondo el margen vacío que sobra del `fitView` con `padding` —
+a `scale`x de densidad de píxeles para que el PNG quede nítido en el
+reporte.
 
 Requiere el frontend (Vite, default :5173) y el backend (default :8000, la
 API de flows detrás no pide auth) corriendo — ver `./start.sh` en la raíz
@@ -45,7 +49,8 @@ async def capture_flow_diagram(
     async with async_playwright() as p:
         browser = await p.chromium.launch()
         try:
-            page = await browser.new_page(viewport={"width": 1600, "height": 1200}, device_scale_factor=scale)
+            viewport = {"width": 2400, "height": 2000}
+            page = await browser.new_page(viewport=viewport, device_scale_factor=scale)
             await page.goto(url, wait_until="domcontentloaded")
             try:
                 await page.wait_for_function("window.__flowReady === true", timeout=timeout_ms)
@@ -58,11 +63,13 @@ async def capture_flow_diagram(
                 )
             bounds = await page.evaluate("""
                 () => {
-                    const nodes = document.querySelectorAll('.react-flow__node');
-                    if (!nodes.length) return null;
+                    const selectors = ['.react-flow__node', '.react-flow__edge', '.react-flow__edgelabel-renderer *'];
+                    const els = document.querySelectorAll(selectors.join(','));
+                    if (!els.length) return null;
                     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-                    for (const el of nodes) {
+                    for (const el of els) {
                         const r = el.getBoundingClientRect();
+                        if (r.width === 0 && r.height === 0) continue;
                         minX = Math.min(minX, r.left); minY = Math.min(minY, r.top);
                         maxX = Math.max(maxX, r.right); maxY = Math.max(maxY, r.bottom);
                     }
@@ -71,12 +78,12 @@ async def capture_flow_diagram(
             """)
             if not bounds:
                 raise DiagramCaptureError(f"El flow en {url} no tiene nodos para recortar")
-            margin = 24
+            margin = 60
             clip = {
                 "x": max(0, bounds["minX"] - margin),
                 "y": max(0, bounds["minY"] - margin),
-                "width": (bounds["maxX"] - bounds["minX"]) + margin * 2,
-                "height": (bounds["maxY"] - bounds["minY"]) + margin * 2,
+                "width": min(bounds["maxX"] - bounds["minX"] + margin * 2, viewport["width"] - max(0, bounds["minX"] - margin)),
+                "height": min(bounds["maxY"] - bounds["minY"] + margin * 2, viewport["height"] - max(0, bounds["minY"] - margin)),
             }
             return await page.screenshot(type="png", clip=clip)
         finally:

@@ -56,15 +56,20 @@ from tests.e2e.luganense.scenarios_orquestador_vendedor_mejorado import (
 
 
 def embed_diagram_png_bytes(data: bytes) -> str:
+    """
+    Ajusta el diagrama al ancho del reporte (fit horizontal, sin recorte) y
+    lo despliega entero — sin scroll interno, la página scrollea normal si
+    hace falta. Clic (o doble clic) abre un lightbox in-page a resolución
+    nativa con scroll propio — nada de `window.open`/pestaña nueva, que en
+    un HTML embebido en un iframe con sandbox/CSP estricto (ej. un Artifact)
+    puede quedar bloqueado en silencio sin dar ningún feedback.
+    """
     b64 = base64.b64encode(data).decode("ascii")
     src = f"data:image/png;base64,{b64}"
-    # El diagrama puede ser más alto que la pantalla — .diagram-wrap scrollea
-    # (ver CSS) para verlo completo sin que empuje el resto del reporte, y
-    # doble clic abre el PNG a resolución nativa en una pestaña nueva.
     return (
-        f'<img src="{src}" alt="Diagrama del flow (doble clic para verlo completo)" '
-        f'title="Doble clic para verlo completo en una pestaña nueva" '
-        f'ondblclick="window.open(this.src, \'_blank\')" '
+        f'<img id="diagram-img" src="{src}" alt="Diagrama del flow (clic para ampliar)" '
+        f'title="Clic para ampliar" '
+        f'onclick="openDiagramLightbox()" ondblclick="openDiagramLightbox()" '
         f'style="width:100%;height:auto;border-radius:8px;display:block;cursor:zoom-in;">'
     )
 
@@ -148,7 +153,7 @@ def render_html(diagram_html, pairs, meta):
   }}
   main {{ max-width: 1100px; margin: 0 auto; padding: 30px 40px 60px; }}
   h2 {{ font-size: 15px; text-transform: uppercase; letter-spacing: 0.06em; color: #94a3b8; margin: 40px 0 14px; }}
-  .diagram-wrap {{ border: 1px solid #1e293b; border-radius: 14px; padding: 12px; background: #0f172a; max-height: 75vh; overflow: auto; }}
+  .diagram-wrap {{ border: 1px solid #1e293b; border-radius: 14px; padding: 12px; background: #0f172a; }}
   .scenario {{ margin-bottom: 26px; border: 1px solid #1e293b; border-radius: 12px; padding: 18px 20px; background: #0f172a; }}
   .scenario-head {{ display: flex; justify-content: space-between; align-items: center; gap: 12px; }}
   .scenario-head h3 {{ margin: 0; font-size: 15px; display: flex; align-items: center; gap: 8px; }}
@@ -169,6 +174,16 @@ def render_html(diagram_html, pairs, meta):
   .validation li.fail .mark {{ color: #f87171; }}
   .validation .detail {{ font-size: 11px; color: #64748b; margin-top: 2px; }}
   footer {{ text-align: center; color: #475569; font-size: 12px; padding: 30px; }}
+  #diagram-lightbox {{
+    display: none; position: fixed; inset: 0; z-index: 100; background: rgba(2,6,15,0.92);
+    overflow: auto; padding: 40px; text-align: center; cursor: zoom-out;
+  }}
+  #diagram-lightbox img {{ max-width: none; border-radius: 8px; }}
+  #diagram-lightbox .hint {{
+    position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+    color: #94a3b8; font-size: 12px; background: #0f172a; border: 1px solid #1e293b;
+    border-radius: 20px; padding: 4px 14px;
+  }}
 </style>
 </head>
 <body>
@@ -185,6 +200,17 @@ def render_html(diagram_html, pairs, meta):
   {scenario_html}
 </main>
 <footer>Pulpo — reporte generado automáticamente, {meta['date']}</footer>
+
+<div id="diagram-lightbox" onclick="this.style.display='none'">
+  <div class="hint">Clic en cualquier lado para cerrar</div>
+  <img id="diagram-lightbox-img" alt="Diagrama del flow ampliado">
+</div>
+<script>
+  function openDiagramLightbox() {{
+    document.getElementById('diagram-lightbox-img').src = document.getElementById('diagram-img').src;
+    document.getElementById('diagram-lightbox').style.display = 'block';
+  }}
+</script>
 </body>
 </html>"""
 
