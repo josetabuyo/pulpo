@@ -66,6 +66,43 @@ async def test_router_usa_fallback_si_respuesta_invalida():
 
 
 @pytest.mark.asyncio
+async def test_router_contenido_vacio_reintenta_y_se_recupera():
+    """Bug real 2026-07-13: la cascada cloud-first a veces devuelve contenido
+    vacío sin levantar excepción — antes eso nunca matchea `routes` y cae al
+    fallback en silencio, indistinguible de una clasificación genuina hacia
+    esa rama (ej. "noticias" como fallback, pero el vecino pedía un producto).
+    Un reintento resuelve el caso común (blip transitorio de un solo llamado)."""
+    node = RouterNode({
+        "prompt": "clasificá",
+        "routes": ["comercio", "producto", "servicio", "noticias"],
+        "fallback": "noticias",
+    })
+    llm = MagicMock()
+    llm.ainvoke = AsyncMock(side_effect=[MagicMock(content=""), MagicMock(content="producto")])
+    with patch("pulpo.graphs.nodes.router._build_llm", return_value=llm):
+        state = await node.run(_state(message="necesito comprar focos LED"))
+
+    assert state.data["route"] == "producto"
+    assert llm.ainvoke.await_count == 2
+    assert "_llm_errors" not in state.data
+
+
+@pytest.mark.asyncio
+async def test_router_contenido_vacio_persistente_cae_a_fallback_y_queda_registrado():
+    node = RouterNode({
+        "prompt": "clasificá",
+        "routes": ["comercio", "producto", "servicio", "noticias"],
+        "fallback": "noticias",
+    })
+    with patch("pulpo.graphs.nodes.router._build_llm", return_value=_fake_llm("")):
+        state = await node.run(_state())
+
+    assert state.data["route"] == "noticias"
+    assert len(state.data["_llm_errors"]) == 1
+    assert state.data["_llm_errors"][0]["output"] == "route"
+
+
+@pytest.mark.asyncio
 async def test_router_max_visits_redirige_sin_llamar_llm_de_nuevo():
     node = RouterNode({
         "prompt": "clasificá",

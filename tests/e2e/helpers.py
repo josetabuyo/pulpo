@@ -302,6 +302,21 @@ class SimConversation:
                 return output["_fetch_errors"]
         return []
 
+    def llm_errors(self) -> list[dict]:
+        """
+        `state.data["_llm_errors"]` (ver `LLMNode._record_llm_error`) —
+        contenido vacío devuelto por un LLM que sobrevivió al reintento
+        automático (1 reintento, ver `_MAX_EMPTY_RETRIES` en llm.py). Bug real
+        2026-07-13: esto quedaba invisible antes del reintento — un nodo como
+        "Obtener necesidad" devolviendo "" en silencio hacía que el flow
+        quedara pidiendo aclaración en loop sin ningún error visible en el log.
+        """
+        for step in reversed(self.all_steps):
+            output = step.get("output_state") or {}
+            if "_llm_errors" in output:
+                return output["_llm_errors"]
+        return []
+
     def node_errors(self) -> list[dict]:
         """
         `state.data["_node_errors"]` (compiler.py — se llena cuando un nodo

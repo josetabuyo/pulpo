@@ -36,6 +36,23 @@ from .state import FlowState
 
 logger = logging.getLogger(__name__)
 
+_MAX_EMPTY_RETRIES = 1  # 1 reintento extra (2 intentos totales) si el LLM devuelve contenido vacío
+
+
+def _record_llm_error(state: FlowState, output: str, detail: str) -> None:
+    """
+    Análogo a `_record_fetch_error` en fetch_http.py — antes, un LLM que
+    respondía contenido vacío (sin levantar excepción; distinto del caso ya
+    manejado por el try/except de más abajo) quedaba invisible: el output
+    caía en `""` en silencio, indistinguible de una decisión legítima del
+    modelo (ej. un LLM que a propósito devuelve string vacío). Bug real
+    encontrado 2026-07-13: "Obtener necesidad" y otros nodos LLM del flow de
+    Luganense devolvían vacío de forma intermitente (~1 de cada 8 llamadas en
+    una muestra directa), haciendo que el flow quedara pidiendo aclaración en
+    loop sin ningún error visible en el log.
+    """
+    state.data.setdefault("_llm_errors", []).append({"output": output, "error": detail})
+
 _ROUTER_URL = os.getenv("MODEL_ROUTER_URL", "http://localhost:9002")
 
 _CATEGORIES = [
@@ -193,16 +210,37 @@ class LLMNode(BaseNode):
                 {"role": "user", "content": state.message},
             ]
 
-            result = await llm.ainvoke(messages)
-            content = result.content
+            # Reintenta si el modelo devuelve contenido vacío sin levantar excepción
+            # (bug real: intermitente en la cascada cloud-first, ver _record_llm_error) —
+            # antes esto se guardaba tal cual, indistinguible de una decisión legítima
+            # del modelo, y dejaba el flow pidiendo aclaración en loop sin ningún error
+            # visible en el log.
+            attempts = 0
+            text = ""
+            while True:
+                attempts += 1
+                result = await llm.ainvoke(messages)
+                content = result.content or ""
 
-            if json_out:
-                parsed = json.loads(content)
-                text = parsed.get(reply_key, "")
-                if route_key and parsed.get(route_key):
-                    state.data["route"] = str(parsed[route_key])
-            else:
-                text = content
+                if json_out:
+                    try:
+                        parsed = json.loads(content)
+                    except json.JSONDecodeError:
+                        parsed = {}
+                    text = parsed.get(reply_key, "") if isinstance(parsed, dict) else ""
+                    if route_key and isinstance(parsed, dict) and parsed.get(route_key):
+                        state.data["route"] = str(parsed[route_key])
+                else:
+                    text = content
+
+                if text.strip():
+                    break
+                if attempts > _MAX_EMPTY_RETRIES:
+                    detail = f"LLM devolvió contenido vacío tras {attempts} intento(s)"
+                    logger.error("[LLMNode] %s (output=%s)", detail, output)
+                    _record_llm_error(state, output, detail)
+                    break
+                logger.warning("[LLMNode] contenido vacío en intento %d, reintentando (output=%s)", attempts, output)
 
             if as_list:
                 items = [{"text": line.strip()} for line in text.splitlines() if line.strip()]

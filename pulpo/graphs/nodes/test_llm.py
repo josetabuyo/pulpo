@@ -142,3 +142,41 @@ async def test_error_en_llm_no_interrumpe_el_flow(caplog):
             state = await node.run(_state())
     assert "reply" not in state.data
     assert any("Error" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_contenido_vacio_reintenta_y_se_recupera():
+    """Bug real 2026-07-13: la cascada cloud-first a veces devuelve contenido
+    vacío sin levantar excepción — antes quedaba invisible, guardado tal cual
+    como si fuera una decisión legítima del modelo. Un reintento resuelve el
+    caso común (blip transitorio de un solo llamado)."""
+    node = LLMNode({"prompt": "system", "output": "necesidad"})
+    llm = AsyncMock()
+    llm.ainvoke = AsyncMock(side_effect=[
+        SimpleNamespace(content=""),
+        SimpleNamespace(content="plomero urgencia canilla rota"),
+    ])
+    with patch("pulpo.graphs.nodes.llm._build_llm", return_value=llm):
+        state = await node.run(_state())
+
+    assert state.data["necesidad"] == "plomero urgencia canilla rota"
+    assert llm.ainvoke.await_count == 2
+    assert "_llm_errors" not in state.data
+
+
+@pytest.mark.asyncio
+async def test_contenido_vacio_persistente_queda_registrado_en_llm_errors(caplog):
+    """Si el contenido sigue vacío tras el reintento, no debe quedar invisible
+    — se registra en state.data["_llm_errors"] (análogo a _fetch_errors de
+    FetchHttpNode) para que los tests puedan validarlo contra el log."""
+    node = LLMNode({"prompt": "system", "output": "necesidad"})
+    llm = _mock_llm("")
+    with patch("pulpo.graphs.nodes.llm._build_llm", return_value=llm):
+        with caplog.at_level("ERROR"):
+            state = await node.run(_state())
+
+    assert state.data["necesidad"] == ""
+    assert llm.ainvoke.await_count == 2  # 1 intento + 1 reintento
+    assert len(state.data["_llm_errors"]) == 1
+    assert state.data["_llm_errors"][0]["output"] == "necesidad"
+    assert any("contenido vacío" in r.message for r in caplog.records)

@@ -220,6 +220,11 @@ def _infra_checks(conv: SimConversation, reply: str | None) -> list[Check]:
         "Sin fetch HTTP fallidos (404/timeout/DNS/URL con placeholder sin resolver) en TODA la conversación",
         not fetch_errors, detail=str(fetch_errors) if fetch_errors else "",
     ))
+    llm_errors = conv.llm_errors()
+    checks.append(_c(
+        "Sin contenido vacío persistente de un LLM (sobrevivió al reintento automático) en TODA la conversación",
+        not llm_errors, detail=str(llm_errors) if llm_errors else "",
+    ))
     node_errors = conv.node_errors()
     crashed = conv.crashed_nodes()
     checks.append(_c(

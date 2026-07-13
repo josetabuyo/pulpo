@@ -17,7 +17,7 @@ en base.py) antes de llamar al LLM.
 """
 import logging
 from .base import BaseNode, interpolate
-from .llm import MODEL_OPTIONS, _build_llm, parse_model_strategy
+from .llm import MODEL_OPTIONS, _MAX_EMPTY_RETRIES, _build_llm, _record_llm_error, parse_model_strategy
 from .state import FlowState
 
 logger = logging.getLogger(__name__)
@@ -87,11 +87,30 @@ class RouterNode(BaseNode):
 
         try:
             llm = _build_llm(model, temperature=0, json_out=False, router_strategy=router_strategy, max_tokens=10)
-            result = await llm.ainvoke([
+            messages = [
                 {"role": "system", "content": prompt},
                 {"role": "user",   "content": f"Mensaje: {state.message}"},
-            ])
-            route = result.content.strip().lower()
+            ]
+
+            # Mismo reintento que LLMNode ante contenido vacío (bug real: la cascada
+            # cloud-first a veces devuelve "" sin levantar excepción) — sin esto, un
+            # route="" nunca matchea `routes` y cae siempre al fallback en silencio,
+            # indistinguible de una clasificación genuina hacia esa rama.
+            attempts = 0
+            route = ""
+            while True:
+                attempts += 1
+                result = await llm.ainvoke(messages)
+                route = (result.content or "").strip().lower()
+                if route:
+                    break
+                if attempts > _MAX_EMPTY_RETRIES:
+                    detail = f"Router devolvió contenido vacío tras {attempts} intento(s)"
+                    logger.error("[RouterNode] %s — fallback '%s'", detail, fallback)
+                    _record_llm_error(state, "route", detail)
+                    break
+                logger.warning("[RouterNode] contenido vacío en intento %d, reintentando", attempts)
+
             if routes and route not in routes:
                 logger.info("[RouterNode] respuesta '%s' no válida — usando fallback '%s'", route, fallback)
                 route = fallback
