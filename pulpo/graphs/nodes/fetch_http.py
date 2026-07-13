@@ -42,6 +42,22 @@ _MAX_ARRAY_ITEMS = 10
 
 _ITEM_FIELD_RE = re.compile(r"\{\{item\.([a-zA-Z0-9_]+)\}\}")
 _ITEM_RE = re.compile(r"\{\{item\}\}")
+_UNRESOLVED_TEMPLATE_RE = re.compile(r"\{\{.*?\}\}")
+
+
+def _record_fetch_error(state: FlowState, url: str, error: str, status_code: int | None = None) -> None:
+    """
+    Registra un fallo de fetch en `state.data["_fetch_errors"]` — a diferencia
+    de `_node_errors` (compiler.py, solo se llena si el nodo LEVANTA una
+    excepción), FetchHttpNode nunca deja que un fetch roto interrumpa el flow
+    (ver docstring del módulo), así que sin esto un 404 o un placeholder
+    `{{...}}` sin resolver en la URL quedaban invisibles para cualquier test
+    que solo mirara `output_state`/reply — el output simplemente quedaba en
+    None, indistinguible de "0 resultados reales".
+    """
+    state.data.setdefault("_fetch_errors", []).append({
+        "url": url, "status_code": status_code, "error": error,
+    })
 
 
 def _fill_item_template(url_template: str, item) -> str:
@@ -83,7 +99,7 @@ class FetchHttpNode(BaseNode):
                     results = []
                     for item in items[:_MAX_ARRAY_ITEMS]:
                         item_url = self._resolve_url(_fill_item_template(url_template, item), state)
-                        results.append(await self._get(client, item_url, extract))
+                        results.append(await self._get(client, item_url, extract, state))
                     state.data[output] = results
                     logger.info(
                         "[FetchHttpNode] array_input='%s' → %d llamados → %s",
@@ -91,10 +107,11 @@ class FetchHttpNode(BaseNode):
                     )
                 else:
                     url = self._resolve_url(url_template, state)
-                    state.data[output] = await self._get(client, url, extract)
+                    state.data[output] = await self._get(client, url, extract, state)
                     logger.info("[FetchHttpNode] %s: %d chars → %s", url[:60], len(state.data.get(output) or ""), output)
         except Exception as e:
             logger.error("[FetchHttpNode] Error HTTP GET: %s", e)
+            _record_fetch_error(state, url_template, str(e))
 
         return state
 
@@ -113,7 +130,11 @@ class FetchHttpNode(BaseNode):
         # Cualquier otro placeholder ({{necesidad}}, {{contact_name}}, {{conversation...}}, etc.)
         return interpolate(url, state)
 
-    async def _get(self, client, url: str, extract: str) -> str | None:
+    async def _get(self, client, url: str, extract: str, state: FlowState) -> str | None:
+        if _UNRESOLVED_TEMPLATE_RE.search(url):
+            logger.error("[FetchHttpNode] URL con placeholder {{...}} sin resolver: %s", url)
+            _record_fetch_error(state, url, "unresolved {{...}} placeholder in URL")
+            return None
         try:
             resp = await client.get(url)
             resp.raise_for_status()
@@ -124,7 +145,9 @@ class FetchHttpNode(BaseNode):
             text = re.sub(r"\s+", " ", text).strip()
             return text[:5000]
         except Exception as e:
+            status_code = getattr(getattr(e, "response", None), "status_code", None)
             logger.error("[FetchHttpNode] Error HTTP GET %s: %s", url, e)
+            _record_fetch_error(state, url, str(e), status_code)
             return None
 
     @classmethod

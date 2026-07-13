@@ -144,6 +144,52 @@ async def test_array_input_vacio_o_ausente_hace_un_solo_get():
 
 
 @pytest.mark.asyncio
+async def test_404_queda_registrado_en_fetch_errors():
+    """Un 404 (u otro error HTTP) no debe quedar invisible — antes solo se logueaba
+    y el output quedaba en None, indistinguible de "0 resultados reales"."""
+    import httpx
+
+    resp = MagicMock()
+    resp.status_code = 404
+
+    def _raise():
+        raise httpx.HTTPStatusError("404", request=MagicMock(), response=resp)
+
+    client = MagicMock()
+    client.get = AsyncMock(return_value=MagicMock(raise_for_status=_raise))
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("httpx.AsyncClient", return_value=client):
+        node = FetchHttpNode({"url": "https://api.test/buscar?q=x", "extract": "json"})
+        state = await node.run(_state())
+
+    assert state.data["context"] is None
+    assert len(state.data["_fetch_errors"]) == 1
+    assert state.data["_fetch_errors"][0]["status_code"] == 404
+    assert state.data["_fetch_errors"][0]["url"] == "https://api.test/buscar?q=x"
+
+
+@pytest.mark.asyncio
+async def test_placeholder_sin_resolver_en_url_no_dispara_el_request():
+    """Un `{{...}}` que sobrevivió a interpolate() (variable inexistente) es un
+    bug de configuración del flow — no tiene sentido pedirle esa URL literal a
+    un servidor, y el fallo de red resultante escondería la causa real."""
+    client = MagicMock()
+    client.get = AsyncMock()
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("httpx.AsyncClient", return_value=client):
+        node = FetchHttpNode({"url": "https://api.test/buscar?q={{variable_inexistente}}", "extract": "json"})
+        state = await node.run(_state())
+
+    client.get.assert_not_awaited()
+    assert state.data["context"] is None
+    assert "placeholder" in state.data["_fetch_errors"][0]["error"]
+
+
+@pytest.mark.asyncio
 async def test_array_input_item_fallido_no_frena_el_resto():
     call_count = {"n": 0}
 

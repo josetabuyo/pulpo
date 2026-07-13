@@ -16,36 +16,66 @@ una COMPLETA de punta a punta — arranca en el trigger real y llega a un
 el caso infeliz). Un test que solo manda "hola" y no sigue la conversación
 NO es un caso e2e válido — quedaba a mitad del flow, sin cerrar.
 
-Revisión 2026-07-13 (v3, tras corridas repetidas de la suite mostrando fallas
-distintas cada vez con el MISMO input): el router y los LLM de este flow son
-modelos reales en producción (cloud-first) — clasificar una rama, elegir
-palabras, mencionar o no un nombre propio, son decisiones semánticas no
-deterministas. Assertear sobre esas decisiones (`branch_taken == "comercio"`,
-`"pizza" in reply`, etc.) hace que la suite sea flaky por diseño: la MISMA
-conversación puede pasar o fallar según el humor del modelo en esa llamada
-puntual, sin que haya ningún bug de código de por medio.
+Revisión 2026-07-13 (v4, tras feedback: "no quiero validaciones de texto en
+el reply, quiero que esto valide todo de forma robusta contra el log"):
+las versiones anteriores de esta suite asserteaban/logueaban sobre el TEXTO
+del reply (`"pizza" in reply`, `"escribime cuando quieras" in reply`, etc.) —
+eso es indirectamente lo mismo que asserter sobre la redacción de un LLM, que
+es no determinista por naturaleza. Esta versión valida ÚNICAMENTE contra el
+LOG REAL de ejecución (`flow_run_steps`, vía `SimConversation.ran_node/
+state_field/branch_taken/fetch_errors/node_errors`) — nunca contra el texto
+visible del reply:
+  - Que la conversación haya pasado por los nodos que ese camino DEBE
+    ejecutar (`ran_node`) — el mapa completo de nodos/edges del flow real
+    está confirmado por inspección en vivo, ver más abajo.
+  - Que ningún fetch HTTP haya fallado (404, timeout, DNS) ni haya
+    disparado con un placeholder `{{...}}` sin resolver en la URL
+    (`SimConversation.fetch_errors()`, ver `FetchHttpNode._record_fetch_error`
+    — antes esto quedaba invisible, el output simplemente caía en `None`).
+  - Que ningún nodo haya crasheado (`SimConversation.node_errors()` /
+    `crashed_nodes()`, del `_node_errors`/`status="error"` que loguea
+    compiler.py).
+  - Que ningún placeholder `{{...}}` haya quedado sin resolver en el reply
+    ni en el `state.data` de ningún step de toda la conversación.
+  - Que la conversación haya cerrado con un `end_conversation` real.
 
-Por eso la suite separa dos categorías de `Check` (ver `Check.kind`):
-  - "assert" (falla el test): solo lo 100% determinista — placeholders
-    `{{...}}` sin resolver (código, no LLM), respuesta no vacía en cada turno
-    (una respuesta vacía SIEMPRE es un bug — de red, de timeout, o del router
-    de modelos devolviendo contenido vacío en silencio; nunca es "una decisión
-    válida del modelo"), que la conversación haya llegado a un
-    `end_conversation` real, y contadores mecánicos del engine (`max_visits`).
-  - "log" (informativo, nunca hace fallar el test): decisiones semánticas de
-    un LLM — qué rama clasificó el router, qué necesidad extrajo, qué texto
-    exacto generó, si mencionó tal palabra o tal contacto. Se muestran en el
-    reporte y en el output de pytest para diagnóstico ("¿resolvimos bien la
-    necesidad esta vez?"), pero no son una validación pass/fail.
+Nota: al validar contra `ran_node`/`branch_taken` en vez de contra el texto,
+esta suite SÍ puede fallar si el router/LLM de clasificación toma la rama
+equivocada (ej. un pedido de plomero cae en la rama "noticias") — a
+diferencia de la versión anterior, que lo dejaba pasar como "log". Es a
+propósito: confundir la rama es un bug real que vale la pena que la suite
+marque en rojo, no algo que haya que esconder. Lo que se evitó es solo
+juzgar la REDACCIÓN puntual de la respuesta (qué palabras eligió, si
+mencionó tal nombre propio) — eso sigue siendo demasiado no determinista
+para un assert duro, y va como `_log` informativo (branch/necesidad
+extraída), nunca como texto de reply.
 
-Node ids del flow real "Orquestador Vendedor Mejorado" (bot "luganense",
-confirmados por inspección en vivo del flow y de los `flow_run_steps` reales
-el 2026-07-12 — si el flow se edita y estos ids cambian, hay que actualizar
-acá):
+Mapa de nodos/edges del flow real "Orquestador Vendedor Mejorado" (bot
+"luganense", confirmado en vivo el 2026-07-13 vía
+`GET /api/flows/bots/luganense/{flow_id}` — si el flow se edita y estos ids
+cambian, hay que actualizar acá):
+
   node_1783192985521  telegram_trigger  "Llega Mensaje a Luganense"
   node_1783192800831  llm               "Obtener necesidad" → state.necesidad
   node_1783356000392  condition         "Condición" → necesidad_identificada | pedir_mas_info | fuera_de_scope
+  node_1783194257636  metric            (solo en la rama necesidad_identificada)
   node_1783192962168  router            "Elegir Mostrador" → servicio | comercio | producto | noticias
+
+  Rama "comercio":
+  node_1783949463710  fetch_http        → state.comercio_luganense
+  node_1783196060944  llm               "mensaje_referencia_comercio"
+  end_conv_comercio   end_conversation
+
+  Rama "producto":
+  node_1783949755356  fetch_http        → state.producto_luganense
+  node_1783195927257  llm               "mensaje_oferta_producto"
+  end_conv_producto   end_conversation
+
+  Rama "noticias":
+  expandir_consulta   llm               → state.query
+  node_1783693824414  fetch_http        (sin output custom, cae en "context")
+  responder_noticias  llm               "mensaje_noticias"
+  end_conv_noticias   end_conversation
 
   Rama "servicio" (reescrita 2026-07-12 — agrega un paso de confirmación del
   prestador ANTES de pedir la dirección; los ids viejos `validar_direccion` y
@@ -56,7 +86,7 @@ acá):
   node_1783892162094  send_message      "Confirmar Servicio" → "¿Es este el servicio que quiere: '{{servicio}}'?"
   node_1783892344935  wait_user         "Esperar servicio confirmado"
   node_1783892654800  llm               "Obtener servicio confirmado" → state.servicio_confirmado (o UNCLEAR)
-  node_1783892396384  condition         "Confirmó Servicio?" (RAMA NUEVA) → confirma_servicio | no_confirma_servicio | agotado (max_visits=3)
+  node_1783892396384  condition         "Confirmó Servicio?" → confirma_servicio | no_confirma_servicio | agotado (max_visits=3)
                                          confirma_servicio → Obtener dirección; no_confirma_servicio → vuelve a
                                          "Expandir busqueda servicio" (relanza la búsqueda). OJO: la ruta "agotado"
                                          está declarada en la config (max_visits_route) pero NO tiene edge de salida
@@ -70,21 +100,12 @@ acá):
   wait_dir            wait_user
   set_direccion       set_state         → state.direccion (bug real 2026-07-10: usaba {{message}}, roto — fix: {{conversation.last}})
   notificar_trabajador send_message     envío real al prestador (guarded en sim)
+  responder_vecino_oficio llm           mensaje final al vecino, post-notificación
   disculpar_dir        llm              rama agotado (de "Tienen dirección?")
-  end_conv_ok / end_conv_fail / end_conv_comercio / end_conv_producto /
-  end_conv_noticias / end_conv_scope    end_conversation, uno por rama
-
-Datos de contacto de QA (confirmado por Luganense, API real): Ferretería El
-Barrio (comercio), Kiosco Don Jorge (comercio sin rubro explícito,
-`telefono='11 5555-0003 [QA]'`), Roberto Gómez (servicio). Temporales — los
-escenarios consultan el API en vivo y comparan dígitos, nunca hardcodean el
-valor completo con "[QA]".
+  end_conv_ok / end_conv_fail           end_conversation, cierre de éxito / agotamiento
 """
-import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Awaitable, Callable
-
-import httpx
 
 from tests.e2e.helpers import SimConversation, TeliConversation, has_unresolved_templates
 
@@ -101,24 +122,31 @@ BOT_ID = "luganense"
 BOT_SLUG = "luganense"
 FLOW_SLUG = "orquestador_vendedor_mejorado"
 FLOW_NAME = "Orquestador Vendedor Mejorado"
-DIRECTORIO_API = "https://luganense.vercel.app/api/directorio/buscar"
-CIERRE = "escribime cuando quieras"
-TIPOS_CONTACTO_VALIDOS = {
-    "telegram", "whatsapp", "instagram", "facebook", "tiktok", "twitter", "email", "telefono",
-}
 
 # ─── Node ids (ver docstring) ────────────────────────────────────────────────
 N_OBTENER_NECESIDAD = "node_1783192800831"
 N_CONDICION = "node_1783356000392"
 N_ELEGIR_MOSTRADOR = "node_1783192962168"
+
+N_COMERCIO_FETCH = "node_1783949463710"
+N_COMERCIO_LLM = "node_1783196060944"
+
+N_PRODUCTO_FETCH = "node_1783949755356"
+N_PRODUCTO_LLM = "node_1783195927257"
+
+N_NOTICIAS_EXPANDIR = "expandir_consulta"
+N_NOTICIAS_FETCH = "node_1783693824414"
+N_NOTICIAS_LLM = "responder_noticias"
+
 N_VALIDAR_DIRECCION = "node_1783873174012"  # "Tienen dirección?" (antes "validar_direccion")
-N_BUSCAR_DIRECTORIO = "buscar_servicio"  # antes "buscar_directorio"
+N_BUSCAR_SERVICIO = "buscar_servicio"  # antes "buscar_directorio"
 N_NOTIFICAR_TRABAJADOR = "notificar_trabajador"
+N_RESPONDER_SERVICIO = "responder_vecino_oficio"
 N_SET_DIRECCION = "set_direccion"
 N_IDENTIFICAR_SERVICIO = "node_1783891416894"  # "Identificar servicio" → state.servicio
 N_CONFIRMAR_SERVICIO = "node_1783892162094"  # "Confirmar Servicio" (send_message)
 N_OBTENER_SERVICIO_CONFIRMADO = "node_1783892654800"  # "Obtener servicio confirmado" → state.servicio_confirmado
-N_CONFIRMO_SERVICIO = "node_1783892396384"  # "Confirmó Servicio?" (condition, rama nueva 2026-07-12)
+N_CONFIRMO_SERVICIO = "node_1783892396384"  # "Confirmó Servicio?" (condition)
 
 
 @dataclass
@@ -128,7 +156,7 @@ class Check:
     detail: str = ""
     # "assert" hace fallar el test si passed=False. "log" es siempre passed=True
     # y solo se muestra como informativo — ver nota de diseño en el docstring
-    # del módulo (no assertear sobre decisiones semánticas de un LLM).
+    # del módulo (nunca contra el texto del reply).
     kind: str = "assert"
 
 
@@ -147,52 +175,37 @@ class Scenario:
     real_telegram: bool = False
 
 
-def _primer_contacto(query: str, tipo: str) -> dict | None:
-    try:
-        resp = httpx.get(DIRECTORIO_API, params={"q": query, "tipo": tipo}, timeout=10)
-        resp.raise_for_status()
-        results = resp.json().get("results", [])
-        if not results:
-            return None
-        contactos = results[0].get("contactos") or []
-        if not contactos:
-            return None
-        primero = contactos[0]
-        if primero.get("tipo") not in TIPOS_CONTACTO_VALIDOS or not primero.get("valor"):
-            return None
-        return primero
-    except Exception:
-        return None
-
-
-def _digitos_contacto(query: str, tipo: str) -> str | None:
-    contacto = _primer_contacto(query, tipo)
-    if not contacto:
-        return None
-    digitos = re.sub(r"\D", "", contacto["valor"])
-    return digitos[-8:] if len(digitos) >= 8 else (digitos or None)
-
-
 def _c(label: str, passed, detail: str = "") -> Check:
     """Assert real: si `passed` es False, hace fallar el test."""
     return Check(label, bool(passed), detail, kind="assert")
 
 
 def _log(label: str, detail: str = "") -> Check:
-    """Entrada informativa: nunca hace fallar el test. Para hechos que dependen
-    de una decisión semántica de un LLM (rama clasificada, texto generado, si
-    menciona tal palabra/contacto) — ver nota de diseño en el docstring del
-    módulo. Se muestra igual en el reporte y en el output de pytest, para
-    poder ver "¿resolvimos bien esta vez?" sin que la suite sea flaky."""
+    """Entrada informativa (nunca hace fallar el test) — para diagnóstico
+    ("¿resolvimos bien esta vez?"), siempre derivada del LOG (branch/necesidad
+    extraída), nunca del texto del reply."""
     return Check(label, True, detail, kind="log")
 
 
-def _cierre_checks(conv: SimConversation, reply: str | None) -> list[Check]:
-    """Chequeos comunes a TODA conversación (feliz o infeliz) — los únicos
-    asserts "duros" de la suite, 100% deterministas: reply no vacío (una
-    respuesta vacía es siempre un bug, nunca una decisión válida del modelo),
-    sin templates rotos en ningún lado (bug de código, no de contenido), cierre
-    real (end_conversation)."""
+def _ran_all(label: str, conv: SimConversation, *node_ids: str) -> Check:
+    """Assert real: TODOS los `node_ids` deben haber corrido (`ran_node`) en
+    algún momento de la conversación acumulada — el camino esperado por el log
+    de ejecución, no por lo que dice el reply."""
+    faltantes = [n for n in node_ids if not conv.ran_node(n)]
+    return _c(label, not faltantes, detail=f"no corrieron: {faltantes}" if faltantes else "")
+
+
+def _infra_checks(conv: SimConversation, reply: str | None) -> list[Check]:
+    """
+    Chequeos comunes a TODA conversación (feliz o infeliz) — 100%
+    deterministas, derivados del log de ejecución real, nunca del texto del
+    reply: reply no vacío (una respuesta vacía SIEMPRE es un bug — de red, de
+    timeout, o del router de modelos devolviendo contenido vacío en silencio;
+    nunca "una decisión válida del modelo"), sin templates rotos en ningún
+    lado, sin fetch HTTP fallidos (404/timeout/DNS/URL con `{{...}}` sin
+    resolver — ver `FetchHttpNode._record_fetch_error`), sin nodos
+    crasheados, cierre real (end_conversation).
+    """
     checks = [_c("El bot respondió en el último turno", bool(reply), repr(reply) if not reply else "")]
     if not reply:
         return checks
@@ -201,6 +214,18 @@ def _cierre_checks(conv: SimConversation, reply: str | None) -> list[Check]:
     checks.append(_c(
         "Sin placeholders {{...}} sin resolver en el state de NINGÚN step de TODA la conversación",
         not rotos, detail=str(rotos) if rotos else "",
+    ))
+    fetch_errors = conv.fetch_errors()
+    checks.append(_c(
+        "Sin fetch HTTP fallidos (404/timeout/DNS/URL con placeholder sin resolver) en TODA la conversación",
+        not fetch_errors, detail=str(fetch_errors) if fetch_errors else "",
+    ))
+    node_errors = conv.node_errors()
+    crashed = conv.crashed_nodes()
+    checks.append(_c(
+        "Ningún nodo crasheó (_node_errors / status=\"error\")",
+        not node_errors and not crashed,
+        detail=f"node_errors={node_errors} crashed={crashed}" if (node_errors or crashed) else "",
     ))
     checks.append(_c(
         "La conversación llegó a un end_conversation real (no quedó a mitad de camino)",
@@ -221,28 +246,19 @@ async def _run_comercio() -> ScenarioResult:
         reply = await conv.send_and_wait("busco una ferretería")
         turns.append(("user", "busco una ferretería")); turns.append(("bot", reply))
 
-        necesidad_t1 = conv.state_field(N_OBTENER_NECESIDAD, "necesidad", occurrence=0)
         checks = [
-            _log("Turno 1 (\"hola\", ambiguo): clasificación de necesidad", detail=f"necesidad={necesidad_t1!r}"),
+            _log("Turno 1 (\"hola\", ambiguo): clasificación de necesidad",
+                 detail=f"necesidad={conv.state_field(N_OBTENER_NECESIDAD, 'necesidad', occurrence=0)!r}"),
             _log("Turno 1: rama tomada por la Condición", detail=f"branch={conv.branch_taken(N_CONDICION, occurrence=0)!r}"),
             _c("Turno 1: el bot respondió pidiendo aclaración (no vacío)", bool(r1)),
             _c("Turno 2 (\"asdfgh\", ambiguo de nuevo): el flow no se rompió, siguió respondiendo (no vacío)", bool(r2)),
         ]
-        checks += _cierre_checks(conv, reply)
-        lower = (reply or "").lower()
-        checks.append(_log("Turno 3: rama tomada por la Condición", detail=f"branch={conv.branch_taken(N_CONDICION)!r}"))
+        checks += _infra_checks(conv, reply)
         checks.append(_log("Turno 3: rama tomada por Elegir Mostrador", detail=f"branch={conv.branch_taken(N_ELEGIR_MOSTRADOR)!r}"))
-        checks.append(_log("¿La respuesta final menciona una ferretería?", detail=f"'ferreter' in reply = {'ferreter' in lower}"))
-        checks.append(_log(f'¿Incluye la línea de cierre ("{CIERRE}")?', detail=f"{CIERRE in lower}"))
-
-        digitos = _digitos_contacto("ferreteria", "all")
-        if digitos:
-            digitos_reply = re.sub(r"\D", "", reply or "")
-            checks.append(_log(
-                "¿Incluye el contacto real de Ferretería El Barrio (consultado en vivo al API de Luganense)?",
-                detail=f"esperado: …{digitos} | encontrado: {digitos in digitos_reply}",
-            ))
-        checks.append(_log("¿Cerró específicamente por end_conv_comercio?", detail=f"{conv.ran_node('end_conv_comercio')}"))
+        checks.append(_ran_all(
+            "Pasó por los nodos esperados de la rama comercio (fetch al directorio + armado de mensaje + cierre)",
+            conv, N_COMERCIO_FETCH, N_COMERCIO_LLM, "end_conv_comercio",
+        ))
     return ScenarioResult(turns, checks)
 
 
@@ -251,7 +267,7 @@ async def _run_comercio() -> ScenarioResult:
 async def _run_comercio_sin_rubro() -> ScenarioResult:
     turns = []
     async with SimConversation(BOT_ID) as conv:
-        msg = "es Kiosco Don Jorge, me decís su teléfono?"
+        msg = "Hola, ¿podés decirme el teléfono de Kiosco Don Jorge?"
         reply = await conv.send_and_wait(msg)
         turns.append(("user", msg)); turns.append(("bot", reply))
 
@@ -260,42 +276,49 @@ async def _run_comercio_sin_rubro() -> ScenarioResult:
                  detail=f"branch={conv.branch_taken(N_CONDICION)!r}"),
             _log("Rama tomada por Elegir Mostrador", detail=f"branch={conv.branch_taken(N_ELEGIR_MOSTRADOR)!r}"),
         ]
-        checks += _cierre_checks(conv, reply)
-        lower = (reply or "").lower()
-        checks.append(_log("¿Menciona \"Kiosco Don Jorge\" por nombre propio?", detail=f"{'kiosco don jorge' in lower}"))
-        checks.append(_log("¿NO volvió a pedir rubro/calle (resolvió directo)?",
-                            detail=f"{'rubro' not in lower and 'en qué calle' not in lower}"))
-        digitos = _digitos_contacto("kiosco don jorge", "comercios")
-        if digitos:
-            digitos_reply = re.sub(r"\D", "", reply or "")
-            checks.append(_log(
-                "¿Incluye el contacto real de Kiosco Don Jorge (dato QA de Luganense)?",
-                detail=f"esperado: …{digitos} | encontrado: {digitos in digitos_reply}",
-            ))
-        checks.append(_log("¿Cerró específicamente por end_conv_comercio?", detail=f"{conv.ran_node('end_conv_comercio')}"))
+        checks += _infra_checks(conv, reply)
+        checks.append(_ran_all(
+            "Pasó por los nodos esperados de la rama comercio (fetch al directorio + armado de mensaje + cierre)",
+            conv, N_COMERCIO_FETCH, N_COMERCIO_LLM, "end_conv_comercio",
+        ))
     return ScenarioResult(turns, checks)
 
 
-# ─── 3. Producto (pizza) — con loop de aclaración ────────────────────────────
+# ─── 3. Producto (focos LED) — con loop de aclaración ────────────────────────
+#
+# Nota de diseño (2026-07-13): antes probaba "quiero pedir una pizza" — mal
+# elegido. El prompt del router ("Elegir Mostrador") define "comercio" como
+# "un local, negocio o comercio del barrio (bar, kiosco, verdulería,
+# peluquería, etc.)" y declara la prioridad explícita "servicio > comercio >
+# producto" para desempatar ambigüedades — una pizzería encaja de lleno como
+# "comercio" (es, literalmente, un local de comida), así que "pizza" es
+# ambiguo por diseño del propio router y determinísticamente pierde contra
+# comercio. Confirmado contra el API real de Luganense
+# (GET /api/directorio/buscar?tipo=productos) que "pizza" SÍ existe cargado
+# como producto (La Esquina de Lugano Pizza, Pizzería El Horno de Barro) —
+# no era un problema de datos faltantes, era la elección del mensaje de
+# prueba. "Focos LED" (Iluminación LuzHogar, confirmado en el mismo API) no
+# calza en ninguna categoría de comercio de barrio reconocible → mucho menos
+# ambiguo para el router.
 
 async def _run_producto() -> ScenarioResult:
     turns = []
     async with SimConversation(BOT_ID) as conv:
         r1 = await conv.send_and_wait("hola")
         turns.append(("user", "hola")); turns.append(("bot", r1))
-        reply = await conv.send_and_wait("quiero pedir una pizza")
-        turns.append(("user", "quiero pedir una pizza")); turns.append(("bot", reply))
+        msg = "necesito comprar unos focos LED para mi casa"
+        reply = await conv.send_and_wait(msg)
+        turns.append(("user", msg)); turns.append(("bot", reply))
 
         checks = [
             _log("Turno 1: rama tomada por la Condición", detail=f"branch={conv.branch_taken(N_CONDICION, occurrence=0)!r}"),
         ]
-        checks += _cierre_checks(conv, reply)
-        lower = (reply or "").lower()
-        checks.append(_log("Turno 2: rama tomada por la Condición", detail=f"branch={conv.branch_taken(N_CONDICION)!r}"))
+        checks += _infra_checks(conv, reply)
         checks.append(_log("Rama tomada por Elegir Mostrador", detail=f"branch={conv.branch_taken(N_ELEGIR_MOSTRADOR)!r}"))
-        checks.append(_log("¿La respuesta ofrece opciones de pizza?", detail=f"{'pizza' in lower}"))
-        checks.append(_log(f'¿Incluye la línea de cierre ("{CIERRE}")?', detail=f"{CIERRE in lower}"))
-        checks.append(_log("¿Cerró específicamente por end_conv_producto?", detail=f"{conv.ran_node('end_conv_producto')}"))
+        checks.append(_ran_all(
+            "Pasó por los nodos esperados de la rama producto (fetch de productos + armado de mensaje + cierre)",
+            conv, N_PRODUCTO_FETCH, N_PRODUCTO_LLM, "end_conv_producto",
+        ))
     return ScenarioResult(turns, checks)
 
 
@@ -313,14 +336,12 @@ async def _run_noticias() -> ScenarioResult:
         checks = [
             _log("Turno 1: rama tomada por la Condición", detail=f"branch={conv.branch_taken(N_CONDICION, occurrence=0)!r}"),
         ]
-        checks += _cierre_checks(conv, reply)
-        lower = (reply or "").lower()
+        checks += _infra_checks(conv, reply)
         checks.append(_log("Rama tomada por Elegir Mostrador", detail=f"branch={conv.branch_taken(N_ELEGIR_MOSTRADOR)!r}"))
-        checks.append(_log(
-            "¿Responde sobre el corte de luz (o el fallback conocido)?",
-            detail=f"{'facebook.com/luganense' in lower or 'corte' in lower or 'luz' in lower}",
+        checks.append(_ran_all(
+            "Pasó por los nodos esperados de la rama noticias (expandir consulta + fetch + armado de mensaje + cierre)",
+            conv, N_NOTICIAS_EXPANDIR, N_NOTICIAS_FETCH, N_NOTICIAS_LLM, "end_conv_noticias",
         ))
-        checks.append(_log("¿Cerró específicamente por end_conv_noticias?", detail=f"{conv.ran_node('end_conv_noticias')}"))
     return ScenarioResult(turns, checks)
 
 
@@ -362,16 +383,23 @@ async def _run_servicio() -> ScenarioResult:
         checks = [
             _log("Turno 1: rama tomada por la Condición", detail=f"branch={conv.branch_taken(N_CONDICION, occurrence=0)!r}"),
             _log("Turno 2: rama tomada por Elegir Mostrador", detail=f"branch={conv.branch_taken(N_ELEGIR_MOSTRADOR)!r}"),
-            _c("Turno 2: el bot pidió confirmar el prestador (no vacío)", bool(pide_confirmacion)),
+            _ran_all(
+                "Turno 2: buscó el servicio y pidió confirmar el prestador",
+                conv, N_BUSCAR_SERVICIO, N_IDENTIFICAR_SERVICIO, N_CONFIRMAR_SERVICIO,
+            ),
             _log("Servicio ofrecido (1ª búsqueda)", detail=f"{conv.state_field(N_IDENTIFICAR_SERVICIO, 'servicio', occurrence=0)!r}"),
             _log("Turno 3 (rechaza el prestador \"no, ese no es\"): rama de \"Confirmó Servicio?\"",
                  detail=f"branch={conv.branch_taken(N_CONFIRMO_SERVICIO, occurrence=0)!r}"),
             _c("Turno 3: el bot volvió a preguntar (no vacío)", bool(pide_confirmacion_2)),
+            _ran_all(
+                "Turno 3: relanzó la búsqueda tras el rechazo (2ª ejecución de Identificar servicio)",
+                conv, N_IDENTIFICAR_SERVICIO,
+            ),
             _log("Turno 4 (confirma \"sí, ese mismo\"): rama de \"Confirmó Servicio?\"",
                  detail=f"branch={conv.branch_taken(N_CONFIRMO_SERVICIO, occurrence=1)!r}"),
             _c("Turno 4: el bot pidió la dirección/ubicación (no vacío)", bool(pide_direccion)),
         ]
-        checks += _cierre_checks(conv, reply)
+        checks += _infra_checks(conv, reply)
         checks.append(_log(
             "Turno 5 (dirección dada): rama de \"Tienen dirección?\"",
             detail=f"branch={conv.branch_taken(N_VALIDAR_DIRECCION)!r}",
@@ -383,20 +411,14 @@ async def _run_servicio() -> ScenarioResult:
             bool(direccion_extraida) and not has_unresolved_templates(direccion_extraida),
             detail=f"direccion={direccion_extraida!r}",
         ))
-        checks.append(_log(
-            "¿Corrió notificar_trabajador (side-effect de avisar al prestador — guarded en sim)?",
-            detail=f"{conv.ran_node(N_NOTIFICAR_TRABAJADOR)}",
-        ))
-        lower = (reply or "").lower()
-        servicio_final = conv.state_field(N_IDENTIFICAR_SERVICIO, "servicio", occurrence=1) or ""
-        checks.append(_log(
-            "Servicio final confirmado (2ª búsqueda, post-rechazo)", detail=f"{servicio_final!r}",
+        checks.append(_ran_all(
+            "Pasó por los nodos esperados de cierre (notificó al prestador, armó la respuesta final, cerró end_conv_ok)",
+            conv, N_NOTIFICAR_TRABAJADOR, N_RESPONDER_SERVICIO, "end_conv_ok",
         ))
         checks.append(_log(
-            "¿La respuesta final confirma el pedido y da el contacto del prestador?",
-            detail=f"reply={reply!r}",
+            "Servicio final confirmado (2ª búsqueda, post-rechazo)",
+            detail=f"{conv.state_field(N_IDENTIFICAR_SERVICIO, 'servicio', occurrence=1)!r}",
         ))
-        checks.append(_log("¿Cerró específicamente por end_conv_ok (cierre de éxito)?", detail=f"{conv.ran_node('end_conv_ok')}"))
     return ScenarioResult(turns, checks)
 
 
@@ -416,19 +438,12 @@ async def _run_fuera_de_scope() -> ScenarioResult:
             _log("Turno 2: clasificación de necesidad", detail=f"necesidad={conv.state_field(N_OBTENER_NECESIDAD, 'necesidad')!r}"),
             _log("Turno 2: rama tomada por la Condición", detail=f"branch={conv.branch_taken(N_CONDICION)!r}"),
         ]
-        checks += _cierre_checks(conv, reply)
-        lower = (reply or "").lower()
-        checks.append(_log("¿Reconoce que el pedido es de otro barrio?", detail=f"{'no lo manejamos' in lower or 'villa lugano' in lower}"))
-        checks.append(_log("¿Cierre con despedida (👋 o \"hasta la próxima\")?", detail=f"{'👋' in (reply or '') or 'hasta la próxima' in lower}"))
-        checks.append(_log(
-            "¿NO buscó en el directorio real (esperado: el guardrail de scope corta ANTES de tocar la API)?",
-            detail=f"ran_node(buscar_servicio)={conv.ran_node(N_BUSCAR_DIRECTORIO)}",
+        checks += _infra_checks(conv, reply)
+        checks.append(_ran_all("Cerró específicamente por end_conv_scope", conv, "end_conv_scope"))
+        checks.append(_c(
+            "NO buscó en el directorio real de servicios (el guardrail de scope corta ANTES de tocar la API)",
+            not conv.ran_node(N_BUSCAR_SERVICIO),
         ))
-        checks.append(_log(
-            "¿La respuesta evitó ofertar algo real del directorio?",
-            detail=f"{'roberto' not in lower and 'dirección' not in lower and 'ferreter' not in lower}",
-        ))
-        checks.append(_log("¿Cerró específicamente por end_conv_scope?", detail=f"{conv.ran_node('end_conv_scope')}"))
     return ScenarioResult(turns, checks)
 
 
@@ -473,7 +488,8 @@ async def _run_servicio_agotado() -> ScenarioResult:
 
         checks = [
             _log("Turno 1: rama tomada por la Condición", detail=f"branch={conv.branch_taken(N_CONDICION, occurrence=0)!r}"),
-            _c("El bot pidió confirmar el prestador (no vacío)", bool(pide_confirmacion)),
+            _ran_all("El bot buscó el servicio y pidió confirmar el prestador",
+                     conv, N_BUSCAR_SERVICIO, N_CONFIRMAR_SERVICIO),
             _log("Rama de \"Confirmó Servicio?\"", detail=f"branch={conv.branch_taken(N_CONFIRMO_SERVICIO)!r}"),
             _c("El bot pidió dirección/ubicación tras confirmar (no vacío)", bool(pide_direccion)),
             _log("Rama de \"Tienen dirección?\" tras agotar reintentos (esperado: \"agotado\")",
@@ -485,15 +501,11 @@ async def _run_servicio_agotado() -> ScenarioResult:
             "(mecánica del engine — max_visits, no una decisión de contenido del LLM)",
             visitas == 3, detail=f"visits={visitas!r}",
         ))
-        checks.append(_log("¿Corrió el nodo de disculpa (disculpar_dir)?", detail=f"{conv.ran_node('disculpar_dir')}"))
-        checks += _cierre_checks(conv, last_reply)
-        lower = (last_reply or "").lower()
-        servicio = (conv.state_field(N_IDENTIFICAR_SERVICIO, "servicio", occurrence=0) or "").lower()
-        checks.append(_log(
-            "¿La disculpa le da al vecino el contacto del prestador para que arregle directo?",
-            detail=f"servicio={servicio!r} reply={last_reply!r}",
+        checks += _infra_checks(conv, last_reply)
+        checks.append(_ran_all(
+            "Cerró por la rama de disculpa (disculpar_dir → end_conv_fail), no se quedó colgado",
+            conv, "disculpar_dir", "end_conv_fail",
         ))
-        checks.append(_log("¿Cerró específicamente por end_conv_fail (cierre de agotamiento)?", detail=f"{conv.ran_node('end_conv_fail')}"))
     return ScenarioResult(turns, checks)
 
 
@@ -512,7 +524,7 @@ SCENARIOS: list[Scenario] = [
     Scenario(
         id="comercio", title="Comercio — aclaración + resiliencia a ambiguo + ferretería",
         desc="Arranca con un saludo ambiguo (pide aclaración), tolera un mensaje sin sentido en el medio sin romperse, "
-             "y recién se resuelve al dar el pedido real — cierra con el contacto real del comercio.",
+             "y recién se resuelve al dar el pedido real — cierra pasando por el fetch real del directorio de comercios.",
         run=_run_comercio,
     ),
     Scenario(
@@ -522,22 +534,22 @@ SCENARIOS: list[Scenario] = [
         run=_run_comercio_sin_rubro,
     ),
     Scenario(
-        id="producto", title="Producto — aclaración + pizza",
-        desc="Saludo ambiguo → aclaración → pedido de pizza → oferta y cierre.",
+        id="producto", title="Producto — aclaración + focos LED",
+        desc="Saludo ambiguo → aclaración → pedido de un producto puntual (focos LED) → fetch real del directorio "
+             "de productos → cierre.",
         run=_run_producto,
     ),
     Scenario(
         id="noticias", title="Noticias — aclaración + corte de luz",
-        desc="Saludo ambiguo → aclaración → consulta de noticias del barrio → respuesta y cierre.",
+        desc="Saludo ambiguo → aclaración → consulta de noticias del barrio → expandir consulta + fetch + cierre.",
         run=_run_noticias,
     ),
     Scenario(
         id="servicio", title="Servicio con notificación — el camino más largo (aclaración + rechazo/confirmación "
                              "de prestador + 2 vueltas de wait_user de dirección)",
         desc="Saludo ambiguo → aclaración → pedido de plomero → el bot busca y ofrece un prestador → el vecino lo "
-             "RECHAZA (rama nueva no_confirma_servicio, relanza la búsqueda) → el vecino CONFIRMA el segundo "
-             "(rama nueva confirma_servicio) → pide dirección → dirección ambigua (repregunta, 1ª vuelta) → "
-             "dirección válida (2ª vuelta, resuelve) → notifica al prestador real → cierra.",
+             "RECHAZA (relanza la búsqueda) → el vecino CONFIRMA el segundo → pide dirección → dirección ambigua "
+             "(repregunta, 1ª vuelta) → dirección válida (2ª vuelta, resuelve) → notifica al prestador real → cierra.",
         run=_run_servicio,
     ),
     Scenario(

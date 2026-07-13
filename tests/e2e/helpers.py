@@ -286,3 +286,36 @@ class SimConversation:
                 if isinstance(value, str) and _UNRESOLVED_TEMPLATE_RE.search(value):
                     found.append((step.get("node_id", ""), key, value))
         return found
+
+    def fetch_errors(self) -> list[dict]:
+        """
+        `state.data["_fetch_errors"]` (ver `FetchHttpNode._record_fetch_error`)
+        acumulado — cada entrada es un fetch HTTP que falló de verdad (404,
+        timeout, DNS, o una URL con un placeholder `{{...}}` sin resolver),
+        vacía si ningún fetch de la conversación falló. La lista crece
+        monótonamente dentro de `state.data`, así que alcanza con mirar el
+        ÚLTIMO step que tenga la clave — no hace falta deduplicar entre turnos.
+        """
+        for step in reversed(self.all_steps):
+            output = step.get("output_state") or {}
+            if "_fetch_errors" in output:
+                return output["_fetch_errors"]
+        return []
+
+    def node_errors(self) -> list[dict]:
+        """
+        `state.data["_node_errors"]` (compiler.py — se llena cuando un nodo
+        LEVANTA una excepción, a diferencia de `_fetch_errors` que es
+        específico de FetchHttpNode tragándose sus propios errores). Un nodo
+        crasheado es siempre un bug real, nunca una decisión válida del LLM.
+        """
+        for step in reversed(self.all_steps):
+            output = step.get("output_state") or {}
+            if "_node_errors" in output:
+                return output["_node_errors"]
+        return []
+
+    def crashed_nodes(self) -> list[str]:
+        """node_id de todo step que corrió con status="error" (ver `_log_step`
+        en compiler.py) — mecánica del engine, no depende de qué generó el LLM."""
+        return [s["node_id"] for s in self.all_steps if s.get("status") == "error"]
