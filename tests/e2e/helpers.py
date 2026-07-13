@@ -3,12 +3,29 @@ Helpers e2e reutilizables para probar flows reales vía Telegram (teli/Telethon)
 y flows simulados in-band contra el backend local (simulate_flow, ver
 pulpo/business/flows.py y management/HANDOFF_SIMULACION_V2.md).
 
-Convención de carpetas: tests/e2e/<bot>/test_<flow_slug>.py.
+Convención de carpetas — un bot puede tener N flows activos (con distintos
+triggers) y M inactivos, así que la identidad "qué flow se testea" es por
+módulo, no por bot: `tests/e2e/<bot>/scenarios_<flow_slug>.py` (fuente de
+escenarios, con BOT_SLUG/FLOW_SLUG/FLOW_NAME) +
+`tests/e2e/<bot>/test_<flow_slug>_sim.py` (wrapper pytest, nombres de test
+`test_<bot_slug>__<flow_slug>__<scenario_id>`). Ver
+tests/e2e/luganense/scenarios_orquestador_vendedor_mejorado.py como ejemplo.
+
 `TeliConversation` → marca pytest.mark.e2e (Telegram real, lento, solo antes de
 merge). `SimConversation` → marca pytest.mark.e2e_sim (motor real de flows,
 sin Telegram, requiere solo el backend local corriendo — ver ADR-004).
 No reemplaza tests/test_e2e_luganense_teli.py (flow viejo, referencia intacta) —
 esa suite queda tal cual; los flows nuevos usan esta infraestructura.
+
+TODO(N-flows): `SimConversation`/`send_and_wait` no reciben `flow_id` — el
+motor (`simulate_message` en pulpo/business/flows.py) resuelve el flow activo
+solo, y con UN flow activo por bot (el caso de hoy) eso alcanza. El día que un
+bot tenga 2+ flows activos con trigger de mensajería simultáneos, hay que:
+(1) aceptar un `flow_id`/`flow_name` opcional acá y en el body de `/simulate`,
+y (2) que cada módulo de escenarios lo pase usando su propio FLOW_NAME/
+FLOW_SLUG (ya definidos desde hoy, ver convención arriba) — así cada suite
+fuerza su propio flow en vez de depender de "el primero que matchea". Ver
+también el TODO en pulpo/business/flows.py::simulate_message.
 """
 import asyncio
 import re

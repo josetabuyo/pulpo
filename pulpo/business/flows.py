@@ -396,6 +396,13 @@ async def simulate_message(
                 "sim_id": sim_id,
             }
 
+    # TODO(N-flows): con UN flow activo por bot (el caso de hoy) "el primero
+    # que matchea" y "el flow que el caller quiere probar" son el mismo. El
+    # día que un bot tenga 2+ flows activos con trigger de mensajería
+    # simultáneos, esto deja de ser cierto — hay que aceptar un flow_id/
+    # flow_name opcional en simulate_message() (y en el body de /simulate) y
+    # filtrar acá por ese flow en vez de tomar el primero. Ver el TODO
+    # espejado en tests/e2e/helpers.py.
     flows = await resolve_flows(bot_id)
     for flow in flows:
         nodes = flow.get("definition", {}).get("nodes", [])

@@ -18,12 +18,12 @@ import { GRID_SIZE, NODE_WIDTH, snapPoint } from '../utils/grid.js'
 
 // ─── Contexto de modo borrar ──────────────────────────────────────────────────
 
-const EdgeActionsCtx = createContext({ deleteMode: false, deleteEdge: null, updateEdgeBend: null, updateEdgeLabel: null, getNodeRoutes: null })
+const EdgeActionsCtx = createContext({ deleteMode: false, embed: false, deleteEdge: null, updateEdgeBend: null, updateEdgeLabel: null, getNodeRoutes: null })
 
 // ─── Edge custom ──────────────────────────────────────────────────────────────
 
 function LabeledEdge({ id, source, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, label, selected, markerEnd, markerStart, data }) {
-  const { deleteMode, deleteEdge, updateEdgeBend, updateEdgeLabel, getNodeRoutes } = useContext(EdgeActionsCtx)
+  const { deleteMode, embed, deleteEdge, updateEdgeBend, updateEdgeLabel, getNodeRoutes } = useContext(EdgeActionsCtx)
   const { screenToFlowPosition } = useReactFlow()
   const [localBend, setLocalBend] = useState(null)
   const [editing, setEditing] = useState(false)
@@ -127,7 +127,7 @@ function LabeledEdge({ id, source, sourceX, sourceY, targetX, targetY, sourcePos
     deleteEdge?.(id)
   }, [id, deleteEdge])
 
-  const showHandle = !deleteMode && (selected || hasBend || (!label && routes.length > 0))
+  const showHandle = !deleteMode && !embed && (selected || hasBend || (!label && routes.length > 0))
 
   return (
     <>
@@ -320,6 +320,11 @@ export default function FlowCanvas({
   onDrop: externalOnDrop,
   onEdgeBendChange,
   onEdgeLabelChange,
+  // Modo solo-lectura para capturas del diagrama (ver EmbedFlowPage.jsx): sin
+  // Controls, sin handles interactivos de edge, sin overlays de borrado, sin
+  // drag/zoom/selección. Reusa el mismo render — no es un dibujo aparte.
+  embed = false,
+  onInit,
 }) {
   const reactFlowWrapper = useRef(null)
   const { getNodes, getEdges } = useReactFlow()
@@ -341,7 +346,7 @@ export default function FlowCanvas({
   // Delete/Backspace: si hay nodos seleccionados (box select o click), pedir
   // confirmación (se pintan de rojo). Si solo hay edges seleccionadas, borrar directo.
   useEffect(() => {
-    if (deleteMode) return
+    if (deleteMode || embed) return
     function handleKeyDown(e) {
       if (e.key !== 'Delete' && e.key !== 'Backspace') return
       const target = e.target
@@ -361,7 +366,7 @@ export default function FlowCanvas({
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [deleteMode, getNodes, getEdges, onEdgesChange, setPendingDeleteNodeIds])
+  }, [deleteMode, embed, getNodes, getEdges, onEdgesChange, setPendingDeleteNodeIds])
 
   function handleDragOver(e) {
     e.preventDefault()
@@ -370,6 +375,7 @@ export default function FlowCanvas({
 
   // Espacio apretado → mano temporal (se restaura la herramienta anterior al soltar)
   useEffect(() => {
+    if (embed) return
     function isTyping(target) {
       return target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
     }
@@ -393,7 +399,7 @@ export default function FlowCanvas({
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
     }
-  }, [])
+  }, [embed])
 
   const panMode = tool === 'pan' || spaceHeld
   const canvasCursor = panMode ? (isPanning ? 'grabbing' : 'grab') : 'default'
@@ -431,7 +437,7 @@ export default function FlowCanvas({
   }, [editNodes])
 
   return (
-    <EdgeActionsCtx.Provider value={{ deleteMode, deleteEdge, updateEdgeBend: onEdgeBendChange, updateEdgeLabel: onEdgeLabelChange, getNodeRoutes }}>
+    <EdgeActionsCtx.Provider value={{ deleteMode, embed, deleteEdge, updateEdgeBend: onEdgeBendChange, updateEdgeLabel: onEdgeLabelChange, getNodeRoutes }}>
       <div
         ref={reactFlowWrapper}
         style={{ flex: 1, background: '#0f172a', overflow: 'hidden', position: 'relative', cursor: canvasCursor }}
@@ -449,43 +455,48 @@ export default function FlowCanvas({
           onConnect={onConnect}
           onMoveStart={(e) => { if (e) setIsPanning(true) }}
           onMoveEnd={() => setIsPanning(false)}
+          onInit={onInit}
           fitView
           fitViewOptions={{ padding: 0.3 }}
           minZoom={0.1}
           maxZoom={2}
           snapToGrid
           snapGrid={[GRID_SIZE, GRID_SIZE]}
-          nodesDraggable={!deleteMode && !panMode}
-          nodesConnectable={!deleteMode}
-          elementsSelectable={!panMode}
-          panOnDrag={panMode ? true : [1, 2]}
-          selectionOnDrag={!panMode}
+          nodesDraggable={!embed && !deleteMode && !panMode}
+          nodesConnectable={!embed && !deleteMode}
+          elementsSelectable={!embed && !panMode}
+          panOnDrag={embed ? false : (panMode ? true : [1, 2])}
+          selectionOnDrag={!embed && !panMode}
           selectionKeyCode={null}
           multiSelectionKeyCode="Shift"
-          zoomOnScroll
+          zoomOnScroll={!embed}
+          zoomOnPinch={!embed}
+          zoomOnDoubleClick={!embed}
           deleteKeyCode={null}
           proOptions={{ hideAttribution: true }}
         >
           <Background color="#1e293b" gap={GRID_SIZE} />
-          <Controls showInteractive={false} style={{ background: '#1e293b', border: '1px solid #334155' }}>
-            <ControlButton
-              onClick={() => setTool('select')}
-              title="Seleccionar (V)"
-              style={{ background: tool === 'select' ? '#334155' : undefined, color: tool === 'select' ? '#e2e8f0' : undefined }}
-            >
-              <PointerIcon />
-            </ControlButton>
-            <ControlButton
-              onClick={() => setTool('pan')}
-              title="Mover el lienzo (mantené espacio para activarlo momentáneamente)"
-              style={{ background: tool === 'pan' ? '#334155' : undefined, color: tool === 'pan' ? '#e2e8f0' : undefined }}
-            >
-              <HandIcon />
-            </ControlButton>
-          </Controls>
+          {!embed && (
+            <Controls showInteractive={false} style={{ background: '#1e293b', border: '1px solid #334155' }}>
+              <ControlButton
+                onClick={() => setTool('select')}
+                title="Seleccionar (V)"
+                style={{ background: tool === 'select' ? '#334155' : undefined, color: tool === 'select' ? '#e2e8f0' : undefined }}
+              >
+                <PointerIcon />
+              </ControlButton>
+              <ControlButton
+                onClick={() => setTool('pan')}
+                title="Mover el lienzo (mantené espacio para activarlo momentáneamente)"
+                style={{ background: tool === 'pan' ? '#334155' : undefined, color: tool === 'pan' ? '#e2e8f0' : undefined }}
+              >
+                <HandIcon />
+              </ControlButton>
+            </Controls>
+          )}
         </ReactFlow>
 
-        {pendingDeleteNode && (
+        {!embed && pendingDeleteNode && (
           <div
             style={{
               position: 'absolute',
@@ -531,7 +542,7 @@ export default function FlowCanvas({
           </div>
         )}
 
-        {pendingDeleteNodesList.length > 0 && (
+        {!embed && pendingDeleteNodesList.length > 0 && (
           <div
             style={{
               position: 'absolute',

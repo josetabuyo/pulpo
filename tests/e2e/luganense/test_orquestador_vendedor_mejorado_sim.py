@@ -1,9 +1,16 @@
 """
 E2E (simulado) — Orquestador Vendedor Mejorado / bot Luganense.
 
-Wrapper delgado sobre `scenarios.py` (fuente única compartida con
-`scripts/generate_e2e_report.py` — mismas conversaciones, mismas
-validaciones, sin duplicar lógica entre el test y el reporte).
+Wrapper delgado sobre `scenarios_orquestador_vendedor_mejorado.py` (fuente
+única compartida con `scripts/generate_e2e_report.py` — mismas
+conversaciones, mismas validaciones, sin duplicar lógica entre el test y el
+reporte).
+
+Nombres de test: `test_<bot_slug>__<flow_slug>__<scenario_id>` (ver
+BOT_SLUG/FLOW_SLUG en el módulo de escenarios) — así `pytest -k luganense`
+filtra todo el bot, `pytest -k orquestador_vendedor_mejorado` filtra este
+flow puntual, y cuando el bot tenga un segundo flow activo sus tests no
+colisionan de nombre ni de filtro con estos.
 
 Revisión 2026-07-10 (v2, tras feedback): cada escenario es una conversación
 COMPLETA de punta a punta — arranca en el trigger real y SIEMPRE llega a un
@@ -23,7 +30,7 @@ import asyncio
 
 import pytest
 
-from tests.e2e.luganense.scenarios import SCENARIOS
+from tests.e2e.luganense.scenarios_orquestador_vendedor_mejorado import SCENARIOS, BOT_SLUG, FLOW_SLUG
 
 pytestmark = pytest.mark.e2e_sim
 
@@ -43,7 +50,7 @@ def _make_test(scenario):
                 f"\n{len(failed)}/{len(result.checks)} validaciones fallaron en \"{scenario.title}\":\n"
                 f"{detail_lines}\n\nConversación completa:\n{transcript}"
             )
-    test_fn.__name__ = f"test_{scenario.id.replace('-', '_')}"
+    test_fn.__name__ = f"test_{BOT_SLUG}__{FLOW_SLUG}__{scenario.id.replace('-', '_')}"
     test_fn.__doc__ = scenario.desc
     return test_fn
 
@@ -51,4 +58,5 @@ def _make_test(scenario):
 for _scenario in SCENARIOS:
     if _scenario.real_telegram:
         continue  # vive en test_conectividad_telegram.py, no acá
-    globals()[f"test_{_scenario.id.replace('-', '_')}"] = _make_test(_scenario)
+    _test_name = f"test_{BOT_SLUG}__{FLOW_SLUG}__{_scenario.id.replace('-', '_')}"
+    globals()[_test_name] = _make_test(_scenario)

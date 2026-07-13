@@ -53,7 +53,7 @@ tests/
   test_e2e_luganense_teli.py   # 4 rutas del Orquestador Vendedor (flow viejo, referencia)
   e2e/luganense/
     test_conectividad_telegram.py       # único smoke real por Telegram (marker e2e)
-    test_orquestador_vendedor_sim.py    # lógica de negocio, vía simulador (marker e2e_sim)
+    test_orquestador_vendedor_mejorado_sim.py    # lógica de negocio, vía simulador (marker e2e_sim)
 ```
 
 - **Requieren** `ENABLE_BOTS=true`, flows en DB, y sesión `teli user_me` activa.

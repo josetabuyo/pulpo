@@ -15,12 +15,14 @@ def test_architecture_module_has_get_architecture():
 
 
 def test_architecture_get_architecture_shape(tmp_path):
-    """get_architecture devuelve el shape esperado con monitor_dir vacío."""
+    """get_architecture devuelve el shape esperado con monitor_dir/reports_dir vacíos."""
     from pulpo.business.architecture import get_architecture
     import asyncio
 
     monitor_dir = tmp_path / "monitor"
     monitor_dir.mkdir()
+    reports_dir = tmp_path / "reports"
+    reports_dir.mkdir()
     root_dir = tmp_path
 
     fake_routes = [{"path": "/api/bots", "methods": ["GET"], "name": "get_bots"}]
@@ -28,6 +30,7 @@ def test_architecture_get_architecture_shape(tmp_path):
     result = asyncio.run(get_architecture(
         routes=fake_routes,
         monitor_dir=monitor_dir,
+        reports_dir=reports_dir,
         root_dir=root_dir,
     ))
 
@@ -46,13 +49,15 @@ def test_architecture_get_architecture_shape(tmp_path):
 
 
 def test_architecture_loads_test_report(tmp_path):
-    """Si existe test_report_backend.json lo incluye en la respuesta."""
+    """Si existe test-report.json en reports_dir lo incluye en la respuesta."""
     import json
     import asyncio
     from pulpo.business.architecture import get_architecture
 
     monitor_dir = tmp_path / "monitor"
     monitor_dir.mkdir()
+    reports_dir = tmp_path / "reports"
+    reports_dir.mkdir()
     report = {
         "timestamp": "2026-06-29T12:00:00",
         "duration": 1.5,
@@ -62,11 +67,12 @@ def test_architecture_loads_test_report(tmp_path):
         "skipped": 0,
         "tests": [],
     }
-    (monitor_dir / "test_report_backend.json").write_text(json.dumps(report))
+    (reports_dir / "test-report.json").write_text(json.dumps(report))
 
     result = asyncio.run(get_architecture(
         routes=[],
         monitor_dir=monitor_dir,
+        reports_dir=reports_dir,
         root_dir=tmp_path,
     ))
 

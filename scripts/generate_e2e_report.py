@@ -1,34 +1,37 @@
 """
-Genera un reporte HTML estático de los tests e2e del bot Luganense: el
-diagrama REAL del editor de flows (captura de pantalla del editor corriendo,
-no una reconstrucción — mismo componente @xyflow/react, mismos colores,
-mismas flechas) y, para cada conversación e2e, una vista partida — la
-conversación como chat a la izquierda, lo que se validó a la derecha.
+Genera un reporte HTML estático de los tests e2e de un flow puntual de un bot:
+el diagrama REAL del editor de flows (capturado headless contra
+`/embed/flow/<bot_id>`, mismo componente @xyflow/react, mismos colores,
+mismas flechas — ver `tests/e2e/luganense/capture_diagram.py` y
+`frontend/src/pages/EmbedFlowPage.jsx`, cero reconstrucción/duplicado) y,
+para cada conversación e2e, una vista partida — la conversación como chat a
+la izquierda, lo que se validó a la derecha.
 
 Las conversaciones y sus validaciones NO viven acá — vienen de
-`tests/e2e/luganense/scenarios.py`, la misma fuente que usa
-`test_orquestador_vendedor_sim.py` (pytest). Un solo lugar, sin duplicar
-lógica entre el test y el reporte — si se agrega/cambia un escenario, este
-reporte lo refleja solo.
+`tests/e2e/luganense/scenarios_orquestador_vendedor_mejorado.py`, la misma
+fuente que usa `test_orquestador_vendedor_mejorado_sim.py` (pytest). Un solo
+lugar, sin duplicar lógica entre el test y el reporte — si se agrega/cambia
+un escenario, este reporte lo refleja solo.
 
-Uso: correr con el backend local levantado (http://localhost:8000).
+Un bot puede tener N flows activos (con distintos triggers) y M inactivos —
+este script genera UN reporte por flow (BOT_SLUG/FLOW_SLUG/FLOW_NAME, ver el
+módulo de escenarios), no un reporte por bot. El diagrama se resuelve por
+FLOW_NAME contra el flow ACTIVO de ese nombre (GET /api/flows/bots/{bot_id}),
+no por un flow_id fijo — así el reporte no depende de un UUID que cambia
+entre entornos. `--flow-id` fuerza un flow puntual si hace falta.
 
-    uv run python scripts/generate_e2e_report.py --diagram-image <path.png> [--skip-telegram]
+Uso: correr con el frontend (Vite, :5173) y el backend (:8000) levantados.
 
-El diagrama NO se genera por código — se captura a mano con playwright-cli
-contra el editor real (evita reinventar el render de @xyflow/react):
+    uv run python scripts/generate_e2e_report.py [--skip-telegram]
 
-    playwright-cli open http://localhost:5173/
-    # loguear con ADMIN_PASSWORD (.env), ir a Luganense → Flow → abrir el
-    # flow activo, click en "Fit View" (⛶) para centrar todo el diagrama
-    playwright-cli resize 1800 1400
-    playwright-cli screenshot
-    # recortar el canvas del editor (sin la barra superior ni el panel
-    # derecho vacío) y pasarlo acá con --diagram-image
+El diagrama se captura solo, sin pasos manuales (sin loguearse, sin abrir el
+editor a mano, sin recortar un screenshot) — `--diagram-image` queda como
+escape hatch para forzar un PNG puntual si el frontend no está disponible.
 
-Escribe reports/test-report-e2e-<fecha>.html (reports/ se commitea a
-propósito, ver conftest.py). Este reporte es el que se le pasa a Luganense
-para su sección de reportes de test — avisarle recién después de revisarlo.
+Escribe reports/test-report-e2e-<bot_slug>-<flow_slug>-<fecha>.html
+(reports/ se commitea a propósito, ver conftest.py). Este reporte es el que
+se le pasa a Luganense para su sección de reportes de test — avisarle recién
+después de revisarlo.
 
 No reemplaza reports/test-report.json (ese es el resumen unitario/integration
 que genera conftest.py en cada corrida de pytest) — este es específico de
@@ -42,14 +45,35 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import httpx
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tests.e2e.luganense.scenarios import SCENARIOS, ScenarioResult
+from tests.e2e.luganense.capture_diagram import DiagramCaptureError, capture_flow_diagram
+from tests.e2e.luganense.scenarios_orquestador_vendedor_mejorado import (
+    BOT_ID, BOT_SLUG, FLOW_NAME, FLOW_SLUG, SCENARIOS, ScenarioResult,
+)
 
 
-def embed_diagram_image(path: Path) -> str:
-    data = base64.b64encode(path.read_bytes()).decode("ascii")
-    return f'<img src="data:image/png;base64,{data}" alt="Diagrama del flow" style="width:100%;height:auto;border-radius:8px;display:block;">'
+def embed_diagram_png_bytes(data: bytes) -> str:
+    b64 = base64.b64encode(data).decode("ascii")
+    return f'<img src="data:image/png;base64,{b64}" alt="Diagrama del flow" style="width:100%;height:auto;border-radius:8px;display:block;">'
+
+
+async def resolve_active_flow_id(bot_id: str, flow_name: str, backend_url: str) -> str:
+    """GET /api/flows/bots/{bot_id} y devuelve el id del flow ACTIVO cuyo nombre
+    matchea `flow_name` — así el reporte no depende de un UUID fijo entre entornos."""
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(f"{backend_url}/api/flows/bots/{bot_id}")
+        resp.raise_for_status()
+        flows = resp.json()
+    match = next((f for f in flows if f.get("name") == flow_name and f.get("active")), None)
+    if not match:
+        raise SystemExit(
+            f"No se encontró un flow ACTIVO llamado {flow_name!r} para bot={bot_id!r} "
+            f"en {backend_url} (flows disponibles: {[f.get('name') for f in flows]!r})"
+        )
+    return match["id"]
 
 
 def esc(s):
@@ -96,7 +120,7 @@ def render_html(diagram_html, pairs, meta):
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<title>Reporte e2e — Luganense — {meta['date']}</title>
+<title>Reporte e2e — {meta['bot_display']} — {meta['flow_name']} — {meta['date']}</title>
 <style>
   :root {{ color-scheme: dark; }}
   * {{ box-sizing: border-box; }}
@@ -140,8 +164,8 @@ def render_html(diagram_html, pairs, meta):
 </head>
 <body>
 <header>
-  <h1>Reporte de tests e2e — bot Luganense</h1>
-  <div class="meta">Flow "Orquestador Vendedor Mejorado" · generado {meta['date']} · motor: simulador in-band (sin Telegram, salvo el smoke de conectividad) · conversaciones completas de punta a punta, ver tests/e2e/luganense/scenarios.py</div>
+  <h1>Reporte de tests e2e — bot {meta['bot_display']} — flow &quot;{meta['flow_name']}&quot;</h1>
+  <div class="meta">Flow &quot;{meta['flow_name']}&quot; · generado {meta['date']} · motor: simulador in-band (sin Telegram, salvo el smoke de conectividad) · conversaciones completas de punta a punta, ver tests/e2e/{meta['bot_slug']}/scenarios_{meta['flow_slug']}.py</div>
   <div class="summary">{ok}/{total} conversaciones OK</div>
 </header>
 <main>
@@ -158,14 +182,37 @@ def render_html(diagram_html, pairs, meta):
 
 async def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--diagram-image", required=True, type=Path,
-                         help="PNG del editor real (ver instrucciones de captura en el docstring del módulo)")
+    parser.add_argument("--diagram-image", type=Path, default=None,
+                         help="Escape hatch: PNG puntual del diagrama en vez de capturarlo del frontend real")
+    parser.add_argument("--frontend-url", default="http://localhost:5173",
+                         help="Base URL del frontend (Vite) para /embed/flow/<bot_id>")
+    parser.add_argument("--backend-url", default="http://localhost:8000",
+                         help="Base URL del backend, para resolver el flow_id activo por nombre")
+    parser.add_argument("--flow-id", default=None,
+                         help="Forzar un flow_id puntual en vez de resolverlo por FLOW_NAME (el activo)")
+    parser.add_argument("--diagram-scale", type=int, default=3,
+                         help="device_scale_factor del screenshot del diagrama (nitidez)")
     parser.add_argument("--skip-telegram", action="store_true", help="No correr el smoke de conectividad real de Telegram")
     args = parser.parse_args()
 
-    if not args.diagram_image.exists():
-        raise SystemExit(f"No existe --diagram-image: {args.diagram_image}")
-    diagram_html = embed_diagram_image(args.diagram_image)
+    if args.diagram_image:
+        if not args.diagram_image.exists():
+            raise SystemExit(f"No existe --diagram-image: {args.diagram_image}")
+        diagram_html = embed_diagram_png_bytes(args.diagram_image.read_bytes())
+    else:
+        flow_id = args.flow_id or await resolve_active_flow_id(BOT_ID, FLOW_NAME, args.backend_url)
+        print(f"Capturando diagrama del flow {FLOW_NAME!r} (id={flow_id}) contra {args.frontend_url}...")
+        try:
+            png_bytes = await capture_flow_diagram(
+                bot_id=BOT_ID, flow_id=flow_id, base_url=args.frontend_url, scale=args.diagram_scale,
+            )
+        except DiagramCaptureError as e:
+            raise SystemExit(
+                f"No se pudo capturar el diagrama ({e}). "
+                f"¿Está el frontend levantado en {args.frontend_url}? "
+                f"Alternativa: pasar --diagram-image <path.png> a mano."
+            )
+        diagram_html = embed_diagram_png_bytes(png_bytes)
 
     pairs = []
     for sc in SCENARIOS:
@@ -180,10 +227,16 @@ async def main():
         pairs.append((sc, result))
 
     date_str = datetime.now().strftime("%Y-%m-%d")
-    meta = {"date": date_str}
+    meta = {
+        "date": date_str,
+        "bot_slug": BOT_SLUG,
+        "flow_slug": FLOW_SLUG,
+        "flow_name": FLOW_NAME,
+        "bot_display": BOT_SLUG.capitalize(),
+    }
     out = render_html(diagram_html, pairs, meta)
 
-    out_path = Path(__file__).resolve().parent.parent / "reports" / f"test-report-e2e-{date_str}.html"
+    out_path = Path(__file__).resolve().parent.parent / "reports" / f"test-report-e2e-{BOT_SLUG}-{FLOW_SLUG}-{date_str}.html"
     out_path.write_text(out, encoding="utf-8")
     print(f"\nReporte escrito en: {out_path}")
 
