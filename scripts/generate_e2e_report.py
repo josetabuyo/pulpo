@@ -57,7 +57,16 @@ from tests.e2e.luganense.scenarios_orquestador_vendedor_mejorado import (
 
 def embed_diagram_png_bytes(data: bytes) -> str:
     b64 = base64.b64encode(data).decode("ascii")
-    return f'<img src="data:image/png;base64,{b64}" alt="Diagrama del flow" style="width:100%;height:auto;border-radius:8px;display:block;">'
+    src = f"data:image/png;base64,{b64}"
+    # El diagrama puede ser más alto que la pantalla — .diagram-wrap scrollea
+    # (ver CSS) para verlo completo sin que empuje el resto del reporte, y
+    # doble clic abre el PNG a resolución nativa en una pestaña nueva.
+    return (
+        f'<img src="{src}" alt="Diagrama del flow (doble clic para verlo completo)" '
+        f'title="Doble clic para verlo completo en una pestaña nueva" '
+        f'ondblclick="window.open(this.src, \'_blank\')" '
+        f'style="width:100%;height:auto;border-radius:8px;display:block;cursor:zoom-in;">'
+    )
 
 
 async def resolve_active_flow_id(bot_id: str, flow_name: str, backend_url: str) -> str:
@@ -139,7 +148,7 @@ def render_html(diagram_html, pairs, meta):
   }}
   main {{ max-width: 1100px; margin: 0 auto; padding: 30px 40px 60px; }}
   h2 {{ font-size: 15px; text-transform: uppercase; letter-spacing: 0.06em; color: #94a3b8; margin: 40px 0 14px; }}
-  .diagram-wrap {{ border: 1px solid #1e293b; border-radius: 14px; padding: 12px; background: #0f172a; }}
+  .diagram-wrap {{ border: 1px solid #1e293b; border-radius: 14px; padding: 12px; background: #0f172a; max-height: 75vh; overflow: auto; }}
   .scenario {{ margin-bottom: 26px; border: 1px solid #1e293b; border-radius: 12px; padding: 18px 20px; background: #0f172a; }}
   .scenario-head {{ display: flex; justify-content: space-between; align-items: center; gap: 12px; }}
   .scenario-head h3 {{ margin: 0; font-size: 15px; display: flex; align-items: center; gap: 8px; }}
