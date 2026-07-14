@@ -77,18 +77,32 @@ cambian, hay que actualizar acá):
   responder_noticias  llm               "mensaje_noticias"
   end_conv_noticias   end_conversation
 
-  Rama "servicio" (reescrita 2026-07-12 — agrega un paso de confirmación del
-  prestador ANTES de pedir la dirección; los ids viejos `validar_direccion` y
-  `buscar_directorio` ya NO EXISTEN, quedaron reemplazados):
-  node_1783881515663  llm               "Expandir busqueda servicio" → state.queries_servicio (lista)
-  buscar_servicio      fetch_http       "Buscar servicio" (antes "buscar_directorio") → state.servicios_luganense
-  node_1783891416894  llm               "Identificar servicio" → state.servicio (o SIN_RESULTADOS)
+  Rama "servicio" (reescrita 2026-07-14 tras el bug de alucinación de prestador
+  — ver `management/BUG_HALLUCINACION_PRESTADOR_SERVICIO.md`, no commiteado:
+  el nodo LLM "Identificar servicio" tenía un typo (`{{servicio_luganense}}` en
+  vez de `{{servicios_luganense}}`) que lo dejaba sin ver los resultados
+  reales, y terminaba inventando prestadores/contactos falsos. Se sacó ESE
+  nodo y también "Expandir busqueda servicio" — Luganense expuso un endpoint
+  nuevo que devuelve UN candidato ya resuelto de su lado (prioridad entre
+  prestadores es criterio de ELLOS, no nuestro), así que ya no hace falta
+  ningún LLM para "elegir": `buscar_servicio` extrae los campos directo del
+  JSON con `extract_fields` de FetchHttpNode — sin LLM, sin invención posible.
+  Los ids viejos `validar_direccion`, `buscar_directorio`,
+  `node_1783881515663` ("Expandir busqueda servicio") y `node_1783891416894`
+  ("Identificar servicio") ya NO EXISTEN):
+  buscar_servicio      fetch_http       GET /api/directorio/candidato?q={{necesidad}}&tipo=servicios
+                                         → state.servicios_luganense (JSON crudo) + extract_fields:
+                                         state.servicio (nombre), servicio_categoria, servicio_zona,
+                                         servicio_contact_id, servicio_contact_channel — vacíos (no
+                                         seteados) si el candidato vino null.
+  servicio_encontrado_cond condition    ¿state.servicio no vacío? → encontrado | sin_resultados
+  disculpar_sin_servicio_msg send_message  mensaje fijo (sin LLM) si sin_resultados → end_conv_fail
   node_1783892162094  send_message      "Confirmar Servicio" → "¿Es este el servicio que quiere: '{{servicio}}'?"
   node_1783892344935  wait_user         "Esperar servicio confirmado"
   node_1783892654800  llm               "Obtener servicio confirmado" → state.servicio_confirmado (o UNCLEAR)
   node_1783892396384  condition         "Confirmó Servicio?" → confirma_servicio | no_confirma_servicio | agotado (max_visits=3)
                                          confirma_servicio → Obtener dirección; no_confirma_servicio → vuelve a
-                                         "Expandir busqueda servicio" (relanza la búsqueda). OJO: la ruta "agotado"
+                                         `buscar_servicio` (relanza la búsqueda). OJO: la ruta "agotado"
                                          está declarada en la config (max_visits_route) pero NO tiene edge de salida
                                          en el flow — a diferencia de "Tienen dirección?" más abajo, que sí. Si un
                                          vecino rechaza el servicio 3 veces seguidas puede quedar colgado. Reportado,
@@ -99,7 +113,12 @@ cambian, hay que actualizar acá):
   pedir_direccion     send_message      "¿En qué dirección necesitás el servicio?"
   wait_dir            wait_user
   set_direccion       set_state         → state.direccion (bug real 2026-07-10: usaba {{message}}, roto — fix: {{conversation.last}})
-  notificar_trabajador send_message     envío real al prestador (guarded en sim)
+  notificar_trabajador send_message     envío real al prestador (guarded en sim) — `to`/`channel` usan
+                                         `servicio_contact_id`/`servicio_contact_channel` (bug real
+                                         encontrado 2026-07-14: antes referenciaba `{{contact_id}}`/
+                                         `{{contact_channel}}`, que NINGÚN nodo del flow seteaba nunca —
+                                         la notificación real nunca funcionó, quedaba con placeholders
+                                         sin resolver)
   responder_vecino_oficio llm           mensaje final al vecino, post-notificación
   disculpar_dir        llm              rama agotado (de "Tienen dirección?")
   end_conv_ok / end_conv_fail           end_conversation, cierre de éxito / agotamiento
@@ -139,11 +158,12 @@ N_NOTICIAS_FETCH = "node_1783693824414"
 N_NOTICIAS_LLM = "responder_noticias"
 
 N_VALIDAR_DIRECCION = "node_1783873174012"  # "Tienen dirección?" (antes "validar_direccion")
-N_BUSCAR_SERVICIO = "buscar_servicio"  # antes "buscar_directorio"
+N_BUSCAR_SERVICIO = "buscar_servicio"  # antes "buscar_directorio" — ahora GET /candidato, extract_fields, sin LLM
+N_SERVICIO_ENCONTRADO_COND = "servicio_encontrado_cond"  # ¿state.servicio no vacío? → encontrado | sin_resultados
+N_DISCULPAR_SIN_SERVICIO = "disculpar_sin_servicio_msg"  # mensaje fijo (sin LLM) si sin_resultados
 N_NOTIFICAR_TRABAJADOR = "notificar_trabajador"
 N_RESPONDER_SERVICIO = "responder_vecino_oficio"
 N_SET_DIRECCION = "set_direccion"
-N_IDENTIFICAR_SERVICIO = "node_1783891416894"  # "Identificar servicio" → state.servicio
 N_CONFIRMAR_SERVICIO = "node_1783892162094"  # "Confirmar Servicio" (send_message)
 N_OBTENER_SERVICIO_CONFIRMADO = "node_1783892654800"  # "Obtener servicio confirmado" → state.servicio_confirmado
 N_CONFIRMO_SERVICIO = "node_1783892396384"  # "Confirmó Servicio?" (condition)
@@ -389,16 +409,16 @@ async def _run_servicio() -> ScenarioResult:
             _log("Turno 1: rama tomada por la Condición", detail=f"branch={conv.branch_taken(N_CONDICION, occurrence=0)!r}"),
             _log("Turno 2: rama tomada por Elegir Mostrador", detail=f"branch={conv.branch_taken(N_ELEGIR_MOSTRADOR)!r}"),
             _ran_all(
-                "Turno 2: buscó el servicio y pidió confirmar el prestador",
-                conv, N_BUSCAR_SERVICIO, N_IDENTIFICAR_SERVICIO, N_CONFIRMAR_SERVICIO,
+                "Turno 2: buscó el servicio (dato real, sin LLM) y pidió confirmar el prestador",
+                conv, N_BUSCAR_SERVICIO, N_SERVICIO_ENCONTRADO_COND, N_CONFIRMAR_SERVICIO,
             ),
-            _log("Servicio ofrecido (1ª búsqueda)", detail=f"{conv.state_field(N_IDENTIFICAR_SERVICIO, 'servicio', occurrence=0)!r}"),
+            _log("Servicio ofrecido (1ª búsqueda)", detail=f"{conv.state_field(N_BUSCAR_SERVICIO, 'servicio', occurrence=0)!r}"),
             _log("Turno 3 (rechaza el prestador \"no, ese no es\"): rama de \"Confirmó Servicio?\"",
                  detail=f"branch={conv.branch_taken(N_CONFIRMO_SERVICIO, occurrence=0)!r}"),
             _c("Turno 3: el bot volvió a preguntar (no vacío)", bool(pide_confirmacion_2)),
             _ran_all(
-                "Turno 3: relanzó la búsqueda tras el rechazo (2ª ejecución de Identificar servicio)",
-                conv, N_IDENTIFICAR_SERVICIO,
+                "Turno 3: relanzó la búsqueda tras el rechazo (2ª ejecución de buscar_servicio)",
+                conv, N_BUSCAR_SERVICIO,
             ),
             _log("Turno 4 (confirma \"sí, ese mismo\"): rama de \"Confirmó Servicio?\"",
                  detail=f"branch={conv.branch_taken(N_CONFIRMO_SERVICIO, occurrence=1)!r}"),
@@ -422,7 +442,7 @@ async def _run_servicio() -> ScenarioResult:
         ))
         checks.append(_log(
             "Servicio final confirmado (2ª búsqueda, post-rechazo)",
-            detail=f"{conv.state_field(N_IDENTIFICAR_SERVICIO, 'servicio', occurrence=1)!r}",
+            detail=f"{conv.state_field(N_BUSCAR_SERVICIO, 'servicio', occurrence=1)!r}",
         ))
     return ScenarioResult(turns, checks)
 
