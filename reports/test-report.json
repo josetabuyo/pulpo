@@ -1,53 +1,53 @@
 {
- "timestamp": "2026-07-13T14:57:39",
- "duration": 215.51,
+ "timestamp": "2026-07-14T00:05:29",
+ "duration": 156.67,
  "total": 7,
- "passed": 6,
- "failed": 1,
+ "passed": 7,
+ "failed": 0,
  "skipped": 0,
- "exit_code": 1,
+ "exit_code": 0,
  "tests": [
   {
    "nodeid": "tests/e2e/luganense/test_orquestador_vendedor_mejorado_sim.py::test_luganense__orquestador_vendedor_mejorado__comercio",
    "suite": "integration",
    "outcome": "passed",
-   "duration": 22.924
+   "duration": 24.037
   },
   {
    "nodeid": "tests/e2e/luganense/test_orquestador_vendedor_mejorado_sim.py::test_luganense__orquestador_vendedor_mejorado__comercio_sin_rubro",
    "suite": "integration",
    "outcome": "passed",
-   "duration": 14.912
+   "duration": 6.074
   },
   {
    "nodeid": "tests/e2e/luganense/test_orquestador_vendedor_mejorado_sim.py::test_luganense__orquestador_vendedor_mejorado__producto",
    "suite": "integration",
    "outcome": "passed",
-   "duration": 24.363
+   "duration": 34.576
   },
   {
    "nodeid": "tests/e2e/luganense/test_orquestador_vendedor_mejorado_sim.py::test_luganense__orquestador_vendedor_mejorado__noticias",
    "suite": "integration",
    "outcome": "passed",
-   "duration": 13.43
+   "duration": 23.928
   },
   {
    "nodeid": "tests/e2e/luganense/test_orquestador_vendedor_mejorado_sim.py::test_luganense__orquestador_vendedor_mejorado__servicio",
    "suite": "integration",
    "outcome": "passed",
-   "duration": 89.143
+   "duration": 30.965
   },
   {
    "nodeid": "tests/e2e/luganense/test_orquestador_vendedor_mejorado_sim.py::test_luganense__orquestador_vendedor_mejorado__fuera_de_scope",
    "suite": "integration",
    "outcome": "passed",
-   "duration": 7.773
+   "duration": 5.743
   },
   {
    "nodeid": "tests/e2e/luganense/test_orquestador_vendedor_mejorado_sim.py::test_luganense__orquestador_vendedor_mejorado__servicio_agotado",
    "suite": "integration",
-   "outcome": "failed",
-   "duration": 42.773
+   "outcome": "passed",
+   "duration": 31.308
   }
  ]
 }
