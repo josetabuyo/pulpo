@@ -1,4 +1,5 @@
 """Tests unitarios para FetchHttpNode."""
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -187,6 +188,75 @@ async def test_placeholder_sin_resolver_en_url_no_dispara_el_request():
     client.get.assert_not_awaited()
     assert state.data["context"] is None
     assert "placeholder" in state.data["_fetch_errors"][0]["error"]
+
+
+@pytest.mark.asyncio
+async def test_extract_fields_escribe_campos_planos_desde_json_anidado():
+    client = _fake_client(json.dumps({
+        "candidato": {
+            "nombre": "Roberto Gómez",
+            "contact_id": "6593910266",
+            "contact_channel": "telegram",
+            "descripcion": None,
+        },
+    }))
+    with patch("httpx.AsyncClient", return_value=client):
+        node = FetchHttpNode({
+            "url": "https://api.test/candidato?q=plomero",
+            "extract": "json",
+            "output": "servicios_luganense",
+            "extract_fields": {
+                "servicio": "candidato.nombre",
+                "servicio_contact_id": "candidato.contact_id",
+                "servicio_contact_channel": "candidato.contact_channel",
+                "servicio_descripcion": "candidato.descripcion",
+                "servicio_inexistente": "candidato.campo_que_no_existe",
+            },
+        })
+        state = await node.run(_state())
+
+    assert state.data["servicio"] == "Roberto Gómez"
+    assert state.data["servicio_contact_id"] == "6593910266"
+    assert state.data["servicio_contact_channel"] == "telegram"
+    # null y ruta inexistente → la clave NO se escribe (no un "" que esconda el "no hay dato")
+    assert "servicio_descripcion" not in state.data
+    assert "servicio_inexistente" not in state.data
+    # el output crudo se sigue guardando igual, sin romper prompts que ya lo usan
+    assert "candidato" in state.data["servicios_luganense"]
+
+
+@pytest.mark.asyncio
+async def test_extract_fields_candidato_null_no_escribe_nada():
+    client = _fake_client(json.dumps({"candidato": None}))
+    with patch("httpx.AsyncClient", return_value=client):
+        node = FetchHttpNode({
+            "url": "https://api.test/candidato?q=astrologo",
+            "extract": "json",
+            "output": "servicios_luganense",
+            "extract_fields": {"servicio": "candidato.nombre"},
+        })
+        state = await node.run(_state())
+
+    assert "servicio" not in state.data
+
+
+@pytest.mark.asyncio
+async def test_extract_fields_ignora_con_array_input():
+    """extract_fields solo aplica al modo de un único GET — con array_input la
+    respuesta es una LISTA, no hay un mapeo 1:1 inequívoco de a qué item aplicar."""
+    client = _fake_client(json.dumps({"candidato": {"nombre": "Roberto Gómez"}}))
+    with patch("httpx.AsyncClient", return_value=client):
+        node = FetchHttpNode({
+            "url": "https://api.test/candidato?q={{item.text}}",
+            "extract": "json",
+            "output": "resultados",
+            "array_input": "queries",
+            "extract_fields": {"servicio": "candidato.nombre"},
+        })
+        state = await node.run(_state(data={"queries": [{"text": "plomero"}]}))
+
+    assert "servicio" not in state.data
+    assert isinstance(state.data["resultados"], list)
 
 
 @pytest.mark.asyncio

@@ -28,7 +28,23 @@ Config:
                       si el item es un valor plano (no dict). Cualquier otro
                       placeholder del flow se resuelve igual que en modo simple.
                       Vacío (default) = comportamiento de un solo GET, sin cambios.
+  extract_fields: dict[str, str] — solo con extract="json" y SIN array_input (un
+                      único GET, un único objeto — con múltiples respuestas la ruta
+                      "cuál es la primera válida" ya no es un mapeo 1:1 inequívoco).
+                      Cada entrada {clave_de_salida: "ruta.anidada.al.campo"} parsea
+                      el JSON de la respuesta y escribe ese valor plano directo en
+                      state.data[clave_de_salida] — sin pasar por un LLM. Pensado para
+                      APIs que devuelven UN solo resultado ya resuelto del lado del
+                      proveedor (ej. `GET /candidato?q=...` → {"candidato": {"nombre":
+                      ..., "contact_id": ...}}), evitando que un LLM tenga que "elegir"
+                      o inventar un dato que el proveedor ya entregó resuelto.
+                      Ruta inexistente o valor `null` → esa clave NO se escribe en
+                      absoluto (se deja sin resolver, nunca un string vacío que
+                      esconda el "no hay dato" — mismo criterio que interpolate() en
+                      base.py). El output crudo (`output`) se sigue guardando igual,
+                      así los prompts existentes que ya lo referencian no se rompen.
 """
+import json
 import logging
 import re
 from urllib.parse import quote
@@ -58,6 +74,48 @@ def _record_fetch_error(state: FlowState, url: str, error: str, status_code: int
     state.data.setdefault("_fetch_errors", []).append({
         "url": url, "status_code": status_code, "error": error,
     })
+
+
+_SENTINEL = object()
+
+
+def _resolve_json_path(parsed, path: str):
+    """Traversa `parsed` (dict/list ya deserializado) siguiendo `path`
+    ("candidato.nombre", "resultados.0.nombre"). Devuelve `_SENTINEL` si
+    cualquier tramo no existe — nunca levanta, nunca confunde "no encontrado"
+    con un valor real (incluido `None`, que sí es un resultado válido a
+    devolver tal cual si el campo existe pero es null)."""
+    current = parsed
+    for part in path.split("."):
+        if isinstance(current, dict):
+            if part not in current:
+                return _SENTINEL
+            current = current[part]
+        elif isinstance(current, list):
+            if not part.lstrip("-").isdigit():
+                return _SENTINEL
+            idx = int(part)
+            if idx < -len(current) or idx >= len(current):
+                return _SENTINEL
+            current = current[idx]
+        else:
+            return _SENTINEL
+    return current
+
+
+def _apply_extract_fields(state: FlowState, raw: str | None, extract_fields: dict) -> None:
+    if not raw:
+        return
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        logger.warning("[FetchHttpNode] extract_fields: respuesta no es JSON válido, se omite")
+        return
+    for key, path in extract_fields.items():
+        value = _resolve_json_path(parsed, path)
+        if value is _SENTINEL or value is None:
+            continue  # sin dato real — no se escribe la clave (ver docstring del módulo)
+        state.data[key] = value
 
 
 def _fill_item_template(url_template: str, item) -> str:
@@ -107,8 +165,12 @@ class FetchHttpNode(BaseNode):
                     )
                 else:
                     url = self._resolve_url(url_template, state)
-                    state.data[output] = await self._get(client, url, extract, state)
-                    logger.info("[FetchHttpNode] %s: %d chars → %s", url[:60], len(state.data.get(output) or ""), output)
+                    raw = await self._get(client, url, extract, state)
+                    state.data[output] = raw
+                    logger.info("[FetchHttpNode] %s: %d chars → %s", url[:60], len(raw or ""), output)
+                    extract_fields = self.config.get("extract_fields") or {}
+                    if extract_fields and extract == "json":
+                        _apply_extract_fields(state, raw, extract_fields)
         except Exception as e:
             logger.error("[FetchHttpNode] Error HTTP GET: %s", e)
             _record_fetch_error(state, url_template, str(e))
@@ -185,5 +247,15 @@ class FetchHttpNode(BaseNode):
                            "item y output queda como lista de respuestas. Referenciá campos del item "
                            "en la URL con {{item.campo}} (o {{item}} si es un valor plano). "
                            "Vacío = un solo GET, como siempre.",
+            },
+            "extract_fields": {
+                "type":    "json",
+                "label":   "Extraer campos del JSON (opcional, sin array_input)",
+                "default": {},
+                "hint":    "Solo con formato 'json' y sin array_input. Mapeo "
+                           "{clave_de_salida: \"ruta.anidada.al.campo\"} — ej. "
+                           "{\"servicio\": \"candidato.nombre\", \"servicio_contact_id\": "
+                           "\"candidato.contact_id\"}. Escribe cada valor directo en state.data, "
+                           "sin pasar por un LLM. Ruta inexistente o null → no escribe esa clave.",
             },
         }
