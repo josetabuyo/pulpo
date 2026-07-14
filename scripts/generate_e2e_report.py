@@ -28,10 +28,17 @@ El diagrama se captura solo, sin pasos manuales (sin loguearse, sin abrir el
 editor a mano, sin recortar un screenshot) — `--diagram-image` queda como
 escape hatch para forzar un PNG puntual si el frontend no está disponible.
 
-Escribe reports/test-report-e2e-<bot_slug>-<flow_slug>-<fecha>.html
-(reports/ se commitea a propósito, ver conftest.py). Este reporte es el que
-se le pasa a Luganense para su sección de reportes de test — avisarle recién
-después de revisarlo.
+Escribe DOS copias (revisión 2026-07-14, tras feedback: no acumular un
+archivo por día en git — solo importa el ÚLTIMO por flow, así el historial de
+git trackea cuándo se corrió el test más reciente contra ese flow, sin
+ensuciarse de reportes viejos):
+  - reports/test-report-e2e-<bot_slug>-<flow_slug>.html — SIN fecha, siempre
+    sobreescrita. Esta es la que se commitea (ver conftest.py) y la que se le
+    pasa a Luganense para su sección de reportes de test — avisarle recién
+    después de revisarlo.
+  - reports/test-results/test-report-e2e-<bot_slug>-<flow_slug>-<fecha>.html —
+    copia CON fecha, historial del día a día, gitignoreada (ver .gitignore) —
+    para diffear corridas puntuales sin acumular en el repo.
 
 No reemplaza reports/test-report.json (ese es el resumen unitario/integration
 que genera conftest.py en cada corrida de pytest) — este es específico de
@@ -287,9 +294,20 @@ async def main():
     }
     out = render_html(diagram_html, pairs, meta)
 
-    out_path = Path(__file__).resolve().parent.parent / "reports" / f"test-report-e2e-{BOT_SLUG}-{FLOW_SLUG}-{date_str}.html"
-    out_path.write_text(out, encoding="utf-8")
-    print(f"\nReporte escrito en: {out_path}")
+    reports_dir = Path(__file__).resolve().parent.parent / "reports"
+    results_dir = reports_dir / "test-results"
+    results_dir.mkdir(parents=True, exist_ok=True)
+
+    # Copia estable (sin fecha) — la única que se commitea, ver docstring del módulo.
+    latest_path = reports_dir / f"test-report-e2e-{BOT_SLUG}-{FLOW_SLUG}.html"
+    latest_path.write_text(out, encoding="utf-8")
+
+    # Copia con fecha — historial del día a día, gitignoreada.
+    dated_path = results_dir / f"test-report-e2e-{BOT_SLUG}-{FLOW_SLUG}-{date_str}.html"
+    dated_path.write_text(out, encoding="utf-8")
+
+    print(f"\nReporte (último, commiteado) escrito en: {latest_path}")
+    print(f"Copia con fecha (historial, gitignoreada) escrita en: {dated_path}")
 
 
 if __name__ == "__main__":

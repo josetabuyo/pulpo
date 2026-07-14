@@ -40,6 +40,10 @@ connections.json.bak_*
 frontend/test-results/
 frontend/playwright-report/
 
+# Reportes e2e con fecha (historial del día a día) — solo se commitea el
+# último por flow, sin fecha (ver scripts/generate_e2e_report.py)
+reports/test-results/
+
 # Monitor logs
 monitor/
 data/summaries/
