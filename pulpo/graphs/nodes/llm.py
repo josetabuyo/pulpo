@@ -242,6 +242,18 @@ class LLMNode(BaseNode):
                     break
                 logger.warning("[LLMNode] contenido vacío en intento %d, reintentando (output=%s)", attempts, output)
 
+            # El nodo pidió cloud (cloud-first / cloud-best-with-local-fallback) pero el
+            # router terminó sirviendo un modelo local — significa que TODOS los
+            # proveedores cloud de la cascada fallaron. No es un error del flow (el nodo
+            # igual respondió), pero es una señal de degradación del lado del router que
+            # conviene ver, no solo inferir de la latencia. Tag greppable para Monitor.
+            served_model = result.response_metadata.get("model_name", "")
+            if router_strategy in ("cloud-first", "cloud-best-with-local-fallback") and served_model.startswith("ollama/"):
+                logger.warning(
+                    "[LLMNode] ROUTER_FALLBACK_LOCAL output=%s configured_model=%s router_strategy=%s served_model=%s",
+                    output, model, router_strategy, served_model,
+                )
+
             if as_list:
                 items = [{"text": line.strip()} for line in text.splitlines() if line.strip()]
                 state.data[output] = items
