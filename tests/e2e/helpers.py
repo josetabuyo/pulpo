@@ -147,7 +147,10 @@ class SimConversation:
         self._client: httpx.AsyncClient | None = None
 
     async def __aenter__(self) -> "SimConversation":
-        self._client = httpx.AsyncClient(timeout=300)
+        # 900s: un solo turno corre sincrónico dentro del request y puede
+        # encadenar varios nodos LLM en cloud-first — medido hasta 8m26s en
+        # el escenario "noticias" (2026-07-15, router+expandir+responder).
+        self._client = httpx.AsyncClient(timeout=900)
         return self
 
     async def __aexit__(self, *exc) -> None:
@@ -155,7 +158,7 @@ class SimConversation:
             await self._client.aclose()
 
     def _client_or_temp(self) -> httpx.AsyncClient:
-        return self._client or httpx.AsyncClient(timeout=300)
+        return self._client or httpx.AsyncClient(timeout=900)
 
     async def send_and_wait(self, message: str, settle_seconds: float = 0.5) -> str | None:
         """
@@ -172,7 +175,7 @@ class SimConversation:
         if self._client is not None:
             resp = await self._client.post(url, json=body)
         else:
-            async with httpx.AsyncClient(timeout=300) as client:
+            async with httpx.AsyncClient(timeout=900) as client:
                 resp = await client.post(url, json=body)
         resp.raise_for_status()
         data = resp.json()

@@ -77,36 +77,53 @@ cambian, hay que actualizar acá):
   responder_noticias  llm               "mensaje_noticias"
   end_conv_noticias   end_conversation
 
-  Rama "servicio" (reescrita 2026-07-14 tras el bug de alucinación de prestador
-  — ver `management/BUG_HALLUCINACION_PRESTADOR_SERVICIO.md`, no commiteado:
-  el nodo LLM "Identificar servicio" tenía un typo (`{{servicio_luganense}}` en
-  vez de `{{servicios_luganense}}`) que lo dejaba sin ver los resultados
-  reales, y terminaba inventando prestadores/contactos falsos. Se sacó ESE
-  nodo y también "Expandir busqueda servicio" — Luganense expuso un endpoint
-  nuevo que devuelve UN candidato ya resuelto de su lado (prioridad entre
-  prestadores es criterio de ELLOS, no nuestro), así que ya no hace falta
-  ningún LLM para "elegir": `buscar_servicio` extrae los campos directo del
-  JSON con `extract_fields` de FetchHttpNode — sin LLM, sin invención posible.
-  Los ids viejos `validar_direccion`, `buscar_directorio`,
-  `node_1783881515663` ("Expandir busqueda servicio") y `node_1783891416894`
-  ("Identificar servicio") ya NO EXISTEN):
-  buscar_servicio      fetch_http       GET /api/directorio/candidato?q={{necesidad}}&tipo=servicios
+  Rama "servicio" (rediseñada 2026-07-14, 2ª vuelta — tras feedback: ya no se
+  confirma el nombre propio de un prestador puntual, se confirma el RUBRO del
+  servicio primero. Motivo: el candidato que devuelve Luganense es SIEMPRE el
+  que ellos resuelven como mejor opción para ese rubro (no hay 2 para elegir
+  de nuestro lado), así que "confirmar" un nombre propio no tenía sentido —
+  lo que puede estar mal es el RUBRO que entendimos de la necesidad del
+  vecino. Luganense expuso `GET /api/directorio/rubros?tipo=servicios&q=`
+  (matching por texto libre sobre la necesidad, mismo motor que `/buscar` y
+  `/candidato`) para poder confirmar contra una lista real de rubros, sin
+  inventar ninguno. `elegir_rubro` es un LLM grounded ÚNICAMENTE a esa lista
+  (nunca elige algo fuera de `rubros_luganense`) — sigue sin haber invención
+  de prestadores ni de rubros inexistentes. Recién con el rubro confirmado se
+  llama a `/candidato?q=<rubro>` para resolver el prestador puntual — un solo
+  llamado, después de la confirmación, no antes):
+  buscar_rubros        fetch_http       GET /api/directorio/rubros?tipo=servicios&q={{necesidad}}
+                                         → state.rubros_luganense (JSON crudo: {rubros:[{categoria,label}],total})
+                                         + extract_fields: state.rubros_total
+  rubros_encontrados_cond condition     ¿rubros_total == "0"? → sin_resultados : encontrado
+                                         sin_resultados → disculpar_sin_servicio_msg → end_conv_fail
+  elegir_rubro          llm             elige (grounded, sin inventar) el "label" más adecuado de
+                                         `rubros_luganense` → state.rubro_elegido. Si ya se había
+                                         propuesto antes y no fue confirmado, se le pide elegir otro
+                                         distinto de la misma lista (si hay más de una opción).
+  node_1783892162094  send_message      "Confirmar Rubro" → "¿Es este el tipo de servicio que necesitás: '{{rubro_elegido}}'?"
+  node_1783892344935  wait_user         "Esperar rubro confirmado"
+  node_1783892654800  llm               "Obtener rubro confirmado" → state.rubro_confirmado (o UNCLEAR)
+  node_1783892396384  condition         "Confirmó Rubro?" → confirma_rubro | no_confirma_rubro | agotado (max_visits=3)
+                                         confirma_rubro → buscar_servicio (recién ahí se resuelve el
+                                         candidato puntual); no_confirma_rubro → vuelve a `elegir_rubro`
+                                         (no hace falta re-pegarle a `/rubros`, la necesidad no cambió).
+                                         agotado → disculpar_rubro_agotado → end_conv_fail (fix del dead-end
+                                         reportado en la versión anterior de este docstring: antes esta
+                                         ruta no tenía edge de salida).
+  buscar_servicio      fetch_http       GET /api/directorio/candidato?q={{rubro_elegido}}&tipo=servicios
                                          → state.servicios_luganense (JSON crudo) + extract_fields:
                                          state.servicio (nombre), servicio_categoria, servicio_zona,
                                          servicio_contact_id, servicio_contact_channel — vacíos (no
-                                         seteados) si el candidato vino null.
-  servicio_encontrado_cond condition    ¿state.servicio no vacío? → encontrado | sin_resultados
-  disculpar_sin_servicio_msg send_message  mensaje fijo (sin LLM) si sin_resultados → end_conv_fail
-  node_1783892162094  send_message      "Confirmar Servicio" → "¿Es este el servicio que quiere: '{{servicio}}'?"
-  node_1783892344935  wait_user         "Esperar servicio confirmado"
-  node_1783892654800  llm               "Obtener servicio confirmado" → state.servicio_confirmado (o UNCLEAR)
-  node_1783892396384  condition         "Confirmó Servicio?" → confirma_servicio | no_confirma_servicio | agotado (max_visits=3)
-                                         confirma_servicio → Obtener dirección; no_confirma_servicio → vuelve a
-                                         `buscar_servicio` (relanza la búsqueda). OJO: la ruta "agotado"
-                                         está declarada en la config (max_visits_route) pero NO tiene edge de salida
-                                         en el flow — a diferencia de "Tienen dirección?" más abajo, que sí. Si un
-                                         vecino rechaza el servicio 3 veces seguidas puede quedar colgado. Reportado,
-                                         no arreglado acá (es un flow de producción, requiere decisión de Luganense).
+                                         seteados) si el candidato vino null. Corre DESPUÉS de confirmar
+                                         el rubro, ya no antes (antes de esta 2ª vuelta apuntaba a
+                                         `{{necesidad}}` en crudo, corría antes de cualquier confirmación,
+                                         y lo que se confirmaba era el nombre propio del candidato).
+  servicio_encontrado_cond condition    ¿state.servicio no vacío? → encontrado | sin_resultados. Con
+                                         rubro ya confirmado, "encontrado" va DIRECTO a "Obtener
+                                         dirección" — ya no hay una 2ª confirmación de nombre propio.
+  disculpar_sin_servicio_msg send_message  mensaje fijo (sin LLM), reusado en dos casos: sin rubros que
+                                         matcheen la necesidad, o sin candidato pese a rubro confirmado
+                                         → end_conv_fail
   node_1783873167862  llm               "Obtener dirección" → state.direccion (o UNCLEAR)
   node_1783873174012  condition         "Tienen dirección?" (antes "validar_direccion") → tiene_direccion | sin_direccion | agotado (max_visits=3)
   node_1783867942451  llm               "Armar mensaje pedir dirección"
@@ -158,15 +175,19 @@ N_NOTICIAS_FETCH = "node_1783693824414"
 N_NOTICIAS_LLM = "responder_noticias"
 
 N_VALIDAR_DIRECCION = "node_1783873174012"  # "Tienen dirección?" (antes "validar_direccion")
-N_BUSCAR_SERVICIO = "buscar_servicio"  # antes "buscar_directorio" — ahora GET /candidato, extract_fields, sin LLM
+N_BUSCAR_RUBROS = "buscar_rubros"  # GET /rubros?q={{necesidad}} — lista de rubros que matchean, sin LLM
+N_RUBROS_ENCONTRADOS_COND = "rubros_encontrados_cond"  # ¿rubros_total == "0"? → sin_resultados : encontrado
+N_ELEGIR_RUBRO = "elegir_rubro"  # llm grounded a rubros_luganense → state.rubro_elegido
+N_BUSCAR_SERVICIO = "buscar_servicio"  # GET /candidato?q={{rubro_elegido}}, extract_fields, sin LLM — corre tras confirmar el rubro
 N_SERVICIO_ENCONTRADO_COND = "servicio_encontrado_cond"  # ¿state.servicio no vacío? → encontrado | sin_resultados
 N_DISCULPAR_SIN_SERVICIO = "disculpar_sin_servicio_msg"  # mensaje fijo (sin LLM) si sin_resultados
+N_DISCULPAR_RUBRO_AGOTADO = "disculpar_rubro_agotado"  # mensaje fijo (sin LLM) si se agotan los 3 intentos de confirmar rubro
 N_NOTIFICAR_TRABAJADOR = "notificar_trabajador"
 N_RESPONDER_SERVICIO = "responder_vecino_oficio"
 N_SET_DIRECCION = "set_direccion"
-N_CONFIRMAR_SERVICIO = "node_1783892162094"  # "Confirmar Servicio" (send_message)
-N_OBTENER_SERVICIO_CONFIRMADO = "node_1783892654800"  # "Obtener servicio confirmado" → state.servicio_confirmado
-N_CONFIRMO_SERVICIO = "node_1783892396384"  # "Confirmó Servicio?" (condition)
+N_CONFIRMAR_RUBRO = "node_1783892162094"  # "Confirmar Rubro" (send_message)
+N_OBTENER_RUBRO_CONFIRMADO = "node_1783892654800"  # "Obtener rubro confirmado" → state.rubro_confirmado
+N_CONFIRMO_RUBRO = "node_1783892396384"  # "Confirmó Rubro?" (condition)
 
 
 @dataclass
@@ -389,11 +410,16 @@ async def _run_servicio() -> ScenarioResult:
         r1 = await conv.send_and_wait("hola")
         turns.append(("user", "hola")); turns.append(("bot", r1))
 
-        m2 = "se me rompió una canilla, necesito un plomero urgente"
+        # Necesidad deliberadamente ambigua entre varios rubros (gas + agua) —
+        # así el 1er rubro propuesto por `elegir_rubro` puede no ser el que el
+        # vecino tenía en mente, y el rechazo + corrección tiene sentido real
+        # (a diferencia de rechazar un nombre propio de prestador, que ya no
+        # se confirma en este flow, ver docstring del módulo).
+        m2 = "tengo un problema con el gas y también una pérdida de agua en casa, necesito ayuda urgente"
         pide_confirmacion = await conv.send_and_wait(m2)
         turns.append(("user", m2)); turns.append(("bot", pide_confirmacion))
 
-        m3 = "no, ese no es, busco otro plomero"
+        m3 = "no, en realidad lo urgente es la pérdida de agua, necesito un plomero"
         pide_confirmacion_2 = await conv.send_and_wait(m3)
         turns.append(("user", m3)); turns.append(("bot", pide_confirmacion_2))
 
@@ -409,22 +435,33 @@ async def _run_servicio() -> ScenarioResult:
             _log("Turno 1: rama tomada por la Condición", detail=f"branch={conv.branch_taken(N_CONDICION, occurrence=0)!r}"),
             _log("Turno 2: rama tomada por Elegir Mostrador", detail=f"branch={conv.branch_taken(N_ELEGIR_MOSTRADOR)!r}"),
             _ran_all(
-                "Turno 2: buscó el servicio (dato real, sin LLM) y pidió confirmar el prestador",
-                conv, N_BUSCAR_SERVICIO, N_SERVICIO_ENCONTRADO_COND, N_CONFIRMAR_SERVICIO,
+                "Turno 2: buscó rubros que matchean la necesidad (dato real, sin invención) y pidió confirmar el rubro",
+                conv, N_BUSCAR_RUBROS, N_RUBROS_ENCONTRADOS_COND, N_ELEGIR_RUBRO, N_CONFIRMAR_RUBRO,
             ),
-            _log("Servicio ofrecido (1ª búsqueda)", detail=f"{conv.state_field(N_BUSCAR_SERVICIO, 'servicio', occurrence=0)!r}"),
-            _log("Turno 3 (rechaza el prestador \"no, ese no es\"): rama de \"Confirmó Servicio?\"",
-                 detail=f"branch={conv.branch_taken(N_CONFIRMO_SERVICIO, occurrence=0)!r}"),
+            _log("Rubros que matchearon la necesidad", detail=f"{conv.state_field(N_BUSCAR_RUBROS, 'rubros_luganense', occurrence=0)!r}"),
+            _log("Rubro ofrecido (1ª propuesta)", detail=f"{conv.state_field(N_ELEGIR_RUBRO, 'rubro_elegido', occurrence=0)!r}"),
+            _log("Turno 3 (rechaza el rubro propuesto y aclara \"necesito un plomero\"): rama de \"Confirmó Rubro?\"",
+                 detail=f"branch={conv.branch_taken(N_CONFIRMO_RUBRO, occurrence=0)!r}"),
             _c("Turno 3: el bot volvió a preguntar (no vacío)", bool(pide_confirmacion_2)),
             _ran_all(
-                "Turno 3: relanzó la búsqueda tras el rechazo (2ª ejecución de buscar_servicio)",
-                conv, N_BUSCAR_SERVICIO,
+                "Turno 3: volvió a elegir rubro tras el rechazo (2ª ejecución de elegir_rubro, SIN re-pegarle a /rubros)",
+                conv, N_ELEGIR_RUBRO,
             ),
-            _log("Turno 4 (confirma \"sí, ese mismo\"): rama de \"Confirmó Servicio?\"",
-                 detail=f"branch={conv.branch_taken(N_CONFIRMO_SERVICIO, occurrence=1)!r}"),
+            _log("Rubro ofrecido (2ª propuesta, tras la corrección del vecino)",
+                 detail=f"{conv.state_field(N_ELEGIR_RUBRO, 'rubro_elegido', occurrence=1)!r}"),
+            _log("Turno 4 (confirma \"sí, ese mismo\"): rama de \"Confirmó Rubro?\"",
+                 detail=f"branch={conv.branch_taken(N_CONFIRMO_RUBRO, occurrence=1)!r}"),
             _c("Turno 4: el bot pidió la dirección/ubicación (no vacío)", bool(pide_direccion)),
         ]
         checks += _infra_checks(conv, reply)
+        checks.append(_ran_all(
+            "Turno 4: con el rubro confirmado, recién ahí resolvió el candidato puntual (una sola vez, tras la confirmación)",
+            conv, N_BUSCAR_SERVICIO, N_SERVICIO_ENCONTRADO_COND,
+        ))
+        checks.append(_log(
+            "Prestador resuelto para el rubro confirmado",
+            detail=f"{conv.state_field(N_BUSCAR_SERVICIO, 'servicio', occurrence=0)!r}",
+        ))
         checks.append(_log(
             "Turno 5 (dirección dada): rama de \"Tienen dirección?\"",
             detail=f"branch={conv.branch_taken(N_VALIDAR_DIRECCION)!r}",
@@ -439,10 +476,6 @@ async def _run_servicio() -> ScenarioResult:
         checks.append(_ran_all(
             "Pasó por los nodos esperados de cierre (notificó al prestador, armó la respuesta final, cerró end_conv_ok)",
             conv, N_NOTIFICAR_TRABAJADOR, N_RESPONDER_SERVICIO, "end_conv_ok",
-        ))
-        checks.append(_log(
-            "Servicio final confirmado (2ª búsqueda, post-rechazo)",
-            detail=f"{conv.state_field(N_BUSCAR_SERVICIO, 'servicio', occurrence=1)!r}",
         ))
     return ScenarioResult(turns, checks)
 
@@ -467,7 +500,7 @@ async def _run_fuera_de_scope() -> ScenarioResult:
         checks.append(_ran_all("Cerró específicamente por end_conv_scope", conv, "end_conv_scope"))
         checks.append(_c(
             "NO buscó en el directorio real de servicios (el guardrail de scope corta ANTES de tocar la API)",
-            not conv.ran_node(N_BUSCAR_SERVICIO),
+            not conv.ran_node(N_BUSCAR_RUBROS) and not conv.ran_node(N_BUSCAR_SERVICIO),
         ))
     return ScenarioResult(turns, checks)
 
@@ -476,7 +509,7 @@ async def _run_fuera_de_scope() -> ScenarioResult:
 
 async def _run_servicio_agotado() -> ScenarioResult:
     """
-    Único escenario "infeliz" de la suite: primero confirma el prestador en el
+    Único escenario "infeliz" de la suite: primero confirma el rubro en el
     primer intento (sin ejercitar de nuevo el rechazo — eso ya lo cubre
     `_run_servicio`), y agota los 3 `max_visits` que permite "Tienen dirección?"
     (`node_1783873174012`, antes `validar_direccion`, confirmado en vivo
@@ -513,9 +546,11 @@ async def _run_servicio_agotado() -> ScenarioResult:
 
         checks = [
             _log("Turno 1: rama tomada por la Condición", detail=f"branch={conv.branch_taken(N_CONDICION, occurrence=0)!r}"),
-            _ran_all("El bot buscó el servicio y pidió confirmar el prestador",
-                     conv, N_BUSCAR_SERVICIO, N_CONFIRMAR_SERVICIO),
-            _log("Rama de \"Confirmó Servicio?\"", detail=f"branch={conv.branch_taken(N_CONFIRMO_SERVICIO)!r}"),
+            _ran_all("El bot buscó rubros que matchean la necesidad y pidió confirmar el rubro",
+                     conv, N_BUSCAR_RUBROS, N_ELEGIR_RUBRO, N_CONFIRMAR_RUBRO),
+            _log("Rama de \"Confirmó Rubro?\"", detail=f"branch={conv.branch_taken(N_CONFIRMO_RUBRO)!r}"),
+            _ran_all("Con el rubro confirmado, resolvió el candidato puntual antes de pedir dirección",
+                     conv, N_BUSCAR_SERVICIO),
             _c("El bot pidió dirección/ubicación tras confirmar (no vacío)", bool(pide_direccion)),
             _log("Rama de \"Tienen dirección?\" tras agotar reintentos (esperado: \"agotado\")",
                  detail=f"branch={conv.branch_taken(N_VALIDAR_DIRECCION)!r}"),
@@ -571,10 +606,11 @@ SCENARIOS: list[Scenario] = [
     ),
     Scenario(
         id="servicio", title="Servicio con notificación — el camino más largo (aclaración + rechazo/confirmación "
-                             "de prestador + 2 vueltas de wait_user de dirección)",
-        desc="Saludo ambiguo → aclaración → pedido de plomero → el bot busca y ofrece un prestador → el vecino lo "
-             "RECHAZA (relanza la búsqueda) → el vecino CONFIRMA el segundo → pide dirección → dirección ambigua "
-             "(repregunta, 1ª vuelta) → dirección válida (2ª vuelta, resuelve) → notifica al prestador real → cierra.",
+                             "de rubro + 2 vueltas de wait_user de dirección)",
+        desc="Saludo ambiguo → aclaración → necesidad ambigua entre rubros (gas + agua) → el bot busca los rubros "
+             "que matchean y propone uno → el vecino lo RECHAZA y aclara → el bot propone otro rubro (sin re-pegarle "
+             "a la API) → el vecino CONFIRMA → recién ahí resuelve el candidato puntual → pide dirección → dirección "
+             "ambigua (repregunta, 1ª vuelta) → dirección válida (2ª vuelta, resuelve) → notifica al prestador real → cierra.",
         run=_run_servicio,
     ),
     Scenario(
