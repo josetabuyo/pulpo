@@ -4,7 +4,7 @@ import asyncio
 import pytest
 
 from . import compiler as compiler_mod
-from .compiler import dispatch_message, execute_flow
+from .compiler import dispatch_message, execute_flow, expand_node_flows
 from .nodes.state import FlowState
 
 _FLOW = {
@@ -32,6 +32,236 @@ async def test_api_trigger_sin_mensaje_no_crea_conversacion():
     state = FlowState(message="", contact_phone="user1")
     result = await execute_flow(_FLOW, state, entry_node_id="trigger1")
     assert "conversation" not in result.data
+
+
+# ─── expand_node_flows: expansión de subgrafos (NodoFlow) ────────────────────
+
+
+def _fetch_from(flows_by_id: dict):
+    """Devuelve un fetch_flow_fn async que resuelve contra un dict en memoria."""
+    async def _fetch(flow_id):
+        return flows_by_id.get(flow_id)
+    return _fetch
+
+
+def _by_id(nodes):
+    return {n["id"]: n for n in nodes}
+
+
+def _adj(edges):
+    """source -> set(target) para chequear conectividad sin depender de labels."""
+    out = {}
+    for e in edges:
+        out.setdefault(e["source"], set()).add(e["target"])
+    return out
+
+
+@pytest.mark.asyncio
+async def test_expand_lineal_simple():
+    """Nodo del medio es nodo_flow → sub-flow lineal de 2 nodos. Verifica
+    namespacing y que los edges conectan de punta a punta."""
+    sub_flow = {
+        "id": "sub1",
+        "definition": {
+            "nodes": [
+                {"id": "a", "type": "llm", "config": {}},
+                {"id": "b", "type": "send_message", "config": {}},
+            ],
+            "edges": [{"source": "a", "target": "b"}],
+        },
+    }
+    nodes = [
+        {"id": "t", "type": "message_trigger", "config": {}},
+        {"id": "nf", "type": "nodo_flow", "config": {"flow_id": "sub1"}},
+        {"id": "end", "type": "send_message", "config": {}},
+    ]
+    edges = [
+        {"source": "t", "target": "nf"},
+        {"source": "nf", "target": "end"},
+    ]
+
+    new_nodes, new_edges = await expand_node_flows(nodes, edges, _fetch_from({"sub1": sub_flow}))
+
+    ids = _by_id(new_nodes)
+    # El nodo_flow desaparece; aparecen los namespaceados.
+    assert "nf" not in ids
+    assert "sub1::a" not in ids  # (sanity: el prefijo es el id del nodo_flow, no del flow)
+    assert "nf::a" in ids
+    assert "nf::b" in ids
+    # Sin params ni output → entry=raíz namespaceada, salida=terminal namespaceado.
+    adj = _adj(new_edges)
+    assert "nf::b" in adj["nf::a"]        # edge interno preservado
+    assert "nf::a" in adj["t"]            # externo-in → raíz subgrafo
+    assert "end" in adj["nf::b"]          # terminal subgrafo → externo-out
+
+
+@pytest.mark.asyncio
+async def test_expand_con_params_inserta_set_state():
+    """Sub-flow con params fijos → se inserta un set_state sintético con
+    config {field, value} antes de la raíz."""
+    sub_flow = {
+        "id": "sub1",
+        "definition": {
+            "inputs": [{"key": "ciudad", "label": "Ciudad", "type": "text", "default": ""}],
+            "output_key": "resultado",
+            "nodes": [{"id": "a", "type": "llm", "config": {}}],
+            "edges": [],
+        },
+    }
+    nodes = [
+        {"id": "t", "type": "message_trigger", "config": {}},
+        {"id": "nf", "type": "nodo_flow",
+         "config": {"flow_id": "sub1", "params": {"ciudad": "Lugano"}, "output": "destino"}},
+    ]
+    edges = [{"source": "t", "target": "nf"}]
+
+    new_nodes, new_edges = await expand_node_flows(nodes, edges, _fetch_from({"sub1": sub_flow}))
+
+    ids = _by_id(new_nodes)
+    pnode = ids["nf::__params__0"]
+    assert pnode["type"] == "set_state"
+    assert pnode["config"] == {"field": "ciudad", "value": "Lugano"}
+
+    # externo-in → params → raíz
+    adj = _adj(new_edges)
+    assert "nf::__params__0" in adj["t"]
+    assert "nf::a" in adj["nf::__params__0"]
+
+    # output: set_state que copia state.data[output_key] → state.data[output]
+    onode = ids["nf::__output__"]
+    assert onode["type"] == "set_state"
+    assert onode["config"] == {"field": "destino", "value": "{{resultado}}"}
+    assert "nf::__output__" in adj["nf::a"]  # terminal → output
+
+
+@pytest.mark.asyncio
+async def test_expand_ciclo_lanza_valueerror():
+    """Un flow_id que se referencia a sí mismo → ValueError."""
+    sub_flow = {
+        "id": "sub1",
+        "definition": {
+            "nodes": [
+                {"id": "a", "type": "llm", "config": {}},
+                {"id": "self", "type": "nodo_flow", "config": {"flow_id": "sub1"}},
+            ],
+            "edges": [{"source": "a", "target": "self"}],
+        },
+    }
+    nodes = [{"id": "nf", "type": "nodo_flow", "config": {"flow_id": "sub1"}}]
+    edges = []
+
+    with pytest.raises(ValueError, match="Ciclo"):
+        await expand_node_flows(nodes, edges, _fetch_from({"sub1": sub_flow}))
+
+
+@pytest.mark.asyncio
+async def test_expand_anidado():
+    """Un nodo_flow cuyo sub-flow contiene a su vez otro nodo_flow → ambos
+    niveles se expanden."""
+    inner = {
+        "id": "inner",
+        "definition": {
+            "nodes": [{"id": "x", "type": "llm", "config": {}}],
+            "edges": [],
+        },
+    }
+    outer = {
+        "id": "outer",
+        "definition": {
+            "nodes": [
+                {"id": "p", "type": "set_state", "config": {"field": "k", "value": "v"}},
+                {"id": "child", "type": "nodo_flow", "config": {"flow_id": "inner"}},
+            ],
+            "edges": [{"source": "p", "target": "child"}],
+        },
+    }
+    nodes = [{"id": "nf", "type": "nodo_flow", "config": {"flow_id": "outer"}}]
+    edges = []
+
+    new_nodes, _ = await expand_node_flows(
+        nodes, edges, _fetch_from({"outer": outer, "inner": inner})
+    )
+    ids = _by_id(new_nodes)
+    # Ningún nodo_flow debe quedar sin expandir.
+    assert all(n["type"] != "nodo_flow" for n in new_nodes)
+    # Doble prefijo por el anidamiento.
+    assert "nf::p" in ids
+    assert "nf::child::x" in ids
+
+
+@pytest.mark.asyncio
+async def test_expand_caso_base_sin_nodo_flow():
+    """Sin ningún nodo_flow → devuelve nodes/edges con el mismo contenido."""
+    nodes = [
+        {"id": "t", "type": "message_trigger", "config": {}},
+        {"id": "s", "type": "send_message", "config": {}},
+    ]
+    edges = [{"source": "t", "target": "s"}]
+
+    async def _fail(_):  # no debe llamarse
+        raise AssertionError("fetch_flow_fn no debería invocarse sin nodo_flow")
+
+    new_nodes, new_edges = await expand_node_flows(nodes, edges, _fail)
+    assert new_nodes == nodes
+    assert new_edges == edges
+
+
+@pytest.mark.asyncio
+async def test_execute_flow_expande_nodo_flow_end_to_end():
+    """Integración: un flow real con un nodo `nodo_flow` referenciando un
+    NodoFlow persistido en DB se expande y ejecuta como un único grafo
+    plano — verifica que el resultado del sub-flow llega a
+    state.data[output] del padre."""
+    from pulpo.core import db
+    from pulpo.business import flows as flows_svc
+
+    await db.init_db()
+    bot_id = "__test_bot_nodoflow__"
+
+    sub_definition = {
+        "nodes": [
+            {"id": "s1", "type": "set_state",
+             "config": {"field": "reply", "value": "sub-flow ejecutado"}},
+        ],
+        "edges": [],
+    }
+    sub_flow = await flows_svc.create_flow(
+        bot_id=bot_id, name="Sub NodoFlow",
+        definition=sub_definition, connection_id=None,
+        contact_phone=None, contact_filter=None,
+    )
+    try:
+        main_definition = {
+            "nodes": [
+                {"id": "trigger1", "type": "api_trigger", "config": {}},
+                {"id": "nf1", "type": "nodo_flow",
+                 "config": {"flow_id": sub_flow["id"], "params": {}, "output": "resultado"}},
+            ],
+            "edges": [{"source": "trigger1", "target": "nf1"}],
+        }
+        main_flow = await flows_svc.create_flow(
+            bot_id=bot_id, name="Main flow con nodo_flow",
+            definition=main_definition, connection_id=None,
+            contact_phone=None, contact_filter=None,
+        )
+        try:
+            state = FlowState(message="hola", contact_phone="userNF")
+            result = await execute_flow(main_flow, state, entry_node_id="trigger1")
+
+            assert result.data.get("resultado") == "sub-flow ejecutado"
+            assert not result.data.get("_node_errors")
+
+            run_id = result.data.get("_run_id")
+            assert run_id
+            steps = await db.get_flow_run_steps(run_id)
+            step_node_ids = {s["node_id"] for s in steps}
+            # El nodo sintético namespaceado del sub-flow quedó en el journal —
+            # prueba de que el subgrafo se expandió y ejecutó (no solo el nodo_flow).
+            assert "nf1::s1" in step_node_ids
+        finally:
+            await db.delete_flow(main_flow["id"])
+    finally:
+        await db.delete_flow(sub_flow["id"])
 
 
 # ─── dispatch_message: conversación abierta más allá del wait_user ───────────

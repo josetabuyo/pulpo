@@ -92,6 +92,32 @@ async def get_flow(flow_id: str, bot_id: str) -> dict | None:
     return flow
 
 
+async def _validate_no_node_flow_cycles(definition: dict | None, flow_id: str | None) -> None:
+    """
+    Valida (dry-run, sin persistir nada) que un flow con nodos `nodo_flow` no
+    forme un ciclo — ni consigo mismo ni con otros NodoFlow encadenados.
+    Reusa `expand_node_flows` (misma lógica que corre el motor en runtime):
+    si la expansión falla, el `ValueError` crudo se envuelve con contexto de
+    negocio en vez de dejarlo propagar tal cual al caller.
+
+    `flow_id`: id del flow que se está guardando (None si es un create nuevo
+    — un flow sin id todavía no puede autoreferenciarse). Se agrega a
+    `visiting` de arranque para detectar ciclos que vuelven a este flow.
+    """
+    definition = definition or {}
+    nodes = definition.get("nodes", []) or []
+    if not any(n.get("type") == "nodo_flow" for n in nodes):
+        return
+
+    from pulpo.graphs.compiler import expand_node_flows
+
+    visiting = frozenset({flow_id}) if flow_id else frozenset()
+    try:
+        await expand_node_flows(nodes, definition.get("edges", []) or [], db.get_flow, visiting=visiting)
+    except ValueError as e:
+        raise ValueError(f"NodoFlow inválido: {e}") from e
+
+
 async def create_flow(
     bot_id: str,
     name: str,
@@ -99,11 +125,14 @@ async def create_flow(
     connection_id: str | None,
     contact_phone: str | None,
     contact_filter: dict | None,
+    flow_kind: str = "flow",
 ) -> dict:
     """
     Creates a new flow and returns the full flow dict.
-    Raises ValueError on validation errors from the db layer.
+    Raises ValueError on validation errors from the db layer, or if the
+    definition contains a `nodo_flow` node that would form a cycle.
     """
+    await _validate_no_node_flow_cycles(definition, flow_id=None)
     flow_id = await db.create_flow(
         bot_id=bot_id,
         name=name,
@@ -111,6 +140,7 @@ async def create_flow(
         connection_id=connection_id,
         contact_phone=contact_phone,
         contact_filter=contact_filter,
+        flow_kind=flow_kind,
     )
     new_flow = await db.get_flow(flow_id)
     await db.create_flow_version(flow_id, name, new_flow.get("definition", {}))
@@ -136,6 +166,7 @@ async def duplicate_flow(bot_id: str, flow_id: str, new_name: str) -> dict:
         connection_id=flow.get("connection_id"),
         contact_phone=flow.get("contact_phone"),
         contact_filter=flow.get("contact_filter"),
+        flow_kind=flow.get("flow_kind", "flow"),
     )
     return await update_flow(bot_id, new_flow["id"], {"active": False})
 
@@ -156,6 +187,7 @@ async def update_flow(bot_id: str, flow_id: str, updates: dict, save_version: bo
     # Inject connection_id and contact_filter into the message_trigger node config.
     if "definition" in updates:
         definition = updates["definition"]
+        await _validate_no_node_flow_cycles(definition, flow_id=flow_id)
         new_conn = updates.get("connection_id")
         new_cf   = updates.get("contact_filter")
         for node in definition.get("nodes", []):
@@ -209,6 +241,74 @@ async def delete_flow(bot_id: str, flow_id: str) -> bool:
 async def has_node_type(bot_id: str, node_type: str) -> bool:
     """Returns True if any flow in the bot contains a node of the given type."""
     return await db.bot_has_node_type(bot_id, node_type)
+
+
+async def list_node_flows(bot_id: str) -> list[dict]:
+    """
+    Returns the bot's NodoFlows (flow_kind == "node_flow"), each with
+    `inputs` parsed from its `definition` (empty list if it declares none) —
+    used to populate the flow_id picker + dynamic params form in the editor
+    (ver management/SPEC_NODOFLOW.md).
+    """
+    flows = await db.get_flows(bot_id)
+    result = []
+    for f in flows:
+        if f.get("flow_kind") != "node_flow":
+            continue
+        full = await db.get_flow(f["id"])
+        definition = (full or {}).get("definition", {}) or {}
+        result.append({**f, "inputs": definition.get("inputs") or []})
+    return result
+
+
+async def create_node_flow_from_selection(
+    bot_id: str,
+    source_flow_id: str,
+    node_ids: list[str],
+    name: str,
+) -> dict:
+    """
+    Extrae los nodos de `source_flow_id` cuyo `id` está en `node_ids`, junto
+    con los edges internos ENTRE esos nodos (descartando cualquier edge hacia/
+    desde un nodo fuera de la selección), y crea un flow NUEVO
+    `flow_kind="node_flow"`, `active=False`, con esa `definition`.
+
+    El flow origen queda intacto — no se le borra ni modifica nada.
+    Raises ValueError si `node_ids` está vacío, ninguno matchea, o el flow
+    origen no existe / no pertenece a `bot_id`.
+    """
+    if not node_ids:
+        raise ValueError("node_ids no puede estar vacío")
+
+    source = await db.get_flow(source_flow_id)
+    if not source or source["bot_id"] != bot_id:
+        raise ValueError("Flow origen no encontrado")
+
+    definition = source.get("definition", {}) or {}
+    nodes = definition.get("nodes", []) or []
+    edges = definition.get("edges", []) or []
+
+    selected_ids = set(node_ids)
+    selected_nodes = [n for n in nodes if n.get("id") in selected_ids]
+    if not selected_nodes:
+        raise ValueError("Ninguno de los node_ids coincide con nodos del flow origen")
+
+    matched_ids = {n["id"] for n in selected_nodes}
+    selected_edges = [
+        e for e in edges
+        if e.get("source") in matched_ids and e.get("target") in matched_ids
+    ]
+
+    new_flow = await create_flow(
+        bot_id=bot_id,
+        name=name,
+        definition={"nodes": selected_nodes, "edges": selected_edges},
+        connection_id=None,
+        contact_phone=None,
+        contact_filter=None,
+        flow_kind="node_flow",
+    )
+    return await update_flow(bot_id, new_flow["id"], {"active": False})
 
 
 async def replay_flow(bot_id: str, flow_id: str, from_date: str | None) -> dict:

@@ -148,3 +148,39 @@ def node_types():
     """Lista el catálogo de tipos de nodo disponibles para armar flows (id, label, schema de config)."""
     result = svc.list_node_types()
     click.echo(json.dumps(result, indent=2, ensure_ascii=False))
+
+
+@flows.command("node-flows")
+@click.option("--bot-id", required=True, help="Bot ID")
+def node_flows(bot_id):
+    """
+    Lista los NodoFlows disponibles de un bot (flows con flow_kind=node_flow),
+    con sus `inputs` declarados — útil para saber qué flow_id/params configurar
+    en un nodo `nodo_flow` de otro flow.
+    """
+    result = asyncio.run(svc.list_node_flows(bot_id))
+    click.echo(json.dumps(result, indent=2, ensure_ascii=False))
+
+
+@flows.command("extract-node-flow")
+@click.option("--bot-id", required=True, help="Bot ID dueño del flow origen")
+@click.option("--flow-id", required=True, help="ID del flow origen del que se extrae la selección")
+@click.option("--node-ids", required=True, help="IDs de nodo a extraer, separados por coma (a,b,c)")
+@click.option("--name", required=True, help="Nombre del NodoFlow nuevo")
+def extract_node_flow(bot_id, flow_id, node_ids, name):
+    """
+    Extrae los nodos indicados (+ sus edges internos) de un flow existente en
+    un NodoFlow nuevo (flow_kind=node_flow, active=false). El flow origen no
+    se modifica — equivalente a "Convertir selección en NodoFlow" del editor.
+    """
+    ids = [n.strip() for n in node_ids.split(",") if n.strip()]
+    try:
+        result = asyncio.run(
+            svc.create_node_flow_from_selection(
+                bot_id=bot_id, source_flow_id=flow_id, node_ids=ids, name=name,
+            )
+        )
+        click.echo(json.dumps(result, indent=2, ensure_ascii=False))
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise SystemExit(1)

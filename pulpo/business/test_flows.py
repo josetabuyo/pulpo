@@ -309,6 +309,198 @@ async def test_simulate_message_resumes_wait_user_with_same_sim_id():
         await _cleanup(flow["id"])
 
 
+BOT_ID_NF = "__test_bot_nodoflow_business__"
+
+
+@pytest.mark.asyncio
+async def test_create_flow_persists_flow_kind():
+    flow = await svc.create_flow(
+        bot_id=BOT_ID_NF, name="Un NodoFlow", definition=None,
+        connection_id=None, contact_phone=None, contact_filter=None,
+        flow_kind="node_flow",
+    )
+    try:
+        assert flow["flow_kind"] == "node_flow"
+        fetched = await svc.get_flow(flow["id"], BOT_ID_NF)
+        assert fetched["flow_kind"] == "node_flow"
+    finally:
+        await _cleanup(flow["id"])
+
+
+@pytest.mark.asyncio
+async def test_create_flow_default_flow_kind_is_flow():
+    flow = await svc.create_flow(
+        bot_id=BOT_ID_NF, name="Normal", definition=None,
+        connection_id=None, contact_phone=None, contact_filter=None,
+    )
+    try:
+        assert flow["flow_kind"] == "flow"
+    finally:
+        await _cleanup(flow["id"])
+
+
+@pytest.mark.asyncio
+async def test_update_flow_can_change_flow_kind():
+    flow = await svc.create_flow(
+        bot_id=BOT_ID_NF, name="Cambia de tipo", definition=None,
+        connection_id=None, contact_phone=None, contact_filter=None,
+    )
+    try:
+        updated = await svc.update_flow(BOT_ID_NF, flow["id"], {"flow_kind": "node_flow"})
+        assert updated["flow_kind"] == "node_flow"
+    finally:
+        await _cleanup(flow["id"])
+
+
+@pytest.mark.asyncio
+async def test_create_flow_con_nodo_flow_autoreferenciado_rechaza_ciclo():
+    """Un flow que se guarda con un nodo `nodo_flow` que termina apuntando
+    (directa o indirectamente) a sí mismo debe rechazarse con ValueError
+    claro — no dejar pasar el ValueError crudo de expand_node_flows."""
+    # Un create nuevo no puede autoreferenciarse (no tiene id todavía) —
+    # forzamos el ciclo con un sub-flow ya persistido que se referencia a sí
+    # mismo, que es el caso real detectable en el momento del save.
+    self_ref = await svc.create_flow(
+        bot_id=BOT_ID_NF, name="Self ref (crudo, sin validar)", definition=None,
+        connection_id=None, contact_phone=None, contact_filter=None,
+        flow_kind="node_flow",
+    )
+    try:
+        cyclic_definition = {
+            "nodes": [{"id": "a", "type": "nodo_flow", "config": {"flow_id": self_ref["id"]}}],
+            "edges": [],
+        }
+        # Escribimos el ciclo directo en la propia definition del sub-flow vía
+        # db (bypaseando la validación de negocio) para simular un flow ya
+        # guardado con un ciclo, y confirmar que un update posterior también
+        # lo detecta si se re-guarda con el mismo contenido.
+        await db.update_flow(self_ref["id"], definition=cyclic_definition)
+        with pytest.raises(ValueError, match="NodoFlow inválido"):
+            await svc.update_flow(
+                BOT_ID_NF, self_ref["id"],
+                {"definition": cyclic_definition},
+            )
+    finally:
+        await _cleanup(self_ref["id"])
+
+
+@pytest.mark.asyncio
+async def test_list_node_flows_devuelve_solo_flow_kind_node_flow_con_inputs():
+    normal = await svc.create_flow(
+        bot_id=BOT_ID_NF, name="Flow normal", definition=None,
+        connection_id=None, contact_phone=None, contact_filter=None,
+    )
+    node_flow_def = {
+        "inputs": [{"key": "ciudad", "label": "Ciudad", "type": "text", "default": ""}],
+        "nodes": [], "edges": [],
+    }
+    nf = await svc.create_flow(
+        bot_id=BOT_ID_NF, name="Investigar", definition=node_flow_def,
+        connection_id=None, contact_phone=None, contact_filter=None,
+        flow_kind="node_flow",
+    )
+    nf_sin_inputs = await svc.create_flow(
+        bot_id=BOT_ID_NF, name="Sin inputs", definition=None,
+        connection_id=None, contact_phone=None, contact_filter=None,
+        flow_kind="node_flow",
+    )
+    try:
+        result = await svc.list_node_flows(BOT_ID_NF)
+        by_id = {f["id"]: f for f in result}
+        assert normal["id"] not in by_id
+        assert nf["id"] in by_id
+        assert by_id[nf["id"]]["inputs"] == node_flow_def["inputs"]
+        assert nf_sin_inputs["id"] in by_id
+        assert by_id[nf_sin_inputs["id"]]["inputs"] == []
+    finally:
+        await _cleanup(normal["id"], nf["id"], nf_sin_inputs["id"])
+
+
+@pytest.mark.asyncio
+async def test_create_node_flow_from_selection_extrae_subgrafo():
+    source_definition = {
+        "nodes": [
+            {"id": "t", "type": "message_trigger", "config": {}},
+            {"id": "a", "type": "llm", "config": {}},
+            {"id": "b", "type": "send_message", "config": {}},
+            {"id": "c", "type": "set_state", "config": {"field": "x", "value": "1"}},
+        ],
+        "edges": [
+            {"source": "t", "target": "a"},
+            {"source": "a", "target": "b"},
+            {"source": "b", "target": "c"},
+        ],
+    }
+    source = await svc.create_flow(
+        bot_id=BOT_ID_NF, name="Origen", definition=source_definition,
+        connection_id="conn-1", contact_phone=None, contact_filter=None,
+    )
+    try:
+        extracted = await svc.create_node_flow_from_selection(
+            bot_id=BOT_ID_NF, source_flow_id=source["id"],
+            node_ids=["a", "b"], name="Extraído a-b",
+        )
+        try:
+            assert extracted["flow_kind"] == "node_flow"
+            assert extracted["active"] is False
+            node_ids = {n["id"] for n in extracted["definition"]["nodes"]}
+            assert node_ids == {"a", "b"}
+            edges = extracted["definition"]["edges"]
+            assert edges == [{"source": "a", "target": "b"}]
+
+            # El flow origen queda intacto.
+            still_there = await svc.get_flow(source["id"], BOT_ID_NF)
+            assert len(still_there["definition"]["nodes"]) == 4
+            assert len(still_there["definition"]["edges"]) == 3
+        finally:
+            await _cleanup(extracted["id"])
+    finally:
+        await _cleanup(source["id"])
+
+
+@pytest.mark.asyncio
+async def test_create_node_flow_from_selection_node_ids_vacio_falla():
+    source = await svc.create_flow(
+        bot_id=BOT_ID_NF, name="Origen vacío", definition=None,
+        connection_id=None, contact_phone=None, contact_filter=None,
+    )
+    try:
+        with pytest.raises(ValueError):
+            await svc.create_node_flow_from_selection(
+                bot_id=BOT_ID_NF, source_flow_id=source["id"], node_ids=[], name="X",
+            )
+    finally:
+        await _cleanup(source["id"])
+
+
+@pytest.mark.asyncio
+async def test_create_node_flow_from_selection_node_ids_sin_match_falla():
+    source_definition = {
+        "nodes": [{"id": "a", "type": "llm", "config": {}}],
+        "edges": [],
+    }
+    source = await svc.create_flow(
+        bot_id=BOT_ID_NF, name="Origen sin match", definition=source_definition,
+        connection_id=None, contact_phone=None, contact_filter=None,
+    )
+    try:
+        with pytest.raises(ValueError):
+            await svc.create_node_flow_from_selection(
+                bot_id=BOT_ID_NF, source_flow_id=source["id"],
+                node_ids=["no-existe"], name="X",
+            )
+    finally:
+        await _cleanup(source["id"])
+
+
+@pytest.mark.asyncio
+async def test_create_node_flow_from_selection_flow_origen_no_encontrado():
+    with pytest.raises(ValueError):
+        await svc.create_node_flow_from_selection(
+            bot_id=BOT_ID_NF, source_flow_id="no-existe", node_ids=["a"], name="X",
+        )
+
+
 @pytest.mark.asyncio
 async def test_migrate_fetch_node_types_es_idempotente():
     definition = {

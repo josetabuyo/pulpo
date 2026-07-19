@@ -131,6 +131,11 @@ async def init_db():
             await conn.execute(text("ALTER TABLE flows ADD COLUMN contact_filter TEXT DEFAULT NULL"))
         except Exception:
             pass  # Ya existe
+        # Migración: agregar flow_kind si la tabla ya existía sin esa columna
+        try:
+            await conn.execute(text("ALTER TABLE flows ADD COLUMN flow_kind TEXT NOT NULL DEFAULT 'flow'"))
+        except Exception:
+            pass  # Ya existe
 
         # ─── Flow Versions — historial de guardados explícitos ──────
         await conn.execute(text("""
@@ -655,7 +660,7 @@ import uuid as _uuid
 
 
 def _flow_row_to_dict(row, include_definition: bool = False) -> dict:
-    # columns: id, bot_id, name, definition, connection_id, contact_phone, active, created_at, updated_at, contact_filter
+    # columns: id, bot_id, name, definition, connection_id, contact_phone, active, created_at, updated_at, contact_filter, flow_kind
     raw_cf = row[9] if len(row) > 9 else None
     contact_filter = None
     if raw_cf:
@@ -663,6 +668,7 @@ def _flow_row_to_dict(row, include_definition: bool = False) -> dict:
             contact_filter = _json.loads(raw_cf)
         except ValueError as e:
             logger.warning("contact_filter corrupto en flow %s — ignorado: %s", row[0], e)
+    flow_kind = row[10] if len(row) > 10 and row[10] else "flow"
     d = {
         "id":             row[0],
         "bot_id":     row[1],
@@ -673,6 +679,7 @@ def _flow_row_to_dict(row, include_definition: bool = False) -> dict:
         "created_at":     str(row[7]),
         "updated_at":     str(row[8]),
         "contact_filter": contact_filter,
+        "flow_kind":      flow_kind,
     }
     if include_definition:
         raw = row[3]
@@ -700,13 +707,14 @@ async def create_flow(
     connection_id: str | None = None,
     contact_phone: str | None = None,
     contact_filter: dict | None = None,
+    flow_kind: str = "flow",
 ) -> str:
     flow_id = str(_uuid.uuid4())
     async with AsyncSessionLocal() as session:
         await session.execute(
             text("""
-                INSERT INTO flows (id, bot_id, name, definition, connection_id, contact_phone, contact_filter)
-                VALUES (:id, :bot_id, :name, :definition, :connection_id, :contact_phone, :contact_filter)
+                INSERT INTO flows (id, bot_id, name, definition, connection_id, contact_phone, contact_filter, flow_kind)
+                VALUES (:id, :bot_id, :name, :definition, :connection_id, :contact_phone, :contact_filter, :flow_kind)
             """),
             {
                 "id": flow_id,
@@ -716,6 +724,7 @@ async def create_flow(
                 "connection_id": connection_id,
                 "contact_phone": contact_phone,
                 "contact_filter": _json.dumps(contact_filter) if contact_filter else None,
+                "flow_kind": flow_kind,
             },
         )
         await session.commit()
@@ -733,7 +742,7 @@ async def get_flows(bot_id: str) -> list[dict]:
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(
             text("""
-                SELECT id, bot_id, name, definition, connection_id, contact_phone, active, created_at, updated_at, contact_filter
+                SELECT id, bot_id, name, definition, connection_id, contact_phone, active, created_at, updated_at, contact_filter, flow_kind
                 FROM flows WHERE bot_id = :e ORDER BY created_at
             """),
             {"e": bot_id},
@@ -758,7 +767,7 @@ async def get_flow(flow_id: str) -> dict | None:
     async with AsyncSessionLocal() as session:
         row = (await session.execute(
             text("""
-                SELECT id, bot_id, name, definition, connection_id, contact_phone, active, created_at, updated_at, contact_filter
+                SELECT id, bot_id, name, definition, connection_id, contact_phone, active, created_at, updated_at, contact_filter, flow_kind
                 FROM flows WHERE id = :id
             """),
             {"id": flow_id},
@@ -769,7 +778,7 @@ async def get_flow(flow_id: str) -> dict | None:
 
 
 async def update_flow(flow_id: str, **kwargs) -> bool:
-    allowed = {"name", "definition", "connection_id", "contact_phone", "active", "contact_filter"}
+    allowed = {"name", "definition", "connection_id", "contact_phone", "active", "contact_filter", "flow_kind"}
     updates = {k: v for k, v in kwargs.items() if k in allowed}
     if not updates:
         return False
@@ -902,7 +911,7 @@ async def get_active_flows_for_bot(connection_id: str, contact_phone: str, bot_i
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(
             text("""
-                SELECT id, bot_id, name, definition, connection_id, contact_phone, active, created_at, updated_at, contact_filter
+                SELECT id, bot_id, name, definition, connection_id, contact_phone, active, created_at, updated_at, contact_filter, flow_kind
                 FROM flows
                 WHERE bot_id = :bot_id
                   AND active = 1

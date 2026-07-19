@@ -50,7 +50,7 @@ export default function FlowList({ botId, apiCall, connections, onGoToUIs }) {
 
   useEffect(() => { loadFlows() }, [loadFlows])
 
-  async function handleNew() {
+  async function handleNew(flowKind) {
     setCreating(true)
     try {
       const definition = {
@@ -59,8 +59,9 @@ export default function FlowList({ botId, apiCall, connections, onGoToUIs }) {
         viewport: { x: 0, y: 0, zoom: 1 },
       }
       const newFlow = await apiCall('POST', `/flows/bots/${botId}`, {
-        name: 'Nuevo flow',
+        name: flowKind === 'node_flow' ? 'Nuevo NodoFlow' : 'Nuevo flow',
         definition,
+        ...(flowKind ? { flow_kind: flowKind } : {}),
       })
       if (newFlow?.id) {
         setFlows(prev => [newFlow, ...prev])
@@ -96,8 +97,10 @@ export default function FlowList({ botId, apiCall, connections, onGoToUIs }) {
     setEditing(newFlow)
   }
 
-  const activeFlows = flows.filter(f => f.active)
-  const savedFlows  = flows.filter(f => !f.active)
+  const regularFlows = flows.filter(f => f.flow_kind !== 'node_flow')
+  const nodeFlows    = flows.filter(f => f.flow_kind === 'node_flow')
+  const activeFlows = regularFlows.filter(f => f.active)
+  const savedFlows  = regularFlows.filter(f => !f.active)
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
@@ -144,7 +147,7 @@ export default function FlowList({ botId, apiCall, connections, onGoToUIs }) {
           {flows.length} flow{flows.length !== 1 ? 's' : ''}
         </span>
         <button
-          onClick={handleNew}
+          onClick={() => handleNew()}
           disabled={creating}
           style={{
             background: '#16a34a',
@@ -231,6 +234,49 @@ export default function FlowList({ botId, apiCall, connections, onGoToUIs }) {
           )}
         </>
       )}
+
+      {/* NodoFlows — flows reutilizables como nodo (flow_kind === 'node_flow') */}
+      <div style={{ marginTop: 18 }}>
+        <div style={{ display: 'flex', alignItems: 'center', borderTop: '1px solid #1e293b', paddingTop: 10, marginBottom: 10 }}>
+          <span style={{ fontSize: 13, color: '#94a3b8', flex: 1, fontWeight: 600 }}>
+            NodoFlows ({nodeFlows.length})
+          </span>
+          <button
+            onClick={() => handleNew('node_flow')}
+            disabled={creating}
+            style={{
+              background: '#0e7490',
+              border: 'none',
+              borderRadius: 6,
+              color: '#fff',
+              fontSize: 12,
+              fontWeight: 600,
+              padding: '5px 12px',
+              cursor: creating ? 'default' : 'pointer',
+            }}
+          >
+            {creating ? 'Creando...' : '+ Nuevo NodoFlow'}
+          </button>
+        </div>
+
+        {nodeFlows.length === 0 ? (
+          <div className="empty" style={{ padding: '12px 0' }}>Sin NodoFlows. Creá uno o convertí una selección de nodos en un flow.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {nodeFlows.map(flow => (
+              <FlowRow
+                key={flow.id}
+                flow={flow}
+                connections={connections}
+                onEdit={() => handleEdit(flow)}
+                onToggle={() => handleToggleActive(flow)}
+                onDelete={() => handleDelete(flow)}
+                isDeleting={deleting === flow.id}
+              />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
     </>
   )

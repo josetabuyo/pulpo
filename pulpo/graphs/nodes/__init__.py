@@ -43,6 +43,7 @@ from .search_sheet import SearchSheetNode
 from .detect_conversation import DetectConversationNode
 from .end_conversation import EndConversationNode
 from .metric import MetricNode
+from .nodo_flow import NodoFlowNode
 
 NODE_REGISTRY: dict[str, type] = {
     "message_trigger":    MessageTriggerNode,
@@ -70,6 +71,7 @@ NODE_REGISTRY: dict[str, type] = {
     "detect_conversation":  DetectConversationNode,
     "end_conversation":     EndConversationNode,
     "metric":               MetricNode,
+    "nodo_flow":            NodoFlowNode,
 }
 
 # Tipos de nodo que actúan como entrada de un flow.
@@ -99,4 +101,5 @@ __all__ = [
     "DetectConversationNode",
     "EndConversationNode",
     "MetricNode",
+    "NodoFlowNode",
 ]

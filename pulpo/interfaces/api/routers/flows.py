@@ -10,11 +10,13 @@ Route mapping (parent mounts at /flows):
   POST /clear-sheet-cache
   GET  /bots/{bot_id}
   POST /bots/{bot_id}
+  GET  /bots/{bot_id}/node-flows
   GET  /bots/{bot_id}/{flow_id}
   PUT  /bots/{bot_id}/{flow_id}
   DELETE /bots/{bot_id}/{flow_id}
   GET  /bots/{bot_id}/has-node/{node_type}
   POST /bots/{bot_id}/{flow_id}/replay
+  POST /bots/{bot_id}/{flow_id}/extract-node-flow
   POST /{flow_id}/trigger/{node_id}
   POST /bots/{bot_id}/simulate
   GET  /bots/{bot_id}/google-accounts
@@ -81,6 +83,7 @@ class FlowIn(BaseModel):
     connection_id: str | None = None
     contact_phone: str | None = None
     contact_filter: dict | None = None
+    flow_kind: Optional[str] = None
 
 
 class FlowUpdate(BaseModel):
@@ -89,6 +92,7 @@ class FlowUpdate(BaseModel):
     connection_id: str | None = None
     contact_phone: str | None = None
     contact_filter: dict | None = None
+    flow_kind: Optional[str] = None
     active: bool | None = None
     save_version: bool = False
 
@@ -113,11 +117,25 @@ async def create_flow(bot_id: str, body: FlowIn):
             connection_id=body.connection_id,
             contact_phone=body.contact_phone,
             contact_filter=body.contact_filter,
+            flow_kind=body.flow_kind or "flow",
         )
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/bots/{bot_id}/node-flows")
+async def list_node_flows(bot_id: str):
+    """
+    Lista los NodoFlows (flow_kind == "node_flow") de la bot, con sus
+    `inputs` parseados — para poblar el selector dinámico de `nodo_flow`
+    en el editor (ver management/SPEC_NODOFLOW.md).
+    """
+    try:
+        return await flows_svc.list_node_flows(bot_id=bot_id)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.get("/bots/{bot_id}/has-node/{node_type}")
@@ -192,6 +210,29 @@ async def replay_flow(
         )
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class ExtractNodeFlowBody(BaseModel):
+    node_ids: list[str]
+    name: str
+
+
+@router.post("/bots/{bot_id}/{flow_id}/extract-node-flow", status_code=201)
+async def extract_node_flow(bot_id: str, flow_id: str, body: ExtractNodeFlowBody):
+    """
+    Extrae la selección de nodos (`node_ids`) del flow origen en un NodoFlow
+    nuevo (`flow_kind="node_flow"`, `active=False`). El flow origen no se
+    modifica — ver management/SPEC_NODOFLOW.md.
+    """
+    try:
+        return await flows_svc.create_node_flow_from_selection(
+            bot_id=bot_id,
+            source_flow_id=flow_id,
+            node_ids=body.node_ids,
+            name=body.name,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

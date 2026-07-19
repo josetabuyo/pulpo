@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useFlowStore } from '../../store/flowStore.js'
 import { S } from './styles.js'
 import SummarizeInfo from './SummarizeInfo.jsx'
@@ -16,10 +16,22 @@ export default function ConfigForm({ node, schema, botId, flowId, apiCall, onGoT
   const [backupMsg, setBackupMsg]       = useState('')
   const [backingUp, setBackingUp]       = useState(false)
   const [showBackupConfirm, setShowBackupConfirm] = useState(false)
+  const [nodeFlows, setNodeFlows]       = useState([])
 
   const isTrigger = TRIGGER_TYPES.has(nodeType)
 
   function handleChange(newConfig) { updateNodeConfig(node.id, newConfig) }
+
+  // NodoFlow: cargar la lista de flows reutilizables (flow_kind === 'node_flow')
+  // del bot, para poblar el selector dinámicamente (ver SPEC_NODOFLOW.md).
+  useEffect(() => {
+    if (nodeType !== 'nodo_flow' || !botId) return
+    let cancelled = false
+    apiCall('GET', `/flows/bots/${botId}/node-flows`, null)
+      .then(list => { if (!cancelled && Array.isArray(list)) setNodeFlows(list) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [nodeType, botId, apiCall])
 
   async function handleBackupAndClean() {
     setBackingUp(true)
@@ -160,6 +172,76 @@ export default function ConfigForm({ node, schema, botId, flowId, apiCall, onGoT
           )}
         </div>
       )}
+
+      {/* NodoFlow: selector de sub-flow + inputs dinámicos declarados por él */}
+      {nodeType === 'nodo_flow' && (() => {
+        const selectedFlow = nodeFlows.find(f => f.id === config.flow_id)
+        const inputs = selectedFlow?.inputs || []
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={S.label}>SUB-FLOW</span>
+              <select
+                value={config.flow_id || ''}
+                onChange={e => {
+                  const flow_id = e.target.value
+                  handleChange({ ...config, flow_id, params: {} })
+                }}
+                style={{
+                  width: '100%', padding: '6px 8px',
+                  background: '#0f172a', border: '1px solid #334155',
+                  borderRadius: 6, color: '#e2e8f0', fontSize: 12,
+                }}
+              >
+                <option value="">(elegir un flow)</option>
+                {nodeFlows.map(f => (
+                  <option key={f.id} value={f.id}>{f.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {inputs.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span style={S.label}>PARÁMETROS</span>
+                {inputs.map(input => (
+                  <div key={input.key} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    <span style={{ fontSize: 11, color: '#94a3b8' }}>{input.label || input.key}</span>
+                    <input
+                      type="text"
+                      value={config.params?.[input.key] ?? ''}
+                      placeholder={input.default != null ? String(input.default) : `{{...}} o valor fijo`}
+                      onChange={e => handleChange({
+                        ...config,
+                        params: { ...(config.params || {}), [input.key]: e.target.value },
+                      })}
+                      style={{
+                        width: '100%', padding: '5px 8px',
+                        background: '#0f172a', border: '1px solid #334155',
+                        borderRadius: 6, color: '#e2e8f0', fontSize: 12,
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={S.label}>GUARDAR RESULTADO EN</span>
+              <input
+                type="text"
+                value={config.output || ''}
+                placeholder="reply"
+                onChange={e => handleChange({ ...config, output: e.target.value })}
+                style={{
+                  width: '100%', padding: '5px 8px',
+                  background: '#0f172a', border: '1px solid #334155',
+                  borderRadius: 6, color: '#e2e8f0', fontSize: 12,
+                }}
+              />
+            </div>
+          </div>
+        )
+      })()}
 
       {/* JSON config editor */}
       <JsonNodeEditor

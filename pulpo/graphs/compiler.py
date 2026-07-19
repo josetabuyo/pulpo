@@ -75,6 +75,196 @@ async def _log_step(
         logger.warning("[engine] error al loguear step %s (non-fatal)", node_id, exc_info=True)
 
 
+async def expand_node_flows(
+    nodes: list[dict],
+    edges: list[dict],
+    fetch_flow_fn,
+    visiting: frozenset = frozenset(),
+) -> tuple[list[dict], list[dict]]:
+    """
+    Expande inline todo nodo `type == "nodo_flow"`, reemplazándolo por los
+    nodos/edges del flow referenciado (ver management/SPEC_NODOFLOW.md y ADR
+    de "expansión de subgrafo, no sub-ejecución").
+
+    Es una función pura sobre el par (nodes, edges): no toca la DB directamente
+    — carga los sub-flows vía `fetch_flow_fn(flow_id)` (async), que el caller
+    inyecta (en prod: `pulpo.core.db.get_flow`; en tests: un dict mockeado).
+
+    Mecánica por cada nodo_flow:
+      - Namespacea el subgrafo con prefijo `f"{nodo_flow_id}::"`.
+      - Expande recursivamente el subgrafo (soporta NodoFlow anidados) pasando
+        `visiting | {flow_id}` — así los ids raíz/terminales que se calculan
+        más abajo ya son nodos reales (nunca un nodo_flow sin expandir).
+      - Inserta nodos sintéticos `set_state` para inyectar `params` antes del
+        nodo raíz y para copiar `state.data[output_key]` → `state.data[output]`
+        después de los terminales.
+      - Reconecta los edges externos que entraban/salían del nodo_flow.
+
+    `visiting` acumula los flow_id en la rama de expansión actual para detectar
+    ciclos (A→A, A→B→A, ...).
+
+    Devuelve `(nodes_expandidos, edges_expandidos)`. Si no hay ningún nodo_flow
+    (con flow_id no vacío), devuelve `(nodes, edges)` sin cambios de contenido.
+    """
+    # Nodos nodo_flow con flow_id configurado — los que tienen flow_id vacío se
+    # dejan tal cual (config incompleta: fallará en runtime como flow mal armado).
+    to_expand = [
+        n for n in nodes
+        if n.get("type") == "nodo_flow" and (n.get("config") or {}).get("flow_id")
+    ]
+    if not to_expand:
+        return nodes, edges
+
+    # entry_target/exit_sources por cada nodo_flow, para reconectar edges externos.
+    entry_of: dict[str, str] = {}
+    exits_of: dict[str, list[str]] = {}
+    expanded_id_set = {n["id"] for n in to_expand}
+
+    out_nodes: list[dict] = [n for n in nodes if n["id"] not in expanded_id_set]
+
+    added_nodes: list[dict] = []
+    added_edges: list[dict] = []
+
+    for node in to_expand:
+        nfid = node["id"]
+        cfg = node.get("config") or {}
+        flow_id = cfg["flow_id"]
+
+        if flow_id in visiting:
+            raise ValueError(
+                f"Ciclo de NodoFlow detectado: {flow_id} se referencia a sí "
+                f"mismo o forma un ciclo"
+            )
+
+        sub_flow = await fetch_flow_fn(flow_id)
+        if not sub_flow:
+            raise ValueError(f"NodoFlow referencia un flow inexistente: {flow_id}")
+
+        definition = sub_flow.get("definition") or {}
+        inner_nodes = definition.get("nodes", []) or []
+        inner_edges = definition.get("edges", []) or []
+
+        prefix = f"{nfid}::"
+
+        # 1) Namespacear el subgrafo.
+        ns_nodes = []
+        for inner in inner_nodes:
+            copy_n = dict(inner)
+            copy_n["id"] = prefix + inner["id"]
+            ns_nodes.append(copy_n)
+        ns_edges = []
+        for e in inner_edges:
+            copy_e = dict(e)
+            copy_e["source"] = prefix + e["source"]
+            copy_e["target"] = prefix + e["target"]
+            ns_edges.append(copy_e)
+
+        # 2) Expandir recursivamente el subgrafo (NodoFlow anidados). Tras esto,
+        #    los ids raíz/terminales son siempre nodos reales, no nodo_flow.
+        ns_nodes, ns_edges = await expand_node_flows(
+            ns_nodes, ns_edges, fetch_flow_fn, visiting | {flow_id}
+        )
+
+        sub_ids = {n["id"] for n in ns_nodes}
+
+        # 3) Determinar nodo raíz.
+        entry_node_id = definition.get("entry_node_id")
+        if entry_node_id:
+            root = prefix + entry_node_id
+            if root not in sub_ids:
+                raise ValueError(
+                    f"NodoFlow {flow_id}: entry_node_id '{entry_node_id}' no "
+                    f"existe en el sub-flow"
+                )
+        else:
+            has_incoming = {e["target"] for e in ns_edges if e["target"] in sub_ids}
+            roots = [nid for nid in sub_ids if nid not in has_incoming]
+            if len(roots) != 1:
+                raise ValueError(
+                    f"NodoFlow {flow_id}: no se puede inferir el nodo raíz "
+                    f"(in-degree 0 encontrados: {len(roots)}) — declará "
+                    f"'entry_node_id' explícito en la definición del sub-flow"
+                )
+            root = roots[0]
+
+        # 4) Determinar terminales (out-degree 0 dentro del subgrafo).
+        has_outgoing = {e["source"] for e in ns_edges if e["source"] in sub_ids}
+        terminals = [nid for nid in sub_ids if nid not in has_outgoing]
+        if not terminals:
+            # Subgrafo cíclico sin salida clara: usar la raíz como terminal para
+            # no perder la conexión de salida.
+            terminals = [root]
+
+        sub_added_nodes = list(ns_nodes)
+        sub_added_edges = list(ns_edges)
+
+        # 5) Nodo(s) sintético(s) de inyección de parámetros (set_state en serie).
+        params = cfg.get("params") or {}
+        param_node_ids: list[str] = []
+        for i, (key, value) in enumerate(params.items()):
+            pid = f"{nfid}::__params__{i}"
+            param_node_ids.append(pid)
+            sub_added_nodes.append({
+                "id": pid,
+                "type": "set_state",
+                "position": {"x": 0, "y": 0},
+                # SetStateNode espera {"field", "value"} (un campo por nodo); por
+                # eso se encadena uno por param. `value` se interpola en runtime
+                # ({{...}} contra el state del padre) — str() para tolerar números/bools.
+                "config": {"field": key, "value": str(value)},
+            })
+        # Cadena params0 → params1 → ... → root
+        for a, b in zip(param_node_ids, param_node_ids[1:]):
+            sub_added_edges.append({"source": a, "target": b})
+        if param_node_ids:
+            sub_added_edges.append({"source": param_node_ids[-1], "target": root})
+            entry_target = param_node_ids[0]
+        else:
+            entry_target = root
+
+        # 6) Nodo sintético de copia de output.
+        output_key = definition.get("output_key", "reply") or "reply"
+        output_dest = cfg.get("output")
+        if output_dest:
+            oid = f"{nfid}::__output__"
+            sub_added_nodes.append({
+                "id": oid,
+                "type": "set_state",
+                "position": {"x": 0, "y": 0},
+                # value={{output_key}} → interpolate() lee state.data[output_key]
+                # (el output que dejó el subgrafo) y lo escribe en output_dest.
+                "config": {"field": output_dest, "value": f"{{{{{output_key}}}}}"},
+            })
+            for t in terminals:
+                sub_added_edges.append({"source": t, "target": oid})
+            exit_sources = [oid]
+        else:
+            exit_sources = list(terminals)
+
+        entry_of[nfid] = entry_target
+        exits_of[nfid] = exit_sources
+        added_nodes.extend(sub_added_nodes)
+        added_edges.extend(sub_added_edges)
+
+    # 7) Reconectar edges externos (los que referenciaban a un nodo_flow).
+    out_edges: list[dict] = []
+    for e in edges:
+        src = e.get("source")
+        tgt = e.get("target")
+        # Edge interno de un subgrafo ya se agregó vía added_edges — pero los
+        # edges de `edges` acá son siempre del nivel actual, nunca del subgrafo.
+        new_sources = exits_of.get(src, [src]) if src is not None else [src]
+        new_targets = [entry_of[tgt]] if tgt in entry_of else [tgt]
+        for s in new_sources:
+            for t in new_targets:
+                ne = dict(e)
+                ne["source"] = s
+                ne["target"] = t
+                out_edges.append(ne)
+
+    return out_nodes + added_nodes, out_edges + added_edges
+
+
 def _build_graph(edges: list[dict]) -> dict[str, list[tuple[str, str | None]]]:
     """
     Grafo de adyacencia: source → [(target, label)].
@@ -240,8 +430,19 @@ async def execute_flow(
     """
     definition = flow.get("definition", {})
     nodes = definition.get("nodes", [])
+    edges = definition.get("edges", [])
+    if any(n.get("type") == "nodo_flow" for n in nodes):
+        from pulpo.core import db as _db
+        try:
+            nodes, edges = await expand_node_flows(nodes, edges, _db.get_flow)
+        except ValueError:
+            logger.exception(
+                "[engine] error expandiendo nodo_flow en flow '%s' — flow salteado",
+                flow.get("name", flow.get("id", "")),
+            )
+            return state
     node_by_id = {node["id"]: node for node in nodes}
-    graph = _build_graph(definition.get("edges", []))
+    graph = _build_graph(edges)
 
     if entry_node_id is not None:
         if entry_node_id not in node_by_id:

@@ -5,6 +5,7 @@
  * La conexión y el filtro de contactos viven en el NodeConfigPanel del trigger.
  */
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useOnSelectionChange } from '@xyflow/react'
 import { useFlowStore } from '../store/flowStore.js'
 
 export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }) {
@@ -14,6 +15,15 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
   const [savingAs, setSavingAs] = useState(false)
   const [active, setActive] = useState(!!flow.active)
   const [togglingActive, setTogglingActive] = useState(false)
+  const [selectedNodeIds, setSelectedNodeIds] = useState([])
+  const [extracting, setExtracting] = useState(false)
+  const [extractMsg, setExtractMsg] = useState('')
+
+  useOnSelectionChange({
+    onChange: useCallback(({ nodes }) => {
+      setSelectedNodeIds(nodes.map(n => n.id))
+    }, []),
+  })
 
   const isDirty       = useFlowStore(s => s.isDirty)
   const version       = useFlowStore(s => s._version)
@@ -184,6 +194,36 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
     }
   }, [apiCall, flow.bot_id, flow.connection_id, flow.contact_phone, flow.contact_filter, flow.name, getDefinition, onSavedAs])
 
+  // "Convertir selección en NodoFlow" — extrae los nodos seleccionados (2+) a un
+  // flow nuevo reutilizable (flow_kind='node_flow'). No toca la selección original
+  // (ver SPEC_NODOFLOW.md — fuera de alcance v1 reemplazarla por un nodo nodo_flow).
+  const handleExtractNodoFlow = useCallback(async () => {
+    const suggested = 'NodoFlow'
+    const newName = (typeof window !== 'undefined' ? window.prompt('Nombre del NodoFlow:', suggested) : suggested)
+    if (newName == null) return
+    const trimmed = newName.trim()
+    if (!trimmed) return
+
+    setExtracting(true)
+    setExtractMsg('')
+    try {
+      const created = await apiCall('POST', `/flows/bots/${flow.bot_id}/${flow.id}/extract-node-flow`, {
+        node_ids: selectedNodeIds,
+        name: trimmed,
+      })
+      if (created?.id) {
+        setExtractMsg(`✓ NodoFlow "${created.name}" creado`)
+      } else {
+        setExtractMsg('Error al crear el NodoFlow')
+      }
+    } catch {
+      setExtractMsg('Error al crear el NodoFlow')
+    } finally {
+      setExtracting(false)
+      setTimeout(() => setExtractMsg(''), 5000)
+    }
+  }, [apiCall, flow.bot_id, flow.id, selectedNodeIds])
+
   const inputStyle = {
     background: '#1e293b',
     border: '1px solid #334155',
@@ -238,6 +278,28 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
 
       {/* Guardar / Guardar como */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto', flexShrink: 0 }}>
+        {extractMsg && (
+          <span style={{ fontSize: 11, color: extractMsg.startsWith('✓') ? '#4ade80' : '#ef4444' }}>{extractMsg}</span>
+        )}
+        {selectedNodeIds.length >= 2 && (
+          <button
+            onClick={handleExtractNodoFlow}
+            disabled={extracting}
+            title="Extrae los nodos seleccionados a un NodoFlow reutilizable"
+            style={{
+              background: '#1e293b',
+              border: '1px solid #0e7490',
+              borderRadius: 6,
+              color: '#22d3ee',
+              fontSize: 13,
+              padding: '5px 14px',
+              cursor: extracting ? 'default' : 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {extracting ? 'Creando...' : `Convertir selección en NodoFlow (${selectedNodeIds.length})`}
+          </button>
+        )}
         {saveErr && <span style={{ fontSize: 11, color: '#ef4444' }}>{saveErr}</span>}
         {isDirty && !saveErr && <span style={{ fontSize: 11, color: '#f59e0b' }}>Sin guardar</span>}
         <button
