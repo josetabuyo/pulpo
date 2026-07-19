@@ -350,14 +350,12 @@ async def _run_comercio_sin_rubro() -> ScenarioResult:
 async def _run_producto() -> ScenarioResult:
     turns = []
     async with SimConversation(BOT_ID) as conv:
-        r1 = await conv.send_and_wait("hola")
-        turns.append(("user", "hola")); turns.append(("bot", r1))
-        msg = "necesito comprar unos focos LED para mi casa"
+        msg = "Hola, necesito comprar unos focos LED para mi casa"
         reply = await conv.send_and_wait(msg)
         turns.append(("user", msg)); turns.append(("bot", reply))
 
         checks = [
-            _log("Turno 1: rama tomada por la Condición", detail=f"branch={conv.branch_taken(N_CONDICION, occurrence=0)!r}"),
+            _log("Rama tomada por la Condición", detail=f"branch={conv.branch_taken(N_CONDICION)!r}"),
         ]
         checks += _infra_checks(conv, reply)
         checks.append(_log("Rama tomada por Elegir Mostrador", detail=f"branch={conv.branch_taken(N_ELEGIR_MOSTRADOR)!r}"))
@@ -373,14 +371,12 @@ async def _run_producto() -> ScenarioResult:
 async def _run_noticias() -> ScenarioResult:
     turns = []
     async with SimConversation(BOT_ID) as conv:
-        r1 = await conv.send_and_wait("hola")
-        turns.append(("user", "hola")); turns.append(("bot", r1))
-        msg = "qué se sabe del corte de luz en Lugano"
+        msg = "Hola, qué se sabe del corte de luz en Lugano"
         reply = await conv.send_and_wait(msg)
         turns.append(("user", msg)); turns.append(("bot", reply))
 
         checks = [
-            _log("Turno 1: rama tomada por la Condición", detail=f"branch={conv.branch_taken(N_CONDICION, occurrence=0)!r}"),
+            _log("Rama tomada por la Condición", detail=f"branch={conv.branch_taken(N_CONDICION)!r}"),
         ]
         checks += _infra_checks(conv, reply)
         checks.append(_log("Rama tomada por Elegir Mostrador", detail=f"branch={conv.branch_taken(N_ELEGIR_MOSTRADOR)!r}"))
@@ -407,55 +403,55 @@ async def _run_noticias() -> ScenarioResult:
 async def _run_servicio() -> ScenarioResult:
     turns = []
     async with SimConversation(BOT_ID) as conv:
-        r1 = await conv.send_and_wait("hola")
-        turns.append(("user", "hola")); turns.append(("bot", r1))
-
         # Necesidad deliberadamente ambigua entre varios rubros (gas + agua) —
         # así el 1er rubro propuesto por `elegir_rubro` puede no ser el que el
         # vecino tenía en mente, y el rechazo + corrección tiene sentido real
         # (a diferencia de rechazar un nombre propio de prestador, que ya no
-        # se confirma en este flow, ver docstring del módulo).
-        m2 = "tengo un problema con el gas y también una pérdida de agua en casa, necesito ayuda urgente"
-        pide_confirmacion = await conv.send_and_wait(m2)
-        turns.append(("user", m2)); turns.append(("bot", pide_confirmacion))
+        # se confirma en este flow, ver docstring del módulo). Saludo +
+        # necesidad van en el mismo primer mensaje (no se testea el loop de
+        # aclaración del saludo aislado acá — eso ya lo cubre el escenario
+        # "comercio").
+        m1 = "Hola, tengo un problema con el gas y también una pérdida de agua en casa, necesito ayuda urgente"
+        pide_confirmacion = await conv.send_and_wait(m1)
+        turns.append(("user", m1)); turns.append(("bot", pide_confirmacion))
 
-        m3 = "no, en realidad lo urgente es la pérdida de agua, necesito un plomero"
-        pide_confirmacion_2 = await conv.send_and_wait(m3)
-        turns.append(("user", m3)); turns.append(("bot", pide_confirmacion_2))
+        m2 = "no, en realidad lo urgente es la pérdida de agua, necesito un plomero"
+        pide_confirmacion_2 = await conv.send_and_wait(m2)
+        turns.append(("user", m2)); turns.append(("bot", pide_confirmacion_2))
 
-        m4 = "sí, ese mismo, dale"
-        pide_direccion = await conv.send_and_wait(m4)
-        turns.append(("user", m4)); turns.append(("bot", pide_direccion))
+        m3 = "sí, ese mismo, dale"
+        pide_direccion = await conv.send_and_wait(m3)
+        turns.append(("user", m3)); turns.append(("bot", pide_direccion))
 
-        m5 = "Av. Roca 1234, Villa Lugano"
-        reply = await conv.send_and_wait(m5)
-        turns.append(("user", m5)); turns.append(("bot", reply))
+        m4 = "Av. Roca 1234, Villa Lugano"
+        reply = await conv.send_and_wait(m4)
+        turns.append(("user", m4)); turns.append(("bot", reply))
 
         checks = [
-            _log("Turno 1: rama tomada por la Condición", detail=f"branch={conv.branch_taken(N_CONDICION, occurrence=0)!r}"),
-            _log("Turno 2: rama tomada por Elegir Mostrador", detail=f"branch={conv.branch_taken(N_ELEGIR_MOSTRADOR)!r}"),
+            _log("Turno 1: rama tomada por la Condición", detail=f"branch={conv.branch_taken(N_CONDICION)!r}"),
+            _log("Turno 1: rama tomada por Elegir Mostrador", detail=f"branch={conv.branch_taken(N_ELEGIR_MOSTRADOR)!r}"),
             _ran_all(
-                "Turno 2: buscó rubros que matchean la necesidad (dato real, sin invención) y pidió confirmar el rubro",
+                "Turno 1: buscó rubros que matchean la necesidad (dato real, sin invención) y pidió confirmar el rubro",
                 conv, N_BUSCAR_RUBROS, N_RUBROS_ENCONTRADOS_COND, N_ELEGIR_RUBRO, N_CONFIRMAR_RUBRO,
             ),
             _log("Rubros que matchearon la necesidad", detail=f"{conv.state_field(N_BUSCAR_RUBROS, 'rubros_luganense', occurrence=0)!r}"),
             _log("Rubro ofrecido (1ª propuesta)", detail=f"{conv.state_field(N_ELEGIR_RUBRO, 'rubro_elegido', occurrence=0)!r}"),
-            _log("Turno 3 (rechaza el rubro propuesto y aclara \"necesito un plomero\"): rama de \"Confirmó Rubro?\"",
+            _log("Turno 2 (rechaza el rubro propuesto y aclara \"necesito un plomero\"): rama de \"Confirmó Rubro?\"",
                  detail=f"branch={conv.branch_taken(N_CONFIRMO_RUBRO, occurrence=0)!r}"),
-            _c("Turno 3: el bot volvió a preguntar (no vacío)", bool(pide_confirmacion_2)),
+            _c("Turno 2: el bot volvió a preguntar (no vacío)", bool(pide_confirmacion_2)),
             _ran_all(
-                "Turno 3: volvió a elegir rubro tras el rechazo (2ª ejecución de elegir_rubro, SIN re-pegarle a /rubros)",
+                "Turno 2: volvió a elegir rubro tras el rechazo (2ª ejecución de elegir_rubro, SIN re-pegarle a /rubros)",
                 conv, N_ELEGIR_RUBRO,
             ),
             _log("Rubro ofrecido (2ª propuesta, tras la corrección del vecino)",
                  detail=f"{conv.state_field(N_ELEGIR_RUBRO, 'rubro_elegido', occurrence=1)!r}"),
-            _log("Turno 4 (confirma \"sí, ese mismo\"): rama de \"Confirmó Rubro?\"",
+            _log("Turno 3 (confirma \"sí, ese mismo\"): rama de \"Confirmó Rubro?\"",
                  detail=f"branch={conv.branch_taken(N_CONFIRMO_RUBRO, occurrence=1)!r}"),
-            _c("Turno 4: el bot pidió la dirección/ubicación (no vacío)", bool(pide_direccion)),
+            _c("Turno 3: el bot pidió la dirección/ubicación (no vacío)", bool(pide_direccion)),
         ]
         checks += _infra_checks(conv, reply)
         checks.append(_ran_all(
-            "Turno 4: con el rubro confirmado, recién ahí resolvió el candidato puntual (una sola vez, tras la confirmación)",
+            "Turno 3: con el rubro confirmado, recién ahí resolvió el candidato puntual (una sola vez, tras la confirmación)",
             conv, N_BUSCAR_SERVICIO, N_SERVICIO_ENCONTRADO_COND,
         ))
         checks.append(_log(
@@ -463,7 +459,7 @@ async def _run_servicio() -> ScenarioResult:
             detail=f"{conv.state_field(N_BUSCAR_SERVICIO, 'servicio', occurrence=0)!r}",
         ))
         checks.append(_log(
-            "Turno 5 (dirección dada): rama de \"Tienen dirección?\"",
+            "Turno 4 (dirección dada): rama de \"Tienen dirección?\"",
             detail=f"branch={conv.branch_taken(N_VALIDAR_DIRECCION)!r}",
         ))
         direccion_extraida = conv.state_field(N_SET_DIRECCION, "direccion")
@@ -481,26 +477,32 @@ async def _run_servicio() -> ScenarioResult:
 
 
 # ─── 6. Fuera de scope — cierre por farewell fijo, sin tocar el directorio real ─
+#
+# Nota de diseño (2026-07-16): antes pedía "un buen plomero en Recoleta" — mal
+# elegido, porque un pedido de servicio SIN mencionar lugar (o incluso con otro
+# barrio) puede legítimamente recomendarse desde nuestro directorio (no hay
+# problema en ofrecer nuestro plomero aunque el vecino haya nombrado otro
+# barrio de pasada). El caso de scope real e inequívoco es pedir NOTICIAS de
+# OTRO barrio — ahí no hay ambigüedad posible: Luganense solo tiene noticias de
+# Villa Lugano, así que "qué pasó en Recoleta" tiene que cortar antes de tocar
+# cualquier API real.
 
 async def _run_fuera_de_scope() -> ScenarioResult:
     turns = []
     async with SimConversation(BOT_ID) as conv:
-        r1 = await conv.send_and_wait("hola")
-        turns.append(("user", "hola")); turns.append(("bot", r1))
-        msg = "recomendame un buen plomero en Recoleta"
+        msg = "Hola, qué noticias hay en Recoleta"
         reply = await conv.send_and_wait(msg)
         turns.append(("user", msg)); turns.append(("bot", reply))
 
         checks = [
-            _log("Turno 1: rama tomada por la Condición", detail=f"branch={conv.branch_taken(N_CONDICION, occurrence=0)!r}"),
-            _log("Turno 2: clasificación de necesidad", detail=f"necesidad={conv.state_field(N_OBTENER_NECESIDAD, 'necesidad')!r}"),
-            _log("Turno 2: rama tomada por la Condición", detail=f"branch={conv.branch_taken(N_CONDICION)!r}"),
+            _log("Clasificación de necesidad", detail=f"necesidad={conv.state_field(N_OBTENER_NECESIDAD, 'necesidad')!r}"),
+            _log("Rama tomada por la Condición", detail=f"branch={conv.branch_taken(N_CONDICION)!r}"),
         ]
         checks += _infra_checks(conv, reply)
         checks.append(_ran_all("Cerró específicamente por end_conv_scope", conv, "end_conv_scope"))
         checks.append(_c(
-            "NO buscó en el directorio real de servicios (el guardrail de scope corta ANTES de tocar la API)",
-            not conv.ran_node(N_BUSCAR_RUBROS) and not conv.ran_node(N_BUSCAR_SERVICIO),
+            "NO buscó noticias reales de otro barrio (el guardrail de scope corta ANTES de tocar la API)",
+            not conv.ran_node(N_NOTICIAS_FETCH),
         ))
     return ScenarioResult(turns, checks)
 
@@ -527,10 +529,7 @@ async def _run_servicio_agotado() -> ScenarioResult:
     """
     turns = []
     async with SimConversation(BOT_ID) as conv:
-        r0 = await conv.send_and_wait("hola")
-        turns.append(("user", "hola")); turns.append(("bot", r0))
-
-        m1 = "se me rompió una canilla, necesito un plomero urgente"
+        m1 = "Hola, se me rompió una canilla, necesito un plomero urgente"
         pide_confirmacion = await conv.send_and_wait(m1)
         turns.append(("user", m1)); turns.append(("bot", pide_confirmacion))
 
@@ -545,7 +544,7 @@ async def _run_servicio_agotado() -> ScenarioResult:
             turns.append(("user", msg)); turns.append(("bot", last_reply))
 
         checks = [
-            _log("Turno 1: rama tomada por la Condición", detail=f"branch={conv.branch_taken(N_CONDICION, occurrence=0)!r}"),
+            _log("Rama tomada por la Condición", detail=f"branch={conv.branch_taken(N_CONDICION)!r}"),
             _ran_all("El bot buscó rubros que matchean la necesidad y pidió confirmar el rubro",
                      conv, N_BUSCAR_RUBROS, N_ELEGIR_RUBRO, N_CONFIRMAR_RUBRO),
             _log("Rama de \"Confirmó Rubro?\"", detail=f"branch={conv.branch_taken(N_CONFIRMO_RUBRO)!r}"),
@@ -594,36 +593,39 @@ SCENARIOS: list[Scenario] = [
         run=_run_comercio_sin_rubro,
     ),
     Scenario(
-        id="producto", title="Producto — aclaración + focos LED",
-        desc="Saludo ambiguo → aclaración → pedido de un producto puntual (focos LED) → fetch real del directorio "
-             "de productos → cierre.",
+        id="producto", title="Producto — focos LED (necesidad directa en el saludo)",
+        desc="Pedido de un producto puntual (focos LED) directo en el primer mensaje, sin loop de aclaración "
+             "(eso ya lo cubre el escenario \"comercio\") → fetch real del directorio de productos → cierre.",
         run=_run_producto,
     ),
     Scenario(
-        id="noticias", title="Noticias — aclaración + corte de luz",
-        desc="Saludo ambiguo → aclaración → consulta de noticias del barrio → expandir consulta + fetch + cierre.",
+        id="noticias", title="Noticias — corte de luz (necesidad directa en el saludo)",
+        desc="Consulta de noticias del barrio directo en el primer mensaje, sin loop de aclaración → "
+             "expandir consulta + fetch + cierre.",
         run=_run_noticias,
     ),
     Scenario(
-        id="servicio", title="Servicio con notificación — el camino más largo (aclaración + rechazo/confirmación "
+        id="servicio", title="Servicio con notificación — el camino más largo (rechazo/confirmación "
                              "de rubro + 2 vueltas de wait_user de dirección)",
-        desc="Saludo ambiguo → aclaración → necesidad ambigua entre rubros (gas + agua) → el bot busca los rubros "
-             "que matchean y propone uno → el vecino lo RECHAZA y aclara → el bot propone otro rubro (sin re-pegarle "
-             "a la API) → el vecino CONFIRMA → recién ahí resuelve el candidato puntual → pide dirección → dirección "
-             "ambigua (repregunta, 1ª vuelta) → dirección válida (2ª vuelta, resuelve) → notifica al prestador real → cierra.",
+        desc="Necesidad ambigua entre rubros (gas + agua) directo en el primer mensaje, sin loop de aclaración → "
+             "el bot busca los rubros que matchean y propone uno → el vecino lo RECHAZA y aclara → el bot propone "
+             "otro rubro (sin re-pegarle a la API) → el vecino CONFIRMA → recién ahí resuelve el candidato puntual "
+             "→ pide dirección → dirección ambigua (repregunta, 1ª vuelta) → dirección válida (2ª vuelta, resuelve) "
+             "→ notifica al prestador real → cierra.",
         run=_run_servicio,
     ),
     Scenario(
-        id="fuera-de-scope", title="Fuera de scope — otro barrio, sin tocar el directorio real",
-        desc="Saludo ambiguo → aclaración → pedido de otro barrio (Recoleta) → el guardrail de scope corta ANTES "
-             "de buscar en el directorio real → cierra con farewell fijo.",
+        id="fuera-de-scope", title="Fuera de scope — noticias de otro barrio, sin tocar el directorio real",
+        desc="Pedido de noticias de otro barrio (Recoleta) directo en el primer mensaje, sin loop de aclaración — "
+             "el guardrail de scope corta ANTES de buscar noticias reales de otro barrio → cierra con farewell fijo.",
         run=_run_fuera_de_scope,
     ),
     Scenario(
         id="servicio-agotado", title="[Único camino infeliz] Servicio — agotamiento tras 3 direcciones ambiguas",
-        desc="El vecino confirma el prestador ofrecido al primer intento pero nunca da una dirección real (3 "
-             "intentos ambiguos seguidos) — \"Tienen dirección?\" agota sus reintentos (max_visits=3) y el flow "
-             "cierra igual por la rama de disculpa, en vez de quedar colgado.",
+        desc="El vecino confirma el prestador ofrecido al primer intento (necesidad directa en el saludo, sin loop "
+             "de aclaración) pero nunca da una dirección real (3 intentos ambiguos seguidos) — \"Tienen dirección?\" "
+             "agota sus reintentos (max_visits=3) y el flow cierra igual por la rama de disculpa, en vez de quedar "
+             "colgado.",
         run=_run_servicio_agotado,
     ),
     Scenario(

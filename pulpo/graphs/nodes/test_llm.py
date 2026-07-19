@@ -16,7 +16,7 @@ def _state(**kwargs) -> FlowState:
 
 def _mock_llm(content: str):
     llm = AsyncMock()
-    llm.ainvoke = AsyncMock(return_value=SimpleNamespace(content=content))
+    llm.ainvoke = AsyncMock(return_value=SimpleNamespace(content=content, response_metadata={}))
     return llm
 
 
@@ -59,6 +59,20 @@ async def test_output_strip_uniforme():
     with patch("pulpo.graphs.nodes.llm._build_llm", return_value=_mock_llm("  con espacios  ")):
         state = await node.run(_state())
     assert state.data["context"] == "con espacios"
+
+
+@pytest.mark.asyncio
+async def test_strip_think_block_de_modelo_de_razonamiento():
+    """Regresión 2026-07-16: un modelo de razonamiento servido por el router
+    (variantes DeepSeek R1) puede devolver el chain-of-thought crudo como
+    `<think>...</think>` dentro de `content` en vez de separarlo — ese texto
+    no debe filtrarse a state.data[output] (rompía la URL de un FetchHttpNode
+    aguas abajo que interpolaba `{{rubro_elegido}}`)."""
+    node = LLMNode({"prompt": "system", "output": "rubro_elegido"})
+    content = "<think>\nAnalizo la necesidad...\nElijo Plomero.\n</think>\n\nPlomero"
+    with patch("pulpo.graphs.nodes.llm._build_llm", return_value=_mock_llm(content)):
+        state = await node.run(_state())
+    assert state.data["rubro_elegido"] == "Plomero"
 
 
 @pytest.mark.asyncio
@@ -153,8 +167,8 @@ async def test_contenido_vacio_reintenta_y_se_recupera():
     node = LLMNode({"prompt": "system", "output": "necesidad"})
     llm = AsyncMock()
     llm.ainvoke = AsyncMock(side_effect=[
-        SimpleNamespace(content=""),
-        SimpleNamespace(content="plomero urgencia canilla rota"),
+        SimpleNamespace(content="", response_metadata={}),
+        SimpleNamespace(content="plomero urgencia canilla rota", response_metadata={}),
     ])
     with patch("pulpo.graphs.nodes.llm._build_llm", return_value=llm):
         state = await node.run(_state())

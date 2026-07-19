@@ -22,7 +22,17 @@ entre entornos. `--flow-id` fuerza un flow puntual si hace falta.
 
 Uso: correr con el frontend (Vite, :5173) y el backend (:8000) levantados.
 
-    uv run python scripts/generate_e2e_report.py [--skip-telegram]
+    uv run python scripts/generate_e2e_report.py [--skip-telegram] [--no-retry-failed]
+
+Reintento automático (2026-07-19): las conversaciones e2e pasan por clasificación
+de un LLM (necesidad, rubro, router) — no son 100% deterministas, así que un
+REVISAR puntual puede ser flakiness real del modelo, no una regresión de código.
+Por default, después de la 1ª pasada se reintentan UNA sola vez los escenarios
+que fallaron (no todo el suite, no un loop hasta que pase) — si el reintento da
+OK, el reporte final lo refleja como OK con un badge "OK EN REINTENTO" (nunca se
+esconde que hubo una falla en la 1ª pasada); si sigue fallando, queda como
+REVISAR con el badge "SIGUE FALLANDO TRAS REINTENTO", señal de que no es
+flakiness puntual. `--no-retry-failed` desactiva esto (1 sola pasada, como antes).
 
 El diagrama se captura solo, sin pasos manuales (sin loguearse, sin abrir el
 editor a mano, sin recortar un screenshot) — `--diagram-image` queda como
@@ -101,12 +111,15 @@ def esc(s):
     return html.escape(s or "")
 
 
-def render_scenario(sc, result: ScenarioResult, idx):
+def _all_ok(result: ScenarioResult) -> bool:
+    return all(c.passed for c in result.checks if c.kind == "assert")
+
+
+def render_scenario(sc, result: ScenarioResult, idx, retry_note: str | None = None):
     # El status del escenario (OK/REVISAR) solo depende de los "assert" —
     # los "log" son informativos (decisiones semánticas de un LLM, no
     # deterministas) y nunca lo cambian, ver docstring del módulo de escenarios.
-    asserts = [c for c in result.checks if c.kind == "assert"]
-    all_ok = all(c.passed for c in asserts)
+    all_ok = _all_ok(result)
     status = "OK" if all_ok else "REVISAR"
     status_color = "#22c55e" if all_ok else "#f59e0b"
     bubbles = "".join(
@@ -132,10 +145,11 @@ def render_scenario(sc, result: ScenarioResult, idx):
 
     checks_html = "".join(_render_check(c) for c in result.checks)
     badge = '<span class="tg-badge">TELEGRAM REAL</span>' if sc.real_telegram else ""
+    retry_badge = f'<span class="retry-badge">{esc(retry_note)}</span>' if retry_note else ""
     return f"""
     <section class="scenario" id="{sc.id}">
       <div class="scenario-head">
-        <h3>{idx}. {esc(sc.title)} {badge}</h3>
+        <h3>{idx}. {esc(sc.title)} {badge} {retry_badge}</h3>
         <span class="status" style="color:{status_color};border-color:{status_color}">{status}</span>
       </div>
       <p class="scenario-desc">{esc(sc.desc)}</p>
@@ -147,10 +161,13 @@ def render_scenario(sc, result: ScenarioResult, idx):
     """
 
 
-def render_html(diagram_html, pairs, meta):
+def render_html(diagram_html, pairs, meta, retry_notes=None):
+    retry_notes = retry_notes or {}
     total = len(pairs)
-    ok = sum(1 for _, r in pairs if all(c.passed for c in r.checks if c.kind == "assert"))
-    scenario_html = "".join(render_scenario(sc, r, i + 1) for i, (sc, r) in enumerate(pairs))
+    ok = sum(1 for _, r in pairs if _all_ok(r))
+    scenario_html = "".join(
+        render_scenario(sc, r, i + 1, retry_note=retry_notes.get(sc.id)) for i, (sc, r) in enumerate(pairs)
+    )
     return f"""<!doctype html>
 <html lang="es">
 <head>
@@ -181,6 +198,7 @@ def render_html(diagram_html, pairs, meta):
   .status {{ font-size: 11px; font-weight: 700; letter-spacing: 0.05em; border: 1px solid; border-radius: 6px; padding: 2px 10px; white-space: nowrap; }}
   .scenario-desc {{ color: #94a3b8; font-size: 13px; margin: 8px 0 16px; }}
   .tg-badge {{ font-size: 10px; font-weight: 700; letter-spacing: 0.05em; color: #60a5fa; background: rgba(96,165,250,.12); border: 1px solid #1d4ed8; border-radius: 4px; padding: 1px 6px; }}
+  .retry-badge {{ font-size: 10px; font-weight: 700; letter-spacing: 0.05em; color: #c084fc; background: rgba(192,132,252,.12); border: 1px solid #7e22ce; border-radius: 4px; padding: 1px 6px; }}
   .split {{ display: grid; grid-template-columns: 1.2fr 1fr; gap: 18px; }}
   @media (max-width: 760px) {{ .split {{ grid-template-columns: 1fr; }} }}
   .conversation {{ display: flex; flex-direction: column; gap: 8px; background: #0b1220; border: 1px solid #1e293b; border-radius: 10px; padding: 14px; }}
@@ -251,6 +269,11 @@ async def main():
     parser.add_argument("--diagram-scale", type=int, default=3,
                          help="device_scale_factor del screenshot del diagrama (nitidez)")
     parser.add_argument("--skip-telegram", action="store_true", help="No correr el smoke de conectividad real de Telegram")
+    parser.add_argument("--no-retry-failed", action="store_true",
+                         help="No reintentar en una 2ª pasada los escenarios que fallaron en la 1ª — por default SÍ se "
+                              "reintentan una vez (las conversaciones e2e dependen de clasificación por LLM, no "
+                              "determinista; un REVISAR real de flakiness puntual no debería tapar una falla real "
+                              "consistente, por eso es solo 1 reintento, no un loop hasta que pase)")
     args = parser.parse_args()
 
     if args.diagram_image:
@@ -284,6 +307,36 @@ async def main():
             continue
         pairs.append((sc, result))
 
+    # 2ª pasada: reintentar (una sola vez) los escenarios que fallaron en la 1ª.
+    # Las conversaciones e2e pasan por clasificación de un LLM (necesidad, rubro,
+    # router "Elegir Mostrador") — no son 100% deterministas, así que un REVISAR
+    # puntual puede ser flakiness real del modelo, no una regresión. Sin este
+    # reintento, el reporte quedaba obligado a correr TODO de nuevo (7 escenarios,
+    # ~15 min) para descartar flakiness en uno solo. El reintento queda anotado en
+    # el reporte (badge violeta) — nunca se esconde que hubo una falla en la 1ª
+    # pasada, se muestra el resultado final + qué pasó en el intento 1.
+    retry_notes: dict[str, str] = {}
+    if not args.no_retry_failed:
+        failed_ids = [sc.id for sc, r in pairs if not _all_ok(r)]
+        if failed_ids:
+            print(f"\nReintentando (2ª pasada) {len(failed_ids)} escenario(s) que fallaron: {failed_ids}")
+            for i, (sc, first_result) in enumerate(pairs):
+                if _all_ok(first_result):
+                    continue
+                print(f"Reintentando escenario: {sc.id}...")
+                try:
+                    retry_result = await sc.run()
+                except Exception as e:
+                    print(f"  (no se pudo reintentar {sc.id}: {e})")
+                    continue
+                if _all_ok(retry_result):
+                    print(f"  {sc.id}: OK en el reintento")
+                    retry_notes[sc.id] = "OK EN REINTENTO (falló en la 1ª pasada)"
+                else:
+                    print(f"  {sc.id}: sigue fallando en el reintento — no es flakiness puntual")
+                    retry_notes[sc.id] = "SIGUE FALLANDO TRAS REINTENTO"
+                pairs[i] = (sc, retry_result)
+
     date_str = datetime.now().strftime("%Y-%m-%d")
     meta = {
         "date": date_str,
@@ -292,7 +345,7 @@ async def main():
         "flow_name": FLOW_NAME,
         "bot_display": BOT_SLUG.capitalize(),
     }
-    out = render_html(diagram_html, pairs, meta)
+    out = render_html(diagram_html, pairs, meta, retry_notes=retry_notes)
 
     reports_dir = Path(__file__).resolve().parent.parent / "reports"
     results_dir = reports_dir / "test-results"

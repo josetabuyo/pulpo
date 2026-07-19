@@ -31,12 +31,31 @@ Config:
 import json
 import logging
 import os
+import re
 from .base import BaseNode, interpolate
 from .state import FlowState
 
 logger = logging.getLogger(__name__)
 
 _MAX_EMPTY_RETRIES = 1  # 1 reintento extra (2 intentos totales) si el LLM devuelve contenido vacío
+
+_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+
+
+def _strip_think_blocks(content: str) -> str:
+    """
+    Algunos modelos de razonamiento servidos por el router (ej. variantes
+    DeepSeek R1) devuelven el chain-of-thought crudo como `<think>...</think>`
+    dentro de `result.content` en vez de separarlo en `reasoning_content` —
+    bug real encontrado 2026-07-16: el nodo "elegir_rubro" del flow de
+    Luganense devolvió el bloque de razonamiento completo como si fuera la
+    respuesta final, y ese texto terminó interpolado en la URL de
+    `buscar_servicio` (`{{rubro_elegido}}`), rompiendo el fetch real con un
+    "Invalid non-printable ASCII character in URL". Se filtra acá, en el
+    único lugar donde se extrae el contenido del LLM, así ningún nodo aguas
+    abajo puede volver a filtrar esto.
+    """
+    return _THINK_BLOCK_RE.sub("", content).strip()
 
 
 def _record_llm_error(state: FlowState, output: str, detail: str) -> None:
@@ -220,7 +239,7 @@ class LLMNode(BaseNode):
             while True:
                 attempts += 1
                 result = await llm.ainvoke(messages)
-                content = result.content or ""
+                content = _strip_think_blocks(result.content or "")
 
                 if json_out:
                     try:
