@@ -187,13 +187,42 @@ async def expand_node_flows(
                 )
             root = roots[0]
 
-        # 4) Determinar terminales (out-degree 0 dentro del subgrafo).
+        # 4) Determinar puntos de salida del subgrafo, cada uno como (source_id, label).
+        #    - Terminales "clásicos": nodos con out-degree 0 dentro del subgrafo →
+        #      salen con label None (los sigue cualquier route del padre).
+        #    - Nodos router/condition (cualquiera que declare `config.routes`) que SÍ
+        #      tienen algún edge interno: cada ruta declarada que NO tenga ya un edge
+        #      interno propio con label == ruta es un punto de salida etiquetado con
+        #      esa ruta. Así un router/condition puede loopear internamente por algunas
+        #      rutas y salir del subgrafo por otras — en runtime, _enqueue_neighbors
+        #      matchea el `label` de cada edge contra state.data["route"].
+        #    Un router/condition SIN ningún edge interno ya cae como terminal clásico
+        #    (todas sus rutas salen con label None) — no se duplica su lógica acá.
         has_outgoing = {e["source"] for e in ns_edges if e["source"] in sub_ids}
-        terminals = [nid for nid in sub_ids if nid not in has_outgoing]
-        if not terminals:
+        outgoing_labels: dict[str, set] = {}
+        for e in ns_edges:
+            if e["source"] in sub_ids:
+                outgoing_labels.setdefault(e["source"], set()).add(e.get("label") or None)
+
+        exit_conns: list[tuple[str, str | None]] = [
+            (nid, None) for nid in sub_ids if nid not in has_outgoing
+        ]
+        for n in ns_nodes:
+            nid_n = n["id"]
+            if nid_n not in has_outgoing:
+                continue  # ya es terminal clásico (todas sus rutas salen por label None)
+            routes = (n.get("config") or {}).get("routes")
+            if not isinstance(routes, list):
+                continue
+            existing = outgoing_labels.get(nid_n, set())
+            for r in routes:
+                if r and r not in existing:
+                    exit_conns.append((nid_n, r))
+
+        if not exit_conns:
             # Subgrafo cíclico sin salida clara: usar la raíz como terminal para
             # no perder la conexión de salida.
-            terminals = [root]
+            exit_conns = [(root, None)]
 
         sub_added_nodes = list(ns_nodes)
         sub_added_edges = list(ns_edges)
@@ -235,11 +264,21 @@ async def expand_node_flows(
                 # (el output que dejó el subgrafo) y lo escribe en output_dest.
                 "config": {"field": output_dest, "value": f"{{{{{output_key}}}}}"},
             })
-            for t in terminals:
-                sub_added_edges.append({"source": t, "target": oid})
+            # Cada salida entra al nodo de output preservando su label: las salidas
+            # de rutas de un router/condition llevan label==ruta (así el resto de
+            # las rutas de ese nodo siguen loopeando adentro sin desviarse al output);
+            # los terminales clásicos entran con label None (siempre).
+            for src, label in exit_conns:
+                oe = {"source": src, "target": oid}
+                if label:
+                    oe["label"] = label
+                sub_added_edges.append(oe)
             exit_sources = [oid]
         else:
-            exit_sources = list(terminals)
+            # Sin output: los edges externos (que ya vienen etiquetados con el nombre
+            # de ruta) se reconectan directo desde cada nodo de salida — dedup para no
+            # duplicar reconexiones cuando un router aporta varias rutas de salida.
+            exit_sources = list(dict.fromkeys(src for src, _ in exit_conns))
 
         entry_of[nfid] = entry_target
         exits_of[nfid] = exit_sources

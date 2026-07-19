@@ -264,6 +264,189 @@ async def test_execute_flow_expande_nodo_flow_end_to_end():
         await db.delete_flow(sub_flow["id"])
 
 
+def _labels_from(edges, source):
+    """target -> label de todos los edges que salen de `source`."""
+    return {e["target"]: (e.get("label") or None) for e in edges if e["source"] == source}
+
+
+@pytest.mark.asyncio
+async def test_expand_condition_rutas_parciales_conecta_salidas():
+    """Sub-flow con un nodo `condition` de 3 rutas donde solo 1 (`pedir_mas_info`)
+    tiene edge interno (vuelve a otro nodo del subgrafo) y las otras 2
+    (`necesidad_identificada`, `fuera_de_scope`) NO tienen edge interno →
+    esas 2 rutas deben quedar conectadas a los destinos de las edges externas
+    originales del nodo_flow, preservando el label; la ruta con edge interno
+    sigue apuntando adentro del subgrafo sin cambios."""
+    sub_flow = {
+        "id": "sub1",
+        "definition": {
+            "entry_node_id": "cond",
+            "nodes": [
+                {"id": "cond", "type": "condition", "config": {
+                    "routes": ["necesidad_identificada", "pedir_mas_info", "fuera_de_scope"],
+                }},
+                {"id": "reask", "type": "llm", "config": {}},
+            ],
+            # Solo la ruta pedir_mas_info tiene edge interno (loop de re-pregunta).
+            "edges": [
+                {"source": "cond", "target": "reask", "label": "pedir_mas_info"},
+                {"source": "reask", "target": "cond", "label": None},
+            ],
+        },
+    }
+    nodes = [
+        {"id": "t", "type": "message_trigger", "config": {}},
+        {"id": "nf", "type": "nodo_flow", "config": {"flow_id": "sub1"}},
+        {"id": "siguiente", "type": "send_message", "config": {}},
+        {"id": "otro", "type": "send_message", "config": {}},
+    ]
+    edges = [
+        {"source": "t", "target": "nf"},
+        {"source": "nf", "target": "siguiente", "label": "necesidad_identificada"},
+        {"source": "nf", "target": "otro", "label": "fuera_de_scope"},
+    ]
+
+    new_nodes, new_edges = await expand_node_flows(nodes, edges, _fetch_from({"sub1": sub_flow}))
+
+    ids = _by_id(new_nodes)
+    assert "nf" not in ids
+    assert "nf::cond" in ids and "nf::reask" in ids
+
+    cond_out = _labels_from(new_edges, "nf::cond")
+    # La ruta con edge interno sigue adentro del subgrafo, sin cambios.
+    assert cond_out.get("nf::reask") == "pedir_mas_info"
+    # Las 2 rutas sin edge interno salen a los destinos externos, con su label.
+    assert cond_out.get("siguiente") == "necesidad_identificada"
+    assert cond_out.get("otro") == "fuera_de_scope"
+    # El loop interno se preserva.
+    assert _labels_from(new_edges, "nf::reask").get("nf::cond") is None
+
+
+@pytest.mark.asyncio
+async def test_expand_condition_rutas_parciales_con_output():
+    """Como el anterior pero con `output` configurado: las rutas de salida del
+    condition deben pasar por el nodo sintético de output (llevando su label en
+    el edge condition→output, para no desviar la ruta interna) antes de llegar
+    a las edges externas."""
+    sub_flow = {
+        "id": "sub1",
+        "definition": {
+            "entry_node_id": "cond",
+            "output_key": "necesidad",
+            "nodes": [
+                {"id": "cond", "type": "condition", "config": {
+                    "routes": ["necesidad_identificada", "pedir_mas_info", "fuera_de_scope"],
+                }},
+                {"id": "reask", "type": "llm", "config": {}},
+            ],
+            "edges": [
+                {"source": "cond", "target": "reask", "label": "pedir_mas_info"},
+                {"source": "reask", "target": "cond", "label": None},
+            ],
+        },
+    }
+    nodes = [
+        {"id": "t", "type": "message_trigger", "config": {}},
+        {"id": "nf", "type": "nodo_flow",
+         "config": {"flow_id": "sub1", "output": "destino"}},
+        {"id": "siguiente", "type": "send_message", "config": {}},
+        {"id": "otro", "type": "send_message", "config": {}},
+    ]
+    edges = [
+        {"source": "t", "target": "nf"},
+        {"source": "nf", "target": "siguiente", "label": "necesidad_identificada"},
+        {"source": "nf", "target": "otro", "label": "fuera_de_scope"},
+    ]
+
+    new_nodes, new_edges = await expand_node_flows(nodes, edges, _fetch_from({"sub1": sub_flow}))
+
+    ids = _by_id(new_nodes)
+    oid = "nf::__output__"
+    assert ids[oid]["type"] == "set_state"
+    assert ids[oid]["config"] == {"field": "destino", "value": "{{necesidad}}"}
+
+    cond_out = _labels_from(new_edges, "nf::cond")
+    # Ruta interna intacta.
+    assert cond_out.get("nf::reask") == "pedir_mas_info"
+    # Las rutas de salida entran al nodo output preservando su label (para no
+    # desviar la ruta interna hacia el output).
+    assert cond_out.get(oid) is None or cond_out.get(oid) is not None  # existe edge a output
+    labels_to_output = [e.get("label") for e in new_edges
+                        if e["source"] == "nf::cond" and e["target"] == oid]
+    assert set(labels_to_output) == {"necesidad_identificada", "fuera_de_scope"}
+    # El nodo output reparte a los destinos externos según label.
+    out_out = _labels_from(new_edges, oid)
+    assert out_out.get("siguiente") == "necesidad_identificada"
+    assert out_out.get("otro") == "fuera_de_scope"
+
+
+@pytest.mark.asyncio
+async def test_expand_get_necesidad_real_conecta_ambas_salidas():
+    """Fixture con la estructura real del flow `get_necesidad` (bot luganense):
+    condition con rutas [necesidad_identificada, pedir_mas_info, fuera_de_scope]
+    donde solo pedir_mas_info loopea internamente (reask→send→wait→entry) y no
+    hay NINGÚN nodo out-degree 0. Con el fix, ambas salidas externas quedan bien
+    conectadas desde el condition; sin el fix, el fallback a `root` las rompía."""
+    sub_flow = {
+        "id": "get_necesidad",
+        "definition": {
+            "entry_node_id": "identificar",
+            "nodes": [
+                {"id": "identificar", "type": "llm", "config": {"output": "necesidad"}},
+                {"id": "cond", "type": "condition", "config": {
+                    "rules": [
+                        {"var": "necesidad", "op": "not_in",
+                         "values": ["", "UNCLEAR", "OUT_OF_SCOPE"], "then": "necesidad_identificada"},
+                        {"var": "necesidad", "op": "equals", "value": "OUT_OF_SCOPE",
+                         "then": "fuera_de_scope"},
+                    ],
+                    "routes": ["necesidad_identificada", "pedir_mas_info", "fuera_de_scope"],
+                    "fallback": "pedir_mas_info",
+                }},
+                {"id": "reask", "type": "llm", "config": {"output": "mensaje_pedido_necesidad"}},
+                {"id": "preguntar", "type": "send_message", "config": {}},
+                {"id": "esperar", "type": "wait_user", "config": {}},
+            ],
+            "edges": [
+                {"source": "identificar", "target": "cond", "label": None},
+                {"source": "cond", "target": "reask", "label": "pedir_mas_info"},
+                {"source": "reask", "target": "preguntar", "label": None},
+                {"source": "preguntar", "target": "esperar", "label": None},
+                {"source": "esperar", "target": "identificar", "label": None},
+            ],
+        },
+    }
+    nodes = [
+        {"id": "t", "type": "message_trigger", "config": {}},
+        {"id": "nf", "type": "nodo_flow", "config": {"flow_id": "get_necesidad"}},
+        {"id": "buscar_directorio", "type": "send_message", "config": {}},
+        {"id": "responder_fuera_scope", "type": "send_message", "config": {}},
+    ]
+    edges = [
+        {"source": "t", "target": "nf"},
+        {"source": "nf", "target": "buscar_directorio", "label": "necesidad_identificada"},
+        {"source": "nf", "target": "responder_fuera_scope", "label": "fuera_de_scope"},
+    ]
+
+    new_nodes, new_edges = await expand_node_flows(
+        nodes, edges, _fetch_from({"get_necesidad": sub_flow}))
+
+    ids = _by_id(new_nodes)
+    assert "nf" not in ids
+    assert all(n["type"] != "nodo_flow" for n in new_nodes)
+
+    cond_out = _labels_from(new_edges, "nf::cond")
+    # Loop interno intacto.
+    assert cond_out.get("nf::reask") == "pedir_mas_info"
+    # Ambas salidas externas conectadas desde el condition, con label preservado.
+    assert cond_out.get("buscar_directorio") == "necesidad_identificada"
+    assert cond_out.get("responder_fuera_scope") == "fuera_de_scope"
+    # El entry (root) NO debe quedar conectado a las salidas externas (el bug viejo).
+    root_out = _labels_from(new_edges, "nf::identificar")
+    assert "buscar_directorio" not in root_out
+    assert "responder_fuera_scope" not in root_out
+
+
 # ─── dispatch_message: conversación abierta más allá del wait_user ───────────
 
 _BOT_ID = "__test_bot_dispatch__"
