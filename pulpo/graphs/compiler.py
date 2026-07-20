@@ -75,6 +75,63 @@ async def _log_step(
         logger.warning("[engine] error al loguear step %s (non-fatal)", node_id, exc_info=True)
 
 
+def _compute_exit_conns(nodes: list[dict], edges: list[dict]) -> list[tuple[str, str | None]]:
+    """
+    Puntos de salida de un subgrafo (nodes, edges), como pares (source_id, label):
+      - Nodos que declaran `config.routes` (router/condition, ver ver esos
+        módulos): cada ruta declarada que NO tenga ya un edge interno propio
+        con label == esa ruta es un punto de salida etiquetado con esa ruta —
+        sin importar si el nodo tiene o no OTROS edges internos (out-degree 0
+        o no). Esto es a propósito: un nodo que rutea siempre produce en
+        runtime uno de sus `routes`, nunca "nada" — así que sus salidas
+        posibles se listan todas, no solo las que ya están conectadas.
+      - Cualquier otro nodo (sin `config.routes`) con out-degree 0 dentro del
+        subgrafo → terminal "clásico", label=None (lo sigue cualquier route
+        del padre).
+    Es la función pura que reusan tanto `expand_node_flows` (Paso 4, para
+    reconectar los edges externos del nodo_flow) como `compute_exit_routes`
+    (para exponer los nombres de ruta disponibles en la UI).
+    """
+    sub_ids = {n["id"] for n in nodes}
+    has_outgoing = {e["source"] for e in edges if e["source"] in sub_ids}
+    outgoing_labels: dict[str, set] = {}
+    for e in edges:
+        if e["source"] in sub_ids:
+            outgoing_labels.setdefault(e["source"], set()).add(e.get("label") or None)
+
+    exit_conns: list[tuple[str, str | None]] = []
+    for n in nodes:
+        nid = n["id"]
+        routes = (n.get("config") or {}).get("routes")
+        if isinstance(routes, list) and routes:
+            existing = outgoing_labels.get(nid, set())
+            for r in routes:
+                if r and r not in existing:
+                    exit_conns.append((nid, r))
+        elif nid not in has_outgoing:
+            exit_conns.append((nid, None))
+    return exit_conns
+
+
+def compute_exit_routes(nodes: list[dict], edges: list[dict]) -> list[str]:
+    """
+    Rutas de salida NOMBRADAS de un subgrafo (nodes, edges) — pensada para
+    poblar `config.routes` de un nodo `nodo_flow` en la UI (ver
+    management/SPEC_NODOFLOW.md) a partir del sub-flow elegido.
+
+    Dedupe preservando el orden de aparición. No incluye `None`: un exit sin
+    label no es una "ruta" con nombre (no aplica el mecanismo de labels de
+    router/condition — ver `_compute_exit_conns`).
+    """
+    seen: set[str] = set()
+    result: list[str] = []
+    for _, label in _compute_exit_conns(nodes, edges):
+        if label and label not in seen:
+            seen.add(label)
+            result.append(label)
+    return result
+
+
 async def expand_node_flows(
     nodes: list[dict],
     edges: list[dict],
@@ -187,37 +244,10 @@ async def expand_node_flows(
                 )
             root = roots[0]
 
-        # 4) Determinar puntos de salida del subgrafo, cada uno como (source_id, label).
-        #    - Terminales "clásicos": nodos con out-degree 0 dentro del subgrafo →
-        #      salen con label None (los sigue cualquier route del padre).
-        #    - Nodos router/condition (cualquiera que declare `config.routes`) que SÍ
-        #      tienen algún edge interno: cada ruta declarada que NO tenga ya un edge
-        #      interno propio con label == ruta es un punto de salida etiquetado con
-        #      esa ruta. Así un router/condition puede loopear internamente por algunas
-        #      rutas y salir del subgrafo por otras — en runtime, _enqueue_neighbors
-        #      matchea el `label` de cada edge contra state.data["route"].
-        #    Un router/condition SIN ningún edge interno ya cae como terminal clásico
-        #    (todas sus rutas salen con label None) — no se duplica su lógica acá.
-        has_outgoing = {e["source"] for e in ns_edges if e["source"] in sub_ids}
-        outgoing_labels: dict[str, set] = {}
-        for e in ns_edges:
-            if e["source"] in sub_ids:
-                outgoing_labels.setdefault(e["source"], set()).add(e.get("label") or None)
-
-        exit_conns: list[tuple[str, str | None]] = [
-            (nid, None) for nid in sub_ids if nid not in has_outgoing
-        ]
-        for n in ns_nodes:
-            nid_n = n["id"]
-            if nid_n not in has_outgoing:
-                continue  # ya es terminal clásico (todas sus rutas salen por label None)
-            routes = (n.get("config") or {}).get("routes")
-            if not isinstance(routes, list):
-                continue
-            existing = outgoing_labels.get(nid_n, set())
-            for r in routes:
-                if r and r not in existing:
-                    exit_conns.append((nid_n, r))
+        # 4) Determinar puntos de salida del subgrafo, cada uno como (source_id, label)
+        #    — ver `_compute_exit_conns` (misma lógica que usa `compute_exit_routes`
+        #    para poblar la UI, no duplicada acá).
+        exit_conns: list[tuple[str, str | None]] = _compute_exit_conns(ns_nodes, ns_edges)
 
         if not exit_conns:
             # Subgrafo cíclico sin salida clara: usar la raíz como terminal para

@@ -39,4 +39,12 @@ class NodoFlowNode(BaseNode):
                 "label": "Clave de destino en el estado del padre",
                 "default": "",
             },
+            "routes": {
+                "type": "list",
+                "label": "Rutas de salida",
+                "default": [],
+                "hint": "Salidas nombradas del sub-flow elegido — la UI las auto-completa "
+                        "al elegir 'Flow a invocar' (compute_exit_routes); documentan qué "
+                        "labels usar en los edges salientes de este nodo.",
+            },
         }

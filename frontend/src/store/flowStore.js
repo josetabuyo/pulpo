@@ -63,7 +63,7 @@ const DEFAULT_CONFIGS = {
   save_contact:    { name_field: 'contact_name', phone_field: 'contact_phone', notes_field: 'contact_notes', update_if_exists: true },
   check_contact:   { route_known: 'conocido', route_unknown: 'desconocido' },
   metric:          { metric_name: '', value: '', metadata: {}, webhook_url: '' },
-  nodo_flow:       { flow_id: '', params: {}, output: '' },
+  nodo_flow:       { flow_id: '', params: {}, output: '', routes: [] },
 }
 
 /**
@@ -184,6 +184,12 @@ export function createFlowStore() {
     selectedNodeId: null,
     isDirty: false,
     typeMap: {},  // { [type_id]: { label, color, description } }
+    // Metadata a nivel raíz de `definition` que no es ni `nodes` ni `edges` ni
+    // `viewport` (ej: `entry_node_id`/`output_key`/`inputs` de un flow
+    // flow_kind='node_flow' — ver management/SPEC_NODOFLOW.md). Se preserva
+    // tal cual entre loadFlow() y getDefinition() para que guardar el flow no
+    // la pise con undefined.
+    meta: {},
     _history: [],
     _version: 0,
     deleteMode: false,
@@ -207,15 +213,19 @@ export function createFlowStore() {
       }))
       // Reparar edges sin label salientes de nodos router
       const repairedEdges = autoAssignRouterLabels(rfNodes, rfEdges)
+      const { nodes: _n, edges: _e, viewport: _v, ...meta } = definition || {}
       set({
         nodes: rfNodes,
         edges: repairedEdges,
         selectedNodeId: null,
         isDirty: dirty,
+        meta,
         _history: [],
         _version: 0,
       })
     },
+
+    setMeta: (patch) => set(state => ({ meta: { ...state.meta, ...patch } })),
 
     setSelectedNodeId: (id) => set({ selectedNodeId: id }),
 
@@ -388,9 +398,9 @@ export function createFlowStore() {
 
     markClean: () => set({ isDirty: false }),
 
-    reset: () => set({ nodes: [], edges: [], selectedNodeId: null, isDirty: false, _history: [], _version: 0, deleteMode: false, pendingDeleteNodeId: null, pendingDeleteNodeIds: [] }),
+    reset: () => set({ nodes: [], edges: [], selectedNodeId: null, isDirty: false, meta: {}, _history: [], _version: 0, deleteMode: false, pendingDeleteNodeId: null, pendingDeleteNodeIds: [] }),
 
-    getDefinition: () => nodesToDefinition(get().nodes, get().edges),
+    getDefinition: () => ({ ...get().meta, ...nodesToDefinition(get().nodes, get().edges) }),
     }
   })
 }

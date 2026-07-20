@@ -432,7 +432,7 @@ export default function FlowCanvas({
 
   const getNodeRoutes = useCallback((nodeId) => {
     const node = (editNodes || []).find(n => n.id === nodeId)
-    if (!node || !['router', 'condition'].includes(node.data?.nodeType)) return []
+    if (!node || !['router', 'condition', 'nodo_flow'].includes(node.data?.nodeType)) return []
     return node.data.config?.routes || []
   }, [editNodes])
 

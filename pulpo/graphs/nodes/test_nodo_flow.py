@@ -25,7 +25,8 @@ async def test_nodo_flow_run_lanza_runtime_error():
 
 def test_nodo_flow_config_schema_tiene_los_campos_esperados():
     schema = NodoFlowNode.config_schema()
-    assert set(schema.keys()) == {"flow_id", "params", "output"}
+    assert set(schema.keys()) == {"flow_id", "params", "output", "routes"}
     assert schema["flow_id"]["type"] == "select"
     assert schema["params"]["type"] == "dict"
     assert schema["output"]["type"] == "string"
+    assert schema["routes"]["type"] == "list"

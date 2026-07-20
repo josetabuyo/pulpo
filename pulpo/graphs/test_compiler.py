@@ -4,7 +4,7 @@ import asyncio
 import pytest
 
 from . import compiler as compiler_mod
-from .compiler import dispatch_message, execute_flow, expand_node_flows
+from .compiler import compute_exit_routes, dispatch_message, execute_flow, expand_node_flows
 from .nodes.state import FlowState
 
 _FLOW = {
@@ -445,6 +445,61 @@ async def test_expand_get_necesidad_real_conecta_ambas_salidas():
     root_out = _labels_from(new_edges, "nf::identificar")
     assert "buscar_directorio" not in root_out
     assert "responder_fuera_scope" not in root_out
+
+
+# ─── compute_exit_routes: rutas de salida nombradas de un subgrafo ───────────
+
+
+def test_compute_exit_routes_lineal_sin_routes():
+    """Subgrafo lineal, sin ningún nodo router/condition → sin rutas nombradas."""
+    nodes = [
+        {"id": "a", "type": "llm", "config": {}},
+        {"id": "b", "type": "send_message", "config": {}},
+    ]
+    edges = [{"source": "a", "target": "b"}]
+    assert compute_exit_routes(nodes, edges) == []
+
+
+def test_compute_exit_routes_condition_rutas_parciales_caso_get_data():
+    """Caso get_data: condition con routes ['found', 'pedir_mas_info', 'not_found']
+    donde solo 'pedir_mas_info' tiene edge interno (loop) → las otras 2 son
+    salidas nombradas, en el orden en que aparecen en `routes`."""
+    nodes = [
+        {"id": "cond", "type": "condition", "config": {
+            "routes": ["found", "pedir_mas_info", "not_found"],
+        }},
+        {"id": "reask", "type": "llm", "config": {}},
+    ]
+    edges = [
+        {"source": "cond", "target": "reask", "label": "pedir_mas_info"},
+        {"source": "reask", "target": "cond", "label": None},
+    ]
+    assert compute_exit_routes(nodes, edges) == ["found", "not_found"]
+
+
+def test_compute_exit_routes_router_totalmente_sin_edges():
+    """Router sin ningún edge interno (out-degree 0) → igual expone TODAS sus
+    rutas declaradas como salidas nombradas — a diferencia de `_compute_exit_conns`
+    para wiring (que en este caso también las devuelve todas, ya que un nodo
+    con `routes` nunca cae al terminal clásico label=None)."""
+    nodes = [
+        {"id": "r", "type": "router", "config": {
+            "routes": ["noticias", "oficio", "auspiciante"],
+        }},
+    ]
+    edges: list[dict] = []
+    assert compute_exit_routes(nodes, edges) == ["noticias", "oficio", "auspiciante"]
+
+
+def test_compute_exit_routes_dedupe_multiples_nodos():
+    """Dos nodos router distintos declarando la misma ruta suelta → dedupeada,
+    conserva el orden de primera aparición."""
+    nodes = [
+        {"id": "r1", "type": "router", "config": {"routes": ["a", "b"]}},
+        {"id": "r2", "type": "router", "config": {"routes": ["b", "c"]}},
+    ]
+    edges: list[dict] = []
+    assert compute_exit_routes(nodes, edges) == ["a", "b", "c"]
 
 
 # ─── dispatch_message: conversación abierta más allá del wait_user ───────────

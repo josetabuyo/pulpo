@@ -247,9 +247,15 @@ async def list_node_flows(bot_id: str) -> list[dict]:
     """
     Returns the bot's NodoFlows (flow_kind == "node_flow"), each with
     `inputs` parsed from its `definition` (empty list if it declares none) —
-    used to populate the flow_id picker + dynamic params form in the editor
-    (ver management/SPEC_NODOFLOW.md).
+    used to populate the flow_id picker + dynamic params form in the editor —
+    and `routes`, las salidas nombradas reales del sub-flow (calculadas con
+    `compute_exit_routes` sobre su `nodes`/`edges`, misma lógica que usa el
+    compilador para conectar el subgrafo) — la UI las usa para auto-completar
+    `config.routes` del nodo `nodo_flow` que lo invoque (ver
+    management/SPEC_NODOFLOW.md).
     """
+    from pulpo.graphs.compiler import compute_exit_routes
+
     flows = await db.get_flows(bot_id)
     result = []
     for f in flows:
@@ -257,7 +263,11 @@ async def list_node_flows(bot_id: str) -> list[dict]:
             continue
         full = await db.get_flow(f["id"])
         definition = (full or {}).get("definition", {}) or {}
-        result.append({**f, "inputs": definition.get("inputs") or []})
+        result.append({
+            **f,
+            "inputs": definition.get("inputs") or [],
+            "routes": compute_exit_routes(definition.get("nodes") or [], definition.get("edges") or []),
+        })
     return result
 
 

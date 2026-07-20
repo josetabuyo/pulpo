@@ -30,6 +30,17 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
   const getDefinition = useFlowStore(s => s.getDefinition)
   const markClean     = useFlowStore(s => s.markClean)
   const loadFlow      = useFlowStore(s => s.loadFlow)
+  const setMeta       = useFlowStore(s => s.setMeta)
+  const canvasNodes   = useFlowStore(s => s.nodes)
+
+  // NodoFlow (flow_kind === 'node_flow'): entry_node_id/output_key viven a
+  // nivel raíz de `definition` (ver management/SPEC_NODOFLOW.md) — hasta ahora
+  // solo se podían setear por CLI. Mismo patrón de persistencia que el switch
+  // "Activo": PUT inmediato al cambiar + reflejar el cambio en el store (vía
+  // setMeta) para que un "Guardar" posterior no lo pise con el valor viejo.
+  const [entryNodeId, setEntryNodeId] = useState(flow.definition?.entry_node_id || '')
+  const [outputKey, setOutputKeyInput] = useState(flow.definition?.output_key || 'reply')
+  const [savingNodeFlowMeta, setSavingNodeFlowMeta] = useState(false)
 
   const [versions, setVersions] = useState(null)   // null = no cargadas aún
   const [versionIndex, setVersionIndex] = useState(-1) // -1 = viendo el flow en vivo
@@ -49,6 +60,11 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
   useEffect(() => { setActive(!!flow.active) }, [flow.id, flow.active])
   // Al cambiar de flow, descartar el historial de navegación cargado
   useEffect(() => { setVersions(null); setVersionIndex(-1); liveSnapshotRef.current = null }, [flow.id])
+  useEffect(() => {
+    setEntryNodeId(flow.definition?.entry_node_id || '')
+    setOutputKeyInput(flow.definition?.output_key || 'reply')
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al cambiar de flow (mismo patrón que el efecto de `active` arriba)
+  }, [flow.id])
 
   const nameRef = useRef(name)
   useEffect(() => { nameRef.current = name }, [name])
@@ -163,6 +179,35 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
     }
   }, [active, apiCall, flow.bot_id, flow.id, onSaved])
 
+  const persistNodeFlowMeta = useCallback(async (patch) => {
+    setSavingNodeFlowMeta(true)
+    try {
+      const definition = { ...getDefinition(), ...patch }
+      await apiCall('PUT', `/flows/bots/${flow.bot_id}/${flow.id}`, { definition })
+      setMeta(patch)
+      onSaved?.()
+    } catch {
+      // best-effort, igual que el resto de los controles del header — el
+      // usuario ve el valor optimista y puede reintentar cambiándolo de nuevo
+    } finally {
+      setSavingNodeFlowMeta(false)
+    }
+  }, [apiCall, flow.bot_id, flow.id, getDefinition, setMeta, onSaved])
+
+  const handleEntryNodeChange = useCallback((e) => {
+    const value = e.target.value
+    setEntryNodeId(value)
+    persistNodeFlowMeta({ entry_node_id: value || undefined })
+  }, [persistNodeFlowMeta])
+
+  const handleOutputKeyBlur = useCallback(() => {
+    const trimmed = outputKey.trim() || 'reply'
+    if (trimmed !== outputKey) setOutputKeyInput(trimmed)
+    if (trimmed !== (flow.definition?.output_key || 'reply')) {
+      persistNodeFlowMeta({ output_key: trimmed })
+    }
+  }, [outputKey, flow.definition, persistNodeFlowMeta])
+
   const handleSaveAs = useCallback(async () => {
     const suggested = `${nameRef.current.trim() || flow.name || 'Flow'} (copia)`
     const newName = (typeof window !== 'undefined' ? window.prompt('Nombre del nuevo flow:', suggested) : suggested)
@@ -275,6 +320,37 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
           className={`ec-toggle ec-toggle--green ${active ? 'ec-toggle--on' : 'ec-toggle--off'}`}
         />
       </div>
+
+      {/* NodoFlow: entry_node_id / output_key — solo si flow_kind === 'node_flow' */}
+      {flow.flow_kind === 'node_flow' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <span style={{ fontSize: 11, color: '#64748b', whiteSpace: 'nowrap' }}>Entrada</span>
+          <select
+            value={entryNodeId}
+            onChange={handleEntryNodeChange}
+            disabled={savingNodeFlowMeta}
+            title="Nodo de entrada del sub-flow (vacío = se infiere por in-degree 0)"
+            style={{ ...inputStyle, width: 150 }}
+          >
+            <option value="">(auto)</option>
+            {canvasNodes.map(n => (
+              <option key={n.id} value={n.id}>{n.data?.label || n.id}</option>
+            ))}
+          </select>
+          <span style={{ fontSize: 11, color: '#64748b', whiteSpace: 'nowrap' }}>Output key</span>
+          <input
+            type="text"
+            autoComplete="off"
+            value={outputKey}
+            onChange={e => setOutputKeyInput(e.target.value)}
+            onBlur={handleOutputKeyBlur}
+            disabled={savingNodeFlowMeta}
+            placeholder="reply"
+            title="Clave de state.data del sub-flow que se copia al padre (default: reply)"
+            style={{ ...inputStyle, width: 90 }}
+          />
+        </div>
+      )}
 
       {/* Guardar / Guardar como */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto', flexShrink: 0 }}>

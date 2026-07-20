@@ -173,75 +173,36 @@ export default function ConfigForm({ node, schema, botId, flowId, apiCall, onGoT
         </div>
       )}
 
-      {/* NodoFlow: selector de sub-flow + inputs dinámicos declarados por él */}
-      {nodeType === 'nodo_flow' && (() => {
-        const selectedFlow = nodeFlows.find(f => f.id === config.flow_id)
-        const inputs = selectedFlow?.inputs || []
-        return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <span style={S.label}>SUB-FLOW</span>
-              <select
-                value={config.flow_id || ''}
-                onChange={e => {
-                  const flow_id = e.target.value
-                  handleChange({ ...config, flow_id, params: {} })
-                }}
-                style={{
-                  width: '100%', padding: '6px 8px',
-                  background: '#0f172a', border: '1px solid #334155',
-                  borderRadius: 6, color: '#e2e8f0', fontSize: 12,
-                }}
-              >
-                <option value="">(elegir un flow)</option>
-                {nodeFlows.map(f => (
-                  <option key={f.id} value={f.id}>{f.name}</option>
-                ))}
-              </select>
-            </div>
-
-            {inputs.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <span style={S.label}>PARÁMETROS</span>
-                {inputs.map(input => (
-                  <div key={input.key} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                    <span style={{ fontSize: 11, color: '#94a3b8' }}>{input.label || input.key}</span>
-                    <input
-                      type="text"
-                      value={config.params?.[input.key] ?? ''}
-                      placeholder={input.default != null ? String(input.default) : `{{...}} o valor fijo`}
-                      onChange={e => handleChange({
-                        ...config,
-                        params: { ...(config.params || {}), [input.key]: e.target.value },
-                      })}
-                      style={{
-                        width: '100%', padding: '5px 8px',
-                        background: '#0f172a', border: '1px solid #334155',
-                        borderRadius: 6, color: '#e2e8f0', fontSize: 12,
-                      }}
-                    />
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <span style={S.label}>GUARDAR RESULTADO EN</span>
-              <input
-                type="text"
-                value={config.output || ''}
-                placeholder="reply"
-                onChange={e => handleChange({ ...config, output: e.target.value })}
-                style={{
-                  width: '100%', padding: '5px 8px',
-                  background: '#0f172a', border: '1px solid #334155',
-                  borderRadius: 6, color: '#e2e8f0', fontSize: 12,
-                }}
-              />
-            </div>
-          </div>
-        )
-      })()}
+      {/* NodoFlow: selector de sub-flow — la config en sí (params/output/routes)
+          se edita como JSON crudo abajo, igual que cualquier otro node type
+          (ver feedback del usuario: los inputs sueltos por param rompían el
+          criterio de edición uniforme). Al elegir un flow, auto-completamos
+          config.routes con las salidas reales del sub-flow (compute_exit_routes,
+          ya vienen resueltas en la respuesta de /node-flows) — única escritura
+          automática que hace esta sección. */}
+      {nodeType === 'nodo_flow' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <span style={S.label}>SUB-FLOW</span>
+          <select
+            value={config.flow_id || ''}
+            onChange={e => {
+              const flow_id = e.target.value
+              const selected = nodeFlows.find(f => f.id === flow_id)
+              handleChange({ ...config, flow_id, params: {}, routes: selected?.routes || [] })
+            }}
+            style={{
+              width: '100%', padding: '6px 8px',
+              background: '#0f172a', border: '1px solid #334155',
+              borderRadius: 6, color: '#e2e8f0', fontSize: 12,
+            }}
+          >
+            <option value="">(elegir un flow)</option>
+            {nodeFlows.map(f => (
+              <option key={f.id} value={f.id}>{f.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* JSON config editor */}
       <JsonNodeEditor
@@ -249,6 +210,62 @@ export default function ConfigForm({ node, schema, botId, flowId, apiCall, onGoT
         schema={schema}
         onChange={handleChange}
       />
+
+      {/* NodoFlow: referencia de solo lectura del sub-flow elegido — documenta
+          qué escribir en el JSON de arriba (params/output/routes), no es un
+          formulario editable. */}
+      {nodeType === 'nodo_flow' && (() => {
+        const selectedFlow = nodeFlows.find(f => f.id === config.flow_id)
+        if (!selectedFlow) return null
+        const inputs = selectedFlow.inputs || []
+        const routes = selectedFlow.routes || []
+        return (
+          <div style={{
+            display: 'flex', flexDirection: 'column', gap: 8,
+            background: '#050c18', border: '1px solid #1e293b',
+            borderRadius: 6, padding: '8px 10px',
+          }}>
+            <span style={{ fontSize: 9, color: '#334155', fontWeight: 700, letterSpacing: '0.12em' }}>
+              REFERENCIA DEL SUB-FLOW — PARÁMETROS Y SALIDAS DISPONIBLES
+            </span>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: 10, color: '#64748b' }}>params</span>
+              {inputs.length > 0 ? inputs.map(input => (
+                <div key={input.key} style={{ fontSize: 11, color: '#94a3b8', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <code style={{ color: '#60a5fa' }}>{input.key}</code>
+                  {input.label && <span>{input.label}</span>}
+                  <span style={{ color: '#475569' }}>
+                    ({input.type || 'text'}{input.default != null && input.default !== '' ? `, default: ${input.default}` : ''})
+                  </span>
+                </div>
+              )) : (
+                <span style={{ fontSize: 11, color: '#475569' }}>Este sub-flow no declara parámetros.</span>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: 10, color: '#64748b' }}>routes (salidas)</span>
+              {routes.length > 0 ? (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {routes.map(r => (
+                    <span key={r} style={{
+                      fontSize: 10, padding: '2px 6px', borderRadius: 10,
+                      background: '#1e293b', color: '#4ade80', fontFamily: 'monospace',
+                    }}>
+                      {r}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <span style={{ fontSize: 11, color: '#475569' }}>
+                  Este sub-flow no expone salidas nombradas (sale sin ruta etiquetada).
+                </span>
+              )}
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Sheet cache */}
       {['fetch_sheet', 'search_sheet', 'gsheet'].includes(nodeType) && (
