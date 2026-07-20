@@ -16,6 +16,25 @@ def test_resuelve_campos_meta():
     assert interpolate("{{contact_name}} escribió", state) == "Ana escribió"
 
 
+def test_placeholder_anidado_dentro_de_un_valor_de_data_se_resuelve():
+    # Caso NodoFlow: un prompt completo guardado como parámetro (state.data)
+    # puede a su vez contener {{conversation}} u otros placeholders — deben
+    # resolverse en la segunda pasada, no quedar literales.
+    state = _state()
+    append_conversation_entry(state, origin="user", content="hola")
+    state.data["mi_prompt"] = "Contexto:\n{{conversation}}\n\nSaludá a {{contact_name}}."
+    result = interpolate("{{mi_prompt}}", state)
+    assert result == "Contexto:\nUsuario: hola\n\nSaludá a Juan."
+
+
+def test_placeholder_anidado_no_reprocesa_mas_de_dos_pasadas():
+    # Si el valor sustituido vuelve a contener el MISMO placeholder, no debe
+    # recursar infinitamente — se corta a las 2 pasadas.
+    state = _state()
+    state.data["a"] = "{{a}}"
+    assert interpolate("{{a}}", state) == "{{a}}"
+
+
 def test_resuelve_claves_custom_de_data():
     state = _state()
     state.data["necesidad"] = "mesa para 4"

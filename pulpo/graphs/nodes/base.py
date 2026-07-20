@@ -77,8 +77,6 @@ def interpolate(template: str, state: FlowState) -> str:
       Listas y dicts (ej. salida de un FetchHttpNode con array_input, o de un
       LLMNode con output_as_list) se insertan serializados como JSON.
     """
-    template = _replace_conversation(template, state)
-
     meta = {
         "contact_name":  state.contact_name or "",
         "contact_phone": state.contact_phone or "",
@@ -99,7 +97,18 @@ def interpolate(template: str, state: FlowState) -> str:
             return match.group(0)  # deja {{unknown}} intacto
         return all_fields[key]
 
-    return re.sub(r"\{\{(\w+)\}\}", replace, template)
+    # Hasta 2 pasadas: una clave de state.data (ej. un prompt guardado como
+    # parámetro de NodoFlow) puede a su vez contener placeholders como
+    # {{conversation}} — se resuelven recién en la segunda pasada. Se corta
+    # antes si no hay cambios (evita reprocesar templates sin anidamiento).
+    result = template
+    for _ in range(2):
+        previous = result
+        result = _replace_conversation(result, state)
+        result = re.sub(r"\{\{(\w+)\}\}", replace, result)
+        if result == previous:
+            break
+    return result
 
 
 def is_sim(state: FlowState) -> bool:
