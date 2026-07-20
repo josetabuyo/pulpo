@@ -56,26 +56,33 @@ class ConditionNode(BaseNode):
         max_visits = self.config.get("max_visits")
         max_visits_route = self.config.get("max_visits_route", "")
 
-        if max_visits and max_visits_route:
+        route = fallback
+        for rule in rules:
+            if _eval_rule(rule, state):
+                then = rule.get("then", "")
+                if then:
+                    logger.info("[ConditionNode] var=%s op=%s → '%s'", rule.get("var"), rule.get("op"), then)
+                    route = then
+                    break
+        else:
+            logger.info("[ConditionNode] ninguna regla matcheó → fallback '%s'", fallback)
+
+        # Límite de reintentos: solo cuenta/aplica cuando el resultado quedó en
+        # fallback (loop sin resolver) — así un acierto justo en la última visita
+        # no se pisa con max_visits_route. (Bug real: antes el chequeo corría
+        # ANTES de evaluar las reglas, forzando fatiga aunque ESA visita
+        # resolviera bien — ej. el 3er intento matchea una regla válida pero
+        # igual se fuerza a max_visits_route solo por ser la 3ra visita.)
+        if max_visits and max_visits_route and route == fallback:
             visit_key = f"_visits_{self.config.get('_node_id', 'condition')}"
             visits = int(state.data.get(visit_key, 0) or 0) + 1
             state.data[visit_key] = visits
             logger.debug("[ConditionNode] visitas=%d/%s node=%s", visits, max_visits, visit_key)
             if visits >= int(max_visits):
                 logger.info("[ConditionNode] max_visits=%s alcanzado → '%s'", max_visits, max_visits_route)
-                state.data["route"] = max_visits_route
-                return state
+                route = max_visits_route
 
-        for rule in rules:
-            if _eval_rule(rule, state):
-                then = rule.get("then", "")
-                if then:
-                    logger.info("[ConditionNode] var=%s op=%s → '%s'", rule.get("var"), rule.get("op"), then)
-                    state.data["route"] = then
-                    return state
-
-        logger.info("[ConditionNode] ninguna regla matcheó → fallback '%s'", fallback)
-        state.data["route"] = fallback
+        state.data["route"] = route
         return state
 
     @classmethod

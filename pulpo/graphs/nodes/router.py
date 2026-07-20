@@ -59,17 +59,6 @@ class RouterNode(BaseNode):
         max_visits_route = self.config.get("max_visits_route", "")
         model, router_strategy = parse_model_strategy(raw_model)
 
-        # Contador automático de visitas por nodo en esta conversación
-        if max_visits and max_visits_route:
-            visit_key = f"_visits_{self.config.get('_node_id', 'router')}"
-            visits = int(state.data.get(visit_key, 0) or 0) + 1
-            state.data[visit_key] = visits
-            logger.debug("[RouterNode] visitas=%d/%s node=%s", visits, max_visits, visit_key)
-            if visits >= int(max_visits):
-                logger.info("[RouterNode] max_visits=%s alcanzado → '%s'", max_visits, max_visits_route)
-                state.data["route"] = max_visits_route
-                return state
-
         # Reglas deterministas: se evalúan antes del LLM
         if pre_route_rules:
             route = _eval_pre_route_rules(pre_route_rules, state)
@@ -80,46 +69,59 @@ class RouterNode(BaseNode):
 
         if not prompt:
             logger.warning("[RouterNode] Sin prompt — usando fallback '%s'", fallback)
-            state.data["route"] = fallback
-            return state
+            route = fallback
+        else:
+            prompt_i = interpolate(prompt, state)
+            try:
+                llm = _build_llm(model, temperature=0, json_out=False, router_strategy=router_strategy, max_tokens=10)
+                messages = [
+                    {"role": "system", "content": prompt_i},
+                    {"role": "user",   "content": f"Mensaje: {state.message}"},
+                ]
 
-        prompt = interpolate(prompt, state)
+                # Mismo reintento que LLMNode ante contenido vacío (bug real: la cascada
+                # cloud-first a veces devuelve "" sin levantar excepción) — sin esto, un
+                # route="" nunca matchea `routes` y cae siempre al fallback en silencio,
+                # indistinguible de una clasificación genuina hacia esa rama.
+                attempts = 0
+                route = ""
+                while True:
+                    attempts += 1
+                    result = await llm.ainvoke(messages)
+                    route = (result.content or "").strip().lower()
+                    if route:
+                        break
+                    if attempts > _MAX_EMPTY_RETRIES:
+                        detail = f"Router devolvió contenido vacío tras {attempts} intento(s)"
+                        logger.error("[RouterNode] %s — fallback '%s'", detail, fallback)
+                        _record_llm_error(state, "route", detail)
+                        break
+                    logger.warning("[RouterNode] contenido vacío en intento %d, reintentando", attempts)
 
-        try:
-            llm = _build_llm(model, temperature=0, json_out=False, router_strategy=router_strategy, max_tokens=10)
-            messages = [
-                {"role": "system", "content": prompt},
-                {"role": "user",   "content": f"Mensaje: {state.message}"},
-            ]
-
-            # Mismo reintento que LLMNode ante contenido vacío (bug real: la cascada
-            # cloud-first a veces devuelve "" sin levantar excepción) — sin esto, un
-            # route="" nunca matchea `routes` y cae siempre al fallback en silencio,
-            # indistinguible de una clasificación genuina hacia esa rama.
-            attempts = 0
-            route = ""
-            while True:
-                attempts += 1
-                result = await llm.ainvoke(messages)
-                route = (result.content or "").strip().lower()
-                if route:
-                    break
-                if attempts > _MAX_EMPTY_RETRIES:
-                    detail = f"Router devolvió contenido vacío tras {attempts} intento(s)"
-                    logger.error("[RouterNode] %s — fallback '%s'", detail, fallback)
-                    _record_llm_error(state, "route", detail)
-                    break
-                logger.warning("[RouterNode] contenido vacío en intento %d, reintentando", attempts)
-
-            if routes and route not in routes:
-                logger.info("[RouterNode] respuesta '%s' no válida — usando fallback '%s'", route, fallback)
+                if routes and route not in routes:
+                    logger.info("[RouterNode] respuesta '%s' no válida — usando fallback '%s'", route, fallback)
+                    route = fallback
+                logger.info("[RouterNode] route → '%s' | msg: %.60s", route, state.message)
+            except Exception as e:
+                logger.error("[RouterNode] Error: %s — fallback '%s'", e, fallback)
                 route = fallback
-            logger.info("[RouterNode] route → '%s' | msg: %.60s", route, state.message)
-            state.data["route"] = route
-        except Exception as e:
-            logger.error("[RouterNode] Error: %s — fallback '%s'", e, fallback)
-            state.data["route"] = fallback
 
+        # Límite de reintentos: solo cuenta/aplica cuando el resultado quedó en
+        # fallback (loop sin resolver) — así un acierto justo en la última visita
+        # no se pisa con max_visits_route. (Bug real: antes el chequeo corría
+        # ANTES de evaluar la respuesta, forzando fatiga aunque ESA visita
+        # resolviera bien — ej. el 3er intento identifica algo válido pero
+        # igual se fuerza a "agotado" solo por ser la 3ra visita.)
+        if max_visits and max_visits_route and route == fallback:
+            visit_key = f"_visits_{self.config.get('_node_id', 'router')}"
+            visits = int(state.data.get(visit_key, 0) or 0) + 1
+            state.data[visit_key] = visits
+            logger.debug("[RouterNode] visitas=%d/%s node=%s", visits, max_visits, visit_key)
+            if visits >= int(max_visits):
+                logger.info("[RouterNode] max_visits=%s alcanzado → '%s'", max_visits, max_visits_route)
+                route = max_visits_route
+
+        state.data["route"] = route
         return state
 
     @classmethod

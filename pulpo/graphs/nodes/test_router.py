@@ -103,18 +103,43 @@ async def test_router_contenido_vacio_persistente_cae_a_fallback_y_queda_registr
 
 
 @pytest.mark.asyncio
-async def test_router_max_visits_redirige_sin_llamar_llm_de_nuevo():
+async def test_router_max_visits_redirige_tras_n_fallbacks_seguidos():
+    """max_visits solo cuenta/aplica cuando la clasificación de ESA visita cae
+    en fallback — hace falta llamar al LLM en cada visita para saberlo (no se
+    puede short-circuitear sin evaluar, sino se arriesga pisar un acierto en
+    la última visita — ver test siguiente)."""
     node = RouterNode({
         "prompt": "clasificá",
         "routes": ["necesidad_identificada", "pedir_mas_info"],
         "fallback": "pedir_mas_info",
         "max_visits": 2,
-        "max_visits_route": "necesidad_identificada",
+        "max_visits_route": "agotado",
         "_node_id": "n1",
     })
     with patch("pulpo.graphs.nodes.router._build_llm", return_value=_fake_llm("pedir_mas_info")) as mock_build_llm:
         state = await node.run(_state(data={}))
         state = await node.run(state)
 
+    assert state.data["route"] == "agotado"
+    assert mock_build_llm.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_router_max_visits_no_pisa_un_acierto_en_la_ultima_visita():
+    """Bug real corregido: si la N-ésima visita SÍ clasifica una ruta válida
+    (no cae en fallback), max_visits no debe forzar max_visits_route."""
+    node = RouterNode({
+        "prompt": "clasificá",
+        "routes": ["necesidad_identificada", "pedir_mas_info"],
+        "fallback": "pedir_mas_info",
+        "max_visits": 2,
+        "max_visits_route": "agotado",
+        "_node_id": "n1",
+    })
+    with patch("pulpo.graphs.nodes.router._build_llm", return_value=_fake_llm("pedir_mas_info")):
+        state = await node.run(_state(data={}))  # fallback (visita 1/2)
+    assert state.data["route"] == "pedir_mas_info"
+
+    with patch("pulpo.graphs.nodes.router._build_llm", return_value=_fake_llm("necesidad_identificada")):
+        state = await node.run(state)  # visita 2/2, pero clasifica bien → no es fatiga
     assert state.data["route"] == "necesidad_identificada"
-    mock_build_llm.assert_called_once()

@@ -91,7 +91,10 @@ async def test_sin_reglas_usa_fallback():
 
 
 @pytest.mark.asyncio
-async def test_max_visits_redirige_a_max_visits_route_sin_evaluar_reglas():
+async def test_max_visits_redirige_a_max_visits_route_tras_n_fallbacks_seguidos():
+    """max_visits solo cuenta/aplica cuando el resultado de ESA visita queda en
+    fallback (loop sin resolver) — tras N visitas seguidas sin resolver, la
+    N-ésima se fuerza a max_visits_route."""
     node = ConditionNode({
         "rules": [{"var": "necesidad", "op": "not_empty", "then": "necesidad_identificada"}],
         "fallback": "pedir_mas_info",
@@ -99,11 +102,31 @@ async def test_max_visits_redirige_a_max_visits_route_sin_evaluar_reglas():
         "max_visits_route": "agotado",
         "_node_id": "n1",
     })
-    state = await node.run(_state(data={"necesidad": "plomero"}))
-    assert state.data["route"] == "necesidad_identificada"
+    state = await node.run(_state(data={}))  # necesidad vacía → fallback (visita 1/2)
+    assert state.data["route"] == "pedir_mas_info"
 
-    state = await node.run(state)
+    state = await node.run(state)  # sigue vacía → fallback (visita 2/2) → agotado
     assert state.data["route"] == "agotado"
+
+
+@pytest.mark.asyncio
+async def test_max_visits_no_pisa_un_acierto_en_la_ultima_visita():
+    """Bug real corregido: si la N-ésima visita SÍ matchea una regla (no queda
+    en fallback), max_visits no debe forzar max_visits_route — un acierto
+    justo en el límite de reintentos tiene que ganar."""
+    node = ConditionNode({
+        "rules": [{"var": "necesidad", "op": "not_empty", "then": "necesidad_identificada"}],
+        "fallback": "pedir_mas_info",
+        "max_visits": 2,
+        "max_visits_route": "agotado",
+        "_node_id": "n1",
+    })
+    state = await node.run(_state(data={}))  # fallback (visita 1/2)
+    assert state.data["route"] == "pedir_mas_info"
+
+    state.data["necesidad"] = "plomero"
+    state = await node.run(state)  # visita 2/2, pero matchea → no es fatiga
+    assert state.data["route"] == "necesidad_identificada"
 
 
 @pytest.mark.asyncio
