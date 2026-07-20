@@ -44,6 +44,11 @@ frontend/playwright-report/
 # último por flow, sin fecha (ver scripts/generate_e2e_report.py)
 reports/test-results/
 
+# Cache de regeneración selectiva de reportes e2e (--only/--skip-diagram,
+# ver scripts/generate_e2e_report.py) — resultados/diagrama de la última
+# corrida completa, reconstruible corriendo sin --only
+reports/.e2e_cache/
+
 # Monitor logs
 monitor/
 data/summaries/

@@ -26,7 +26,13 @@ Config:
                             state.data[output]. Pensado para prompts que piden "una
                             búsqueda por línea" y alimentan un FetchHttpNode con
                             array_input — cada item queda referenciable como
-                            {{item.text}} en la URL del fetch.
+                            {{item.text}} en la URL del fetch. Cada línea se limpia de
+                            ruido de lista (numeración "1.", viñetas "-"/"*", comillas
+                            envolventes) antes de guardarse — el modelo insiste en
+                            agregarlo pese a instrucciones explícitas en el prompt, y un
+                            {{item.text}} con ese ruido nunca matchea un substring literal
+                            del lado del proveedor (ver bug real: fetch de noticias de
+                            Luganense siempre en 0 resultados, 2026-07-20).
 """
 import json
 import logging
@@ -38,6 +44,17 @@ from .state import FlowState
 logger = logging.getLogger(__name__)
 
 _MAX_EMPTY_RETRIES = 1  # 1 reintento extra (2 intentos totales) si el LLM devuelve contenido vacío
+
+_LIST_NOISE_RE = re.compile(r'^\s*(?:[-*•]|\d+[.\)])\s*')
+_WRAPPING_QUOTES_RE = re.compile(r'^["\'“”](.*)["\'“”]$')
+
+
+def _clean_list_line(line: str) -> str:
+    """Saca numeración/viñetas y comillas envolventes de una línea de output_as_list
+    (ver docstring del módulo — el modelo las agrega pese al prompt pedir texto plano)."""
+    cleaned = _LIST_NOISE_RE.sub("", line).strip()
+    m = _WRAPPING_QUOTES_RE.match(cleaned)
+    return m.group(1).strip() if m else cleaned
 
 _THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 
@@ -274,7 +291,11 @@ class LLMNode(BaseNode):
                 )
 
             if as_list:
-                items = [{"text": line.strip()} for line in text.splitlines() if line.strip()]
+                cleaned_lines = (_clean_list_line(line) for line in text.splitlines() if line.strip())
+                # Una línea que termina en ":" es casi siempre la intro de la lista
+                # ("Acá van algunos términos:"), no un item — el modelo la agrega pese
+                # a que el prompt pide solo los términos (ver docstring del módulo).
+                items = [{"text": line} for line in cleaned_lines if line and not line.endswith(":")]
                 state.data[output] = items
                 logger.info("[LLMNode] output=%s items=%d", output, len(items))
             else:

@@ -53,11 +53,28 @@ ensuciarse de reportes viejos):
 No reemplaza reports/test-report.json (ese es el resumen unitario/integration
 que genera conftest.py en cada corrida de pytest) — este es específico de
 las conversaciones e2e, pensado para lectura humana, no para CI.
+
+Regeneración selectiva (2026-07-20, tras feedback: "no quiero esperar la suite
+entera para ver si un fix puntual funcionó"): cada corrida guarda un cache en
+JSON (`reports/.e2e_cache/<bot_slug>-<flow_slug>-results.json`, gitignoreado)
+con turns+checks de CADA escenario, y el PNG del diagrama
+(`...-diagram.png`) — así una corrida posterior puede:
+  --only <id>[,<id>...]  — correr SOLO esos escenarios de nuevo; el resto sale
+                           del cache de la corrida anterior (si un id pedido
+                           no está en cache, se corre igual, con aviso)
+  --skip-diagram         — reusar el PNG cacheado en vez de recapturarlo
+                           (el diagrama no cambia salvo que se edite la
+                           estructura del flow en el editor)
+Sin --only, corre TODOS (comportamiento de siempre) y refresca el cache
+entero. El cache es un espejo en disco de exactamente los mismos objetos
+`ScenarioResult`/`Check` que ya define scenarios_orquestador_vendedor_mejorado.py
+— no hay una segunda fuente de verdad, solo serialización.
 """
 import argparse
 import asyncio
 import base64
 import html
+import json
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -68,8 +85,48 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tests.e2e.luganense.capture_diagram import DiagramCaptureError, capture_flow_diagram
 from tests.e2e.luganense.scenarios_orquestador_vendedor_mejorado import (
-    BOT_ID, BOT_SLUG, FLOW_NAME, FLOW_SLUG, SCENARIOS, ScenarioResult,
+    BOT_ID, BOT_SLUG, Check, FLOW_NAME, FLOW_SLUG, SCENARIOS, ScenarioResult,
 )
+
+
+def _cache_dir() -> Path:
+    d = Path(__file__).resolve().parent.parent / "reports" / ".e2e_cache"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _results_cache_path(bot_slug: str, flow_slug: str) -> Path:
+    return _cache_dir() / f"{bot_slug}-{flow_slug}-results.json"
+
+
+def _diagram_cache_path(bot_slug: str, flow_slug: str) -> Path:
+    return _cache_dir() / f"{bot_slug}-{flow_slug}-diagram.png"
+
+
+def _result_to_dict(result: ScenarioResult) -> dict:
+    return {
+        "turns": [list(t) for t in result.turns],
+        "checks": [
+            {"label": c.label, "passed": c.passed, "detail": c.detail, "kind": c.kind}
+            for c in result.checks
+        ],
+    }
+
+
+def _result_from_dict(d: dict) -> ScenarioResult:
+    return ScenarioResult(
+        turns=[tuple(t) for t in d["turns"]],
+        checks=[Check(**c) for c in d["checks"]],
+    )
+
+
+def _load_results_cache(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
 
 
 def embed_diagram_png_bytes(data: bytes) -> str:
@@ -269,6 +326,15 @@ async def main():
     parser.add_argument("--diagram-scale", type=int, default=3,
                          help="device_scale_factor del screenshot del diagrama (nitidez)")
     parser.add_argument("--skip-telegram", action="store_true", help="No correr el smoke de conectividad real de Telegram")
+    parser.add_argument("--only", default=None,
+                         help="IDs de escenario a (re)correr, separados por coma (ej. 'noticias' o "
+                              "'noticias,servicio') — el resto sale del cache de la corrida anterior "
+                              "(reports/.e2e_cache/), sin esperar la suite entera. Si un id pedido no "
+                              "tiene cache previo, se corre igual (con aviso). Sin esta opción, corre todo.")
+    parser.add_argument("--skip-diagram", action="store_true",
+                         help="Reusar el PNG de diagrama cacheado de la corrida anterior en vez de "
+                              "recapturarlo — útil junto con --only cuando el flow no cambió de "
+                              "estructura, solo la config de un nodo.")
     parser.add_argument("--no-retry-failed", action="store_true",
                          help="No reintentar en una 2ª pasada los escenarios que fallaron en la 1ª — por default SÍ se "
                               "reintentan una vez (las conversaciones e2e dependen de clasificación por LLM, no "
@@ -276,10 +342,24 @@ async def main():
                               "consistente, por eso es solo 1 reintento, no un loop hasta que pase)")
     args = parser.parse_args()
 
+    diagram_cache_path = _diagram_cache_path(BOT_SLUG, FLOW_SLUG)
+    results_cache_path = _results_cache_path(BOT_SLUG, FLOW_SLUG)
+    results_cache = _load_results_cache(results_cache_path)
+
     if args.diagram_image:
-        if not args.diagram_image.exists():
+        png_bytes = args.diagram_image.read_bytes() if args.diagram_image.exists() else None
+        if png_bytes is None:
             raise SystemExit(f"No existe --diagram-image: {args.diagram_image}")
-        diagram_html = embed_diagram_png_bytes(args.diagram_image.read_bytes())
+        diagram_html = embed_diagram_png_bytes(png_bytes)
+        diagram_cache_path.write_bytes(png_bytes)
+    elif args.skip_diagram:
+        if not diagram_cache_path.exists():
+            raise SystemExit(
+                f"--skip-diagram pero no hay diagrama cacheado en {diagram_cache_path} — "
+                f"corré al menos una vez sin --skip-diagram para generarlo."
+            )
+        print(f"Reusando diagrama cacheado: {diagram_cache_path}")
+        diagram_html = embed_diagram_png_bytes(diagram_cache_path.read_bytes())
     else:
         flow_id = args.flow_id or await resolve_active_flow_id(BOT_ID, FLOW_NAME, args.backend_url)
         print(f"Capturando diagrama del flow {FLOW_NAME!r} (id={flow_id}) contra {args.frontend_url}...")
@@ -294,11 +374,21 @@ async def main():
                 f"Alternativa: pasar --diagram-image <path.png> a mano."
             )
         diagram_html = embed_diagram_png_bytes(png_bytes)
+        diagram_cache_path.write_bytes(png_bytes)
+
+    only_ids = set(args.only.split(",")) if args.only else None
 
     pairs = []
     for sc in SCENARIOS:
         if sc.real_telegram and args.skip_telegram:
             continue
+        if only_ids is not None and sc.id not in only_ids:
+            cached = results_cache.get(sc.id)
+            if cached is not None:
+                print(f"Reusando resultado cacheado de: {sc.id} (no está en --only)")
+                pairs.append((sc, _result_from_dict(cached)))
+                continue
+            print(f"Sin cache previo para {sc.id} pedido fuera de --only — se corre de todos modos.")
         print(f"Corriendo escenario: {sc.id}...")
         try:
             result = await sc.run()
@@ -346,6 +436,12 @@ async def main():
         "bot_display": BOT_SLUG.capitalize(),
     }
     out = render_html(diagram_html, pairs, meta, retry_notes=retry_notes)
+
+    # Refresca el cache con TODO lo que terminó en `pairs` (recién corridos +
+    # reusados de --only) — así la próxima corrida selectiva parte de esta.
+    for sc, result in pairs:
+        results_cache[sc.id] = _result_to_dict(result)
+    results_cache_path.write_text(json.dumps(results_cache, ensure_ascii=False, indent=2), encoding="utf-8")
 
     reports_dir = Path(__file__).resolve().parent.parent / "reports"
     results_dir = reports_dir / "test-results"

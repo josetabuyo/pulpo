@@ -140,6 +140,7 @@ cambian, hay que actualizar acá):
   disculpar_dir        llm              rama agotado (de "Tienen dirección?")
   end_conv_ok / end_conv_fail           end_conversation, cierre de éxito / agotamiento
 """
+import json
 from dataclasses import dataclass
 from typing import Awaitable, Callable
 
@@ -233,6 +234,36 @@ def _ran_all(label: str, conv: SimConversation, *node_ids: str) -> Check:
     de ejecución, no por lo que dice el reply."""
     faltantes = [n for n in node_ids if not conv.ran_node(n)]
     return _c(label, not faltantes, detail=f"no corrieron: {faltantes}" if faltantes else "")
+
+
+def _found_real_news(conv: SimConversation, fetch_node_id: str) -> Check:
+    """
+    Assert real (no solo "el nodo corrió", ver bug real 2026-07-20: el fetch
+    de noticias corría OK y el test lo marcaba en verde aunque devolviera 0
+    resultados SIEMPRE — porque el `query` armado por `expandir_consulta`
+    llegaba roto a `/api/noticias` (lista multilínea sin trocear en el fetch,
+    o líneas con numeración/comillas que ya no matcheaban ningún substring
+    literal del post). El caso "Hola, qué se sabe del corte de luz en Lugano"
+    tiene datos reales en Luganense (ver Neon `noticias`, page_id=luganense,
+    posts con "corte de luz" en el texto) — si la búsqueda real no encuentra
+    NADA acá, es un bug de integración, no "el barrio no tiene esa noticia".
+    """
+    raw = conv.state_field(fetch_node_id, "context")
+    responses = raw if isinstance(raw, list) else [raw]
+    total_results = 0
+    for r in responses:
+        if not r:
+            continue
+        try:
+            parsed = json.loads(r)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        total_results += len(parsed.get("results") or [])
+    return _c(
+        "Encontró al menos una publicación real sobre el corte de luz en Luganense",
+        total_results > 0,
+        detail=f"total_results={total_results} raw={responses!r}" if total_results == 0 else "",
+    )
 
 
 def _infra_checks(conv: SimConversation, reply: str | None) -> list[Check]:
@@ -383,6 +414,7 @@ async def _run_noticias() -> ScenarioResult:
             "Pasó por los nodos esperados de la rama noticias (expandir consulta + fetch + armado de mensaje + cierre)",
             conv, N_NOTICIAS_EXPANDIR, N_NOTICIAS_FETCH, N_NOTICIAS_LLM, "end_conv_noticias",
         ))
+        checks.append(_found_real_news(conv, N_NOTICIAS_FETCH))
     return ScenarioResult(turns, checks)
 
 
