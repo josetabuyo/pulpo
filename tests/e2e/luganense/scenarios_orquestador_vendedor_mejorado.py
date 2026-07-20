@@ -175,8 +175,7 @@ N_NOTICIAS_FETCH = "node_1783693824414"
 N_NOTICIAS_LLM = "responder_noticias"
 
 N_VALIDAR_DIRECCION = "node_1783873174012"  # "Tienen dirección?" (antes "validar_direccion")
-N_BUSCAR_RUBROS = "buscar_rubros"  # GET /rubros?q={{necesidad}} — lista de rubros que matchean, sin LLM
-N_RUBROS_ENCONTRADOS_COND = "rubros_encontrados_cond"  # ¿rubros_total == "0"? → sin_resultados : encontrado
+N_BUSCAR_RUBROS = "buscar_rubros"  # GET /rubros?q={{necesidad}}, route_output → encontrado/error, sin Condition aparte
 N_ELEGIR_RUBRO = "elegir_rubro"  # llm grounded a rubros_luganense → state.rubro_elegido
 N_BUSCAR_SERVICIO = "buscar_servicio"  # GET /candidato?q={{rubro_elegido}}, extract_fields, sin LLM — corre tras confirmar el rubro
 N_SERVICIO_ENCONTRADO_COND = "servicio_encontrado_cond"  # ¿state.servicio no vacío? → encontrado | sin_resultados
@@ -432,7 +431,7 @@ async def _run_servicio() -> ScenarioResult:
             _log("Turno 1: rama tomada por Elegir Mostrador", detail=f"branch={conv.branch_taken(N_ELEGIR_MOSTRADOR)!r}"),
             _ran_all(
                 "Turno 1: buscó rubros que matchean la necesidad (dato real, sin invención) y pidió confirmar el rubro",
-                conv, N_BUSCAR_RUBROS, N_RUBROS_ENCONTRADOS_COND, N_ELEGIR_RUBRO, N_CONFIRMAR_RUBRO,
+                conv, N_BUSCAR_RUBROS, N_ELEGIR_RUBRO, N_CONFIRMAR_RUBRO,
             ),
             _log("Rubros que matchearon la necesidad", detail=f"{conv.state_field(N_BUSCAR_RUBROS, 'rubros_luganense', occurrence=0)!r}"),
             _log("Rubro ofrecido (1ª propuesta)", detail=f"{conv.state_field(N_ELEGIR_RUBRO, 'rubro_elegido', occurrence=0)!r}"),
