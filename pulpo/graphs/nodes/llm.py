@@ -204,7 +204,7 @@ class LLMNode(BaseNode):
         prompt      = self.config.get("prompt", "")
         raw_model   = self.config.get("model", "best:instruction|local-first")
         temperature = float(self.config.get("temperature", 0.3))
-        output      = self.config.get("output", "reply")
+        output      = interpolate(self.config.get("output", "reply"), state)
         json_out    = bool(self.config.get("json_output", False))
         reply_key   = self.config.get("json_reply_key", "reply")
         route_key   = self.config.get("json_route_key", "")

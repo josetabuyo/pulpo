@@ -54,6 +54,27 @@ async def test_output_clave_custom_no_se_pierde():
 
 
 @pytest.mark.asyncio
+async def test_output_interpola_placeholder():
+    # Permite que un NodoFlow reciba, vía params, en qué clave de state.data
+    # debe escribir su resultado (ej. reusar el mismo sub-flow para distintos
+    # campos sin hardcodear el nombre de la clave dentro del sub-flow).
+    node = LLMNode({"prompt": "system", "output": "{{output_field}}"})
+    state = _state()
+    state.data["output_field"] = "ubicacion"
+    with patch("pulpo.graphs.nodes.llm._build_llm", return_value=_mock_llm("Villa Lugano")):
+        state = await node.run(state)
+    assert state.data["ubicacion"] == "Villa Lugano"
+
+
+@pytest.mark.asyncio
+async def test_output_sin_placeholder_no_cambia_comportamiento():
+    node = LLMNode({"prompt": "system", "output": "reply"})
+    with patch("pulpo.graphs.nodes.llm._build_llm", return_value=_mock_llm("hola")):
+        state = await node.run(_state())
+    assert state.data["reply"] == "hola"
+
+
+@pytest.mark.asyncio
 async def test_output_strip_uniforme():
     node = LLMNode({"prompt": "system", "output": "context"})
     with patch("pulpo.graphs.nodes.llm._build_llm", return_value=_mock_llm("  con espacios  ")):
