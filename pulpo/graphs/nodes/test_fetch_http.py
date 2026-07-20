@@ -14,9 +14,10 @@ def _state(**kwargs) -> FlowState:
     return FlowState(**defaults)
 
 
-def _fake_client(text: str, status_ok: bool = True):
+def _fake_client(text: str, status_ok: bool = True, status_code: int = 200):
     resp = MagicMock()
     resp.text = text
+    resp.status_code = status_code
     resp.raise_for_status = MagicMock()
     client = MagicMock()
     client.get = AsyncMock(return_value=resp)

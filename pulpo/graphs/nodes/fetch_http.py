@@ -43,6 +43,26 @@ Config:
                       esconda el "no hay dato" — mismo criterio que interpolate() en
                       base.py). El output crudo (`output`) se sigue guardando igual,
                       así los prompts existentes que ya lo referencian no se rompen.
+  route_output:   bool — opcional, default False (no rompe flows existentes). Si está
+                      activo, el nodo funciona además como un RouterNode (ver router.py):
+                      setea state.data["route"] según el resultado HTTP, para que el
+                      editor de flows conecte cada caso a un edge distinto en vez de
+                      agregar un Condition después del fetch. Tres rutas configurables:
+                        - route_success   → status en `success_codes` (default 200/201)
+                        - route_no_error  → otro 2xx/3xx que no está en `success_codes`
+                        - route_error     → 4xx/5xx, excepción de red (timeout, DNS,
+                                            conexión rechazada) o placeholder sin resolver
+                      Con `array_input` el resultado es una LISTA de GETs — no hay un
+                      único status 1:1, así que la ruta se agrega: route_error si CUALQUIER
+                      item falló (evita una rama "éxito" con resultados parciales rotos),
+                      si no route_success solo cuando TODOS los status están en
+                      `success_codes`, si no route_no_error.
+                      IMPORTANTE: con route_output activo, todos los edges que salen de
+                      este nodo deben tener label (uno de los tres de arriba) — el engine
+                      sigue los edges sin label SIEMPRE, sin importar la ruta (ver
+                      compiler.py `_enqueue_neighbors`), así que un edge sin label
+                      conviviendo con edges roteados corre en paralelo a la rama que
+                      matcheó ("fantasma").
 """
 import json
 import logging
@@ -143,6 +163,10 @@ class FetchHttpNode(BaseNode):
             logger.warning("[FetchHttpNode] sin url configurada")
             return state
 
+        route_output  = bool(self.config.get("route_output", False))
+        success_codes = set(self.config.get("success_codes") or [200, 201])
+        status_codes: list[int | None] = []  # uno o más — alimenta el ruteo al final
+
         items = state.data.get(array_input) if array_input else None
 
         try:
@@ -157,7 +181,9 @@ class FetchHttpNode(BaseNode):
                     results = []
                     for item in items[:_MAX_ARRAY_ITEMS]:
                         item_url = self._resolve_url(_fill_item_template(url_template, item), state)
-                        results.append(await self._get(client, item_url, extract, state))
+                        raw, status_code = await self._get(client, item_url, extract, state)
+                        results.append(raw)
+                        status_codes.append(status_code)
                     state.data[output] = results
                     logger.info(
                         "[FetchHttpNode] array_input='%s' → %d llamados → %s",
@@ -165,7 +191,8 @@ class FetchHttpNode(BaseNode):
                     )
                 else:
                     url = self._resolve_url(url_template, state)
-                    raw = await self._get(client, url, extract, state)
+                    raw, status_code = await self._get(client, url, extract, state)
+                    status_codes.append(status_code)
                     state.data[output] = raw
                     logger.info("[FetchHttpNode] %s: %d chars → %s", url[:60], len(raw or ""), output)
                     extract_fields = self.config.get("extract_fields") or {}
@@ -174,8 +201,26 @@ class FetchHttpNode(BaseNode):
         except Exception as e:
             logger.error("[FetchHttpNode] Error HTTP GET: %s", e)
             _record_fetch_error(state, url_template, str(e))
+            status_codes.append(None)
+
+        if route_output:
+            state.data["route"] = self._route_for(status_codes, success_codes)
 
         return state
+
+    def _route_for(self, status_codes: list, success_codes: set) -> str:
+        """Colapsa uno o más status HTTP a una única ruta — nunca deja más de un
+        edge "activo" a la vez (ver docstring del módulo: con array_input, un
+        solo item roto ya basta para no declarar la corrida un éxito)."""
+        route_success  = self.config.get("route_success", "ok") or "ok"
+        route_no_error = self.config.get("route_no_error", "no_error") or "no_error"
+        route_error    = self.config.get("route_error", "error") or "error"
+
+        if any(code is None or code >= 400 for code in status_codes):
+            return route_error
+        if all(code in success_codes for code in status_codes):
+            return route_success
+        return route_no_error
 
     def _resolve_url(self, url: str, state: FlowState) -> str:
         # {{query}} tiene fallback propio (más limpio para buscar que el mensaje crudo):
@@ -192,25 +237,30 @@ class FetchHttpNode(BaseNode):
         # Cualquier otro placeholder ({{necesidad}}, {{contact_name}}, {{conversation...}}, etc.)
         return interpolate(url, state)
 
-    async def _get(self, client, url: str, extract: str, state: FlowState) -> str | None:
+    async def _get(self, client, url: str, extract: str, state: FlowState) -> tuple[str | None, int | None]:
+        """Devuelve (raw, status_code). status_code es None cuando no hubo
+        respuesta HTTP en absoluto (placeholder sin resolver, timeout, DNS,
+        conexión rechazada) — distinto de un status HTTP real (incluido 4xx/5xx),
+        para que `_route_for` pueda distinguir ambos casos de error si hace falta."""
         if _UNRESOLVED_TEMPLATE_RE.search(url):
             logger.error("[FetchHttpNode] URL con placeholder {{...}} sin resolver: %s", url)
             _record_fetch_error(state, url, "unresolved {{...}} placeholder in URL")
-            return None
+            return None, None
         try:
             resp = await client.get(url)
             resp.raise_for_status()
+            status_code = getattr(resp, "status_code", 200)
             if extract in ("json", "html"):
-                return resp.text
+                return resp.text, status_code
             # extraer texto plano básico
             text = re.sub(r"<[^>]+>", " ", resp.text)
             text = re.sub(r"\s+", " ", text).strip()
-            return text[:5000]
+            return text[:5000], status_code
         except Exception as e:
             status_code = getattr(getattr(e, "response", None), "status_code", None)
             logger.error("[FetchHttpNode] Error HTTP GET %s: %s", url, e)
             _record_fetch_error(state, url, str(e), status_code)
-            return None
+            return None, status_code
 
     @classmethod
     def config_schema(cls) -> dict:
@@ -257,5 +307,38 @@ class FetchHttpNode(BaseNode):
                            "{\"servicio\": \"candidato.nombre\", \"servicio_contact_id\": "
                            "\"candidato.contact_id\"}. Escribe cada valor directo en state.data, "
                            "sin pasar por un LLM. Ruta inexistente o null → no escribe esa clave.",
+            },
+            "route_output": {
+                "type":    "bool",
+                "label":   "Rutear por resultado HTTP (opcional)",
+                "default": False,
+                "hint":    "Si está activo, este nodo también rutea como un Router — conectá "
+                           "cada salida (route_success/route_no_error/route_error) a un edge "
+                           "con ese label, en vez de agregar un Condition después del fetch. "
+                           "Con route_output activo, TODOS los edges que salgan de este nodo "
+                           "deben tener label — un edge sin label corre siempre, en paralelo "
+                           "a la rama que matcheó.",
+            },
+            "success_codes": {
+                "type":    "list",
+                "label":   "Códigos de éxito",
+                "default": [200, 201],
+                "hint":    "Status HTTP que van por route_success. Cualquier otro 2xx/3xx va "
+                           "por route_no_error, y 4xx/5xx/error de red va por route_error.",
+            },
+            "route_success": {
+                "type":    "string",
+                "label":   "Ruta — éxito (success_codes)",
+                "default": "ok",
+            },
+            "route_no_error": {
+                "type":    "string",
+                "label":   "Ruta — otro 2xx/3xx",
+                "default": "no_error",
+            },
+            "route_error": {
+                "type":    "string",
+                "label":   "Ruta — error HTTP o de red",
+                "default": "error",
             },
         }
