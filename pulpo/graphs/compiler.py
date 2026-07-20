@@ -75,60 +75,25 @@ async def _log_step(
         logger.warning("[engine] error al loguear step %s (non-fatal)", node_id, exc_info=True)
 
 
-def _compute_exit_conns(nodes: list[dict], edges: list[dict]) -> list[tuple[str, str | None]]:
+def compute_exit_routes(nodes: list[dict]) -> list[str]:
     """
-    Puntos de salida de un subgrafo (nodes, edges), como pares (source_id, label):
-      - Nodos que declaran `config.routes` (router/condition, ver ver esos
-        módulos): cada ruta declarada que NO tenga ya un edge interno propio
-        con label == esa ruta es un punto de salida etiquetado con esa ruta —
-        sin importar si el nodo tiene o no OTROS edges internos (out-degree 0
-        o no). Esto es a propósito: un nodo que rutea siempre produce en
-        runtime uno de sus `routes`, nunca "nada" — así que sus salidas
-        posibles se listan todas, no solo las que ya están conectadas.
-      - Cualquier otro nodo (sin `config.routes`) con out-degree 0 dentro del
-        subgrafo → terminal "clásico", label=None (lo sigue cualquier route
-        del padre).
-    Es la función pura que reusan tanto `expand_node_flows` (Paso 4, para
-    reconectar los edges externos del nodo_flow) como `compute_exit_routes`
-    (para exponer los nombres de ruta disponibles en la UI).
-    """
-    sub_ids = {n["id"] for n in nodes}
-    has_outgoing = {e["source"] for e in edges if e["source"] in sub_ids}
-    outgoing_labels: dict[str, set] = {}
-    for e in edges:
-        if e["source"] in sub_ids:
-            outgoing_labels.setdefault(e["source"], set()).add(e.get("label") or None)
-
-    exit_conns: list[tuple[str, str | None]] = []
-    for n in nodes:
-        nid = n["id"]
-        routes = (n.get("config") or {}).get("routes")
-        if isinstance(routes, list) and routes:
-            existing = outgoing_labels.get(nid, set())
-            for r in routes:
-                if r and r not in existing:
-                    exit_conns.append((nid, r))
-        elif nid not in has_outgoing:
-            exit_conns.append((nid, None))
-    return exit_conns
-
-
-def compute_exit_routes(nodes: list[dict], edges: list[dict]) -> list[str]:
-    """
-    Rutas de salida NOMBRADAS de un subgrafo (nodes, edges) — pensada para
-    poblar `config.routes` de un nodo `nodo_flow` en la UI (ver
+    Rutas de salida NOMBRADAS de un sub-flow — pensada para poblar
+    `config.routes` de un nodo `nodo_flow` en la UI (ver
     management/SPEC_NODOFLOW.md) a partir del sub-flow elegido.
 
-    Dedupe preservando el orden de aparición. No incluye `None`: un exit sin
-    label no es una "ruta" con nombre (no aplica el mecanismo de labels de
-    router/condition — ver `_compute_exit_conns`).
+    Cada nodo `subflow_end` con un `config.route` no vacío es una salida
+    nombrada. Un `route` vacío/None no es una "ruta" con nombre seleccionable,
+    así que no se incluye. Dedupe preservando el orden de aparición.
     """
     seen: set[str] = set()
     result: list[str] = []
-    for _, label in _compute_exit_conns(nodes, edges):
-        if label and label not in seen:
-            seen.add(label)
-            result.append(label)
+    for n in nodes:
+        if n.get("type") != "subflow_end":
+            continue
+        route = (n.get("config") or {}).get("route")
+        if route and route not in seen:
+            seen.add(route)
+            result.append(route)
     return result
 
 
@@ -156,6 +121,11 @@ async def expand_node_flows(
         nodo raíz y para copiar `state.data[output_key]` → `state.data[output]`
         después de los terminales.
       - Reconecta los edges externos que entraban/salían del nodo_flow.
+
+    Entrada y salida del sub-flow son EXPLÍCITAS (no se infieren por heurística
+    de grado): el sub-flow declara exactamente un nodo `subflow_start` (la raíz)
+    y uno o más nodos `subflow_end` (las salidas, cada una con `config.route`
+    como label). Ambos son passthrough reales que sí se ejecutan.
 
     `visiting` acumula los flow_id en la rama de expansión actual para detectar
     ciclos (A→A, A→B→A, ...).
@@ -216,43 +186,45 @@ async def expand_node_flows(
             copy_e["target"] = prefix + e["target"]
             ns_edges.append(copy_e)
 
-        # 2) Expandir recursivamente el subgrafo (NodoFlow anidados). Tras esto,
-        #    los ids raíz/terminales son siempre nodos reales, no nodo_flow.
+        # 2) Determinar entrada/salida de ESTE nivel ANTES de expandir anidados:
+        #    los subflow_start/subflow_end propios se identifican sobre los nodos
+        #    namespaceados de este sub-flow (una sola pasada de prefijo). Se hace
+        #    acá y no después de la recursión porque un NodoFlow anidado deja sus
+        #    propios subflow_start/subflow_end (passthrough) en el subgrafo — no
+        #    son las anclas de este nivel y confundirían el conteo.
+        #    Sus ids se preservan intactos a través de la expansión recursiva
+        #    (la recursión solo reemplaza nodos nodo_flow, nunca estos).
+        starts = [n["id"] for n in ns_nodes if n.get("type") == "subflow_start"]
+        if len(starts) == 0:
+            raise ValueError(
+                f"El NodoFlow '{flow_id}' necesita exactamente un nodo de Inicio "
+                f"(subflow_start)"
+            )
+        if len(starts) > 1:
+            raise ValueError(
+                f"El NodoFlow '{flow_id}' tiene más de un nodo de Inicio "
+                f"(subflow_start); no soportado en v1"
+            )
+        root = starts[0]
+
+        end_nodes = [n for n in ns_nodes if n.get("type") == "subflow_end"]
+        if not end_nodes:
+            raise ValueError(
+                f"El NodoFlow '{flow_id}' necesita al menos un nodo de Fin "
+                f"(subflow_end)"
+            )
+        # Cada subflow_end es una salida, con label == su `config.route`
+        # (vacío/None → salida sin nombre). Se reconectan con el mismo mecanismo
+        # de labels que ya usaba el Paso 6 (con/sin nodo `output` sintético).
+        exit_conns: list[tuple[str, str | None]] = [
+            (n["id"], (n.get("config") or {}).get("route") or None) for n in end_nodes
+        ]
+
+        # 3) Expandir recursivamente el subgrafo (NodoFlow anidados). root y
+        #    exit_conns ya apuntan a ids reales que la recursión no toca.
         ns_nodes, ns_edges = await expand_node_flows(
             ns_nodes, ns_edges, fetch_flow_fn, visiting | {flow_id}
         )
-
-        sub_ids = {n["id"] for n in ns_nodes}
-
-        # 3) Determinar nodo raíz.
-        entry_node_id = definition.get("entry_node_id")
-        if entry_node_id:
-            root = prefix + entry_node_id
-            if root not in sub_ids:
-                raise ValueError(
-                    f"NodoFlow {flow_id}: entry_node_id '{entry_node_id}' no "
-                    f"existe en el sub-flow"
-                )
-        else:
-            has_incoming = {e["target"] for e in ns_edges if e["target"] in sub_ids}
-            roots = [nid for nid in sub_ids if nid not in has_incoming]
-            if len(roots) != 1:
-                raise ValueError(
-                    f"NodoFlow {flow_id}: no se puede inferir el nodo raíz "
-                    f"(in-degree 0 encontrados: {len(roots)}) — declará "
-                    f"'entry_node_id' explícito en la definición del sub-flow"
-                )
-            root = roots[0]
-
-        # 4) Determinar puntos de salida del subgrafo, cada uno como (source_id, label)
-        #    — ver `_compute_exit_conns` (misma lógica que usa `compute_exit_routes`
-        #    para poblar la UI, no duplicada acá).
-        exit_conns: list[tuple[str, str | None]] = _compute_exit_conns(ns_nodes, ns_edges)
-
-        if not exit_conns:
-            # Subgrafo cíclico sin salida clara: usar la raíz como terminal para
-            # no perder la conexión de salida.
-            exit_conns = [(root, None)]
 
         sub_added_nodes = list(ns_nodes)
         sub_added_edges = list(ns_edges)
@@ -294,10 +266,10 @@ async def expand_node_flows(
                 # (el output que dejó el subgrafo) y lo escribe en output_dest.
                 "config": {"field": output_dest, "value": f"{{{{{output_key}}}}}"},
             })
-            # Cada salida entra al nodo de output preservando su label: las salidas
-            # de rutas de un router/condition llevan label==ruta (así el resto de
-            # las rutas de ese nodo siguen loopeando adentro sin desviarse al output);
-            # los terminales clásicos entran con label None (siempre).
+            # Cada salida (subflow_end) entra al nodo de output preservando su
+            # label (== su `config.route`), para que el edge externo correcto lo
+            # siga después según el route del estado; una salida sin route entra
+            # con label None (siempre).
             for src, label in exit_conns:
                 oe = {"source": src, "target": oid}
                 if label:
@@ -305,9 +277,9 @@ async def expand_node_flows(
                 sub_added_edges.append(oe)
             exit_sources = [oid]
         else:
-            # Sin output: los edges externos (que ya vienen etiquetados con el nombre
-            # de ruta) se reconectan directo desde cada nodo de salida — dedup para no
-            # duplicar reconexiones cuando un router aporta varias rutas de salida.
+            # Sin output: los edges externos (que ya vienen etiquetados con el
+            # nombre de ruta) se reconectan directo desde cada nodo subflow_end —
+            # dedup por si dos subflow_end compartieran id (no debería pasar).
             exit_sources = list(dict.fromkeys(src for src, _ in exit_conns))
 
         entry_of[nfid] = entry_target

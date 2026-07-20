@@ -58,41 +58,52 @@ def _adj(edges):
 
 @pytest.mark.asyncio
 async def test_expand_lineal_simple():
-    """Nodo del medio es nodo_flow → sub-flow lineal de 2 nodos. Verifica
-    namespacing y que los edges conectan de punta a punta."""
+    """Nodo del medio es nodo_flow → sub-flow lineal con subflow_start/end
+    explícitos. Verifica namespacing y que los edges conectan de punta a punta:
+    la raíz es el `subflow_start` namespaceado y la salida el `subflow_end`."""
     sub_flow = {
         "id": "sub1",
         "definition": {
             "nodes": [
+                {"id": "start", "type": "subflow_start", "config": {"key": "start"}},
                 {"id": "a", "type": "llm", "config": {}},
                 {"id": "b", "type": "send_message", "config": {}},
+                {"id": "end", "type": "subflow_end", "config": {"route": ""}},
             ],
-            "edges": [{"source": "a", "target": "b"}],
+            "edges": [
+                {"source": "start", "target": "a"},
+                {"source": "a", "target": "b"},
+                {"source": "b", "target": "end"},
+            ],
         },
     }
     nodes = [
         {"id": "t", "type": "message_trigger", "config": {}},
         {"id": "nf", "type": "nodo_flow", "config": {"flow_id": "sub1"}},
-        {"id": "end", "type": "send_message", "config": {}},
+        {"id": "fin", "type": "send_message", "config": {}},
     ]
     edges = [
         {"source": "t", "target": "nf"},
-        {"source": "nf", "target": "end"},
+        {"source": "nf", "target": "fin"},
     ]
 
     new_nodes, new_edges = await expand_node_flows(nodes, edges, _fetch_from({"sub1": sub_flow}))
 
     ids = _by_id(new_nodes)
-    # El nodo_flow desaparece; aparecen los namespaceados.
+    # El nodo_flow desaparece; aparecen los namespaceados (start/end incluidos).
     assert "nf" not in ids
     assert "sub1::a" not in ids  # (sanity: el prefijo es el id del nodo_flow, no del flow)
+    assert "nf::start" in ids
     assert "nf::a" in ids
     assert "nf::b" in ids
-    # Sin params ni output → entry=raíz namespaceada, salida=terminal namespaceado.
+    assert "nf::end" in ids
+    # Sin params ni output → entry=subflow_start namespaceado, salida=subflow_end.
     adj = _adj(new_edges)
+    assert "nf::a" in adj["nf::start"]    # edge interno start → a preservado
     assert "nf::b" in adj["nf::a"]        # edge interno preservado
-    assert "nf::a" in adj["t"]            # externo-in → raíz subgrafo
-    assert "end" in adj["nf::b"]          # terminal subgrafo → externo-out
+    assert "nf::end" in adj["nf::b"]      # b → subflow_end
+    assert "nf::start" in adj["t"]        # externo-in → subflow_start
+    assert "fin" in adj["nf::end"]        # subflow_end → externo-out
 
 
 @pytest.mark.asyncio
@@ -104,8 +115,15 @@ async def test_expand_con_params_inserta_set_state():
         "definition": {
             "inputs": [{"key": "ciudad", "label": "Ciudad", "type": "text", "default": ""}],
             "output_key": "resultado",
-            "nodes": [{"id": "a", "type": "llm", "config": {}}],
-            "edges": [],
+            "nodes": [
+                {"id": "start", "type": "subflow_start", "config": {"key": "start"}},
+                {"id": "a", "type": "llm", "config": {}},
+                {"id": "end", "type": "subflow_end", "config": {"route": ""}},
+            ],
+            "edges": [
+                {"source": "start", "target": "a"},
+                {"source": "a", "target": "end"},
+            ],
         },
     }
     nodes = [
@@ -122,16 +140,16 @@ async def test_expand_con_params_inserta_set_state():
     assert pnode["type"] == "set_state"
     assert pnode["config"] == {"field": "ciudad", "value": "Lugano"}
 
-    # externo-in → params → raíz
+    # externo-in → params → subflow_start
     adj = _adj(new_edges)
     assert "nf::__params__0" in adj["t"]
-    assert "nf::a" in adj["nf::__params__0"]
+    assert "nf::start" in adj["nf::__params__0"]
 
     # output: set_state que copia state.data[output_key] → state.data[output]
     onode = ids["nf::__output__"]
     assert onode["type"] == "set_state"
     assert onode["config"] == {"field": "destino", "value": "{{resultado}}"}
-    assert "nf::__output__" in adj["nf::a"]  # terminal → output
+    assert "nf::__output__" in adj["nf::end"]  # subflow_end → output
 
 
 @pytest.mark.asyncio
@@ -141,10 +159,14 @@ async def test_expand_ciclo_lanza_valueerror():
         "id": "sub1",
         "definition": {
             "nodes": [
-                {"id": "a", "type": "llm", "config": {}},
+                {"id": "start", "type": "subflow_start", "config": {}},
                 {"id": "self", "type": "nodo_flow", "config": {"flow_id": "sub1"}},
+                {"id": "end", "type": "subflow_end", "config": {"route": ""}},
             ],
-            "edges": [{"source": "a", "target": "self"}],
+            "edges": [
+                {"source": "start", "target": "self"},
+                {"source": "self", "target": "end"},
+            ],
         },
     }
     nodes = [{"id": "nf", "type": "nodo_flow", "config": {"flow_id": "sub1"}}]
@@ -156,37 +178,69 @@ async def test_expand_ciclo_lanza_valueerror():
 
 @pytest.mark.asyncio
 async def test_expand_anidado():
-    """Un nodo_flow cuyo sub-flow contiene a su vez otro nodo_flow → ambos
-    niveles se expanden."""
+    """Un nodo_flow cuyo sub-flow contiene a su vez otro nodo_flow, cada uno con
+    su propio subflow_start/subflow_end → ambos niveles se expanden y quedan
+    conectados de punta a punta."""
     inner = {
         "id": "inner",
         "definition": {
-            "nodes": [{"id": "x", "type": "llm", "config": {}}],
-            "edges": [],
+            "nodes": [
+                {"id": "istart", "type": "subflow_start", "config": {}},
+                {"id": "x", "type": "llm", "config": {}},
+                {"id": "iend", "type": "subflow_end", "config": {"route": ""}},
+            ],
+            "edges": [
+                {"source": "istart", "target": "x"},
+                {"source": "x", "target": "iend"},
+            ],
         },
     }
     outer = {
         "id": "outer",
         "definition": {
             "nodes": [
-                {"id": "p", "type": "set_state", "config": {"field": "k", "value": "v"}},
+                {"id": "ostart", "type": "subflow_start", "config": {}},
                 {"id": "child", "type": "nodo_flow", "config": {"flow_id": "inner"}},
+                {"id": "oend", "type": "subflow_end", "config": {"route": ""}},
             ],
-            "edges": [{"source": "p", "target": "child"}],
+            "edges": [
+                {"source": "ostart", "target": "child"},
+                {"source": "child", "target": "oend"},
+            ],
         },
     }
-    nodes = [{"id": "nf", "type": "nodo_flow", "config": {"flow_id": "outer"}}]
-    edges = []
+    nodes = [
+        {"id": "t", "type": "message_trigger", "config": {}},
+        {"id": "nf", "type": "nodo_flow", "config": {"flow_id": "outer"}},
+        {"id": "fin", "type": "send_message", "config": {}},
+    ]
+    edges = [
+        {"source": "t", "target": "nf"},
+        {"source": "nf", "target": "fin"},
+    ]
 
-    new_nodes, _ = await expand_node_flows(
+    new_nodes, new_edges = await expand_node_flows(
         nodes, edges, _fetch_from({"outer": outer, "inner": inner})
     )
     ids = _by_id(new_nodes)
     # Ningún nodo_flow debe quedar sin expandir.
     assert all(n["type"] != "nodo_flow" for n in new_nodes)
-    # Doble prefijo por el anidamiento.
-    assert "nf::p" in ids
+    # Doble prefijo por el anidamiento; cada nivel conserva su start/end.
+    assert "nf::ostart" in ids
+    assert "nf::oend" in ids
+    assert "nf::child::istart" in ids
     assert "nf::child::x" in ids
+    assert "nf::child::iend" in ids
+
+    # Conexión de punta a punta: externo-in → outer start → inner start → x →
+    # inner end → outer end → externo-out.
+    adj = _adj(new_edges)
+    assert "nf::ostart" in adj["t"]
+    assert "nf::child::istart" in adj["nf::ostart"]
+    assert "nf::child::x" in adj["nf::child::istart"]
+    assert "nf::child::iend" in adj["nf::child::x"]
+    assert "nf::oend" in adj["nf::child::iend"]
+    assert "fin" in adj["nf::oend"]
 
 
 @pytest.mark.asyncio
@@ -220,10 +274,15 @@ async def test_execute_flow_expande_nodo_flow_end_to_end():
 
     sub_definition = {
         "nodes": [
+            {"id": "start", "type": "subflow_start", "config": {}},
             {"id": "s1", "type": "set_state",
              "config": {"field": "reply", "value": "sub-flow ejecutado"}},
+            {"id": "end", "type": "subflow_end", "config": {"route": ""}},
         ],
-        "edges": [],
+        "edges": [
+            {"source": "start", "target": "s1"},
+            {"source": "s1", "target": "end"},
+        ],
     }
     sub_flow = await flows_svc.create_flow(
         bot_id=bot_id, name="Sub NodoFlow",
@@ -269,28 +328,37 @@ def _labels_from(edges, source):
     return {e["target"]: (e.get("label") or None) for e in edges if e["source"] == source}
 
 
+def _incoming_labeled(edges, target):
+    """(source, label) de todos los edges que entran a `target`."""
+    return {(e["source"], e.get("label") or None) for e in edges if e["target"] == target}
+
+
 @pytest.mark.asyncio
-async def test_expand_condition_rutas_parciales_conecta_salidas():
-    """Sub-flow con un nodo `condition` de 3 rutas donde solo 1 (`pedir_mas_info`)
-    tiene edge interno (vuelve a otro nodo del subgrafo) y las otras 2
-    (`necesidad_identificada`, `fuera_de_scope`) NO tienen edge interno →
-    esas 2 rutas deben quedar conectadas a los destinos de las edges externas
-    originales del nodo_flow, preservando el label; la ruta con edge interno
-    sigue apuntando adentro del subgrafo sin cambios."""
+async def test_expand_dos_subflow_end_por_route_conecta_por_label():
+    """(caso d) Sub-flow con estructura tipo `get_data`: un condition rutea a un
+    loop interno (`pedir_mas_info`) y a dos `subflow_end` (`found` / `not_found`).
+    Cada salida externa del nodo_flow debe quedar conectada al target correcto
+    por label, vía el subflow_end de esa ruta."""
     sub_flow = {
         "id": "sub1",
         "definition": {
-            "entry_node_id": "cond",
             "nodes": [
+                {"id": "start", "type": "subflow_start", "config": {}},
+                {"id": "identificar", "type": "llm", "config": {}},
                 {"id": "cond", "type": "condition", "config": {
-                    "routes": ["necesidad_identificada", "pedir_mas_info", "fuera_de_scope"],
+                    "routes": ["found", "pedir_mas_info", "not_found"],
                 }},
                 {"id": "reask", "type": "llm", "config": {}},
+                {"id": "end_found", "type": "subflow_end", "config": {"route": "found"}},
+                {"id": "end_notfound", "type": "subflow_end", "config": {"route": "not_found"}},
             ],
-            # Solo la ruta pedir_mas_info tiene edge interno (loop de re-pregunta).
             "edges": [
+                {"source": "start", "target": "identificar"},
+                {"source": "identificar", "target": "cond"},
                 {"source": "cond", "target": "reask", "label": "pedir_mas_info"},
-                {"source": "reask", "target": "cond", "label": None},
+                {"source": "reask", "target": "identificar"},
+                {"source": "cond", "target": "end_found", "label": "found"},
+                {"source": "cond", "target": "end_notfound", "label": "not_found"},
             ],
         },
     }
@@ -302,46 +370,53 @@ async def test_expand_condition_rutas_parciales_conecta_salidas():
     ]
     edges = [
         {"source": "t", "target": "nf"},
-        {"source": "nf", "target": "siguiente", "label": "necesidad_identificada"},
-        {"source": "nf", "target": "otro", "label": "fuera_de_scope"},
+        {"source": "nf", "target": "siguiente", "label": "found"},
+        {"source": "nf", "target": "otro", "label": "not_found"},
     ]
 
     new_nodes, new_edges = await expand_node_flows(nodes, edges, _fetch_from({"sub1": sub_flow}))
 
     ids = _by_id(new_nodes)
     assert "nf" not in ids
-    assert "nf::cond" in ids and "nf::reask" in ids
+    assert {"nf::start", "nf::cond", "nf::end_found", "nf::end_notfound"} <= set(ids)
 
     cond_out = _labels_from(new_edges, "nf::cond")
-    # La ruta con edge interno sigue adentro del subgrafo, sin cambios.
+    # Loop interno intacto.
     assert cond_out.get("nf::reask") == "pedir_mas_info"
-    # Las 2 rutas sin edge interno salen a los destinos externos, con su label.
-    assert cond_out.get("siguiente") == "necesidad_identificada"
-    assert cond_out.get("otro") == "fuera_de_scope"
-    # El loop interno se preserva.
-    assert _labels_from(new_edges, "nf::reask").get("nf::cond") is None
+    # El condition rutea a cada subflow_end con su label.
+    assert cond_out.get("nf::end_found") == "found"
+    assert cond_out.get("nf::end_notfound") == "not_found"
+
+    # Cada subflow_end reconecta a los targets externos preservando el label;
+    # el matching por route en runtime hace que solo se siga el edge correcto.
+    assert ("nf::end_found", "found") in _incoming_labeled(new_edges, "siguiente")
+    assert ("nf::end_notfound", "not_found") in _incoming_labeled(new_edges, "otro")
 
 
 @pytest.mark.asyncio
-async def test_expand_condition_rutas_parciales_con_output():
-    """Como el anterior pero con `output` configurado: las rutas de salida del
-    condition deben pasar por el nodo sintético de output (llevando su label en
-    el edge condition→output, para no desviar la ruta interna) antes de llegar
-    a las edges externas."""
+async def test_expand_subflow_end_con_output():
+    """(caso e) Con `output` configurado y salidas sourceadas desde subflow_end:
+    cada subflow_end entra al nodo sintético de output llevando su label, y el
+    output reparte a los targets externos según ese label."""
     sub_flow = {
         "id": "sub1",
         "definition": {
-            "entry_node_id": "cond",
             "output_key": "necesidad",
             "nodes": [
+                {"id": "start", "type": "subflow_start", "config": {}},
                 {"id": "cond", "type": "condition", "config": {
-                    "routes": ["necesidad_identificada", "pedir_mas_info", "fuera_de_scope"],
+                    "routes": ["found", "pedir_mas_info", "not_found"],
                 }},
                 {"id": "reask", "type": "llm", "config": {}},
+                {"id": "end_found", "type": "subflow_end", "config": {"route": "found"}},
+                {"id": "end_notfound", "type": "subflow_end", "config": {"route": "not_found"}},
             ],
             "edges": [
+                {"source": "start", "target": "cond"},
                 {"source": "cond", "target": "reask", "label": "pedir_mas_info"},
-                {"source": "reask", "target": "cond", "label": None},
+                {"source": "reask", "target": "cond"},
+                {"source": "cond", "target": "end_found", "label": "found"},
+                {"source": "cond", "target": "end_notfound", "label": "not_found"},
             ],
         },
     }
@@ -354,8 +429,8 @@ async def test_expand_condition_rutas_parciales_con_output():
     ]
     edges = [
         {"source": "t", "target": "nf"},
-        {"source": "nf", "target": "siguiente", "label": "necesidad_identificada"},
-        {"source": "nf", "target": "otro", "label": "fuera_de_scope"},
+        {"source": "nf", "target": "siguiente", "label": "found"},
+        {"source": "nf", "target": "otro", "label": "not_found"},
     ]
 
     new_nodes, new_edges = await expand_node_flows(nodes, edges, _fetch_from({"sub1": sub_flow}))
@@ -365,141 +440,127 @@ async def test_expand_condition_rutas_parciales_con_output():
     assert ids[oid]["type"] == "set_state"
     assert ids[oid]["config"] == {"field": "destino", "value": "{{necesidad}}"}
 
-    cond_out = _labels_from(new_edges, "nf::cond")
-    # Ruta interna intacta.
-    assert cond_out.get("nf::reask") == "pedir_mas_info"
-    # Las rutas de salida entran al nodo output preservando su label (para no
-    # desviar la ruta interna hacia el output).
-    assert cond_out.get(oid) is None or cond_out.get(oid) is not None  # existe edge a output
-    labels_to_output = [e.get("label") for e in new_edges
-                        if e["source"] == "nf::cond" and e["target"] == oid]
-    assert set(labels_to_output) == {"necesidad_identificada", "fuera_de_scope"}
-    # El nodo output reparte a los destinos externos según label.
+    # Cada subflow_end entra al nodo output con su label.
+    to_output = _incoming_labeled(new_edges, oid)
+    assert ("nf::end_found", "found") in to_output
+    assert ("nf::end_notfound", "not_found") in to_output
+
+    # El nodo output reparte a los targets externos según label.
     out_out = _labels_from(new_edges, oid)
-    assert out_out.get("siguiente") == "necesidad_identificada"
-    assert out_out.get("otro") == "fuera_de_scope"
+    assert out_out.get("siguiente") == "found"
+    assert out_out.get("otro") == "not_found"
 
 
 @pytest.mark.asyncio
-async def test_expand_get_necesidad_real_conecta_ambas_salidas():
-    """Fixture con la estructura real del flow `get_necesidad` (bot luganense):
-    condition con rutas [necesidad_identificada, pedir_mas_info, fuera_de_scope]
-    donde solo pedir_mas_info loopea internamente (reask→send→wait→entry) y no
-    hay NINGÚN nodo out-degree 0. Con el fix, ambas salidas externas quedan bien
-    conectadas desde el condition; sin el fix, el fallback a `root` las rompía."""
+async def test_expand_sin_subflow_start_error():
+    """(caso a) Sub-flow sin ningún subflow_start → ValueError claro."""
     sub_flow = {
-        "id": "get_necesidad",
+        "id": "sub1",
         "definition": {
-            "entry_node_id": "identificar",
             "nodes": [
-                {"id": "identificar", "type": "llm", "config": {"output": "necesidad"}},
-                {"id": "cond", "type": "condition", "config": {
-                    "rules": [
-                        {"var": "necesidad", "op": "not_in",
-                         "values": ["", "UNCLEAR", "OUT_OF_SCOPE"], "then": "necesidad_identificada"},
-                        {"var": "necesidad", "op": "equals", "value": "OUT_OF_SCOPE",
-                         "then": "fuera_de_scope"},
-                    ],
-                    "routes": ["necesidad_identificada", "pedir_mas_info", "fuera_de_scope"],
-                    "fallback": "pedir_mas_info",
-                }},
-                {"id": "reask", "type": "llm", "config": {"output": "mensaje_pedido_necesidad"}},
-                {"id": "preguntar", "type": "send_message", "config": {}},
-                {"id": "esperar", "type": "wait_user", "config": {}},
+                {"id": "a", "type": "llm", "config": {}},
+                {"id": "end", "type": "subflow_end", "config": {"route": ""}},
+            ],
+            "edges": [{"source": "a", "target": "end"}],
+        },
+    }
+    nodes = [{"id": "nf", "type": "nodo_flow", "config": {"flow_id": "sub1"}}]
+    with pytest.raises(ValueError, match="nodo de Inicio"):
+        await expand_node_flows(nodes, [], _fetch_from({"sub1": sub_flow}))
+
+
+@pytest.mark.asyncio
+async def test_expand_dos_subflow_start_error():
+    """(caso b) Sub-flow con dos subflow_start → ValueError (no soportado en v1)."""
+    sub_flow = {
+        "id": "sub1",
+        "definition": {
+            "nodes": [
+                {"id": "s1", "type": "subflow_start", "config": {"key": "start"}},
+                {"id": "s2", "type": "subflow_start", "config": {"key": "otra"}},
+                {"id": "a", "type": "llm", "config": {}},
+                {"id": "end", "type": "subflow_end", "config": {"route": ""}},
             ],
             "edges": [
-                {"source": "identificar", "target": "cond", "label": None},
-                {"source": "cond", "target": "reask", "label": "pedir_mas_info"},
-                {"source": "reask", "target": "preguntar", "label": None},
-                {"source": "preguntar", "target": "esperar", "label": None},
-                {"source": "esperar", "target": "identificar", "label": None},
+                {"source": "s1", "target": "a"},
+                {"source": "s2", "target": "a"},
+                {"source": "a", "target": "end"},
             ],
         },
     }
+    nodes = [{"id": "nf", "type": "nodo_flow", "config": {"flow_id": "sub1"}}]
+    with pytest.raises(ValueError, match="más de un nodo de Inicio"):
+        await expand_node_flows(nodes, [], _fetch_from({"sub1": sub_flow}))
+
+
+@pytest.mark.asyncio
+async def test_expand_sin_subflow_end_error():
+    """(caso c) Sub-flow sin ningún subflow_end → ValueError claro."""
+    sub_flow = {
+        "id": "sub1",
+        "definition": {
+            "nodes": [
+                {"id": "start", "type": "subflow_start", "config": {}},
+                {"id": "a", "type": "llm", "config": {}},
+            ],
+            "edges": [{"source": "start", "target": "a"}],
+        },
+    }
+    nodes = [{"id": "nf", "type": "nodo_flow", "config": {"flow_id": "sub1"}}]
+    with pytest.raises(ValueError, match="nodo de Fin"):
+        await expand_node_flows(nodes, [], _fetch_from({"sub1": sub_flow}))
+
+
+# ─── compute_exit_routes: rutas de salida nombradas de un sub-flow ───────────
+
+
+def test_compute_exit_routes_una_salida_sin_route():
+    """Un solo subflow_end con route vacío → sin rutas nombradas (una salida
+    sin nombre no es una ruta seleccionable)."""
     nodes = [
-        {"id": "t", "type": "message_trigger", "config": {}},
-        {"id": "nf", "type": "nodo_flow", "config": {"flow_id": "get_necesidad"}},
-        {"id": "buscar_directorio", "type": "send_message", "config": {}},
-        {"id": "responder_fuera_scope", "type": "send_message", "config": {}},
-    ]
-    edges = [
-        {"source": "t", "target": "nf"},
-        {"source": "nf", "target": "buscar_directorio", "label": "necesidad_identificada"},
-        {"source": "nf", "target": "responder_fuera_scope", "label": "fuera_de_scope"},
-    ]
-
-    new_nodes, new_edges = await expand_node_flows(
-        nodes, edges, _fetch_from({"get_necesidad": sub_flow}))
-
-    ids = _by_id(new_nodes)
-    assert "nf" not in ids
-    assert all(n["type"] != "nodo_flow" for n in new_nodes)
-
-    cond_out = _labels_from(new_edges, "nf::cond")
-    # Loop interno intacto.
-    assert cond_out.get("nf::reask") == "pedir_mas_info"
-    # Ambas salidas externas conectadas desde el condition, con label preservado.
-    assert cond_out.get("buscar_directorio") == "necesidad_identificada"
-    assert cond_out.get("responder_fuera_scope") == "fuera_de_scope"
-    # El entry (root) NO debe quedar conectado a las salidas externas (el bug viejo).
-    root_out = _labels_from(new_edges, "nf::identificar")
-    assert "buscar_directorio" not in root_out
-    assert "responder_fuera_scope" not in root_out
-
-
-# ─── compute_exit_routes: rutas de salida nombradas de un subgrafo ───────────
-
-
-def test_compute_exit_routes_lineal_sin_routes():
-    """Subgrafo lineal, sin ningún nodo router/condition → sin rutas nombradas."""
-    nodes = [
+        {"id": "start", "type": "subflow_start", "config": {}},
         {"id": "a", "type": "llm", "config": {}},
-        {"id": "b", "type": "send_message", "config": {}},
+        {"id": "end", "type": "subflow_end", "config": {"route": ""}},
     ]
-    edges = [{"source": "a", "target": "b"}]
-    assert compute_exit_routes(nodes, edges) == []
+    assert compute_exit_routes(nodes) == []
 
 
-def test_compute_exit_routes_condition_rutas_parciales_caso_get_data():
-    """Caso get_data: condition con routes ['found', 'pedir_mas_info', 'not_found']
-    donde solo 'pedir_mas_info' tiene edge interno (loop) → las otras 2 son
-    salidas nombradas, en el orden en que aparecen en `routes`."""
+def test_compute_exit_routes_dos_subflow_end_nombrados_caso_get_data():
+    """Caso get_data: dos subflow_end con route 'found' / 'not_found' → esas dos
+    son las salidas nombradas, en orden de aparición."""
     nodes = [
+        {"id": "start", "type": "subflow_start", "config": {}},
         {"id": "cond", "type": "condition", "config": {
             "routes": ["found", "pedir_mas_info", "not_found"],
         }},
         {"id": "reask", "type": "llm", "config": {}},
+        {"id": "end_found", "type": "subflow_end", "config": {"route": "found"}},
+        {"id": "end_notfound", "type": "subflow_end", "config": {"route": "not_found"}},
     ]
-    edges = [
-        {"source": "cond", "target": "reask", "label": "pedir_mas_info"},
-        {"source": "reask", "target": "cond", "label": None},
-    ]
-    assert compute_exit_routes(nodes, edges) == ["found", "not_found"]
+    assert compute_exit_routes(nodes) == ["found", "not_found"]
 
 
-def test_compute_exit_routes_router_totalmente_sin_edges():
-    """Router sin ningún edge interno (out-degree 0) → igual expone TODAS sus
-    rutas declaradas como salidas nombradas — a diferencia de `_compute_exit_conns`
-    para wiring (que en este caso también las devuelve todas, ya que un nodo
-    con `routes` nunca cae al terminal clásico label=None)."""
+def test_compute_exit_routes_ignora_route_vacio_entre_nombrados():
+    """Un subflow_end sin route no aporta una ruta nombrada; los que sí tienen
+    route se listan."""
     nodes = [
-        {"id": "r", "type": "router", "config": {
-            "routes": ["noticias", "oficio", "auspiciante"],
-        }},
+        {"id": "end_a", "type": "subflow_end", "config": {"route": "a"}},
+        {"id": "end_vacio", "type": "subflow_end", "config": {"route": ""}},
+        {"id": "end_b", "type": "subflow_end", "config": {"route": "b"}},
     ]
-    edges: list[dict] = []
-    assert compute_exit_routes(nodes, edges) == ["noticias", "oficio", "auspiciante"]
+    assert compute_exit_routes(nodes) == ["a", "b"]
 
 
-def test_compute_exit_routes_dedupe_multiples_nodos():
-    """Dos nodos router distintos declarando la misma ruta suelta → dedupeada,
-    conserva el orden de primera aparición."""
+def test_compute_exit_routes_dedupe_conserva_orden():
+    """Dos subflow_end con la misma route → dedupeada, conserva orden de primera
+    aparición."""
     nodes = [
-        {"id": "r1", "type": "router", "config": {"routes": ["a", "b"]}},
-        {"id": "r2", "type": "router", "config": {"routes": ["b", "c"]}},
+        {"id": "e1", "type": "subflow_end", "config": {"route": "a"}},
+        {"id": "e2", "type": "subflow_end", "config": {"route": "b"}},
+        {"id": "e3", "type": "subflow_end", "config": {"route": "a"}},
+        {"id": "e4", "type": "subflow_end", "config": {"route": "c"}},
     ]
-    edges: list[dict] = []
-    assert compute_exit_routes(nodes, edges) == ["a", "b", "c"]
+    assert compute_exit_routes(nodes) == ["a", "b", "c"]
 
 
 # ─── dispatch_message: conversación abierta más allá del wait_user ───────────

@@ -44,6 +44,8 @@ from .detect_conversation import DetectConversationNode
 from .end_conversation import EndConversationNode
 from .metric import MetricNode
 from .nodo_flow import NodoFlowNode
+from .subflow_start import SubflowStartNode
+from .subflow_end import SubflowEndNode
 
 NODE_REGISTRY: dict[str, type] = {
     "message_trigger":    MessageTriggerNode,
@@ -72,6 +74,8 @@ NODE_REGISTRY: dict[str, type] = {
     "end_conversation":     EndConversationNode,
     "metric":               MetricNode,
     "nodo_flow":            NodoFlowNode,
+    "subflow_start":        SubflowStartNode,
+    "subflow_end":          SubflowEndNode,
 }
 
 # Tipos de nodo que actúan como entrada de un flow.
@@ -102,4 +106,6 @@ __all__ = [
     "EndConversationNode",
     "MetricNode",
     "NodoFlowNode",
+    "SubflowStartNode",
+    "SubflowEndNode",
 ]

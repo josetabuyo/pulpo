@@ -249,7 +249,7 @@ async def list_node_flows(bot_id: str) -> list[dict]:
     `inputs` parsed from its `definition` (empty list if it declares none) —
     used to populate the flow_id picker + dynamic params form in the editor —
     and `routes`, las salidas nombradas reales del sub-flow (calculadas con
-    `compute_exit_routes` sobre su `nodes`/`edges`, misma lógica que usa el
+    `compute_exit_routes` sobre sus nodos `subflow_end`, misma lógica que usa el
     compilador para conectar el subgrafo) — la UI las usa para auto-completar
     `config.routes` del nodo `nodo_flow` que lo invoque (ver
     management/SPEC_NODOFLOW.md).
@@ -266,7 +266,7 @@ async def list_node_flows(bot_id: str) -> list[dict]:
         result.append({
             **f,
             "inputs": definition.get("inputs") or [],
-            "routes": compute_exit_routes(definition.get("nodes") or [], definition.get("edges") or []),
+            "routes": compute_exit_routes(definition.get("nodes") or []),
         })
     return result
 
