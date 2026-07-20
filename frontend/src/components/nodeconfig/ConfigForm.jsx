@@ -188,7 +188,7 @@ export default function ConfigForm({ node, schema, botId, flowId, apiCall, onGoT
             onChange={e => {
               const flow_id = e.target.value
               const selected = nodeFlows.find(f => f.id === flow_id)
-              handleChange({ ...config, flow_id, params: {}, routes: selected?.routes || [] })
+              handleChange({ ...config, flow_id, routes: selected?.routes || [] })
             }}
             style={{
               width: '100%', padding: '6px 8px',
@@ -212,8 +212,8 @@ export default function ConfigForm({ node, schema, botId, flowId, apiCall, onGoT
       />
 
       {/* NodoFlow: referencia de solo lectura del sub-flow elegido — documenta
-          qué escribir en el JSON de arriba (params/output/routes), no es un
-          formulario editable. */}
+          qué claves agregar sueltas en el JSON de arriba (junto a flow_id/
+          output/routes, sin anidar), no es un formulario editable. */}
       {nodeType === 'nodo_flow' && (() => {
         const selectedFlow = nodeFlows.find(f => f.id === config.flow_id)
         if (!selectedFlow) return null
@@ -230,7 +230,7 @@ export default function ConfigForm({ node, schema, botId, flowId, apiCall, onGoT
             </span>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ fontSize: 10, color: '#64748b' }}>params</span>
+              <span style={{ fontSize: 10, color: '#64748b' }}>parámetros (claves sueltas en el JSON)</span>
               {inputs.length > 0 ? inputs.map(input => (
                 <div key={input.key} style={{ fontSize: 11, color: '#94a3b8', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   <code style={{ color: '#60a5fa' }}>{input.key}</code>

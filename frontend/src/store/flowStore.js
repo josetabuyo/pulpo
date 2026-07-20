@@ -63,7 +63,7 @@ const DEFAULT_CONFIGS = {
   save_contact:    { name_field: 'contact_name', phone_field: 'contact_phone', notes_field: 'contact_notes', update_if_exists: true },
   check_contact:   { route_known: 'conocido', route_unknown: 'desconocido' },
   metric:          { metric_name: '', value: '', metadata: {}, webhook_url: '' },
-  nodo_flow:       { flow_id: '', params: {}, output: '', routes: [] },
+  nodo_flow:       { flow_id: '', output: '', routes: [] },
 }
 
 /**

@@ -117,9 +117,11 @@ async def expand_node_flows(
       - Expande recursivamente el subgrafo (soporta NodoFlow anidados) pasando
         `visiting | {flow_id}` — así los ids raíz/terminales que se calculan
         más abajo ya son nodos reales (nunca un nodo_flow sin expandir).
-      - Inserta nodos sintéticos `set_state` para inyectar `params` antes del
-        nodo raíz y para copiar `state.data[output_key]` → `state.data[output]`
-        después de los terminales.
+      - Inserta nodos sintéticos `set_state` para inyectar los parámetros
+        (cualquier clave del config del nodo_flow que no sea flow_id/output/
+        routes) antes del nodo raíz. `output`, si está seteado, se reenvía
+        como parámetro más — el sub-flow lo usa vía {{output}} si necesita
+        saber en qué clave del estado del padre escribir su resultado.
       - Reconecta los edges externos que entraban/salían del nodo_flow.
 
     Entrada y salida del sub-flow son EXPLÍCITAS (no se infieren por heurística
@@ -230,7 +232,15 @@ async def expand_node_flows(
         sub_added_edges = list(ns_edges)
 
         # 5) Nodo(s) sintético(s) de inyección de parámetros (set_state en serie).
-        params = cfg.get("params") or {}
+        # Cualquier clave del config que no sea reservada (flow_id/output/routes)
+        # es un parámetro para el sub-flow — sin anidar en un "params" separado.
+        # `output`, si está seteado, también se reenvía como parámetro `output`
+        # — así los nodos del sub-flow pueden usar {{output}} para saber en qué
+        # clave del estado escribir su resultado (ver LLMNode: output interpola).
+        _RESERVED_KEYS = {"flow_id", "output", "routes"}
+        params = {k: v for k, v in cfg.items() if k not in _RESERVED_KEYS}
+        if cfg.get("output"):
+            params["output"] = cfg["output"]
         param_node_ids: list[str] = []
         for i, (key, value) in enumerate(params.items()):
             pid = f"{nfid}::__params__{i}"
@@ -253,34 +263,13 @@ async def expand_node_flows(
         else:
             entry_target = root
 
-        # 6) Nodo sintético de copia de output.
-        output_key = definition.get("output_key", "reply") or "reply"
-        output_dest = cfg.get("output")
-        if output_dest:
-            oid = f"{nfid}::__output__"
-            sub_added_nodes.append({
-                "id": oid,
-                "type": "set_state",
-                "position": {"x": 0, "y": 0},
-                # value={{output_key}} → interpolate() lee state.data[output_key]
-                # (el output que dejó el subgrafo) y lo escribe en output_dest.
-                "config": {"field": output_dest, "value": f"{{{{{output_key}}}}}"},
-            })
-            # Cada salida (subflow_end) entra al nodo de output preservando su
-            # label (== su `config.route`), para que el edge externo correcto lo
-            # siga después según el route del estado; una salida sin route entra
-            # con label None (siempre).
-            for src, label in exit_conns:
-                oe = {"source": src, "target": oid}
-                if label:
-                    oe["label"] = label
-                sub_added_edges.append(oe)
-            exit_sources = [oid]
-        else:
-            # Sin output: los edges externos (que ya vienen etiquetados con el
-            # nombre de ruta) se reconectan directo desde cada nodo subflow_end —
-            # dedup por si dos subflow_end compartieran id (no debería pasar).
-            exit_sources = list(dict.fromkeys(src for src, _ in exit_conns))
+        # 6) Salidas: los edges externos (ya etiquetados con el nombre de ruta)
+        # se reconectan directo desde cada nodo subflow_end — dedup por si dos
+        # subflow_end compartieran id (no debería pasar). `output` (si está
+        # seteado) ya se reenvió como parámetro en el Paso 5 — no hace falta
+        # ningún nodo sintético de copia acá: si el sub-flow usa {{output}}
+        # internamente, ya escribe directo en la clave correcta.
+        exit_sources = list(dict.fromkeys(src for src, _ in exit_conns))
 
         entry_of[nfid] = entry_target
         exits_of[nfid] = exit_sources

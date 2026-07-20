@@ -108,13 +108,15 @@ async def test_expand_lineal_simple():
 
 @pytest.mark.asyncio
 async def test_expand_con_params_inserta_set_state():
-    """Sub-flow con params fijos → se inserta un set_state sintético con
-    config {field, value} antes de la raíz."""
+    """Cualquier clave del config del nodo_flow que no sea flow_id/output/routes
+    es un parámetro (sin anidar en 'params') → se inserta un set_state
+    sintético con config {field, value} por cada uno, encadenados, antes de
+    la raíz. `output`, si está seteado, se reenvía también como parámetro
+    'output' — sin ningún nodo sintético de copia posterior."""
     sub_flow = {
         "id": "sub1",
         "definition": {
             "inputs": [{"key": "ciudad", "label": "Ciudad", "type": "text", "default": ""}],
-            "output_key": "resultado",
             "nodes": [
                 {"id": "start", "type": "subflow_start", "config": {"key": "start"}},
                 {"id": "a", "type": "llm", "config": {}},
@@ -129,27 +131,29 @@ async def test_expand_con_params_inserta_set_state():
     nodes = [
         {"id": "t", "type": "message_trigger", "config": {}},
         {"id": "nf", "type": "nodo_flow",
-         "config": {"flow_id": "sub1", "params": {"ciudad": "Lugano"}, "output": "destino"}},
+         "config": {"flow_id": "sub1", "ciudad": "Lugano", "output": "destino"}},
     ]
-    edges = [{"source": "t", "target": "nf"}]
+    edges = [{"source": "t", "target": "nf"}, {"source": "nf", "target": "fin"}]
 
     new_nodes, new_edges = await expand_node_flows(nodes, edges, _fetch_from({"sub1": sub_flow}))
 
     ids = _by_id(new_nodes)
-    pnode = ids["nf::__params__0"]
-    assert pnode["type"] == "set_state"
-    assert pnode["config"] == {"field": "ciudad", "value": "Lugano"}
+    pnode0 = ids["nf::__params__0"]
+    pnode1 = ids["nf::__params__1"]
+    assert pnode0["type"] == "set_state"
+    assert pnode0["config"] == {"field": "ciudad", "value": "Lugano"}
+    assert pnode1["type"] == "set_state"
+    assert pnode1["config"] == {"field": "output", "value": "destino"}
 
-    # externo-in → params → subflow_start
+    # externo-in → params0 → params1 → subflow_start
     adj = _adj(new_edges)
     assert "nf::__params__0" in adj["t"]
-    assert "nf::start" in adj["nf::__params__0"]
+    assert "nf::__params__1" in adj["nf::__params__0"]
+    assert "nf::start" in adj["nf::__params__1"]
 
-    # output: set_state que copia state.data[output_key] → state.data[output]
-    onode = ids["nf::__output__"]
-    assert onode["type"] == "set_state"
-    assert onode["config"] == {"field": "destino", "value": "{{resultado}}"}
-    assert "nf::__output__" in adj["nf::end"]  # subflow_end → output
+    # sin nodo sintético de output — subflow_end conecta directo al externo-out
+    assert "__output__" not in " ".join(ids.keys())
+    assert "fin" in adj["nf::end"]
 
 
 @pytest.mark.asyncio
@@ -294,7 +298,7 @@ async def test_execute_flow_expande_nodo_flow_end_to_end():
             "nodes": [
                 {"id": "trigger1", "type": "api_trigger", "config": {}},
                 {"id": "nf1", "type": "nodo_flow",
-                 "config": {"flow_id": sub_flow["id"], "params": {}, "output": "resultado"}},
+                 "config": {"flow_id": sub_flow["id"]}},
             ],
             "edges": [{"source": "trigger1", "target": "nf1"}],
         }
@@ -307,7 +311,9 @@ async def test_execute_flow_expande_nodo_flow_end_to_end():
             state = FlowState(message="hola", contact_phone="userNF")
             result = await execute_flow(main_flow, state, entry_node_id="trigger1")
 
-            assert result.data.get("resultado") == "sub-flow ejecutado"
+            # El sub-flow escribe directo en state.data (estado compartido,
+            # no hay copia posterior) — visible en el padre sin config extra.
+            assert result.data.get("reply") == "sub-flow ejecutado"
             assert not result.data.get("_node_errors")
 
             run_id = result.data.get("_run_id")
@@ -394,14 +400,14 @@ async def test_expand_dos_subflow_end_por_route_conecta_por_label():
 
 
 @pytest.mark.asyncio
-async def test_expand_subflow_end_con_output():
-    """(caso e) Con `output` configurado y salidas sourceadas desde subflow_end:
-    cada subflow_end entra al nodo sintético de output llevando su label, y el
-    output reparte a los targets externos según ese label."""
+async def test_expand_output_se_reenvia_como_param_sin_nodo_de_copia():
+    """(caso e) Con `output` configurado: se reenvía como parámetro `output`
+    (para que el sub-flow lo use vía {{output}} si quiere) y las salidas
+    (subflow_end) reconectan DIRECTO a los targets externos por label — sin
+    ningún nodo sintético de copia posterior."""
     sub_flow = {
         "id": "sub1",
         "definition": {
-            "output_key": "necesidad",
             "nodes": [
                 {"id": "start", "type": "subflow_start", "config": {}},
                 {"id": "cond", "type": "condition", "config": {
@@ -436,19 +442,18 @@ async def test_expand_subflow_end_con_output():
     new_nodes, new_edges = await expand_node_flows(nodes, edges, _fetch_from({"sub1": sub_flow}))
 
     ids = _by_id(new_nodes)
-    oid = "nf::__output__"
-    assert ids[oid]["type"] == "set_state"
-    assert ids[oid]["config"] == {"field": "destino", "value": "{{necesidad}}"}
+    # `output` se reenvía como parámetro (único, ya que "destino" no es una
+    # clave real de config, es el valor del param) — sin nodo __output__.
+    pnode = ids["nf::__params__0"]
+    assert pnode["type"] == "set_state"
+    assert pnode["config"] == {"field": "output", "value": "destino"}
+    assert not any(nid.endswith("__output__") for nid in ids)
 
-    # Cada subflow_end entra al nodo output con su label.
-    to_output = _incoming_labeled(new_edges, oid)
-    assert ("nf::end_found", "found") in to_output
-    assert ("nf::end_notfound", "not_found") in to_output
-
-    # El nodo output reparte a los targets externos según label.
-    out_out = _labels_from(new_edges, oid)
-    assert out_out.get("siguiente") == "found"
-    assert out_out.get("otro") == "not_found"
+    # Cada subflow_end reconecta DIRECTO a los targets externos por label.
+    out_found = _labels_from(new_edges, "nf::end_found")
+    out_notfound = _labels_from(new_edges, "nf::end_notfound")
+    assert out_found.get("siguiente") == "found"
+    assert out_notfound.get("otro") == "not_found"
 
 
 @pytest.mark.asyncio

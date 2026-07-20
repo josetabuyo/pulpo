@@ -18,15 +18,17 @@ def test_nodo_flow_registrado_en_node_registry():
 
 @pytest.mark.asyncio
 async def test_nodo_flow_run_lanza_runtime_error():
-    node = NodoFlowNode({"flow_id": "otro-flow", "params": {}, "output": "resultado"})
+    node = NodoFlowNode({"flow_id": "otro-flow", "output": "resultado"})
     with pytest.raises(RuntimeError):
         await node.run(_state())
 
 
 def test_nodo_flow_config_schema_tiene_los_campos_esperados():
+    # Solo flow_id/output/routes son reservadas — cualquier otra clave del
+    # config del nodo (fuera de este schema fijo) es un parámetro libre para
+    # el sub-flow, sin anidar en un "params" separado.
     schema = NodoFlowNode.config_schema()
-    assert set(schema.keys()) == {"flow_id", "params", "output", "routes"}
+    assert set(schema.keys()) == {"flow_id", "output", "routes"}
     assert schema["flow_id"]["type"] == "select"
-    assert schema["params"]["type"] == "dict"
     assert schema["output"]["type"] == "string"
     assert schema["routes"]["type"] == "list"
