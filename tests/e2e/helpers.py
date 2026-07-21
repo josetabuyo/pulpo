@@ -279,6 +279,20 @@ class SimConversation:
 
         Devuelve una lista de (node_id, campo, valor) por cada placeholder
         sin resolver encontrado — vacía si no hay ninguno.
+
+        Excluye las claves que terminan en `_prompt`: son el texto crudo de un
+        parámetro de NodoFlow (ej. `choice_prompt`/`data_identifier_prompt` de
+        "confirm_choice"/"get_data") que el compilador copia tal cual a
+        `state.data` vía un `set_state` sintético ANTES de que el sub-flow
+        arranque — si ese prompt referencia una variable que el propio
+        sub-flow recién produce en su primera vuelta (ej. `{{propuesta_actual}}`
+        antes de la 1ª propuesta), esa copia queda con el placeholder sin
+        resolver a propósito, porque `interpolate()` lo resuelve recién en la
+        SEGUNDA pasada, cuando el nodo LLM que realmente USA el prompt (no la
+        copia cruda) lo interpola de nuevo contra el estado ya actualizado —
+        ver `pulpo/graphs/nodes/base.py::interpolate` (2 pasadas) y
+        `pulpo/graphs/compiler.py::expand_node_flows` (paso 5). No es un bug:
+        es el mecanismo de parámetros de NodoFlow funcionando como se diseñó.
         """
         found: list[tuple[str, str, str]] = []
         for step in self.all_steps:
@@ -286,6 +300,8 @@ class SimConversation:
             for key, value in output.items():
                 if key == "conversation":
                     continue  # ya cubierto por has_unresolved_templates() sobre replies
+                if key.endswith("_prompt"):
+                    continue  # copia cruda de un parámetro de NodoFlow, ver docstring
                 if isinstance(value, str) and _UNRESOLVED_TEMPLATE_RE.search(value):
                     found.append((step.get("node_id", ""), key, value))
         return found

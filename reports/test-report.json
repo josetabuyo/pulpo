@@ -1,53 +1,17 @@
 {
- "timestamp": "2026-07-20T12:22:08",
- "duration": 289.55,
- "total": 7,
- "passed": 7,
+ "timestamp": "2026-07-21T11:09:16",
+ "duration": 33.15,
+ "total": 1,
+ "passed": 1,
  "failed": 0,
  "skipped": 0,
  "exit_code": 0,
  "tests": [
   {
-   "nodeid": "tests/e2e/luganense/test_orquestador_vendedor_mejorado_sim.py::test_luganense__orquestador_vendedor_mejorado__comercio",
-   "suite": "integration",
-   "outcome": "passed",
-   "duration": 26.536
-  },
-  {
-   "nodeid": "tests/e2e/luganense/test_orquestador_vendedor_mejorado_sim.py::test_luganense__orquestador_vendedor_mejorado__comercio_sin_rubro",
-   "suite": "integration",
-   "outcome": "passed",
-   "duration": 22.658
-  },
-  {
-   "nodeid": "tests/e2e/luganense/test_orquestador_vendedor_mejorado_sim.py::test_luganense__orquestador_vendedor_mejorado__producto",
-   "suite": "integration",
-   "outcome": "passed",
-   "duration": 24.138
-  },
-  {
-   "nodeid": "tests/e2e/luganense/test_orquestador_vendedor_mejorado_sim.py::test_luganense__orquestador_vendedor_mejorado__noticias",
-   "suite": "integration",
-   "outcome": "passed",
-   "duration": 30.094
-  },
-  {
    "nodeid": "tests/e2e/luganense/test_orquestador_vendedor_mejorado_sim.py::test_luganense__orquestador_vendedor_mejorado__servicio",
    "suite": "integration",
    "outcome": "passed",
-   "duration": 70.901
-  },
-  {
-   "nodeid": "tests/e2e/luganense/test_orquestador_vendedor_mejorado_sim.py::test_luganense__orquestador_vendedor_mejorado__fuera_de_scope",
-   "suite": "integration",
-   "outcome": "passed",
-   "duration": 1.013
-  },
-  {
-   "nodeid": "tests/e2e/luganense/test_orquestador_vendedor_mejorado_sim.py::test_luganense__orquestador_vendedor_mejorado__servicio_agotado",
-   "suite": "integration",
-   "outcome": "passed",
-   "duration": 114.178
+   "duration": 33.122
   }
  ]
 }

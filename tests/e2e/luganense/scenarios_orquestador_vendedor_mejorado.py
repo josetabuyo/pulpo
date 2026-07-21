@@ -56,9 +56,15 @@ Mapa de nodos/edges del flow real "Orquestador Vendedor Mejorado" (bot
 cambian, hay que actualizar acá):
 
   node_1783192985521  telegram_trigger  "Llega Mensaje a Luganense"
-  node_1783192800831  llm               "Obtener necesidad" → state.necesidad
-  node_1783356000392  condition         "Condición" → necesidad_identificada | pedir_mas_info | fuera_de_scope
-  node_1783194257636  metric            (solo en la rama necesidad_identificada)
+
+  "Obtener Necesidad" (nodo_flow → sub-flow reusable "get_data", 2026-07-19/20
+  — patrón A: primero revisa si el dato ya está en la conversación, si no,
+  pregunta; ver docstring del propio get_data). Expandido en runtime con
+  prefijo `node_1784503628687::`:
+  node_1784503628687::node_1783192800831  llm        "Identificar dato" → state.necesidad
+  node_1784503628687::node_1783356000392  condition  "Condición dato identificado" → found | pedir_mas_info | not_found
+
+  node_1783194257636  metric            (solo en la rama found)
   node_1783192962168  router            "Elegir Mostrador" → servicio | comercio | producto | noticias
 
   Rama "comercio":
@@ -71,11 +77,33 @@ cambian, hay que actualizar acá):
   node_1783195927257  llm               "mensaje_oferta_producto"
   end_conv_producto   end_conversation
 
-  Rama "noticias":
-  expandir_consulta   llm               → state.query
-  node_1783693824414  fetch_http        (sin output custom, cae en "context")
-  responder_noticias  llm               "mensaje_noticias"
-  end_conv_noticias   end_conversation
+  Rama "noticias" (rediseñada 2026-07-20/21 — antes tiraba hasta 3 resultados
+  en UN solo mensaje sin confirmar nada; ahora itera de a una publicación,
+  con link, hasta que el vecino confirma cuál buscaba o se agotan los
+  intentos, igual que "servicio" confirma un rubro):
+  expandir_consulta        llm         → state.query
+  node_1783693824414       fetch_http  "Buscar noticias" → state.context (lista de
+                                        resultados crudos, uno por término de
+                                        `query`, cada uno {results:[{url,text,...}],total})
+
+  "Obtener Noticia Confirmada" (nodo_flow → sub-flow reusable "confirm_choice",
+  patrón B: propone un candidato de una lista, pregunta, si rechaza propone
+  otro — ver docstring de confirm_choice). Expandido en runtime con prefijo
+  `obtener_noticia_confirmada::`:
+  obtener_noticia_confirmada::node_choose        llm        "Elegir propuesta" → state.propuesta_actual
+                                                             ("url ||| resumen" o "SIN_RESULTADOS")
+  obtener_noticia_confirmada::node_check_empty   condition  ¿SIN_RESULTADOS? → vacio | hay_candidato
+  obtener_noticia_confirmada::node_track         set_state  acumula urls ya propuestas (dedup entre rondas)
+  obtener_noticia_confirmada::node_ask           llm        arma el mensaje que presenta la publicación + link
+  obtener_noticia_confirmada::node_send          send_message
+  obtener_noticia_confirmada::node_wait          wait_user
+  obtener_noticia_confirmada::node_check         llm        "Verificar confirmación" → state.noticia_confirmada (o UNCLEAR)
+  obtener_noticia_confirmada::node_condition     condition  found (confirmó) | pedir_mas_info (rechazó, vuelve a
+                                                             node_choose) | not_found (max_visits=3 o SIN_RESULTADOS)
+
+  responder_noticia_encontrada  send_message  (mensaje fijo, found)
+  disculpar_sin_noticia         send_message  (mensaje fijo, not_found — agotado o sin resultados)
+  end_conv_noticias             end_conversation
 
   Rama "servicio" (rediseñada 2026-07-14, 2ª vuelta — tras feedback: ya no se
   confirma el nombre propio de un prestador puntual, se confirma el RUBRO del
@@ -86,30 +114,38 @@ cambian, hay que actualizar acá):
   vecino. Luganense expuso `GET /api/directorio/rubros?tipo=servicios&q=`
   (matching por texto libre sobre la necesidad, mismo motor que `/buscar` y
   `/candidato`) para poder confirmar contra una lista real de rubros, sin
-  inventar ninguno. `elegir_rubro` es un LLM grounded ÚNICAMENTE a esa lista
-  (nunca elige algo fuera de `rubros_luganense`) — sigue sin haber invención
-  de prestadores ni de rubros inexistentes. Recién con el rubro confirmado se
-  llama a `/candidato?q=<rubro>` para resolver el prestador puntual — un solo
-  llamado, después de la confirmación, no antes):
+  inventar ninguno. Recién con el rubro confirmado se llama a
+  `/candidato?q=<rubro>` para resolver el prestador puntual — un solo llamado,
+  después de la confirmación, no antes.
+
+  Migrado 2026-07-20 a "Obtener Rubro Confirmado" (nodo_flow → sub-flow
+  reusable "confirm_choice", patrón B: propone un candidato de una lista,
+  pregunta, si rechaza propone otro de la misma lista — mismo patrón que
+  noticias más abajo). Antes eran 5 nodos hardcodeados (elegir_rubro,
+  "Confirmar Rubro" send_message, wait_user, "Obtener rubro confirmado" llm,
+  "Confirmó Rubro?" condition); ahora es UN nodo_flow expandido en runtime con
+  prefijo `obtener_rubro_confirmado::`:
   buscar_rubros        fetch_http       GET /api/directorio/rubros?tipo=servicios&q={{necesidad}}
                                          → state.rubros_luganense (JSON crudo: {rubros:[{categoria,label}],total})
                                          + extract_fields: state.rubros_total
   rubros_encontrados_cond condition     ¿rubros_total == "0"? → sin_resultados : encontrado
                                          sin_resultados → disculpar_sin_servicio_msg → end_conv_fail
-  elegir_rubro          llm             elige (grounded, sin inventar) el "label" más adecuado de
-                                         `rubros_luganense` → state.rubro_elegido. Si ya se había
-                                         propuesto antes y no fue confirmado, se le pide elegir otro
-                                         distinto de la misma lista (si hay más de una opción).
-  node_1783892162094  send_message      "Confirmar Rubro" → "¿Es este el tipo de servicio que necesitás: '{{rubro_elegido}}'?"
-  node_1783892344935  wait_user         "Esperar rubro confirmado"
-  node_1783892654800  llm               "Obtener rubro confirmado" → state.rubro_confirmado (o UNCLEAR)
-  node_1783892396384  condition         "Confirmó Rubro?" → confirma_rubro | no_confirma_rubro | agotado (max_visits=3)
-                                         confirma_rubro → buscar_servicio (recién ahí se resuelve el
-                                         candidato puntual); no_confirma_rubro → vuelve a `elegir_rubro`
-                                         (no hace falta re-pegarle a `/rubros`, la necesidad no cambió).
-                                         agotado → disculpar_rubro_agotado → end_conv_fail (fix del dead-end
-                                         reportado en la versión anterior de este docstring: antes esta
-                                         ruta no tenía edge de salida).
+
+  obtener_rubro_confirmado::node_choose      llm        "Elegir propuesta" — grounded ÚNICAMENTE a
+                                                         `rubros_luganense` (nunca inventa un rubro fuera de
+                                                         la lista) → state.propuesta_actual (el "label" elegido).
+                                                         Si ya se había propuesto antes y no fue confirmado, elige
+                                                         otro distinto de la misma lista (si hay más de una opción).
+  obtener_rubro_confirmado::node_send         send_message  "¿Es este el tipo de servicio que necesitás: RUBRO?"
+  obtener_rubro_confirmado::node_wait         wait_user
+  obtener_rubro_confirmado::node_check        llm        "Verificar confirmación" → state.rubro_elegido (el
+                                                         output final expuesto del nodo_flow) o UNCLEAR
+  obtener_rubro_confirmado::node_condition    condition  found (confirmó) | pedir_mas_info (rechazó, vuelve a
+                                                         node_choose — no hace falta re-pegarle a `/rubros`, la
+                                                         necesidad no cambió) | not_found (max_visits=3, agotado)
+                                                         found → buscar_servicio (recién ahí se resuelve el
+                                                         candidato puntual); not_found → disculpar_rubro_agotado
+                                                         → end_conv_fail.
   buscar_servicio      fetch_http       GET /api/directorio/candidato?q={{rubro_elegido}}&tipo=servicios
                                          → state.servicios_luganense (JSON crudo) + extract_fields:
                                          state.servicio (nombre), servicio_categoria, servicio_zona,
@@ -124,12 +160,20 @@ cambian, hay que actualizar acá):
   disculpar_sin_servicio_msg send_message  mensaje fijo (sin LLM), reusado en dos casos: sin rubros que
                                          matcheen la necesidad, o sin candidato pese a rubro confirmado
                                          → end_conv_fail
-  node_1783873167862  llm               "Obtener dirección" → state.direccion (o UNCLEAR)
-  node_1783873174012  condition         "Tienen dirección?" (antes "validar_direccion") → tiene_direccion | sin_direccion | agotado (max_visits=3)
-  node_1783867942451  llm               "Armar mensaje pedir dirección"
-  pedir_direccion     send_message      "¿En qué dirección necesitás el servicio?"
-  wait_dir            wait_user
-  set_direccion       set_state         → state.direccion (bug real 2026-07-10: usaba {{message}}, roto — fix: {{conversation.last}})
+  Migrado 2026-07-20 a "Obtener Dirección Confirmada" (nodo_flow → sub-flow
+  reusable "get_data", el mismo patrón A que "Obtener Necesidad" más arriba —
+  acá calzó 1:1 sin ajustes, porque el orden ya era "revisar si ya está el
+  dato → si no, preguntar" desde antes de la migración). Antes eran 5 nodos
+  hardcodeados; ahora es UN nodo_flow expandido en runtime con prefijo
+  `obtener_direccion_confirmada::`:
+  obtener_direccion_confirmada::node_1783192800831  llm        "Identificar dato" ("Obtener dirección")
+                                                     → state.direccion (o UNCLEAR)
+  obtener_direccion_confirmada::node_1783356000392  condition  "Condición dato identificado" → found | pedir_mas_info | not_found
+                                                     (antes tiene_direccion | sin_direccion | agotado, max_visits=3)
+  set_direccion       set_state         → state.direccion (bug real 2026-07-10: usaba {{message}}, roto —
+                                         fijado a {{conversation.last}} en su momento; hoy es un copy-through
+                                         redundante {{direccion}}={{direccion}}, inofensivo, porque el nodo_flow
+                                         ya escribe `direccion` directo vía `output`)
   notificar_trabajador send_message     envío real al prestador (guarded en sim) — `to`/`channel` usan
                                          `servicio_contact_id`/`servicio_contact_channel` (bug real
                                          encontrado 2026-07-14: antes referenciaba `{{contact_id}}`/
@@ -161,8 +205,10 @@ FLOW_SLUG = "orquestador_vendedor_mejorado"
 FLOW_NAME = "Orquestador Vendedor Mejorado"
 
 # ─── Node ids (ver docstring) ────────────────────────────────────────────────
-N_OBTENER_NECESIDAD = "node_1783192800831"
-N_CONDICION = "node_1783356000392"
+# "Obtener Necesidad" — nodo_flow → sub-flow "get_data" (patrón A), expandido
+# en runtime con prefijo "node_1784503628687::" (el id del propio nodo_flow).
+N_OBTENER_NECESIDAD = "node_1784503628687::node_1783192800831"  # llm "Identificar dato" → state.necesidad
+N_CONDICION = "node_1784503628687::node_1783356000392"  # condition → found | pedir_mas_info | not_found
 N_ELEGIR_MOSTRADOR = "node_1783192962168"
 
 N_COMERCIO_FETCH = "node_1783949463710"
@@ -173,11 +219,26 @@ N_PRODUCTO_LLM = "node_1783195927257"
 
 N_NOTICIAS_EXPANDIR = "expandir_consulta"
 N_NOTICIAS_FETCH = "node_1783693824414"
-N_NOTICIAS_LLM = "responder_noticias"
+# "Obtener Noticia Confirmada" — nodo_flow → sub-flow "confirm_choice" (patrón
+# B), expandido en runtime con prefijo "obtener_noticia_confirmada::".
+N_NOTICIAS_ELEGIR = "obtener_noticia_confirmada::node_choose"  # llm → state.propuesta_actual ("url ||| resumen" o SIN_RESULTADOS)
+N_NOTICIAS_CONFIRMAR = "obtener_noticia_confirmada::node_check"  # llm "Verificar confirmación" → state.noticia_confirmada
+N_NOTICIAS_CONDICION = "obtener_noticia_confirmada::node_condition"  # condition → found | pedir_mas_info | not_found
+N_RESPONDER_NOTICIA_ENCONTRADA = "responder_noticia_encontrada"  # mensaje fijo (sin LLM) si found
+N_DISCULPAR_SIN_NOTICIA = "disculpar_sin_noticia"  # mensaje fijo (sin LLM) si not_found (agotado o sin resultados)
 
-N_VALIDAR_DIRECCION = "node_1783873174012"  # "Tienen dirección?" (antes "validar_direccion")
+# "Obtener Dirección Confirmada" — nodo_flow → sub-flow "get_data" (patrón A),
+# expandido en runtime con prefijo "obtener_direccion_confirmada::".
+N_OBTENER_DIRECCION = "obtener_direccion_confirmada::node_1783192800831"  # llm "Identificar dato" → state.direccion
+N_VALIDAR_DIRECCION = "obtener_direccion_confirmada::node_1783356000392"  # condition → found | pedir_mas_info | not_found (antes tiene_direccion/sin_direccion/agotado, max_visits=3)
 N_BUSCAR_RUBROS = "buscar_rubros"  # GET /rubros?q={{necesidad}}, route_output → encontrado/error, sin Condition aparte
-N_ELEGIR_RUBRO = "elegir_rubro"  # llm grounded a rubros_luganense → state.rubro_elegido
+# "Obtener Rubro Confirmado" — nodo_flow → sub-flow "confirm_choice" (patrón
+# B, migrado 2026-07-20 desde 5 nodos hardcodeados), expandido en runtime con
+# prefijo "obtener_rubro_confirmado::".
+N_ELEGIR_RUBRO = "obtener_rubro_confirmado::node_choose"  # llm grounded a rubros_luganense → state.propuesta_actual
+N_CONFIRMAR_RUBRO = "obtener_rubro_confirmado::node_send"  # send_message "¿Es este el tipo de servicio...?"
+N_OBTENER_RUBRO_CONFIRMADO = "obtener_rubro_confirmado::node_check"  # llm → state.rubro_elegido (o UNCLEAR)
+N_CONFIRMO_RUBRO = "obtener_rubro_confirmado::node_condition"  # condition → found | pedir_mas_info | not_found
 N_BUSCAR_SERVICIO = "buscar_servicio"  # GET /candidato?q={{rubro_elegido}}, extract_fields, sin LLM — corre tras confirmar el rubro
 N_SERVICIO_ENCONTRADO_COND = "servicio_encontrado_cond"  # ¿state.servicio no vacío? → encontrado | sin_resultados
 N_DISCULPAR_SIN_SERVICIO = "disculpar_sin_servicio_msg"  # mensaje fijo (sin LLM) si sin_resultados
@@ -185,9 +246,6 @@ N_DISCULPAR_RUBRO_AGOTADO = "disculpar_rubro_agotado"  # mensaje fijo (sin LLM) 
 N_NOTIFICAR_TRABAJADOR = "notificar_trabajador"
 N_RESPONDER_SERVICIO = "responder_vecino_oficio"
 N_SET_DIRECCION = "set_direccion"
-N_CONFIRMAR_RUBRO = "node_1783892162094"  # "Confirmar Rubro" (send_message)
-N_OBTENER_RUBRO_CONFIRMADO = "node_1783892654800"  # "Obtener rubro confirmado" → state.rubro_confirmado
-N_CONFIRMO_RUBRO = "node_1783892396384"  # "Confirmó Rubro?" (condition)
 
 
 @dataclass
@@ -396,25 +454,137 @@ async def _run_producto() -> ScenarioResult:
     return ScenarioResult(turns, checks)
 
 
-# ─── 4. Noticias — con loop de aclaración ────────────────────────────────────
+# ─── 4. Noticias — itera de a una publicación hasta que el vecino confirma ───
+#
+# Rediseño 2026-07-20/21: antes tiraba hasta 3 resultados en UN solo mensaje,
+# sin confirmar nada. Ahora usa el mismo patrón B ("confirm_choice") que
+# "servicio" usa para el rubro: propone UNA publicación con su link, y si el
+# vecino dice que no es esa, propone otra (sin repetir, ver `N_NOTICIAS_ELEGIR`
+# más abajo) hasta que confirma o se agotan los 3 intentos (ver
+# `_run_noticias_agotado`). Este escenario ejercita el camino feliz completo:
+# 1ª propuesta rechazada → 2ª propuesta (distinta) confirmada.
+
+def _total_real_news(conv: SimConversation, fetch_node_id: str = None) -> int:
+    """Cuenta resultados reales devueltos por el fetch de noticias (ver
+    `_found_real_news` — misma lógica de parseo, expuesta acá para poder
+    decidir cuántas propuestas distintas son esperables antes de aserter
+    dedup en `_run_noticias`)."""
+    raw = conv.state_field(fetch_node_id or N_NOTICIAS_FETCH, "context")
+    responses = raw if isinstance(raw, list) else [raw]
+    total = 0
+    for r in responses:
+        if not r:
+            continue
+        try:
+            parsed = json.loads(r)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        total += len(parsed.get("results") or [])
+    return total
+
 
 async def _run_noticias() -> ScenarioResult:
     turns = []
     async with SimConversation(BOT_ID) as conv:
-        msg = "Hola, qué se sabe del corte de luz en Lugano"
-        reply = await conv.send_and_wait(msg)
-        turns.append(("user", msg)); turns.append(("bot", reply))
+        m1 = "Hola, qué se sabe del corte de luz en Lugano"
+        propone_1 = await conv.send_and_wait(m1)
+        turns.append(("user", m1)); turns.append(("bot", propone_1))
+
+        m2 = "no, esa no es"
+        propone_2 = await conv.send_and_wait(m2)
+        turns.append(("user", m2)); turns.append(("bot", propone_2))
+
+        m3 = "sí, esa es"
+        reply = await conv.send_and_wait(m3)
+        turns.append(("user", m3)); turns.append(("bot", reply))
 
         checks = [
-            _log("Rama tomada por la Condición", detail=f"branch={conv.branch_taken(N_CONDICION)!r}"),
+            _log("Rama tomada por la Condición (necesidad)", detail=f"branch={conv.branch_taken(N_CONDICION)!r}"),
+            _log("Rama tomada por Elegir Mostrador", detail=f"branch={conv.branch_taken(N_ELEGIR_MOSTRADOR)!r}"),
+            _ran_all(
+                "Turno 1: expandió la consulta, buscó noticias reales y propuso una publicación",
+                conv, N_NOTICIAS_EXPANDIR, N_NOTICIAS_FETCH, N_NOTICIAS_ELEGIR,
+            ),
+            _found_real_news(conv, N_NOTICIAS_FETCH),
+            _c("Turno 1: el bot propuso algo (no vacío)", bool(propone_1)),
         ]
-        checks += _infra_checks(conv, reply)
-        checks.append(_log("Rama tomada por Elegir Mostrador", detail=f"branch={conv.branch_taken(N_ELEGIR_MOSTRADOR)!r}"))
+        propuesta_1a = conv.state_field(N_NOTICIAS_ELEGIR, "propuesta_actual", occurrence=0)
+        propuesta_2a = conv.state_field(N_NOTICIAS_ELEGIR, "propuesta_actual", occurrence=1)
+        checks.append(_log("Publicación propuesta (1ª propuesta)", detail=f"{propuesta_1a!r}"))
+        checks.append(_log("Rama de \"Confirmó la propuesta?\" (turno 2, rechaza)",
+                            detail=f"branch={conv.branch_taken(N_NOTICIAS_CONDICION, occurrence=0)!r}"))
         checks.append(_ran_all(
-            "Pasó por los nodos esperados de la rama noticias (expandir consulta + fetch + armado de mensaje + cierre)",
-            conv, N_NOTICIAS_EXPANDIR, N_NOTICIAS_FETCH, N_NOTICIAS_LLM, "end_conv_noticias",
+            "Turno 2: volvió a proponer tras el rechazo (2ª ejecución, sin re-pegarle al fetch)",
+            conv, N_NOTICIAS_ELEGIR,
         ))
-        checks.append(_found_real_news(conv, N_NOTICIAS_FETCH))
+        checks.append(_log("Publicación propuesta (2ª propuesta, tras el rechazo)", detail=f"{propuesta_2a!r}"))
+        total_results = _total_real_news(conv)
+        if total_results > 1:
+            # Solo assertable si había más de 1 publicación real candidata —
+            # con una sola disponible, "confirm_choice" repite la misma a
+            # propósito (no hay otra opción, ver su docstring).
+            checks.append(_c(
+                "No repitió la misma publicación en la 2ª propuesta habiendo más de 1 candidata (dedup de confirm_choice)",
+                propuesta_2a != propuesta_1a,
+                detail=f"1ª={propuesta_1a!r} 2ª={propuesta_2a!r} total_results={total_results}",
+            ))
+        checks.append(_log("Rama de \"Confirmó la propuesta?\" (turno 3, confirma)",
+                            detail=f"branch={conv.branch_taken(N_NOTICIAS_CONDICION, occurrence=1)!r}"))
+        checks += _infra_checks(conv, reply)
+        checks.append(_ran_all(
+            "Turno 3: confirmó la publicación y cerró por la rama de éxito (found)",
+            conv, N_NOTICIAS_CONFIRMAR, N_RESPONDER_NOTICIA_ENCONTRADA, "end_conv_noticias",
+        ))
+    return ScenarioResult(turns, checks)
+
+
+# ─── 4b. (único camino infeliz de noticias) Agotamiento tras 3 rechazos ──────
+
+async def _run_noticias_agotado() -> ScenarioResult:
+    """
+    Camino infeliz del nuevo loop de noticias: el vecino rechaza TODAS las
+    propuestas (3 intentos, max_visits de la condición interna de
+    "confirm_choice", ver `N_NOTICIAS_CONDICION`) sin confirmar ninguna — el
+    flow debe cerrar solo igual, por la rama de disculpa con el link de
+    Facebook como fallback (`not_found` → disculpar_sin_noticia →
+    end_conv_noticias), no quedarse colgado ni repetir el mensaje de "no
+    encontré nada" (eso sería el bug real encontrado y arreglado 2026-07-20/21:
+    antes el nodo que arma el mensaje de propuesta podía confundirse y
+    devolver el mensaje de "sin resultados" aunque sí hubiera una publicación
+    real para proponer — ver el chequeo de "propuesta real" turno a turno acá
+    abajo, no solo el cierre final).
+    """
+    turns = []
+    async with SimConversation(BOT_ID) as conv:
+        m1 = "Hola, qué se sabe del corte de luz en Lugano"
+        last_reply = await conv.send_and_wait(m1)
+        turns.append(("user", m1)); turns.append(("bot", last_reply))
+
+        rechazos = ["no, esa no es", "no, tampoco es esa", "no, esa tampoco"]
+        for msg in rechazos:
+            last_reply = await conv.send_and_wait(msg)
+            turns.append(("user", msg)); turns.append(("bot", last_reply))
+
+        checks = [
+            _ran_all(
+                "Propuso al menos una vez antes de agotar los intentos",
+                conv, N_NOTICIAS_EXPANDIR, N_NOTICIAS_FETCH, N_NOTICIAS_ELEGIR,
+            ),
+            _found_real_news(conv, N_NOTICIAS_FETCH),
+            _log("Rama de \"Confirmó la propuesta?\" tras agotar reintentos (esperado: not_found)",
+                 detail=f"branch={conv.branch_taken(N_NOTICIAS_CONDICION)!r}"),
+        ]
+        visitas = conv.state_field(N_NOTICIAS_CONDICION, "_visits_" + N_NOTICIAS_CONDICION)
+        checks.append(_c(
+            f"El contador de reintentos (_visits_{N_NOTICIAS_CONDICION}) llegó exactamente a 3 "
+            "(mecánica del engine — max_visits, no una decisión de contenido del LLM)",
+            visitas == 3, detail=f"visits={visitas!r}",
+        ))
+        checks += _infra_checks(conv, last_reply)
+        checks.append(_ran_all(
+            "Cerró por la rama de disculpa (disculpar_sin_noticia → end_conv_noticias), no se quedó colgado",
+            conv, N_DISCULPAR_SIN_NOTICIA, "end_conv_noticias",
+        ))
     return ScenarioResult(turns, checks)
 
 
@@ -435,8 +605,9 @@ async def _run_servicio() -> ScenarioResult:
     turns = []
     async with SimConversation(BOT_ID) as conv:
         # Necesidad deliberadamente ambigua entre varios rubros (gas + agua) —
-        # así el 1er rubro propuesto por `elegir_rubro` puede no ser el que el
-        # vecino tenía en mente, y el rechazo + corrección tiene sentido real
+        # así el 1er rubro propuesto por "Elegir propuesta" (N_ELEGIR_RUBRO)
+        # puede no ser el que el vecino tenía en mente, y el rechazo +
+        # corrección tiene sentido real
         # (a diferencia de rechazar un nombre propio de prestador, que ya no
         # se confirma en este flow, ver docstring del módulo). Saludo +
         # necesidad van en el mismo primer mensaje (no se testea el loop de
@@ -466,7 +637,7 @@ async def _run_servicio() -> ScenarioResult:
                 conv, N_BUSCAR_RUBROS, N_ELEGIR_RUBRO, N_CONFIRMAR_RUBRO,
             ),
             _log("Rubros que matchearon la necesidad", detail=f"{conv.state_field(N_BUSCAR_RUBROS, 'rubros_luganense', occurrence=0)!r}"),
-            _log("Rubro ofrecido (1ª propuesta)", detail=f"{conv.state_field(N_ELEGIR_RUBRO, 'rubro_elegido', occurrence=0)!r}"),
+            _log("Rubro ofrecido (1ª propuesta)", detail=f"{conv.state_field(N_ELEGIR_RUBRO, 'propuesta_actual', occurrence=0)!r}"),
             _log("Turno 2 (rechaza el rubro propuesto y aclara \"necesito un plomero\"): rama de \"Confirmó Rubro?\"",
                  detail=f"branch={conv.branch_taken(N_CONFIRMO_RUBRO, occurrence=0)!r}"),
             _c("Turno 2: el bot volvió a preguntar (no vacío)", bool(pide_confirmacion_2)),
@@ -474,8 +645,25 @@ async def _run_servicio() -> ScenarioResult:
                 "Turno 2: volvió a elegir rubro tras el rechazo (2ª ejecución de elegir_rubro, SIN re-pegarle a /rubros)",
                 conv, N_ELEGIR_RUBRO,
             ),
-            _log("Rubro ofrecido (2ª propuesta, tras la corrección del vecino)",
-                 detail=f"{conv.state_field(N_ELEGIR_RUBRO, 'rubro_elegido', occurrence=1)!r}"),
+        ]
+        rubro_1a = conv.state_field(N_ELEGIR_RUBRO, 'propuesta_actual', occurrence=0)
+        rubro_2a = conv.state_field(N_ELEGIR_RUBRO, 'propuesta_actual', occurrence=1)
+        checks.append(_log("Rubro ofrecido (2ª propuesta, tras la corrección del vecino)", detail=f"{rubro_2a!r}"))
+        rubros_total = conv.state_field(N_BUSCAR_RUBROS, 'rubros_total', occurrence=0)
+        # Informativo, NO assert (a diferencia del dedup de "noticias" en
+        # _run_noticias): acá el mensaje de "rechazo" del vecino (m2) también
+        # ACLARA la necesidad ("...necesito un plomero"), así que si la
+        # clasificación de necesidad ya venía apuntando a "Plomero" desde el
+        # turno 1, repetirlo en la 2ª propuesta es lo CORRECTO (coincide con
+        # lo que el vecino pidió), no una falla de dedup — a diferencia de
+        # "no, esa no es" en noticias, que no reafirma nada en particular.
+        # Descubierto 2026-07-21 corriendo esta suite: un assert acá daba
+        # falso rojo cuando la 1ª propuesta ya acertaba.
+        checks.append(_log(
+            "¿Repitió el mismo rubro en la 2ª propuesta habiendo más de 1 candidato?",
+            detail=f"1ª={rubro_1a!r} 2ª={rubro_2a!r} rubros_total={rubros_total!r}",
+        ))
+        checks += [
             _log("Turno 3 (confirma \"sí, ese mismo\"): rama de \"Confirmó Rubro?\"",
                  detail=f"branch={conv.branch_taken(N_CONFIRMO_RUBRO, occurrence=1)!r}"),
             _c("Turno 3: el bot pidió la dirección/ubicación (no vacío)", bool(pide_direccion)),
@@ -544,11 +732,13 @@ async def _run_servicio_agotado() -> ScenarioResult:
     """
     Único escenario "infeliz" de la suite: primero confirma el rubro en el
     primer intento (sin ejercitar de nuevo el rechazo — eso ya lo cubre
-    `_run_servicio`), y agota los 3 `max_visits` que permite "Tienen dirección?"
-    (`node_1783873174012`, antes `validar_direccion`, confirmado en vivo
-    2026-07-12) sin dar nunca una dirección real — el flow debe cerrar solo
-    igual, por la rama de disculpa (`agotado` → disculpar_dir → end_conv_fail),
-    no quedarse colgado. Un camino infeliz también tiene que TERMINAR.
+    `_run_servicio`), y agota los 3 `max_visits` que permite la condición
+    interna de "Obtener Dirección Confirmada" (`N_VALIDAR_DIRECCION`, antes
+    "Tienen dirección?"/`validar_direccion` como nodos sueltos, confirmado en
+    vivo 2026-07-12, migrado a nodo_flow "get_data" el 2026-07-20) sin dar
+    nunca una dirección real — el flow debe cerrar solo igual, por la rama de
+    disculpa (`not_found` → disculpar_dir → end_conv_fail), no quedarse
+    colgado. Un camino infeliz también tiene que TERMINAR.
 
     OJO con el presupuesto real de intentos (ver nota en `_run_servicio`):
     "Tienen dirección?" corre una vez de forma IMPLÍCITA apenas se confirma
@@ -630,10 +820,18 @@ SCENARIOS: list[Scenario] = [
         run=_run_producto,
     ),
     Scenario(
-        id="noticias", title="Noticias — corte de luz (necesidad directa en el saludo)",
-        desc="Consulta de noticias del barrio directo en el primer mensaje, sin loop de aclaración → "
-             "expandir consulta + fetch + cierre.",
+        id="noticias", title="Noticias — corte de luz, itera propuesta rechazada + propuesta confirmada",
+        desc="Consulta de noticias del barrio directo en el primer mensaje → el bot busca publicaciones reales y "
+             "propone UNA con su link → el vecino la RECHAZA → el bot propone otra distinta (sin repetir, sin "
+             "re-pegarle al fetch) → el vecino la CONFIRMA → cierra por la rama de éxito.",
         run=_run_noticias,
+    ),
+    Scenario(
+        id="noticias-agotado", title="[Único camino infeliz de noticias] Rechaza las 3 propuestas seguidas",
+        desc="El vecino rechaza TODAS las publicaciones que se le proponen (3 intentos, max_visits) sin confirmar "
+             "ninguna — el flow debe cerrar solo igual, por la rama de disculpa con el link de Facebook como "
+             "fallback, en vez de quedar colgado.",
+        run=_run_noticias_agotado,
     ),
     Scenario(
         id="servicio", title="Servicio con notificación — el camino más largo (rechazo/confirmación "

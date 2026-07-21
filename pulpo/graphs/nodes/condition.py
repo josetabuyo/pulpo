@@ -7,20 +7,23 @@ Config:
   rules:    list[dict] — evaluadas en orden, gana la primera que matchea:
               {"var": "necesidad", "op": "not_in", "values": ["", "UNCLEAR", "OUT_OF_SCOPE"], "then": "necesidad_identificada"}
             Operadores: equals, not_equals, in, not_in, empty, not_empty, contains
+            `var` se interpola contra el state (soporta "{{output}}") — así un
+            sub-flow reusable (nodo_flow) puede parametrizar sobre qué clave
+            del estado del padre decide, en vez de una var fija.
   fallback: str  — route si ninguna regla matchea
   routes:   list — valores válidos (documentación de los edges disponibles)
   max_visits: int — si el nodo se visita ≥ N veces en la misma conversación, redirige a max_visits_route
   max_visits_route: str — route a la que redirige al agotar max_visits
 """
 import logging
-from .base import BaseNode
+from .base import BaseNode, interpolate
 from .state import FlowState
 
 logger = logging.getLogger(__name__)
 
 
 def _eval_rule(rule: dict, state: FlowState) -> bool:
-    var_name = rule.get("var", "")
+    var_name = interpolate(rule.get("var", ""), state)
     if not var_name:
         return False
     value = str(state.data.get(var_name, ""))
