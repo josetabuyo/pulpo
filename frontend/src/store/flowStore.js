@@ -82,6 +82,39 @@ export function humanizeId(id) {
   return id.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase())
 }
 
+// Un "típico rgb": #rgb, #rrggbb, o rgb()/rgba().
+const RGB_COLOR_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$|^rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(,\s*(0|1|0?\.\d+)\s*)?\)$/
+
+export function isValidColor(value) {
+  return typeof value === 'string' && RGB_COLOR_RE.test(value.trim())
+}
+
+/**
+ * Todo nodo puede declarar `config.color` como override opcional (ver
+ * business/flows.py::_COLOR_SCHEMA_FIELD). Si es un rgb/hex válido, pisa el
+ * color default del tipo; si no, se usa el color del tipo (`typeColor`).
+ */
+export function resolveNodeColor(config, typeColor) {
+  const c = config?.color
+  return isValidColor(c) ? c.trim() : (typeColor || '#1e293b')
+}
+
+/**
+ * Color "de tipo" para un nodo puntual. Para `nodo_flow`, el default no es el
+ * color estático del tipo (rosa) sino el que declare como variable `color` el
+ * sub-flow elegido (`nodeFlowColors`, ver flowStore.nodeFlowColors) — así el
+ * color se resuelve en vivo contra el sub-flow actual en vez de copiarse una
+ * sola vez al elegirlo (si cambia el color del sub-flow, se refleja en TODOS
+ * los nodos que lo usan sin tener que reabrirlos uno por uno).
+ */
+export function baseTypeColor(nodeType, config, meta, nodeFlowColors) {
+  if (nodeType === 'nodo_flow') {
+    const subflowColor = nodeFlowColors?.[config?.flow_id]
+    if (isValidColor(subflowColor)) return subflowColor
+  }
+  return meta.color
+}
+
 /**
  * Convierte un nodo del formato DB al formato React Flow.
  *
@@ -89,14 +122,16 @@ export function humanizeId(id) {
  * RF:  { id, type: "flowNode", position, data: { nodeType: "reply", config, label?, color? } }
  *
  * `typeMap` es el resultado del endpoint /api/flow/node-types: { [id]: { label, color, description } }
+ * `nodeFlowColors` es { [flow_id]: color } — ver flowStore.nodeFlowColors.
  */
-export function dbNodeToRF(node, typeMap = {}) {
+export function dbNodeToRF(node, typeMap = {}, nodeFlowColors = {}) {
   const meta = typeMap[node.type] || typeMap['generic'] || {}
   // Mezclar defaults: los valores guardados en DB tienen prioridad, pero los
   // campos faltantes toman el default de DEFAULT_CONFIGS. Esto evita que campos
   // nuevos (ej: cooldown_hours) queden undefined en flows creados antes de que
   // el campo existiera, causando que el backend los ignore (trata undefined como 0).
   const defaultConfig = DEFAULT_CONFIGS[node.type] || {}
+  const config = { ...defaultConfig, ...(node.config || {}) }
   return {
     id: node.id,
     type: 'flowNode',
@@ -105,9 +140,9 @@ export function dbNodeToRF(node, typeMap = {}) {
     height: 40,
     data: {
       nodeType:    node.type,
-      config:      { ...defaultConfig, ...(node.config || {}) },
+      config,
       label:       node.label || humanizeId(node.id) || meta.label || node.type,
-      color:       meta.color       || '#1e293b',
+      color:       resolveNodeColor(config, baseTypeColor(node.type, config, meta, nodeFlowColors)),
       description: meta.description || '',
     },
   }
@@ -184,6 +219,9 @@ export function createFlowStore() {
     selectedNodeId: null,
     isDirty: false,
     typeMap: {},  // { [type_id]: { label, color, description } }
+    // { [flow_id]: color } — de /flows/bots/{bot_id}/node-flows, usado como
+    // color "de tipo" para nodos nodo_flow (ver baseTypeColor arriba).
+    nodeFlowColors: {},
     // Metadata a nivel raíz de `definition` que no es ni `nodes` ni `edges` ni
     // `viewport` (ej: `entry_node_id`/`output_key`/`inputs` de un flow
     // flow_kind='node_flow' — ver management/SPEC_NODOFLOW.md). Se preserva
@@ -198,6 +236,24 @@ export function createFlowStore() {
 
     setTypeMap: (typeMap) => set({ typeMap }),
 
+    // Se llama tras cargar el flow, cuando resuelve el fetch (async) de
+    // /flows/bots/{bot_id}/node-flows — recalcula el color de los nodos
+    // nodo_flow ya cargados sin tocar isDirty/historial/selección (evita que
+    // el simple hecho de abrir el flow lo marque como "sin guardar").
+    setNodeFlowColors: (nodeFlowColors) => set(state => {
+      const nfColors = nodeFlowColors || {}
+      return {
+        nodeFlowColors: nfColors,
+        nodes: state.nodes.map(n => {
+          if (n.data.nodeType !== 'nodo_flow') return n
+          const meta = state.typeMap[n.data.nodeType] || state.typeMap['generic'] || {}
+          const typeColor = baseTypeColor(n.data.nodeType, n.data.config, meta, nfColors)
+          const color = resolveNodeColor(n.data.config, typeColor)
+          return color === n.data.color ? n : { ...n, data: { ...n.data, color } }
+        }),
+      }
+    }),
+
     toggleDeleteMode: () => set(state => ({ deleteMode: !state.deleteMode, pendingDeleteNodeId: null, pendingDeleteNodeIds: [] })),
 
     setPendingDeleteNodeId: (id) => set({ pendingDeleteNodeId: id }),
@@ -206,7 +262,8 @@ export function createFlowStore() {
 
     loadFlow: (definition, typeMap, { dirty = false } = {}) => {
       const tm = typeMap || get().typeMap
-      const rfNodes = (definition?.nodes || []).map(n => dbNodeToRF(n, tm))
+      const nfColors = get().nodeFlowColors
+      const rfNodes = (definition?.nodes || []).map(n => dbNodeToRF(n, tm, nfColors))
       const rfEdges = (definition?.edges || []).map(e => ({
         ...e,
         ...(e.bendX != null ? { data: { bendX: e.bendX, bendY: e.bendY } } : {}),
@@ -225,14 +282,21 @@ export function createFlowStore() {
       })
     },
 
-    setMeta: (patch) => set(state => ({ meta: { ...state.meta, ...patch } })),
+    setMeta: (patch) => set(state => ({
+      meta: { ...state.meta, ...patch },
+      isDirty: true,
+      _version: state._version + 1,
+    })),
 
     setSelectedNodeId: (id) => set({ selectedNodeId: id }),
 
     updateNodeConfig: (nodeId, config) => set(state => ({
-      nodes: state.nodes.map(n =>
-        n.id === nodeId ? { ...n, data: { ...n.data, config } } : n
-      ),
+      nodes: state.nodes.map(n => {
+        if (n.id !== nodeId) return n
+        const meta = state.typeMap[n.data.nodeType] || state.typeMap['generic'] || {}
+        const typeColor = baseTypeColor(n.data.nodeType, config, meta, state.nodeFlowColors)
+        return { ...n, data: { ...n.data, config, color: resolveNodeColor(config, typeColor) } }
+      }),
       isDirty: true,
       _version: state._version + 1,
     })),
@@ -398,7 +462,7 @@ export function createFlowStore() {
 
     markClean: () => set({ isDirty: false }),
 
-    reset: () => set({ nodes: [], edges: [], selectedNodeId: null, isDirty: false, meta: {}, _history: [], _version: 0, deleteMode: false, pendingDeleteNodeId: null, pendingDeleteNodeIds: [] }),
+    reset: () => set({ nodes: [], edges: [], selectedNodeId: null, isDirty: false, meta: {}, nodeFlowColors: {}, _history: [], _version: 0, deleteMode: false, pendingDeleteNodeId: null, pendingDeleteNodeIds: [] }),
 
     getDefinition: () => ({ ...get().meta, ...nodesToDefinition(get().nodes, get().edges) }),
     }

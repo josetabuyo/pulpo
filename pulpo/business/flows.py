@@ -15,6 +15,18 @@ from pulpo.graphs.nodes import NODE_REGISTRY, TRIGGER_TYPES
 
 logger = logging.getLogger(__name__)
 
+# Campo "color" — disponible como override opcional en la config de TODOS los
+# tipos de nodo (no solo los que lo declaran en su config_schema propio). Si
+# se instancia con un rgb/hex válido, pisa el color default del tipo para ese
+# nodo puntual (ver frontend/src/store/flowStore.js::resolveNodeColor).
+_COLOR_SCHEMA_FIELD = {
+    "key": "color",
+    "type": "string",
+    "label": "Color (opcional)",
+    "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de "
+            "nodo para esta instancia.",
+}
+
 
 def list_node_types() -> list[dict]:
     """
@@ -25,7 +37,7 @@ def list_node_types() -> list[dict]:
     for nt in NODE_TYPES.values():
         node_class = NODE_REGISTRY.get(nt.id)
         schema_dict = node_class.config_schema() if node_class else {}
-        schema = [{"key": k, **v} for k, v in schema_dict.items()]
+        schema = [{"key": k, **v} for k, v in schema_dict.items()] + [_COLOR_SCHEMA_FIELD]
         raw_doc = (node_class.__doc__ or "").strip() if node_class else ""
         help_text = raw_doc.split("\n\nConfig:")[0].strip() if raw_doc else ""
         result.append({
@@ -252,7 +264,9 @@ async def list_node_flows(bot_id: str) -> list[dict]:
     `compute_exit_routes` sobre sus nodos `subflow_end`, misma lógica que usa el
     compilador para conectar el subgrafo) — la UI las usa para auto-completar
     `config.routes` del nodo `nodo_flow` que lo invoque (ver
-    management/SPEC_NODOFLOW.md).
+    management/SPEC_NODOFLOW.md). También expone `color`, tomado de
+    `definition.variables.color` — la UI lo usa para pintar automáticamente el
+    nodo `nodo_flow` con el color declarado por el sub-flow al elegirlo.
     """
     from pulpo.graphs.compiler import compute_exit_routes
 
@@ -267,6 +281,7 @@ async def list_node_flows(bot_id: str) -> list[dict]:
             **f,
             "inputs": definition.get("inputs") or [],
             "routes": compute_exit_routes(definition.get("nodes") or []),
+            "color": (definition.get("variables") or {}).get("color"),
         })
     return result
 

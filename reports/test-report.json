@@ -1,12 +1,204 @@
 {
- "timestamp": "2026-07-21T13:32:16",
- "duration": 0.47,
- "total": 109,
- "passed": 109,
+ "timestamp": "2026-07-21T14:51:16",
+ "duration": 1.22,
+ "total": 176,
+ "passed": 176,
  "failed": 0,
  "skipped": 0,
  "exit_code": 0,
  "tests": [
+  {
+   "nodeid": "pulpo/business/test_flows.py::test_duplicate_flow_copies_fields_and_starts_inactive",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.011
+  },
+  {
+   "nodeid": "pulpo/business/test_flows.py::test_duplicate_flow_raises_if_not_found",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.001
+  },
+  {
+   "nodeid": "pulpo/business/test_flows.py::test_duplicate_flow_raises_if_owned_by_other_bot",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.004
+  },
+  {
+   "nodeid": "pulpo/business/test_flows.py::test_create_flow_seeds_first_version",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.004
+  },
+  {
+   "nodeid": "pulpo/business/test_flows.py::test_update_flow_saves_version_only_when_explicit",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.011
+  },
+  {
+   "nodeid": "pulpo/business/test_flows.py::test_flow_versions_pruned_to_limit",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.155
+  },
+  {
+   "nodeid": "pulpo/business/test_flows.py::test_get_flow_version_denies_other_bot",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.004
+  },
+  {
+   "nodeid": "pulpo/business/test_flows.py::test_migrate_fetch_node_types_a_fetch_http",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.011
+  },
+  {
+   "nodeid": "pulpo/business/test_flows.py::test_simulate_message_new_conversation_returns_reply_and_marks_is_sim",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.014
+  },
+  {
+   "nodeid": "pulpo/business/test_flows.py::test_simulate_message_raises_if_bot_has_no_active_message_flow",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.002
+  },
+  {
+   "nodeid": "pulpo/business/test_flows.py::test_simulate_message_ignores_inactive_flow",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.006
+  },
+  {
+   "nodeid": "pulpo/business/test_flows.py::test_simulate_message_forces_sim_prefix_on_caller_supplied_sim_id",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.009
+  },
+  {
+   "nodeid": "pulpo/business/test_flows.py::test_simulate_message_resumes_wait_user_with_same_sim_id",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.015
+  },
+  {
+   "nodeid": "pulpo/business/test_flows.py::test_create_flow_persists_flow_kind",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.004
+  },
+  {
+   "nodeid": "pulpo/business/test_flows.py::test_create_flow_default_flow_kind_is_flow",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.004
+  },
+  {
+   "nodeid": "pulpo/business/test_flows.py::test_update_flow_can_change_flow_kind",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.005
+  },
+  {
+   "nodeid": "pulpo/business/test_flows.py::test_create_flow_con_nodo_flow_autoreferenciado_rechaza_ciclo",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.004
+  },
+  {
+   "nodeid": "pulpo/business/test_flows.py::test_list_node_flows_devuelve_solo_flow_kind_node_flow_con_inputs",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.013
+  },
+  {
+   "nodeid": "pulpo/business/test_flows.py::test_create_node_flow_from_selection_extrae_subgrafo",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.009
+  },
+  {
+   "nodeid": "pulpo/business/test_flows.py::test_create_node_flow_from_selection_node_ids_vacio_falla",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.005
+  },
+  {
+   "nodeid": "pulpo/business/test_flows.py::test_create_node_flow_from_selection_node_ids_sin_match_falla",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.004
+  },
+  {
+   "nodeid": "pulpo/business/test_flows.py::test_create_node_flow_from_selection_flow_origen_no_encontrado",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.001
+  },
+  {
+   "nodeid": "pulpo/business/test_flows.py::test_migrate_fetch_node_types_es_idempotente",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.015
+  },
+  {
+   "nodeid": "pulpo/core/test_db.py::test_get_open_conversation_sin_fila_devuelve_none",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.001
+  },
+  {
+   "nodeid": "pulpo/core/test_db.py::test_save_and_get_open_conversation",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.003
+  },
+  {
+   "nodeid": "pulpo/core/test_db.py::test_save_open_conversation_es_upsert",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.004
+  },
+  {
+   "nodeid": "pulpo/core/test_db.py::test_close_open_conversation_borra_la_fila",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.006
+  },
+  {
+   "nodeid": "pulpo/core/test_db.py::test_prune_open_conversations_no_toca_las_recientes",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.004
+  },
+  {
+   "nodeid": "pulpo/core/test_db.py::test_prune_open_conversations_poda_filas_viejas",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.004
+  },
+  {
+   "nodeid": "pulpo/core/test_db.py::test_get_flow_versions_orders_newest_first_despite_tied_timestamps",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.007
+  },
+  {
+   "nodeid": "pulpo/core/test_db.py::test_create_flow_version_prunes_oldest_id_despite_tied_timestamps",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.008
+  },
+  {
+   "nodeid": "pulpo/core/test_db.py::test_get_flow_version_returns_full_definition",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.004
+  },
   {
    "nodeid": "pulpo/graphs/nodes/test_base.py::test_resuelve_campos_meta",
    "suite": "unit",
@@ -167,7 +359,7 @@
    "nodeid": "pulpo/graphs/nodes/test_end_conversation.py::test_end_conversation_borra_open_conversation",
    "suite": "unit",
    "outcome": "passed",
-   "duration": 0.004
+   "duration": 0.003
   },
   {
    "nodeid": "pulpo/graphs/nodes/test_fetch_http.py::test_config_schema_no_tiene_source",
@@ -197,7 +389,7 @@
    "nodeid": "pulpo/graphs/nodes/test_fetch_http.py::test_output_custom_guarda_json_crudo_completo",
    "suite": "unit",
    "outcome": "passed",
-   "duration": 0.001
+   "duration": 0.002
   },
   {
    "nodeid": "pulpo/graphs/nodes/test_fetch_http.py::test_array_input_hace_un_get_por_item_con_item_text",
@@ -237,6 +429,12 @@
   },
   {
    "nodeid": "pulpo/graphs/nodes/test_fetch_http.py::test_extract_fields_ignora_con_array_input",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.001
+  },
+  {
+   "nodeid": "pulpo/graphs/nodes/test_fetch_http.py::test_post_envia_body_json_interpolado",
    "suite": "unit",
    "outcome": "passed",
    "duration": 0.001
@@ -305,13 +503,13 @@
    "nodeid": "pulpo/graphs/nodes/test_gate_integration.py::test_bfs_stores_waiting_run_when_gate_blocks",
    "suite": "unit",
    "outcome": "passed",
-   "duration": 0.014
+   "duration": 0.012
   },
   {
    "nodeid": "pulpo/graphs/nodes/test_gate_integration.py::test_bfs_pops_waiting_run_when_gate_opens",
    "suite": "unit",
    "outcome": "passed",
-   "duration": 0.016
+   "duration": 0.013
   },
   {
    "nodeid": "pulpo/graphs/nodes/test_gate_integration.py::test_bfs_no_waiting_run_without_run_id",
@@ -323,7 +521,7 @@
    "nodeid": "pulpo/graphs/nodes/test_gsheet.py::test_sim_no_hace_post_real",
    "suite": "unit",
    "outcome": "passed",
-   "duration": 0.088
+   "duration": 0.121
   },
   {
    "nodeid": "pulpo/graphs/nodes/test_gsheet.py::test_append_real_llama_a_sheets_api",
@@ -335,13 +533,13 @@
    "nodeid": "pulpo/graphs/nodes/test_llm.py::test_output_reply_convencion",
    "suite": "unit",
    "outcome": "passed",
-   "duration": 0.001
+   "duration": 0.0
   },
   {
    "nodeid": "pulpo/graphs/nodes/test_llm.py::test_max_tokens_se_pasa_a_build_llm",
    "suite": "unit",
    "outcome": "passed",
-   "duration": 0.001
+   "duration": 0.0
   },
   {
    "nodeid": "pulpo/graphs/nodes/test_llm.py::test_sin_max_tokens_pasa_none",
@@ -365,19 +563,19 @@
    "nodeid": "pulpo/graphs/nodes/test_llm.py::test_output_sin_placeholder_no_cambia_comportamiento",
    "suite": "unit",
    "outcome": "passed",
-   "duration": 0.0
+   "duration": 0.001
   },
   {
    "nodeid": "pulpo/graphs/nodes/test_llm.py::test_output_strip_uniforme",
    "suite": "unit",
    "outcome": "passed",
-   "duration": 0.001
+   "duration": 0.0
   },
   {
    "nodeid": "pulpo/graphs/nodes/test_llm.py::test_strip_think_block_de_modelo_de_razonamiento",
    "suite": "unit",
    "outcome": "passed",
-   "duration": 0.013
+   "duration": 0.001
   },
   {
    "nodeid": "pulpo/graphs/nodes/test_llm.py::test_output_as_list_parte_por_lineas",
@@ -419,7 +617,7 @@
    "nodeid": "pulpo/graphs/nodes/test_llm.py::test_contenido_vacio_reintenta_y_se_recupera",
    "suite": "unit",
    "outcome": "passed",
-   "duration": 0.0
+   "duration": 0.001
   },
   {
    "nodeid": "pulpo/graphs/nodes/test_llm.py::test_contenido_vacio_persistente_queda_registrado_en_llm_errors",
@@ -431,7 +629,7 @@
    "nodeid": "pulpo/graphs/nodes/test_metric.py::test_persiste_metrica_basica",
    "suite": "unit",
    "outcome": "passed",
-   "duration": 0.0
+   "duration": 0.001
   },
   {
    "nodeid": "pulpo/graphs/nodes/test_metric.py::test_metric_name_vacio_no_persiste",
@@ -443,13 +641,13 @@
    "nodeid": "pulpo/graphs/nodes/test_metric.py::test_templates_en_metric_name_y_value",
    "suite": "unit",
    "outcome": "passed",
-   "duration": 0.0
+   "duration": 0.001
   },
   {
    "nodeid": "pulpo/graphs/nodes/test_metric.py::test_metadata_se_serializa_con_templates",
    "suite": "unit",
    "outcome": "passed",
-   "duration": 0.0
+   "duration": 0.001
   },
   {
    "nodeid": "pulpo/graphs/nodes/test_metric.py::test_webhook_ok_no_afecta_persistencia",
@@ -527,7 +725,7 @@
    "nodeid": "pulpo/graphs/nodes/test_router.py::test_router_no_manda_variables_de_mas_por_default",
    "suite": "unit",
    "outcome": "passed",
-   "duration": 0.0
+   "duration": 0.001
   },
   {
    "nodeid": "pulpo/graphs/nodes/test_router.py::test_router_setea_route_valida",
@@ -539,7 +737,7 @@
    "nodeid": "pulpo/graphs/nodes/test_router.py::test_router_usa_fallback_si_respuesta_invalida",
    "suite": "unit",
    "outcome": "passed",
-   "duration": 0.0
+   "duration": 0.001
   },
   {
    "nodeid": "pulpo/graphs/nodes/test_router.py::test_router_contenido_vacio_reintenta_y_se_recupera",
@@ -551,13 +749,13 @@
    "nodeid": "pulpo/graphs/nodes/test_router.py::test_router_contenido_vacio_persistente_cae_a_fallback_y_queda_registrado",
    "suite": "unit",
    "outcome": "passed",
-   "duration": 0.0
+   "duration": 0.001
   },
   {
    "nodeid": "pulpo/graphs/nodes/test_router.py::test_router_max_visits_redirige_tras_n_fallbacks_seguidos",
    "suite": "unit",
    "outcome": "passed",
-   "duration": 0.0
+   "duration": 0.001
   },
   {
    "nodeid": "pulpo/graphs/nodes/test_router.py::test_router_max_visits_no_pisa_un_acierto_en_la_ultima_visita",
@@ -575,7 +773,7 @@
    "nodeid": "pulpo/graphs/nodes/test_save_attachment.py::test_sim_no_mueve_archivo",
    "suite": "unit",
    "outcome": "passed",
-   "duration": 0.0
+   "duration": 0.001
   },
   {
    "nodeid": "pulpo/graphs/nodes/test_save_contact.py::test_persiste_contacto_nuevo",
@@ -587,7 +785,7 @@
    "nodeid": "pulpo/graphs/nodes/test_save_contact.py::test_sim_no_persiste_nada",
    "suite": "unit",
    "outcome": "passed",
-   "duration": 0.0
+   "duration": 0.001
   },
   {
    "nodeid": "pulpo/graphs/nodes/test_set_state.py::test_set_valor_fijo_en_data",
@@ -657,6 +855,210 @@
   },
   {
    "nodeid": "pulpo/graphs/nodes/test_subflow_start.py::test_subflow_start_config_schema_tiene_key",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.0
+  },
+  {
+   "nodeid": "pulpo/graphs/test_compiler.py::test_api_trigger_arranca_conversacion",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.011
+  },
+  {
+   "nodeid": "pulpo/graphs/test_compiler.py::test_api_trigger_sin_mensaje_no_crea_conversacion",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.007
+  },
+  {
+   "nodeid": "pulpo/graphs/test_compiler.py::test_expand_lineal_simple",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.0
+  },
+  {
+   "nodeid": "pulpo/graphs/test_compiler.py::test_expand_con_params_inserta_set_state",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.0
+  },
+  {
+   "nodeid": "pulpo/graphs/test_compiler.py::test_expand_ciclo_lanza_valueerror",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.0
+  },
+  {
+   "nodeid": "pulpo/graphs/test_compiler.py::test_expand_anidado",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.0
+  },
+  {
+   "nodeid": "pulpo/graphs/test_compiler.py::test_expand_caso_base_sin_nodo_flow",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.0
+  },
+  {
+   "nodeid": "pulpo/graphs/test_compiler.py::test_execute_flow_expande_nodo_flow_end_to_end",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.025
+  },
+  {
+   "nodeid": "pulpo/graphs/test_compiler.py::test_expand_dos_subflow_end_por_route_conecta_por_label",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.0
+  },
+  {
+   "nodeid": "pulpo/graphs/test_compiler.py::test_expand_output_se_reenvia_como_param_sin_nodo_de_copia",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.0
+  },
+  {
+   "nodeid": "pulpo/graphs/test_compiler.py::test_expand_sin_subflow_start_error",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.0
+  },
+  {
+   "nodeid": "pulpo/graphs/test_compiler.py::test_expand_dos_subflow_start_error",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.0
+  },
+  {
+   "nodeid": "pulpo/graphs/test_compiler.py::test_expand_sin_subflow_end_error",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.0
+  },
+  {
+   "nodeid": "pulpo/graphs/test_compiler.py::test_compute_exit_routes_una_salida_sin_route",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.0
+  },
+  {
+   "nodeid": "pulpo/graphs/test_compiler.py::test_compute_exit_routes_dos_subflow_end_nombrados_caso_get_data",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.0
+  },
+  {
+   "nodeid": "pulpo/graphs/test_compiler.py::test_compute_exit_routes_ignora_route_vacio_entre_nombrados",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.0
+  },
+  {
+   "nodeid": "pulpo/graphs/test_compiler.py::test_compute_exit_routes_dedupe_conserva_orden",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.0
+  },
+  {
+   "nodeid": "pulpo/graphs/test_compiler.py::test_dispatch_message_sin_conversacion_abierta_arranca_limpio",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.007
+  },
+  {
+   "nodeid": "pulpo/graphs/test_compiler.py::test_dispatch_message_end_conversation_no_resucita_open_conversation",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.007
+  },
+  {
+   "nodeid": "pulpo/graphs/test_compiler.py::test_dispatch_message_continua_conversacion_abierta_sin_wait_user",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.006
+  },
+  {
+   "nodeid": "pulpo/graphs/test_compiler.py::test_dispatch_message_mensaje_concurrente_no_dispara_flow_paralelo",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.013
+  },
+  {
+   "nodeid": "pulpo/graphs/test_conversation.py::test_message_trigger_types_es_subconjunto_de_trigger_types",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.0
+  },
+  {
+   "nodeid": "pulpo/graphs/test_conversation.py::test_api_trigger_no_es_conversacional",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.0
+  },
+  {
+   "nodeid": "pulpo/graphs/test_conversation.py::test_canales_de_mensajeria_son_conversacionales",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.0
+  },
+  {
+   "nodeid": "pulpo/graphs/test_conversation.py::test_start_conversation_siembra_primer_turno",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.0
+  },
+  {
+   "nodeid": "pulpo/graphs/test_conversation.py::test_start_conversation_es_idempotente",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.0
+  },
+  {
+   "nodeid": "pulpo/graphs/test_conversation.py::test_continue_conversation_agrega_turno_nuevo",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.0
+  },
+  {
+   "nodeid": "pulpo/graphs/test_conversation.py::test_record_bot_reply_requiere_conversacion_existente",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.0
+  },
+  {
+   "nodeid": "pulpo/graphs/test_conversation.py::test_record_bot_reply_agrega_turno_si_hay_conversacion",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.0
+  },
+  {
+   "nodeid": "pulpo/graphs/test_node_types.py::test_node_types_se_deriva_de_todo_el_registry",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.0
+  },
+  {
+   "nodeid": "pulpo/graphs/test_node_types.py::test_ningun_nodo_del_registry_usa_metadata_por_defecto",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.0
+  },
+  {
+   "nodeid": "pulpo/graphs/test_node_types.py::test_condition_esta_en_node_types",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.0
+  },
+  {
+   "nodeid": "pulpo/graphs/test_node_types.py::test_get_fallback_a_generic",
+   "suite": "unit",
+   "outcome": "passed",
+   "duration": 0.0
+  },
+  {
+   "nodeid": "pulpo/graphs/test_node_types.py::test_classify_reconoce_condition_por_id",
    "suite": "unit",
    "outcome": "passed",
    "duration": 0.0

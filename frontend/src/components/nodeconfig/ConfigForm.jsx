@@ -179,7 +179,11 @@ export default function ConfigForm({ node, schema, botId, flowId, apiCall, onGoT
           criterio de edición uniforme). Al elegir un flow, auto-completamos
           config.routes con las salidas reales del sub-flow (compute_exit_routes,
           ya vienen resueltas en la respuesta de /node-flows) — única escritura
-          automática que hace esta sección. */}
+          automática que hace esta sección. El color NO se copia acá: se
+          resuelve en vivo contra la variable "color" del sub-flow elegido
+          (ver flowStore.js::baseTypeColor/setNodeFlowColors) para que cambiar
+          el color del sub-flow se refleje en todos los nodos que lo usan sin
+          tener que reabrirlos uno por uno. */}
       {nodeType === 'nodo_flow' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={S.label}>SUB-FLOW</span>

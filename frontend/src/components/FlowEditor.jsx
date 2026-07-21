@@ -23,6 +23,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
   const { screenToFlowPosition } = useReactFlow()
   const loadFlow         = useFlowStore(s => s.loadFlow)
   const setTypeMap       = useFlowStore(s => s.setTypeMap)
+  const setNodeFlowColors = useFlowStore(s => s.setNodeFlowColors)
   const nodes            = useFlowStore(s => s.nodes)
   const edges            = useFlowStore(s => s.edges)
   const onNodesChange    = useFlowStore(s => s.onNodesChange)
@@ -39,11 +40,24 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
   const nodeCount        = nodes.length
   const panelWidthRef    = useRef(400)
 
-  // Cargar el flow y el typeMap en el store al montar
+  // Cargar el flow y el typeMap en el store al montar. El color de los nodos
+  // `nodo_flow` depende del sub-flow que referencian (ver
+  // flowStore.js::baseTypeColor) — se resuelve async y se aplica encima sin
+  // bloquear el render inicial ni ensuciar el flow (setNodeFlowColors no
+  // marca isDirty).
   useEffect(() => {
+    let cancelled = false
     setTypeMap(typeMap)
     loadFlow(flow.definition, typeMap)
-    return () => reset()
+    apiCall('GET', `/flows/bots/${flow.bot_id}/node-flows`, null)
+      .then(list => {
+        if (cancelled) return
+        const colors = {}
+        for (const f of (list || [])) if (f.color) colors[f.id] = f.color
+        setNodeFlowColors(colors)
+      })
+      .catch(() => {})
+    return () => { cancelled = true; reset() }
   }, [flow.id])
 
   // Ctrl+Z / Cmd+Z → deshacer
@@ -129,6 +143,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
         <NodeConfigPanel
           botId={flow.bot_id}
           flowId={flow.id}
+          flowKind={flow.flow_kind}
           connections={connections}
           apiCall={apiCall}
           onGoToUIs={onGoToUIs}

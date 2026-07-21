@@ -1,6 +1,26 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useFlowStore, PALETTE_TYPES } from '../store/flowStore.js'
 import ConfigForm from './nodeconfig/ConfigForm.jsx'
+import JsonNodeEditor from './nodeconfig/JsonNodeEditor.jsx'
+
+// Variables globales del flow — documentadas en el editor JSON cuando no hay
+// ningún nodo seleccionado. "color" solo tiene efecto en flows reutilizables
+// (flow_kind === 'node_flow'): pisa el color del nodo `nodo_flow` que invoque
+// este flow al elegirlo (ver ConfigForm.jsx y business/flows.py::list_node_flows).
+// Referencia estable — el selector de zustand no debe devolver un objeto
+// literal nuevo en cada llamada (`s.meta.variables || {}`) o el `{}` cambia
+// de identidad en cada notificación del store, gatillando un loop infinito
+// de re-render ("Maximum update depth exceeded").
+const EMPTY_VARIABLES = {}
+
+const NODE_FLOW_VARIABLES_SCHEMA = [
+  {
+    key: 'color',
+    type: 'string',
+    hint: 'Color RGB/hex (ej: #3b82f6) que tomará el nodo "Sub-flow" en otros '
+        + 'flows al elegir este flow como sub-flow.',
+  },
+]
 
 // ─── Node picker popup ────────────────────────────────────────────────────────
 
@@ -159,7 +179,7 @@ const MIN_PANEL_WIDTH = 280
 const MAX_PANEL_WIDTH = 720
 const DEFAULT_PANEL_WIDTH = 400
 
-export default function NodeConfigPanel({ botId, flowId, connections, apiCall, onGoToUIs, onAddNode, onDuplicateNode, onWidthChange }) {
+export default function NodeConfigPanel({ botId, flowId, flowKind, connections, apiCall, onGoToUIs, onAddNode, onDuplicateNode, onWidthChange }) {
   const nodes             = useFlowStore(s => s.nodes)
   const typeMap           = useFlowStore(s => s.typeMap)
   const selectedNodeId    = useFlowStore(s => s.selectedNodeId)
@@ -167,6 +187,8 @@ export default function NodeConfigPanel({ botId, flowId, connections, apiCall, o
   const updateNodeLabel   = useFlowStore(s => s.updateNodeLabel)
   const deleteMode        = useFlowStore(s => s.deleteMode)
   const toggleDeleteMode  = useFlowStore(s => s.toggleDeleteMode)
+  const flowVariables     = useFlowStore(s => s.meta.variables || EMPTY_VARIABLES)
+  const setMeta           = useFlowStore(s => s.setMeta)
 
   const [showPicker, setShowPicker] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
@@ -384,18 +406,25 @@ export default function NodeConfigPanel({ botId, flowId, connections, apiCall, o
       {/* ── Content area ──────────────────────────────────────────────── */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         {!selectedNode ? (
-          <div style={{
-            flex: 1,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: '#1e293b',
-            fontSize: 12,
-            textAlign: 'center',
-            padding: 24,
-            lineHeight: 1.6,
-          }}>
-            Doble clic en un nodo<br />para configurarlo
+          <div
+            onWheel={e => e.stopPropagation()}
+            style={{
+              flex: 1,
+              minHeight: 0,
+              overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+              padding: '12px 14px',
+            }}>
+            <span style={{ fontSize: 9, color: '#334155', fontWeight: 700, letterSpacing: '0.12em' }}>
+              VARIABLES DEL FLOW
+            </span>
+            <JsonNodeEditor
+              config={flowVariables}
+              schema={flowKind === 'node_flow' ? NODE_FLOW_VARIABLES_SCHEMA : []}
+              onChange={variables => setMeta({ variables })}
+            />
           </div>
         ) : (
           <div

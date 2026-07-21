@@ -261,6 +261,39 @@ async def test_extract_fields_ignora_con_array_input():
 
 
 @pytest.mark.asyncio
+async def test_post_envia_body_json_interpolado():
+    resp = MagicMock()
+    resp.text = '{"ok": true, "id": 42}'
+    resp.status_code = 201
+    resp.raise_for_status = MagicMock()
+    client = MagicMock()
+    client.post = AsyncMock(return_value=resp)
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("httpx.AsyncClient", return_value=client):
+        node = FetchHttpNode({
+            "url": "https://api.test/actividad-comercial",
+            "method": "POST",
+            "extract": "json",
+            "output": "resultado_alta",
+            "body": {
+                "tipo": "pedido_servicio_concretado",
+                "payload": {"profesional": "{{servicio}}", "direccion": "{{direccion}}"},
+            },
+        })
+        state = _state(data={"servicio": "Ana Gómez", "direccion": "Calle Falsa 123"})
+        state = await node.run(state)
+
+    client.get.assert_not_called()
+    _, kwargs = client.post.call_args
+    assert kwargs["json"]["payload"]["profesional"] == "Ana Gómez"
+    assert kwargs["json"]["payload"]["direccion"] == "Calle Falsa 123"
+    assert kwargs["json"]["tipo"] == "pedido_servicio_concretado"
+    assert "42" in state.data["resultado_alta"]
+
+
+@pytest.mark.asyncio
 async def test_array_input_item_fallido_no_frena_el_resto():
     call_count = {"n": 0}
 

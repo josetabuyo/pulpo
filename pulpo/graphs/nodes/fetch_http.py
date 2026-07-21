@@ -1,14 +1,20 @@
 """
-FetchHttpNode — hace uno o más GET HTTP a una URL externa y guarda la
-respuesta cruda en state.data[output].
+FetchHttpNode — hace uno o más llamados HTTP (GET o POST) a una URL externa y
+guarda la respuesta cruda en state.data[output].
 
 Config:
-  url:         str — URL para el GET. Soporta los mismos templates que el resto de
+  url:         str — URL del request. Soporta los mismos templates que el resto de
                       los nodos (ver interpolate() en base.py): {{conversation.last}},
                       {{necesidad}}, {{contact_name}}, etc. Además, {{query}} tiene
                       fallback propio: state.data["query"] → state.data["necesidad"] →
                       último mensaje de la conversación — url-encodeado.
                       Ej: https://api.ejemplo.com/buscar?q={{query}}
+  method:      str — "GET" (default) | "POST".
+  body:        dict — solo con method="POST". Se envía como JSON en el body del
+                      request (Content-Type: application/json). Cualquier string
+                      dentro del dict/lista (a cualquier nivel de anidamiento) pasa
+                      por interpolate() — mismos placeholders que `url`. No aplica
+                      con array_input (un único POST, no uno por item).
   extract:     str — "text" | "json" | "html"
   output:      str — clave de state.data donde se guarda la respuesta cruda
                       (default: "context"). Cualquier nombre custom permite leerla
@@ -138,6 +144,20 @@ def _apply_extract_fields(state: FlowState, raw: str | None, extract_fields: dic
         state.data[key] = value
 
 
+def _interpolate_deep(value, state: FlowState):
+    """Aplica interpolate() a todo string dentro de `value`, recursivamente
+    (dict/list a cualquier nivel de anidamiento) — usado para el `body` de un
+    POST, que a diferencia de la URL es una estructura arbitraria, no un
+    único template plano."""
+    if isinstance(value, str):
+        return interpolate(value, state)
+    if isinstance(value, dict):
+        return {k: _interpolate_deep(v, state) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_interpolate_deep(v, state) for v in value]
+    return value
+
+
 def _fill_item_template(url_template: str, item) -> str:
     def repl_field(m):
         value = item.get(m.group(1), "") if isinstance(item, dict) else ""
@@ -152,10 +172,11 @@ def _fill_item_template(url_template: str, item) -> str:
 class FetchHttpNode(BaseNode):
     label = "Fetch HTTP"
     color = "#1e40af"
-    description = "Hace uno o más GET a una URL externa y guarda la respuesta como contexto."
+    description = "Hace uno o más llamados HTTP (GET o POST) a una URL externa y guarda la respuesta como contexto."
 
     async def run(self, state: FlowState) -> FlowState:
         url_template = self.config.get("url", "")
+        method       = (self.config.get("method") or "GET").upper()
         extract      = self.config.get("extract", "text")
         output       = self.config.get("output", "context") or "context"
         array_input  = self.config.get("array_input", "").strip()
@@ -178,10 +199,11 @@ class FetchHttpNode(BaseNode):
                             "[FetchHttpNode] array_input '%s' tiene %d items — truncado a %d",
                             array_input, len(items), _MAX_ARRAY_ITEMS,
                         )
+                    # body no aplica con array_input — ver docstring del módulo.
                     results = []
                     for item in items[:_MAX_ARRAY_ITEMS]:
                         item_url = self._resolve_url(_fill_item_template(url_template, item), state)
-                        raw, status_code = await self._get(client, item_url, extract, state)
+                        raw, status_code = await self._request(client, method, item_url, extract, state)
                         results.append(raw)
                         status_codes.append(status_code)
                     state.data[output] = results
@@ -191,15 +213,16 @@ class FetchHttpNode(BaseNode):
                     )
                 else:
                     url = self._resolve_url(url_template, state)
-                    raw, status_code = await self._get(client, url, extract, state)
+                    body = _interpolate_deep(self.config.get("body") or {}, state) if method == "POST" else None
+                    raw, status_code = await self._request(client, method, url, extract, state, body=body)
                     status_codes.append(status_code)
                     state.data[output] = raw
-                    logger.info("[FetchHttpNode] %s: %d chars → %s", url[:60], len(raw or ""), output)
+                    logger.info("[FetchHttpNode] %s %s: %d chars → %s", method, url[:60], len(raw or ""), output)
                     extract_fields = self.config.get("extract_fields") or {}
                     if extract_fields and extract == "json":
                         _apply_extract_fields(state, raw, extract_fields)
         except Exception as e:
-            logger.error("[FetchHttpNode] Error HTTP GET: %s", e)
+            logger.error("[FetchHttpNode] Error HTTP %s: %s", method, e)
             _record_fetch_error(state, url_template, str(e))
             status_codes.append(None)
 
@@ -237,7 +260,9 @@ class FetchHttpNode(BaseNode):
         # Cualquier otro placeholder ({{necesidad}}, {{contact_name}}, {{conversation...}}, etc.)
         return interpolate(url, state)
 
-    async def _get(self, client, url: str, extract: str, state: FlowState) -> tuple[str | None, int | None]:
+    async def _request(
+        self, client, method: str, url: str, extract: str, state: FlowState, body: dict | None = None,
+    ) -> tuple[str | None, int | None]:
         """Devuelve (raw, status_code). status_code es None cuando no hubo
         respuesta HTTP en absoluto (placeholder sin resolver, timeout, DNS,
         conexión rechazada) — distinto de un status HTTP real (incluido 4xx/5xx),
@@ -247,7 +272,7 @@ class FetchHttpNode(BaseNode):
             _record_fetch_error(state, url, "unresolved {{...}} placeholder in URL")
             return None, None
         try:
-            resp = await client.get(url)
+            resp = await (client.post(url, json=body or {}) if method == "POST" else client.get(url))
             resp.raise_for_status()
             status_code = getattr(resp, "status_code", 200)
             if extract in ("json", "html"):
@@ -258,7 +283,7 @@ class FetchHttpNode(BaseNode):
             return text[:5000], status_code
         except Exception as e:
             status_code = getattr(getattr(e, "response", None), "status_code", None)
-            logger.error("[FetchHttpNode] Error HTTP GET %s: %s", url, e)
+            logger.error("[FetchHttpNode] Error HTTP %s %s: %s", method, url, e)
             _record_fetch_error(state, url, str(e), status_code)
             return None, status_code
 
@@ -271,6 +296,21 @@ class FetchHttpNode(BaseNode):
                 "default": "",
                 "hint":    "https://api.ejemplo.com/buscar?q={{query}} — soporta {{query}}, {{conversation.last}}, "
                            "cualquier variable del flow, y {{item.campo}}/{{item}} si usás array_input",
+            },
+            "method": {
+                "type":    "select",
+                "label":   "Método HTTP",
+                "default": "GET",
+                "options": ["GET", "POST"],
+                "hint":    "POST envía 'body' como JSON. No aplica con array_input (siempre GET ahí).",
+            },
+            "body": {
+                "type":    "json",
+                "label":   "Body (solo POST)",
+                "default": {},
+                "hint":    "Objeto JSON que se envía como body del POST. Cualquier string, a cualquier "
+                           "nivel de anidamiento, soporta los mismos placeholders que 'url' "
+                           "(ej: {{contact_name}}, {{necesidad}}, {{servicio}}).",
             },
             "extract": {
                 "type":    "select",
