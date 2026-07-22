@@ -1,0 +1,1505 @@
+[
+  {
+    "id": "message_trigger",
+    "label": "Trigger de mensaje",
+    "color": "#166534",
+    "description": "Punto de entrada genérico (cualquier canal). Usar telegram_trigger para flows nuevos.",
+    "help": "",
+    "schema": [
+      {
+        "key": "connection_id",
+        "type": "connection_select",
+        "label": "Conexión",
+        "default": "",
+        "required": true
+      },
+      {
+        "key": "contact_filter",
+        "type": "contact_filter",
+        "label": "Filtro de contactos",
+        "default": {
+          "include_all_known": false,
+          "include_unknown": false,
+          "included": [],
+          "excluded": []
+        }
+      },
+      {
+        "key": "message_pattern",
+        "type": "string",
+        "label": "Patrón regex (opcional)",
+        "default": "",
+        "hint": "Deja vacío para cualquier mensaje. Ej: .*urgente.*"
+      },
+      {
+        "key": "cooldown_hours",
+        "type": "number",
+        "label": "Cooldown entre respuestas (horas)",
+        "default": 4,
+        "hint": "Tiempo mínimo entre respuestas al mismo contacto. 0 = sin límite."
+      },
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "telegram_trigger",
+    "label": "Telegram Trigger",
+    "color": "#0369a1",
+    "description": "Punto de entrada para mensajes de Telegram. Solo activa el flow si el mensaje viene por TG.",
+    "help": "",
+    "schema": [
+      {
+        "key": "connection_id",
+        "type": "connection_select",
+        "label": "Conexión Telegram",
+        "default": "",
+        "required": true
+      },
+      {
+        "key": "contact_filter",
+        "type": "contact_filter",
+        "label": "Filtro de contactos",
+        "default": {
+          "include_all_known": false,
+          "include_unknown": false,
+          "included": [],
+          "excluded": []
+        }
+      },
+      {
+        "key": "message_pattern",
+        "type": "string",
+        "label": "Patrón regex (opcional)",
+        "default": "",
+        "hint": "Deja vacío para cualquier mensaje. Ej: .*urgente.*"
+      },
+      {
+        "key": "cooldown_hours",
+        "type": "number",
+        "label": "Cooldown entre respuestas (horas)",
+        "default": 4,
+        "hint": "Tiempo mínimo entre respuestas al mismo contacto. 0 = sin límite."
+      },
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "whatsapp_trigger",
+    "label": "WhatsApp Trigger",
+    "color": "#15803d",
+    "description": "Punto de entrada para mensajes de WhatsApp (Wavi). Solo activa el flow si el mensaje viene por WA.",
+    "help": "",
+    "schema": [
+      {
+        "key": "connection_id",
+        "type": "connection_select",
+        "label": "Conexión WhatsApp",
+        "default": "",
+        "required": true
+      },
+      {
+        "key": "contact_filter",
+        "type": "contact_filter",
+        "label": "Filtro de contactos",
+        "default": {
+          "include_all_known": false,
+          "include_unknown": false,
+          "included": [],
+          "excluded": []
+        }
+      },
+      {
+        "key": "message_pattern",
+        "type": "string",
+        "label": "Patrón regex (opcional)",
+        "default": "",
+        "hint": "Deja vacío para cualquier mensaje. Ej: .*urgente.*"
+      },
+      {
+        "key": "cooldown_hours",
+        "type": "number",
+        "label": "Cooldown entre respuestas (horas)",
+        "default": 4,
+        "hint": "Tiempo mínimo entre respuestas al mismo contacto. 0 = sin límite."
+      },
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "api_trigger",
+    "label": "API Trigger",
+    "color": "#7c3aed",
+    "description": "Punto de entrada via HTTP. Activa el flow con un POST a /api/flows/{flow_id}/trigger.",
+    "help": "",
+    "schema": [
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "message_join",
+    "label": "+",
+    "color": "#475569",
+    "description": "Nodo de convergencia (fan-in). Úsalo cuando un flow tiene múltiples triggers. No modifica el estado.",
+    "help": "",
+    "schema": [
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "gate",
+    "label": "×",
+    "color": "#475569",
+    "description": "Gate AND bloqueante. Espera que todos los caminos configurados lleguen antes de continuar. Acumula mensajes en gate_messages.",
+    "help": "",
+    "schema": [
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "wait_user",
+    "label": "Esperar respuesta",
+    "color": "#ca8a04",
+    "description": "Pausa el flow y espera que el contacto responda. El próximo mensaje reanuda desde el nodo siguiente.",
+    "help": "",
+    "schema": [
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "router",
+    "label": "Router",
+    "color": "#854d0e",
+    "description": "Clasifica el mensaje con LLM y decide qué rama ejecutar.",
+    "help": "",
+    "schema": [
+      {
+        "key": "prompt",
+        "type": "textarea",
+        "label": "Prompt del clasificador",
+        "default": "",
+        "rows": 7
+      },
+      {
+        "key": "routes",
+        "type": "list",
+        "label": "Rutas válidas",
+        "default": [],
+        "hint": "Separadas por coma — ej: noticias,oficio,auspiciante"
+      },
+      {
+        "key": "fallback",
+        "type": "string",
+        "label": "Ruta por defecto",
+        "default": "",
+        "hint": "Si el LLM responde algo inválido"
+      },
+      {
+        "key": "model",
+        "type": "select",
+        "label": "Modelo",
+        "default": "best:instruction|local-first",
+        "options": [
+          {
+            "value": "best:instruction|local",
+            "label": "best:instruction — local"
+          },
+          {
+            "value": "best:instruction|local-first",
+            "label": "best:instruction — local → cloud"
+          },
+          {
+            "value": "best:instruction|cloud-first",
+            "label": "best:instruction — cloud → local"
+          },
+          {
+            "value": "best:instruction|cloud",
+            "label": "best:instruction — cloud"
+          },
+          {
+            "value": "best:reasoning|local",
+            "label": "best:reasoning — local"
+          },
+          {
+            "value": "best:reasoning|local-first",
+            "label": "best:reasoning — local → cloud"
+          },
+          {
+            "value": "best:reasoning|cloud-first",
+            "label": "best:reasoning — cloud → local"
+          },
+          {
+            "value": "best:reasoning|cloud",
+            "label": "best:reasoning — cloud"
+          },
+          {
+            "value": "best:coding|local",
+            "label": "best:coding — local"
+          },
+          {
+            "value": "best:coding|local-first",
+            "label": "best:coding — local → cloud"
+          },
+          {
+            "value": "best:coding|cloud-first",
+            "label": "best:coding — cloud → local"
+          },
+          {
+            "value": "best:coding|cloud",
+            "label": "best:coding — cloud"
+          },
+          {
+            "value": "best:code_debug|local",
+            "label": "best:code_debug — local"
+          },
+          {
+            "value": "best:code_debug|local-first",
+            "label": "best:code_debug — local → cloud"
+          },
+          {
+            "value": "best:code_debug|cloud-first",
+            "label": "best:code_debug — cloud → local"
+          },
+          {
+            "value": "best:code_debug|cloud",
+            "label": "best:code_debug — cloud"
+          },
+          {
+            "value": "best:math|local",
+            "label": "best:math — local"
+          },
+          {
+            "value": "best:math|local-first",
+            "label": "best:math — local → cloud"
+          },
+          {
+            "value": "best:math|cloud-first",
+            "label": "best:math — cloud → local"
+          },
+          {
+            "value": "best:math|cloud",
+            "label": "best:math — cloud"
+          },
+          {
+            "value": "best:summarization|local",
+            "label": "best:summarization — local"
+          },
+          {
+            "value": "best:summarization|local-first",
+            "label": "best:summarization — local → cloud"
+          },
+          {
+            "value": "best:summarization|cloud-first",
+            "label": "best:summarization — cloud → local"
+          },
+          {
+            "value": "best:summarization|cloud",
+            "label": "best:summarization — cloud"
+          },
+          {
+            "value": "best:multilingual|local",
+            "label": "best:multilingual — local"
+          },
+          {
+            "value": "best:multilingual|local-first",
+            "label": "best:multilingual — local → cloud"
+          },
+          {
+            "value": "best:multilingual|cloud-first",
+            "label": "best:multilingual — cloud → local"
+          },
+          {
+            "value": "best:multilingual|cloud",
+            "label": "best:multilingual — cloud"
+          },
+          {
+            "value": "best:context|local",
+            "label": "best:context — local"
+          },
+          {
+            "value": "best:context|local-first",
+            "label": "best:context — local → cloud"
+          },
+          {
+            "value": "best:context|cloud-first",
+            "label": "best:context — cloud → local"
+          },
+          {
+            "value": "best:context|cloud",
+            "label": "best:context — cloud"
+          }
+        ]
+      },
+      {
+        "key": "max_visits",
+        "type": "number",
+        "label": "Máx. visitas (loop limit)",
+        "default": null,
+        "hint": "Si el nodo se visita ≥ N veces en la misma conversación, redirige a max_visits_route"
+      },
+      {
+        "key": "max_visits_route",
+        "type": "string",
+        "label": "Ruta cuando se agota el límite",
+        "default": "",
+        "hint": "Debe existir como edge de este nodo. Ej: agotado"
+      },
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "condition",
+    "label": "Condición",
+    "color": "#92400e",
+    "description": "Evalúa reglas sobre variables del estado y decide qué rama ejecutar. Sin LLM — decisión pura.",
+    "help": "",
+    "schema": [
+      {
+        "key": "rules",
+        "type": "json",
+        "label": "Reglas (en orden, gana la primera que matchea)",
+        "default": [],
+        "hint": "[{\"var\": \"necesidad\", \"op\": \"not_in\", \"values\": [\"\", \"UNCLEAR\", \"OUT_OF_SCOPE\"], \"then\": \"necesidad_identificada\"}] — ops: equals, not_equals, in, not_in, empty, not_empty, contains"
+      },
+      {
+        "key": "fallback",
+        "type": "string",
+        "label": "Ruta por defecto",
+        "default": "",
+        "hint": "Si ninguna regla matchea"
+      },
+      {
+        "key": "routes",
+        "type": "list",
+        "label": "Rutas válidas",
+        "default": [],
+        "hint": "Separadas por coma — documentación de los edges disponibles"
+      },
+      {
+        "key": "max_visits",
+        "type": "number",
+        "label": "Máx. visitas (loop limit)",
+        "default": null,
+        "hint": "Si el nodo se visita ≥ N veces en la misma conversación, redirige a max_visits_route"
+      },
+      {
+        "key": "max_visits_route",
+        "type": "string",
+        "label": "Ruta cuando se agota el límite",
+        "default": "",
+        "hint": "Debe existir como edge de este nodo. Ej: agotado"
+      },
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "llm",
+    "label": "Respuesta LLM",
+    "color": "#6b21a8",
+    "description": "Genera una respuesta usando un modelo de lenguaje.",
+    "help": "",
+    "schema": [
+      {
+        "key": "prompt",
+        "type": "textarea",
+        "label": "System prompt",
+        "default": "",
+        "rows": 8
+      },
+      {
+        "key": "model",
+        "type": "select",
+        "label": "Modelo",
+        "default": "best:instruction|local-first",
+        "options": [
+          {
+            "value": "best:instruction|local",
+            "label": "best:instruction — local"
+          },
+          {
+            "value": "best:instruction|local-first",
+            "label": "best:instruction — local → cloud"
+          },
+          {
+            "value": "best:instruction|cloud-first",
+            "label": "best:instruction — cloud → local"
+          },
+          {
+            "value": "best:instruction|cloud",
+            "label": "best:instruction — cloud"
+          },
+          {
+            "value": "best:reasoning|local",
+            "label": "best:reasoning — local"
+          },
+          {
+            "value": "best:reasoning|local-first",
+            "label": "best:reasoning — local → cloud"
+          },
+          {
+            "value": "best:reasoning|cloud-first",
+            "label": "best:reasoning — cloud → local"
+          },
+          {
+            "value": "best:reasoning|cloud",
+            "label": "best:reasoning — cloud"
+          },
+          {
+            "value": "best:coding|local",
+            "label": "best:coding — local"
+          },
+          {
+            "value": "best:coding|local-first",
+            "label": "best:coding — local → cloud"
+          },
+          {
+            "value": "best:coding|cloud-first",
+            "label": "best:coding — cloud → local"
+          },
+          {
+            "value": "best:coding|cloud",
+            "label": "best:coding — cloud"
+          },
+          {
+            "value": "best:code_debug|local",
+            "label": "best:code_debug — local"
+          },
+          {
+            "value": "best:code_debug|local-first",
+            "label": "best:code_debug — local → cloud"
+          },
+          {
+            "value": "best:code_debug|cloud-first",
+            "label": "best:code_debug — cloud → local"
+          },
+          {
+            "value": "best:code_debug|cloud",
+            "label": "best:code_debug — cloud"
+          },
+          {
+            "value": "best:math|local",
+            "label": "best:math — local"
+          },
+          {
+            "value": "best:math|local-first",
+            "label": "best:math — local → cloud"
+          },
+          {
+            "value": "best:math|cloud-first",
+            "label": "best:math — cloud → local"
+          },
+          {
+            "value": "best:math|cloud",
+            "label": "best:math — cloud"
+          },
+          {
+            "value": "best:summarization|local",
+            "label": "best:summarization — local"
+          },
+          {
+            "value": "best:summarization|local-first",
+            "label": "best:summarization — local → cloud"
+          },
+          {
+            "value": "best:summarization|cloud-first",
+            "label": "best:summarization — cloud → local"
+          },
+          {
+            "value": "best:summarization|cloud",
+            "label": "best:summarization — cloud"
+          },
+          {
+            "value": "best:multilingual|local",
+            "label": "best:multilingual — local"
+          },
+          {
+            "value": "best:multilingual|local-first",
+            "label": "best:multilingual — local → cloud"
+          },
+          {
+            "value": "best:multilingual|cloud-first",
+            "label": "best:multilingual — cloud → local"
+          },
+          {
+            "value": "best:multilingual|cloud",
+            "label": "best:multilingual — cloud"
+          },
+          {
+            "value": "best:context|local",
+            "label": "best:context — local"
+          },
+          {
+            "value": "best:context|local-first",
+            "label": "best:context — local → cloud"
+          },
+          {
+            "value": "best:context|cloud-first",
+            "label": "best:context — cloud → local"
+          },
+          {
+            "value": "best:context|cloud",
+            "label": "best:context — cloud"
+          }
+        ]
+      },
+      {
+        "key": "temperature",
+        "type": "float",
+        "label": "Temperatura",
+        "default": 0.3
+      },
+      {
+        "key": "output",
+        "type": "string",
+        "label": "Destino de la salida",
+        "default": "reply",
+        "hint": "Clave de state.data donde se guarda la respuesta. reply = responde al usuario · context = pasa al siguiente nodo · query = para búsqueda vectorial / fetch · o cualquier nombre custom (ej: necesidad, mensaje_pedido_necesidad)"
+      },
+      {
+        "key": "json_output",
+        "type": "bool",
+        "label": "Respuesta JSON",
+        "default": false
+      },
+      {
+        "key": "json_reply_key",
+        "type": "string",
+        "label": "Clave JSON del reply",
+        "default": "reply",
+        "hint": "Clave dentro del JSON que contiene el texto a responder",
+        "show_if": {
+          "json_output": true
+        }
+      },
+      {
+        "key": "output_as_list",
+        "type": "bool",
+        "label": "Salida como lista (una por línea)",
+        "default": false,
+        "hint": "Parte la respuesta por líneas y guarda [{\"text\": línea}, ...] en vez de texto plano. Para alimentar un FetchHttpNode con array_input, referenciando {{item.text}} en la URL."
+      },
+      {
+        "key": "max_tokens",
+        "type": "int",
+        "label": "Máximo de tokens (opcional)",
+        "default": null,
+        "hint": "Vacío = default del router de modelos. Subilo si las respuestas se cortan a mitad de frase (pasa seguido con prompts que piden citar URLs largas + una línea de cierre)."
+      },
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "send_message",
+    "label": "Enviar mensaje",
+    "color": "#15803d",
+    "description": "Envía un mensaje al usuario o a un contacto externo vía Telegram.",
+    "help": "",
+    "schema": [
+      {
+        "key": "to",
+        "type": "string",
+        "label": "Destinatario",
+        "default": "",
+        "hint": "Vacío = reply al usuario de la conversación. Soporta {{placeholders}}"
+      },
+      {
+        "key": "message",
+        "type": "textarea",
+        "label": "Mensaje",
+        "default": "",
+        "required": true,
+        "rows": 5,
+        "hint": "Soporta {{placeholders}} como {{nombre}}"
+      },
+      {
+        "key": "channel",
+        "type": "select",
+        "label": "Canal",
+        "default": "telegram",
+        "options": [
+          "telegram",
+          "teli"
+        ]
+      },
+      {
+        "key": "max_age_hours",
+        "type": "float",
+        "label": "Edad máxima para responder (horas)",
+        "default": 1.0,
+        "hint": "Solo aplica al reply al usuario (destinatario vacío). 0 = sin límite."
+      },
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "fetch_http",
+    "label": "Fetch HTTP",
+    "color": "#1e40af",
+    "description": "Hace uno o más llamados HTTP (GET o POST) a una URL externa y guarda la respuesta como contexto.",
+    "help": "",
+    "schema": [
+      {
+        "key": "url",
+        "type": "string",
+        "label": "URL",
+        "default": "",
+        "hint": "https://api.ejemplo.com/buscar?q={{query}} — soporta {{query}}, {{conversation.last}}, cualquier variable del flow, y {{item.campo}}/{{item}} si usás array_input"
+      },
+      {
+        "key": "method",
+        "type": "select",
+        "label": "Método HTTP",
+        "default": "GET",
+        "options": [
+          "GET",
+          "POST"
+        ],
+        "hint": "POST envía 'body' como JSON. No aplica con array_input (siempre GET ahí)."
+      },
+      {
+        "key": "body",
+        "type": "json",
+        "label": "Body (solo POST)",
+        "default": {},
+        "hint": "Objeto JSON que se envía como body del POST. Cualquier string, a cualquier nivel de anidamiento, soporta los mismos placeholders que 'url' (ej: {{contact_name}}, {{necesidad}}, {{servicio}})."
+      },
+      {
+        "key": "extract",
+        "type": "select",
+        "label": "Formato de respuesta",
+        "default": "text",
+        "options": [
+          "text",
+          "json",
+          "html"
+        ]
+      },
+      {
+        "key": "output",
+        "type": "string",
+        "label": "Variable de salida",
+        "default": "context",
+        "hint": "Clave de state.data donde se guarda la respuesta. context = default, pasa al siguiente nodo · o cualquier nombre custom (ej: resultado_servicio) para leerla después en otro nodo con {{resultado_servicio}} sin que la pise el próximo Fetch HTTP del flow"
+      },
+      {
+        "key": "array_input",
+        "type": "string",
+        "label": "Variable con array de inputs (opcional)",
+        "default": "",
+        "hint": "Nombre de una variable de state.data con una lista (ej. la que arma un LLM con 'Salida como lista'). Si está seteada, se hace un GET por cada item y output queda como lista de respuestas. Referenciá campos del item en la URL con {{item.campo}} (o {{item}} si es un valor plano). Vacío = un solo GET, como siempre."
+      },
+      {
+        "key": "extract_fields",
+        "type": "json",
+        "label": "Extraer campos del JSON (opcional, sin array_input)",
+        "default": {},
+        "hint": "Solo con formato 'json' y sin array_input. Mapeo {clave_de_salida: \"ruta.anidada.al.campo\"} — ej. {\"servicio\": \"candidato.nombre\", \"servicio_contact_id\": \"candidato.contact_id\"}. Escribe cada valor directo en state.data, sin pasar por un LLM. Ruta inexistente o null → no escribe esa clave."
+      },
+      {
+        "key": "route_output",
+        "type": "bool",
+        "label": "Rutear por resultado HTTP (opcional)",
+        "default": false,
+        "hint": "Si está activo, este nodo también rutea como un Router — conectá cada salida (route_success/route_no_error/route_error) a un edge con ese label, en vez de agregar un Condition después del fetch. Con route_output activo, TODOS los edges que salgan de este nodo deben tener label — un edge sin label corre siempre, en paralelo a la rama que matcheó."
+      },
+      {
+        "key": "success_codes",
+        "type": "list",
+        "label": "Códigos de éxito",
+        "default": [
+          200,
+          201
+        ],
+        "hint": "Status HTTP que van por route_success. Cualquier otro 2xx/3xx va por route_no_error, y 4xx/5xx/error de red va por route_error."
+      },
+      {
+        "key": "route_success",
+        "type": "string",
+        "label": "Ruta — éxito (success_codes)",
+        "default": "ok"
+      },
+      {
+        "key": "route_no_error",
+        "type": "string",
+        "label": "Ruta — otro 2xx/3xx",
+        "default": "no_error"
+      },
+      {
+        "key": "route_error",
+        "type": "string",
+        "label": "Ruta — error HTTP o de red",
+        "default": "error"
+      },
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "vector_search",
+    "label": "Búsqueda vectorial",
+    "color": "#0e7490",
+    "description": "Busca en una colección (oficios, auspiciantes, etc.) y popula state.vars.",
+    "help": "",
+    "schema": [
+      {
+        "key": "mode",
+        "type": "select",
+        "label": "Modo de búsqueda",
+        "default": "registry",
+        "options": [
+          {
+            "value": "registry",
+            "label": "Colección registrada"
+          },
+          {
+            "value": "inline",
+            "label": "Lista editable (inline)"
+          }
+        ]
+      },
+      {
+        "key": "collection",
+        "type": "string",
+        "label": "Colección",
+        "default": "",
+        "hint": "ej: luganense_oficios",
+        "show_if": {
+          "mode": "registry"
+        }
+      },
+      {
+        "key": "query_field",
+        "type": "select",
+        "label": "Fuente del query",
+        "default": "message",
+        "options": [
+          "message",
+          "query",
+          "context"
+        ],
+        "show_if": {
+          "mode": "registry"
+        }
+      },
+      {
+        "key": "output_field",
+        "type": "select",
+        "label": "Destino del resultado",
+        "default": "context",
+        "options": [
+          "context",
+          "query"
+        ],
+        "show_if": {
+          "mode": "registry"
+        }
+      },
+      {
+        "key": "top_k",
+        "type": "float",
+        "label": "Cantidad de resultados",
+        "default": 3,
+        "show_if": {
+          "mode": "registry"
+        }
+      },
+      {
+        "key": "search_field",
+        "type": "string",
+        "label": "Campo de búsqueda",
+        "default": "oficio",
+        "hint": "El campo del ítem por el que se busca (ej: oficio, categoria)",
+        "show_if": {
+          "mode": "inline"
+        }
+      },
+      {
+        "key": "items",
+        "type": "json",
+        "label": "Ítems",
+        "default": [],
+        "hint": "Array JSON. Cada ítem debe tener el campo de búsqueda y \"activo\": true/false.",
+        "show_if": {
+          "mode": "inline"
+        }
+      },
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "summarize",
+    "label": "Sumarizador",
+    "color": "#14532d",
+    "description": "Acumula mensajes en un archivo .md por contacto. Sin reply.",
+    "help": "",
+    "schema": [
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "set_state",
+    "label": "Establecer estado",
+    "color": "#0891b2",
+    "description": "Escribe un valor fijo en un campo del estado del flow.",
+    "help": "",
+    "schema": [
+      {
+        "key": "field",
+        "type": "string",
+        "label": "Campo del estado",
+        "hint": "Ej: contact_notes",
+        "required": true
+      },
+      {
+        "key": "value",
+        "type": "string",
+        "label": "Valor a escribir",
+        "required": true
+      },
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "save_contact",
+    "label": "Guardar contacto",
+    "color": "#059669",
+    "description": "Persiste el contacto en la base de datos usando datos del estado.",
+    "help": "",
+    "schema": [
+      {
+        "key": "name_field",
+        "type": "string",
+        "label": "Campo → nombre",
+        "default": "contact_name"
+      },
+      {
+        "key": "phone_field",
+        "type": "string",
+        "label": "Campo → teléfono",
+        "default": "contact_phone"
+      },
+      {
+        "key": "notes_field",
+        "type": "string",
+        "label": "Campo → notas",
+        "default": "contact_notes",
+        "hint": "Ej: trade, category"
+      },
+      {
+        "key": "update_if_exists",
+        "type": "bool",
+        "label": "Actualizar si ya existe",
+        "default": true
+      },
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "check_contact",
+    "label": "¿Contacto conocido?",
+    "color": "#0e7490",
+    "description": "Consulta la DB y setea la ruta: 'conocido' o 'desconocido'. Sin LLM — decisión pura.",
+    "help": "",
+    "schema": [
+      {
+        "key": "route_known",
+        "type": "string",
+        "label": "Ruta si es conocido",
+        "default": "conocido"
+      },
+      {
+        "key": "route_unknown",
+        "type": "string",
+        "label": "Ruta si es desconocido",
+        "default": "desconocido"
+      },
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "transcribe_audio",
+    "label": "Transcribir audio",
+    "color": "#7c3aed",
+    "description": "Transcribe un mensaje de audio a texto usando Whisper. Colocar antes de summarize.",
+    "help": "",
+    "schema": [
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "save_attachment",
+    "label": "Guardar adjunto",
+    "color": "#b45309",
+    "description": "Mueve el adjunto a almacenamiento permanente (data/summaries/). Colocar entre transcribe_audio y summarize.",
+    "help": "",
+    "schema": [
+      {
+        "key": "delete_audio_after_transcription",
+        "type": "bool",
+        "label": "Eliminar audio tras transcribir",
+        "default": false,
+        "hint": "Si está activo, el archivo de audio se borra una vez transcripto."
+      },
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "fetch_sheet",
+    "label": "Leer planilla",
+    "color": "#16a34a",
+    "description": "Lee una Google Sheet pública y vuelca el contenido completo en state.context.",
+    "help": "",
+    "schema": [
+      {
+        "key": "sheet_id",
+        "type": "string",
+        "label": "ID de Google Sheet",
+        "default": "",
+        "hint": "El ID de la URL: docs.google.com/spreadsheets/d/<ID>/...",
+        "required": true
+      },
+      {
+        "key": "range",
+        "type": "string",
+        "label": "Rango (opcional)",
+        "default": "",
+        "hint": "Ej: A1:D50 — vacío = toda la hoja"
+      },
+      {
+        "key": "output",
+        "type": "select",
+        "label": "Destino",
+        "default": "context",
+        "options": [
+          {
+            "value": "context",
+            "label": "state.context"
+          },
+          {
+            "value": "vars.sheet_data",
+            "label": "state.vars.sheet_data"
+          }
+        ]
+      },
+      {
+        "key": "format",
+        "type": "select",
+        "label": "Formato",
+        "default": "markdown_table",
+        "options": [
+          {
+            "value": "markdown_table",
+            "label": "Tabla Markdown"
+          },
+          {
+            "value": "json",
+            "label": "JSON"
+          },
+          {
+            "value": "plain_text",
+            "label": "Texto plano"
+          }
+        ]
+      },
+      {
+        "key": "cache_minutes",
+        "type": "float",
+        "label": "Caché (minutos)",
+        "default": 5,
+        "hint": "0 = sin caché, siempre descarga"
+      },
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "gsheet",
+    "label": "Google Sheet",
+    "color": "#16a34a",
+    "description": "Busca una fila exacta en una Google Sheet, o agrega una fila nueva.",
+    "help": "",
+    "schema": [
+      {
+        "key": "mode",
+        "type": "select",
+        "label": "Modo",
+        "default": "search",
+        "options": [
+          {
+            "value": "search",
+            "label": "Buscar fila"
+          },
+          {
+            "value": "read_all",
+            "label": "Bajar toda la planilla"
+          },
+          {
+            "value": "append",
+            "label": "Agregar fila"
+          }
+        ]
+      },
+      {
+        "key": "google_account",
+        "type": "google_account_select",
+        "label": "Cuenta Google",
+        "default": "default",
+        "show_if": {
+          "mode": "append"
+        }
+      },
+      {
+        "key": "sheet_id",
+        "type": "string",
+        "label": "ID de Google Sheet",
+        "default": "",
+        "hint": "El ID de la URL: docs.google.com/spreadsheets/d/<ID>/...",
+        "required": true
+      },
+      {
+        "key": "range",
+        "type": "string",
+        "label": "Rango (opcional)",
+        "default": "",
+        "hint": "Ej: A1:D100 — vacío = toda la hoja"
+      },
+      {
+        "key": "search_column",
+        "type": "string",
+        "label": "Columna de búsqueda",
+        "default": "",
+        "hint": "Nombre exacto del encabezado. Ej: oficio",
+        "show_if": {
+          "mode": "search"
+        }
+      },
+      {
+        "key": "query_source",
+        "type": "select",
+        "label": "Origen del valor a buscar",
+        "default": "query",
+        "options": [
+          {
+            "value": "query",
+            "label": "state.query"
+          },
+          {
+            "value": "message",
+            "label": "state.message"
+          },
+          {
+            "value": "vars.oficio",
+            "label": "state.vars.oficio"
+          }
+        ],
+        "hint": "El nodo anterior debe haber puesto el valor ahí",
+        "show_if": {
+          "mode": "search"
+        }
+      },
+      {
+        "key": "exact_match",
+        "type": "bool",
+        "label": "Coincidencia exacta",
+        "default": true,
+        "hint": "Desactivar para buscar por contiene",
+        "show_if": {
+          "mode": "search"
+        }
+      },
+      {
+        "key": "cache_minutes",
+        "type": "float",
+        "label": "Caché (minutos)",
+        "default": 5
+      },
+      {
+        "key": "output",
+        "type": "select",
+        "label": "Destino",
+        "default": "context",
+        "options": [
+          {
+            "value": "context",
+            "label": "state.data[\"context\"]"
+          },
+          {
+            "value": "vars.sheet_data",
+            "label": "state.vars.sheet_data"
+          }
+        ],
+        "show_if": {
+          "mode": "read_all"
+        }
+      },
+      {
+        "key": "format",
+        "type": "select",
+        "label": "Formato",
+        "default": "json",
+        "options": [
+          {
+            "value": "json",
+            "label": "JSON (recomendado para LLM)"
+          },
+          {
+            "value": "csv",
+            "label": "CSV"
+          }
+        ],
+        "show_if": {
+          "mode": "read_all"
+        }
+      },
+      {
+        "key": "sheet_name",
+        "type": "string",
+        "label": "Nombre de la hoja",
+        "default": "Sheet1",
+        "hint": "La pestaña donde agregar la fila",
+        "show_if": {
+          "mode": "append"
+        }
+      },
+      {
+        "key": "columns",
+        "type": "json",
+        "label": "Columnas a escribir",
+        "default": [],
+        "hint": "[{\"header\": \"nombre\", \"source\": \"vars.nombre\"}, ...]",
+        "show_if": {
+          "mode": "append"
+        }
+      },
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "search_sheet",
+    "label": "Buscar en planilla",
+    "color": "#0e7490",
+    "description": "Busca en una Google Sheet el ítem que coincide con el mensaje. Usa LLM para identificar el valor.",
+    "help": "",
+    "schema": [
+      {
+        "key": "google_account",
+        "type": "google_account_select",
+        "label": "Cuenta Google",
+        "default": "default"
+      },
+      {
+        "key": "sheet_id",
+        "type": "string",
+        "label": "ID de Google Sheet",
+        "default": "",
+        "hint": "El ID de la URL: docs.google.com/spreadsheets/d/<ID>/...",
+        "required": true
+      },
+      {
+        "key": "range",
+        "type": "string",
+        "label": "Rango (opcional)",
+        "default": "",
+        "hint": "Ej: A1:D50 — vacío = toda la hoja"
+      },
+      {
+        "key": "search_field",
+        "type": "string",
+        "label": "Campo de búsqueda",
+        "default": "oficio",
+        "hint": "Columna de la hoja por la que se busca (ej: oficio, categoria)"
+      },
+      {
+        "key": "cache_minutes",
+        "type": "float",
+        "label": "Caché (minutos)",
+        "default": 5,
+        "hint": "0 = sin caché, siempre descarga"
+      },
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "detect_conversation",
+    "label": "Detectar conversación",
+    "color": "#0f766e",
+    "description": "Detecta si hay una conversación abierta y rutea: resumir | preguntar | nueva.",
+    "help": "",
+    "schema": [
+      {
+        "key": "resume_threshold_minutes",
+        "type": "number",
+        "label": "Minutos para retomar automático",
+        "default": 30,
+        "hint": "Si la conv tiene menos de N min → resumir sin preguntar"
+      },
+      {
+        "key": "new_threshold_minutes",
+        "type": "number",
+        "label": "Minutos para considerar nueva",
+        "default": 1440,
+        "hint": "Si la conv tiene más de N min (default=24h) → nueva"
+      },
+      {
+        "key": "fallback",
+        "type": "string",
+        "label": "Ruta si no hay conv abierta",
+        "default": "nueva"
+      },
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "end_conversation",
+    "label": "Cerrar conversación",
+    "color": "#be123c",
+    "description": "Cierra explícitamente la conversación actual. El próximo mensaje del contacto abrirá un flow nuevo.",
+    "help": "",
+    "schema": [
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "metric",
+    "label": "Métrica",
+    "color": "#a16207",
+    "description": "Registra una métrica de negocio en DB y, opcionalmente, notifica a un sistema externo vía webhook.",
+    "help": "",
+    "schema": [
+      {
+        "key": "metric_name",
+        "type": "string",
+        "label": "Nombre de la métrica",
+        "default": "",
+        "hint": "Ej: intencion_detectada, producto_consultado. Soporta {{templates}}",
+        "required": true
+      },
+      {
+        "key": "value",
+        "type": "string",
+        "label": "Valor",
+        "default": "",
+        "hint": "Soporta {{templates}}, ej: {{conversation.last}} o {{route}}",
+        "required": true
+      },
+      {
+        "key": "metadata",
+        "type": "json",
+        "label": "Metadata extra (opcional)",
+        "default": {},
+        "hint": "{\"campo\": \"{{template}}\"}"
+      },
+      {
+        "key": "webhook_url",
+        "type": "string",
+        "label": "Webhook (opcional)",
+        "default": "",
+        "hint": "POST con {metric_name, value, bot_id, contact_phone, contact_name, canal, metadata}. Fire-and-forget: si falla no interrumpe el flow, el error queda logueado."
+      },
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "nodo_flow",
+    "label": "Sub-flow",
+    "color": "#db2777",
+    "description": "Invoca otro flow como sub-flow (se expande en tiempo de compilación).",
+    "help": "",
+    "schema": [
+      {
+        "key": "flow_id",
+        "type": "select",
+        "label": "Flow a invocar",
+        "default": "",
+        "options": [],
+        "required": true
+      },
+      {
+        "key": "output",
+        "type": "string",
+        "label": "Output (opcional)",
+        "default": "",
+        "hint": "Clave de state.data donde el sub-flow debería escribir su resultado. Se reenvía al sub-flow como parámetro {{output}} — solo tiene efecto si el sub-flow lo usa internamente (ej. en el campo 'output' de un nodo LLM). Dejalo vacío si el sub-flow ya usa una clave fija."
+      },
+      {
+        "key": "routes",
+        "type": "list",
+        "label": "Rutas de salida",
+        "default": [],
+        "hint": "Salidas nombradas del sub-flow elegido — la UI las auto-completa al elegir 'Flow a invocar' (compute_exit_routes); documentan qué labels usar en los edges salientes de este nodo."
+      },
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "subflow_start",
+    "label": "Inicio de sub-flow",
+    "color": "#059669",
+    "description": "Marca el punto de entrada de un sub-flow (NodoFlow). Passthrough — no modifica el estado.",
+    "help": "",
+    "schema": [
+      {
+        "key": "key",
+        "type": "string",
+        "label": "Clave de entrada",
+        "default": "start",
+        "hint": "Reservado para múltiples entradas a futuro. En v1 no se usa para seleccionar."
+      },
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "subflow_end",
+    "label": "Fin de sub-flow",
+    "color": "#0d9488",
+    "description": "Marca un punto de salida de un sub-flow (NodoFlow). Passthrough — no modifica el estado.",
+    "help": "",
+    "schema": [
+      {
+        "key": "route",
+        "type": "string",
+        "label": "Ruta de salida",
+        "default": "",
+        "hint": "Nombre de la salida (label del edge en el flow padre). Vacío = única salida sin nombre."
+      },
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  }
+]

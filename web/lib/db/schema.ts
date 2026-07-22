@@ -24,6 +24,14 @@ export const flows = pgTable("flows", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
+export const flowVersions = pgTable("flow_versions", {
+  id: serial("id").primaryKey(),
+  flowId: text("flow_id").notNull(),
+  name: text("name").notNull(),
+  definition: jsonb("definition").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
 export const flowRuns = pgTable("flow_runs", {
   runId: text("run_id").primaryKey(),
   flowId: text("flow_id").notNull(),
