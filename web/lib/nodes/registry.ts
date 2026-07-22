@@ -7,15 +7,21 @@ import { setStateNode } from "./set-state";
 import { replyNode } from "./reply";
 import { endConversationNode } from "./end-conversation";
 import { llmNode } from "./llm";
+import { metricNode } from "./metric";
+import { subflowEndNode, subflowStartNode } from "./subflow";
 import { messageTriggerNode, telegramTriggerNode } from "./trigger";
 
 // TS port of NODE_REGISTRY (pulpo/graphs/nodes/__init__.py), scoped per
-// management/HANDOFF_VERCEL_DEEP_MIGRATION.md: routing basics + llm. Out of
-// scope (documented there): gate/wait_user (need createHook), nodo_flow/
-// subflow_*, multimedia (transcribe_audio/save_attachment), contacts
-// (check_contact/save_contact), Google Sheets (fetch_sheet/gsheet/
-// search_sheet), vector_search, summarize, metric, detect_conversation,
-// message_join, whatsapp_trigger.
+// management/HANDOFF_VERCEL_DEEP_MIGRATION.md. `wait_user` and `nodo_flow`
+// are deliberately NOT registered here even though they're ported: nodo_flow
+// never executes (expanded away at compile time, see
+// lib/flow/expand-node-flows.ts) and wait_user needs to suspend the *workflow
+// run itself* (persist to flow_runs, end this run) rather than run inside a
+// step -- both are special-cased directly in workflows/run-flow.ts's BFS
+// loop. Still out of scope: gate (AND-join), multimedia
+// (transcribe_audio/save_attachment), contacts (check_contact/save_contact),
+// Google Sheets (fetch_sheet/gsheet/search_sheet), vector_search, summarize,
+// detect_conversation, message_join, whatsapp_trigger.
 export const NODE_REGISTRY: Record<string, NodeDef> = {
   api_trigger: apiTriggerNode,
   fetch_http: fetchHttpNode,
@@ -25,6 +31,9 @@ export const NODE_REGISTRY: Record<string, NodeDef> = {
   send_message: replyNode,
   end_conversation: endConversationNode,
   llm: llmNode,
+  metric: metricNode,
+  subflow_start: subflowStartNode,
+  subflow_end: subflowEndNode,
   message_trigger: messageTriggerNode,
   telegram_trigger: telegramTriggerNode,
 };

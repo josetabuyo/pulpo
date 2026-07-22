@@ -16,13 +16,19 @@ import { verifyAccessToken } from "@/lib/auth/jwt";
 // (lib/auth/jwt.ts, /api/auth/token). Everything else is a human at the
 // admin dashboard, gated by a real Google session (auth.ts, Auth.js v5) --
 // same pattern as Luganense's middleware.ts.
+//
+// /api/telegram/webhook/* is a THIRD scheme: Telegram sends neither a
+// session cookie nor a bearer token, so this path is public here -- the
+// route itself verifies the tokenId in the URL against telegram_connections
+// (and an optional secret_token header), see that route's docstring.
 const TRIGGER_PATH_RE = /^\/api\/flows\/[^/]+\/trigger\/[^/]+$/;
+const TELEGRAM_WEBHOOK_RE = /^\/api\/telegram\/webhook\/[^/]+$/;
 const PUBLIC_PATHS = ["/api/auth/token"];
 
 export default auth(async (request) => {
   const { pathname } = request.nextUrl;
 
-  if (PUBLIC_PATHS.includes(pathname) || pathname.startsWith("/api/auth/")) {
+  if (PUBLIC_PATHS.includes(pathname) || pathname.startsWith("/api/auth/") || TELEGRAM_WEBHOOK_RE.test(pathname)) {
     return NextResponse.next();
   }
 

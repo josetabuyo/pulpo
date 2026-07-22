@@ -24,6 +24,7 @@ export async function startFlowRun(params: {
   flowId: string;
   botId: string;
   connectionId: string | null;
+  contactPhone: string | null;
   triggerData: unknown;
   workflowRunId: string;
 }) {
@@ -33,6 +34,7 @@ export async function startFlowRun(params: {
     flowId: params.flowId,
     botId: params.botId,
     connectionId: params.connectionId,
+    contactPhone: params.contactPhone,
     status: "running",
     triggerData: params.triggerData,
     workflowRunId: params.workflowRunId,
@@ -42,6 +44,30 @@ export async function startFlowRun(params: {
 export async function endFlowRun(runId: string, status: string) {
   "use step";
   await getDb().update(flowRuns).set({ status, endedAt: new Date() }).where(eq(flowRuns.runId, runId));
+}
+
+// Loads a sub-flow's raw definition for expand_node_flows (nodo_flow lookup)
+// -- separate from loadFlow() because subflows aren't validated as "the"
+// flow being run (no active check, no botId/connectionId needed).
+export async function fetchFlowDefinition(flowId: string) {
+  "use step";
+  const [flow] = await getDb().select().from(flows).where(eq(flows.id, flowId));
+  if (!flow) return null;
+  const definition = flow.definition as { nodes?: FlowNodeDef[]; edges?: FlowEdgeDef[] };
+  return { nodes: definition.nodes ?? [], edges: definition.edges ?? [] };
+}
+
+// Persists a wait_user pause (TS port of the DB half of pulpo/graphs/
+// compiler.py's wait_user handling in _run_bfs -- Python's
+// db.set_wait_user_info). resumeNodeId/slotsJson let a later Telegram
+// message resume this exact run from where it paused, see
+// app/api/telegram/webhook/[tokenId]/route.ts.
+export async function markWaitingGate(params: { runId: string; resumeNodeId: string; slotsJson: Record<string, unknown> }) {
+  "use step";
+  await getDb()
+    .update(flowRuns)
+    .set({ status: "waiting_gate", resumeNodeId: params.resumeNodeId, slotsJson: params.slotsJson })
+    .where(eq(flowRuns.runId, params.runId));
 }
 
 export async function logFlowStep(params: {

@@ -5,6 +5,7 @@ import {
   timestamp,
   jsonb,
   serial,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 
 // Mirrors pulpo/core/db.py (SQLite, raw SQL) -- that file is the source of
@@ -80,12 +81,57 @@ export const telegramConnections = pgTable("telegram_connections", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
+// Contactos vistos por cada conexión de Telegram -- exclusivamente para que
+// el nodo telegram_trigger resuelva include_all_known/include_unknown en su
+// contact_filter. A propósito NO es la tabla `contacts` genérica del Python
+// original (contact_channels/contacts) -- por decisión del usuario
+// (2026-07-22) esta info es responsabilidad exclusiva del nodo de Telegram,
+// sin dominio de contactos compartido en esta migración.
+export const telegramKnownContacts = pgTable(
+  "telegram_known_contacts",
+  {
+    tokenId: text("token_id").notNull(),
+    chatId: text("chat_id").notNull(),
+    username: text("username"),
+    firstName: text("first_name"),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.tokenId, table.chatId] })],
+);
+
+// Rate-limit de replies por (flow, chat_id) -- reemplaza FlowCooldown
+// (pulpo/graphs/cooldown.py), que vive en memoria de proceso (no sirve en
+// serverless: no hay proceso vivo entre invocaciones).
+export const telegramTriggerCooldowns = pgTable(
+  "telegram_trigger_cooldowns",
+  {
+    flowId: text("flow_id").notNull(),
+    chatId: text("chat_id").notNull(),
+    lastReplyAt: timestamp("last_reply_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.flowId, table.chatId] })],
+);
+
 export const googleConnections = pgTable("google_connections", {
   id: text("id").primaryKey(),
   botId: text("bot_id"),
   credentialsJson: text("credentials_json").notNull(),
   email: text("email").notNull(),
   label: text("label").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// TS port of the `metrics` table (pulpo/core/db.py) -- MetricNode writes here.
+export const metrics = pgTable("metrics", {
+  id: serial("id").primaryKey(),
+  botId: text("bot_id").notNull(),
+  contactPhone: text("contact_phone"),
+  contactName: text("contact_name"),
+  canal: text("canal"),
+  metricName: text("metric_name").notNull(),
+  value: text("value"),
+  metadata: text("metadata"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 

@@ -6,6 +6,7 @@ export interface FlowState {
   message: string;
   botId: string;
   botName: string;
+  connectionId: string;
   contactPhone: string;
   contactName: string;
   canal: "telegram" | "wavi" | "api";
@@ -18,6 +19,7 @@ export function createFlowState(partial: Partial<FlowState> & { message: string 
   return {
     botId: "",
     botName: "",
+    connectionId: "",
     contactPhone: "",
     contactName: "",
     canal: "api",
