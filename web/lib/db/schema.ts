@@ -43,6 +43,44 @@ export const flowRuns = pgTable("flow_runs", {
   workflowRunId: text("workflow_run_id"),
 });
 
+// ─── Bots / connections ─────────────────────────────────────────────────
+// Config-only port of pulpo/core/config.py (connections.json) -- no live
+// process state (WhatsApp daemon / Telegram polling only exist locally).
+
+export const bots = pgTable("bots", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  password: text("password").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+export const phoneConnections = pgTable("phone_connections", {
+  number: text("number").primaryKey(),
+  botId: text("bot_id").notNull(),
+  alias: text("alias"),
+  allowMass: boolean("allow_mass").notNull().default(false),
+  defaultFilter: jsonb("default_filter"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const telegramConnections = pgTable("telegram_connections", {
+  tokenId: text("token_id").primaryKey(),
+  botId: text("bot_id").notNull(),
+  token: text("token").notNull(),
+  allowMass: boolean("allow_mass").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const googleConnections = pgTable("google_connections", {
+  id: text("id").primaryKey(),
+  botId: text("bot_id"),
+  credentialsJson: text("credentials_json").notNull(),
+  email: text("email").notNull(),
+  label: text("label").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
 export const flowRunSteps = pgTable("flow_run_steps", {
   id: serial("id").primaryKey(),
   runId: text("run_id")
