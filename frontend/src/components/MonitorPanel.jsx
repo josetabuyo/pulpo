@@ -192,7 +192,7 @@ function StatCard({ label, value, color }) {
 }
 
 // ── Polling hook ───────────────────────────────────────────────────────────────
-function useLogPoller(source, pwd, paused, windowMinutes, active) {
+function useLogPoller(source, paused, windowMinutes, active) {
   const [lines, setLines] = useState([])
   const [alerts, setAlerts] = useState([])
   const knownRef = useRef(0)
@@ -202,7 +202,7 @@ function useLogPoller(source, pwd, paused, windowMinutes, active) {
       const n = linesForWindow(windowMinutes)
       const res = await fetch(
         `/api/logs/latest?source=${source}&lines=${n}`,
-        { headers: { 'x-password': pwd } }
+        { credentials: 'include' }
       )
       if (!res.ok) return
       const data = await res.json()
@@ -219,7 +219,7 @@ function useLogPoller(source, pwd, paused, windowMinutes, active) {
       // El polling reintenta solo en el próximo tick; el rastro queda en consola
       console.warn('[MonitorPanel] fetch de logs falló', e)
     }
-  }, [source, pwd, windowMinutes])
+  }, [source, windowMinutes])
 
   useEffect(() => {
     knownRef.current = 0
@@ -243,7 +243,7 @@ function useLogPoller(source, pwd, paused, windowMinutes, active) {
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
-export default function MonitorPanel({ pwd, onAlertsChange, active = true }) {
+export default function MonitorPanel({ onAlertsChange, active = true }) {
   const [source,       setSource]      = useState('backend')
   const [paused,       setPaused]      = useState(false)
   const [filter,       setFilter]      = useState('')
@@ -255,7 +255,7 @@ export default function MonitorPanel({ pwd, onAlertsChange, active = true }) {
   const userScrolled   = useRef(false)
 
   const windowCfg = TIME_WINDOWS[windowIdx]
-  const { lines, alerts, clearAlerts } = useLogPoller(source, pwd, paused, windowCfg.minutes, active)
+  const { lines, alerts, clearAlerts } = useLogPoller(source, paused, windowCfg.minutes, active)
 
   useEffect(() => { onAlertsChange?.(alerts.length) }, [alerts.length])
 

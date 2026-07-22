@@ -1,17 +1,17 @@
-export function api(method, path, body, password) {
+export function api(method, path, body) {
   const headers = { 'Content-Type': 'application/json' }
-  if (password) headers['x-password'] = password
 
   if (method === 'GET_BLOB') {
-    return fetch('/api' + path, { headers }).then(r => r.blob())
+    return fetch('/api' + path, { headers, credentials: 'include' }).then(r => r.blob())
   }
   if (method === 'GET_TEXT') {
-    return fetch('/api' + path, { headers }).then(r => r.text())
+    return fetch('/api' + path, { headers, credentials: 'include' }).then(r => r.text())
   }
 
   return fetch('/api' + path, {
     method,
     headers,
+    credentials: 'include',
     body: body ? JSON.stringify(body) : undefined,
   }).then(async r => {
     const data = await r.json()
@@ -24,8 +24,8 @@ export function api(method, path, body, password) {
  * Variante para polling/llamadas no críticas: nunca rechaza.
  * Los errores quedan en console.warn (rastro para debugging) y devuelve null.
  */
-export function apiQuiet(method, path, body, password, label) {
-  return api(method, path, body, password).catch(e => {
+export function apiQuiet(method, path, body, label) {
+  return api(method, path, body).catch(e => {
     console.warn('[api]', label || path, e)
     return null
   })

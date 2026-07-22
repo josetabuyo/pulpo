@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { api, apiQuiet } from '../api.js'
 import { useFbSession } from '../hooks/useFbSession.js'
 import MonitorPanel from '../components/MonitorPanel.jsx'
@@ -8,7 +8,7 @@ import BotCard, { normalizeBot } from '../components/BotCard.jsx'
 
 // ─── WaviModal ────────────────────────────────────────────────────────────────
 
-function WaviModal({ open, onClose, pwd, session }) {
+function WaviModal({ open, onClose, session }) {
   const [sessions, setSessions] = useState([])
   const [starting, setStarting] = useState(false)
   const [qrHtml, setQrHtml] = useState('')
@@ -18,18 +18,17 @@ function WaviModal({ open, onClose, pwd, session }) {
     setSessions([])
     setStarting(false)
     setQrHtml('')
-    const fetchSessions = () => apiQuiet('GET', '/wavi/sessions', null, pwd).then(s => { if (s) setSessions(s) })
+    const fetchSessions = () => apiQuiet('GET', '/wavi/sessions', null).then(s => { if (s) setSessions(s) })
     fetchSessions()
     const id = setInterval(fetchSessions, 3000)
     return () => clearInterval(id)
-  }, [open, pwd, session])
+  }, [open, session])
 
-  // Fetches QR HTML con header de auth — la contraseña nunca va en la URL
   useEffect(() => {
     if (!open) return
     const fetchQr = async () => {
       try {
-        const res = await fetch('/api/wavi/qr-page', { headers: { 'x-password': pwd } })
+        const res = await fetch('/api/wavi/qr-page', { credentials: 'include' })
         if (res.ok) setQrHtml(await res.text())
       } catch (e) {
         // El polling reintenta solo en el próximo tick; el rastro queda en consola
@@ -39,16 +38,16 @@ function WaviModal({ open, onClose, pwd, session }) {
     fetchQr()
     const id = setInterval(fetchQr, 5000)
     return () => clearInterval(id)
-  }, [open, pwd])
+  }, [open])
 
   const isSpecificSession = session && session !== 'default'
 
   async function handleConnect() {
     setStarting(true)
     if (isSpecificSession) {
-      await apiQuiet('POST', `/wavi/sessions/${session}/connect`, null, pwd)
+      await apiQuiet('POST', `/wavi/sessions/${session}/connect`, null)
     } else {
-      await apiQuiet('POST', '/wavi/sessions', { session: null }, pwd)
+      await apiQuiet('POST', '/wavi/sessions', { session: null })
     }
     setStarting(false)
   }
@@ -188,9 +187,7 @@ function TelegramModal({ open, onClose, botId, onSave }) {
 // ─── Dashboard principal ───────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const pwd = sessionStorage.getItem('admin_pwd') || ''
 
   const [bots, setBots] = useState([])
   const [loading, setLoading] = useState(true)
@@ -210,14 +207,10 @@ export default function DashboardPage() {
 
   useEffect(() => { document.title = 'Pulpo — Dashboard' }, [])
 
-  // Redirect si no hay pwd
-  useEffect(() => {
-    if (!pwd) navigate('/')
-  }, [pwd, navigate])
-
+  // La sesión ya se valida en RequireAuth (App.jsx) antes de montar esta página.
   const call = useCallback(
-    (method, path, body) => api(method, path, body, pwd),
-    [pwd]
+    (method, path, body) => api(method, path, body),
+    []
   )
 
   const { fbLabel: fbSessionLabel, fbRunning: fbSessionRunning, startFbSession: handleFbSession } = useFbSession(call)
@@ -229,13 +222,12 @@ export default function DashboardPage() {
   }, [call])
 
   useEffect(() => {
-    if (!pwd) return
-    apiQuiet('GET', '/config/settings', null, pwd)
+    apiQuiet('GET', '/config/settings', null)
       .then(s => { if (s) setPollMinutes(Math.round((s.wa_poll_interval_seconds || 300) / 60)) })
     loadBots()
     const interval = setInterval(loadBots, 6000)
     return () => clearInterval(interval)
-  }, [loadBots, pwd])
+  }, [loadBots])
 
   useEffect(() => {
     const botId = searchParams.get('bot')
@@ -247,13 +239,12 @@ export default function DashboardPage() {
   async function savePollInterval() {
     setPollSaving(true)
     const secs = Math.max(60, Math.min(3600, Math.round(pollMinutes * 60)))
-    await apiQuiet('PUT', '/config/settings', { wa_poll_interval_seconds: secs }, pwd)
+    await apiQuiet('PUT', '/config/settings', { wa_poll_interval_seconds: secs })
     setPollSaving(false)
   }
 
   function logout() {
-    sessionStorage.removeItem('admin_pwd')
-    navigate('/')
+    window.location.href = '/api/auth/signout?callbackUrl=/'
   }
 
   function toggleSection(key, collapsed, setCollapsed) {
@@ -351,7 +342,7 @@ export default function DashboardPage() {
             </button>
           </div>
           <div style={{ display: archCollapsed ? 'none' : 'block', padding: '12px 16px' }}>
-            <ArchitectureSection pwd={pwd} collapsed={archCollapsed} />
+            <ArchitectureSection collapsed={archCollapsed} />
           </div>
         </div>
 
@@ -408,7 +399,7 @@ export default function DashboardPage() {
             >{monitorCollapsed ? '▼ Expandir' : '▲ Colapsar'}</button>
           </div>
           <div style={{ display: monitorCollapsed ? 'none' : 'block' }}>
-            <MonitorPanel pwd={pwd} onAlertsChange={setMonitorAlerts} active={!monitorCollapsed} />
+            <MonitorPanel onAlertsChange={setMonitorAlerts} active={!monitorCollapsed} />
           </div>
         </div>
 
@@ -500,7 +491,6 @@ export default function DashboardPage() {
       <WaviModal
         open={waviModal.open}
         onClose={() => setWaviModal({ open: false, session: null })}
-        pwd={pwd}
         session={waviModal.session}
       />
 
