@@ -1,5 +1,5 @@
 import { getWorkflowMetadata } from "workflow";
-import { buildGraph, enqueueNeighbors, type FlowEdgeDef, type FlowNodeDef } from "@/lib/flow/graph";
+import { buildGraph, enqueueNeighbors, inDegrees, type FlowEdgeDef, type FlowNodeDef } from "@/lib/flow/graph";
 import { endFlowRun, loadFlow, logFlowStep, runNodeStep, startFlowRun } from "@/lib/flow/steps";
 import type { FlowState } from "@/lib/nodes/state";
 
@@ -33,6 +33,7 @@ export async function runFlowWorkflow(
   const nodeById: Record<string, FlowNodeDef> = {};
   for (const node of nodes as FlowNodeDef[]) nodeById[node.id] = node;
   const graph = buildGraph(edges as FlowEdgeDef[]);
+  const inDegree = inDegrees(graph);
 
   const visited = new Set<string>();
   const queue: string[] = [entryNodeId];
@@ -48,7 +49,13 @@ export async function runFlowWorkflow(
     if (!nodeDef) continue;
 
     const inputState = state;
-    const { state: nextState, error } = await runNodeStep(nodeDef.type, nodeDef.config, state);
+    const { state: nextState, error } = await runNodeStep(
+      nodeDef.type,
+      currentId,
+      inDegree[currentId] ?? 1,
+      nodeDef.config,
+      state
+    );
     state = nextState;
     if (error) hadError = true;
 

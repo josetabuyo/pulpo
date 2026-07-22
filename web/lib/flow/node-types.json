@@ -232,137 +232,42 @@
         "key": "model",
         "type": "select",
         "label": "Modelo",
-        "default": "best:instruction|local-first",
+        "default": "best:instruction",
         "options": [
           {
-            "value": "best:instruction|local",
-            "label": "best:instruction — local"
+            "value": "best:instruction",
+            "label": "best:instruction"
           },
           {
-            "value": "best:instruction|local-first",
-            "label": "best:instruction — local → cloud"
+            "value": "best:reasoning",
+            "label": "best:reasoning"
           },
           {
-            "value": "best:instruction|cloud-first",
-            "label": "best:instruction — cloud → local"
+            "value": "best:coding",
+            "label": "best:coding"
           },
           {
-            "value": "best:instruction|cloud",
-            "label": "best:instruction — cloud"
+            "value": "best:code_debug",
+            "label": "best:code_debug"
           },
           {
-            "value": "best:reasoning|local",
-            "label": "best:reasoning — local"
+            "value": "best:math",
+            "label": "best:math"
           },
           {
-            "value": "best:reasoning|local-first",
-            "label": "best:reasoning — local → cloud"
+            "value": "best:summarization",
+            "label": "best:summarization"
           },
           {
-            "value": "best:reasoning|cloud-first",
-            "label": "best:reasoning — cloud → local"
+            "value": "best:multilingual",
+            "label": "best:multilingual"
           },
           {
-            "value": "best:reasoning|cloud",
-            "label": "best:reasoning — cloud"
-          },
-          {
-            "value": "best:coding|local",
-            "label": "best:coding — local"
-          },
-          {
-            "value": "best:coding|local-first",
-            "label": "best:coding — local → cloud"
-          },
-          {
-            "value": "best:coding|cloud-first",
-            "label": "best:coding — cloud → local"
-          },
-          {
-            "value": "best:coding|cloud",
-            "label": "best:coding — cloud"
-          },
-          {
-            "value": "best:code_debug|local",
-            "label": "best:code_debug — local"
-          },
-          {
-            "value": "best:code_debug|local-first",
-            "label": "best:code_debug — local → cloud"
-          },
-          {
-            "value": "best:code_debug|cloud-first",
-            "label": "best:code_debug — cloud → local"
-          },
-          {
-            "value": "best:code_debug|cloud",
-            "label": "best:code_debug — cloud"
-          },
-          {
-            "value": "best:math|local",
-            "label": "best:math — local"
-          },
-          {
-            "value": "best:math|local-first",
-            "label": "best:math — local → cloud"
-          },
-          {
-            "value": "best:math|cloud-first",
-            "label": "best:math — cloud → local"
-          },
-          {
-            "value": "best:math|cloud",
-            "label": "best:math — cloud"
-          },
-          {
-            "value": "best:summarization|local",
-            "label": "best:summarization — local"
-          },
-          {
-            "value": "best:summarization|local-first",
-            "label": "best:summarization — local → cloud"
-          },
-          {
-            "value": "best:summarization|cloud-first",
-            "label": "best:summarization — cloud → local"
-          },
-          {
-            "value": "best:summarization|cloud",
-            "label": "best:summarization — cloud"
-          },
-          {
-            "value": "best:multilingual|local",
-            "label": "best:multilingual — local"
-          },
-          {
-            "value": "best:multilingual|local-first",
-            "label": "best:multilingual — local → cloud"
-          },
-          {
-            "value": "best:multilingual|cloud-first",
-            "label": "best:multilingual — cloud → local"
-          },
-          {
-            "value": "best:multilingual|cloud",
-            "label": "best:multilingual — cloud"
-          },
-          {
-            "value": "best:context|local",
-            "label": "best:context — local"
-          },
-          {
-            "value": "best:context|local-first",
-            "label": "best:context — local → cloud"
-          },
-          {
-            "value": "best:context|cloud-first",
-            "label": "best:context — cloud → local"
-          },
-          {
-            "value": "best:context|cloud",
-            "label": "best:context — cloud"
+            "value": "best:context",
+            "label": "best:context"
           }
-        ]
+        ],
+        "hint": "(Vercel: siempre cloud — NVIDIA NIM -> Groq -> OpenRouter; no hay tier local en producción)"
       },
       {
         "key": "max_visits",
@@ -454,137 +359,42 @@
         "key": "model",
         "type": "select",
         "label": "Modelo",
-        "default": "best:instruction|local-first",
+        "default": "best:instruction",
         "options": [
           {
-            "value": "best:instruction|local",
-            "label": "best:instruction — local"
+            "value": "best:instruction",
+            "label": "best:instruction"
           },
           {
-            "value": "best:instruction|local-first",
-            "label": "best:instruction — local → cloud"
+            "value": "best:reasoning",
+            "label": "best:reasoning"
           },
           {
-            "value": "best:instruction|cloud-first",
-            "label": "best:instruction — cloud → local"
+            "value": "best:coding",
+            "label": "best:coding"
           },
           {
-            "value": "best:instruction|cloud",
-            "label": "best:instruction — cloud"
+            "value": "best:code_debug",
+            "label": "best:code_debug"
           },
           {
-            "value": "best:reasoning|local",
-            "label": "best:reasoning — local"
+            "value": "best:math",
+            "label": "best:math"
           },
           {
-            "value": "best:reasoning|local-first",
-            "label": "best:reasoning — local → cloud"
+            "value": "best:summarization",
+            "label": "best:summarization"
           },
           {
-            "value": "best:reasoning|cloud-first",
-            "label": "best:reasoning — cloud → local"
+            "value": "best:multilingual",
+            "label": "best:multilingual"
           },
           {
-            "value": "best:reasoning|cloud",
-            "label": "best:reasoning — cloud"
-          },
-          {
-            "value": "best:coding|local",
-            "label": "best:coding — local"
-          },
-          {
-            "value": "best:coding|local-first",
-            "label": "best:coding — local → cloud"
-          },
-          {
-            "value": "best:coding|cloud-first",
-            "label": "best:coding — cloud → local"
-          },
-          {
-            "value": "best:coding|cloud",
-            "label": "best:coding — cloud"
-          },
-          {
-            "value": "best:code_debug|local",
-            "label": "best:code_debug — local"
-          },
-          {
-            "value": "best:code_debug|local-first",
-            "label": "best:code_debug — local → cloud"
-          },
-          {
-            "value": "best:code_debug|cloud-first",
-            "label": "best:code_debug — cloud → local"
-          },
-          {
-            "value": "best:code_debug|cloud",
-            "label": "best:code_debug — cloud"
-          },
-          {
-            "value": "best:math|local",
-            "label": "best:math — local"
-          },
-          {
-            "value": "best:math|local-first",
-            "label": "best:math — local → cloud"
-          },
-          {
-            "value": "best:math|cloud-first",
-            "label": "best:math — cloud → local"
-          },
-          {
-            "value": "best:math|cloud",
-            "label": "best:math — cloud"
-          },
-          {
-            "value": "best:summarization|local",
-            "label": "best:summarization — local"
-          },
-          {
-            "value": "best:summarization|local-first",
-            "label": "best:summarization — local → cloud"
-          },
-          {
-            "value": "best:summarization|cloud-first",
-            "label": "best:summarization — cloud → local"
-          },
-          {
-            "value": "best:summarization|cloud",
-            "label": "best:summarization — cloud"
-          },
-          {
-            "value": "best:multilingual|local",
-            "label": "best:multilingual — local"
-          },
-          {
-            "value": "best:multilingual|local-first",
-            "label": "best:multilingual — local → cloud"
-          },
-          {
-            "value": "best:multilingual|cloud-first",
-            "label": "best:multilingual — cloud → local"
-          },
-          {
-            "value": "best:multilingual|cloud",
-            "label": "best:multilingual — cloud"
-          },
-          {
-            "value": "best:context|local",
-            "label": "best:context — local"
-          },
-          {
-            "value": "best:context|local-first",
-            "label": "best:context — local → cloud"
-          },
-          {
-            "value": "best:context|cloud-first",
-            "label": "best:context — cloud → local"
-          },
-          {
-            "value": "best:context|cloud",
-            "label": "best:context — cloud"
+            "value": "best:context",
+            "label": "best:context"
           }
-        ]
+        ],
+        "hint": "(Vercel: siempre cloud — NVIDIA NIM -> Groq -> OpenRouter; no hay tier local en producción)"
       },
       {
         "key": "temperature",

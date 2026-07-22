@@ -70,6 +70,8 @@ export async function logFlowStep(params: {
 
 export async function runNodeStep(
   nodeType: string,
+  nodeId: string,
+  inDegree: number,
   config: Record<string, unknown>,
   state: FlowState
 ): Promise<{ state: FlowState; error: string | null }> {
@@ -79,8 +81,12 @@ export async function runNodeStep(
     // Unimplemented node type -- tolerant like the Python BFS: skip, don't abort.
     return { state, error: null };
   }
+  // Matches pulpo/graphs/compiler.py's execute_flow(), which injects these
+  // into every node's config before instantiating it (condition/router use
+  // _node_id for their max_visits counters).
+  const fullConfig = { ...config, _node_id: nodeId, _in_degree: inDegree };
   try {
-    const nextState = await nodeDef.run(structuredClone(state), config);
+    const nextState = await nodeDef.run(structuredClone(state), fullConfig);
     return { state: nextState, error: null };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
