@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { bots } from "@/lib/db/schema";
 import { flows, flowVersions } from "@/lib/db/schema";
@@ -165,6 +165,50 @@ export async function deleteFlow(botId: string, flowId: string) {
   await db.delete(flowVersions).where(eq(flowVersions.flowId, flowId));
   await db.delete(flows).where(eq(flows.id, flowId));
   return true;
+}
+
+interface FlowDefinitionNode {
+  type?: string;
+  config?: Record<string, unknown>;
+}
+
+// TS port of compute_exit_routes (pulpo/graphs/compiler.py) -- named exit
+// routes of a sub-flow, used to populate a nodo_flow node's `config.routes`
+// picker in the editor. Only subflow_end nodes with a non-empty `route` are
+// "named" routes; dedupe preserving first-seen order.
+export function computeExitRoutes(nodes: FlowDefinitionNode[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const n of nodes) {
+    if (n.type !== "subflow_end") continue;
+    const route = (n.config as { route?: string } | undefined)?.route;
+    if (route && !seen.has(route)) {
+      seen.add(route);
+      result.push(route);
+    }
+  }
+  return result;
+}
+
+// TS port of list_node_flows (pulpo/business/flows.py) -- the bot's NodoFlow
+// templates (flow_kind === "node_flow"), each with `inputs` (dynamic params
+// form), `routes` (computeExitRoutes over its subflow_end nodes, populates a
+// nodo_flow instance's config.routes), and `color` (definition.variables.color
+// -- the editor paints nodo_flow instances with this, see
+// frontend/src/store/flowStore.js::baseTypeColor()).
+export async function listNodeFlows(botId: string) {
+  await requireBot(botId);
+  const db = getDb();
+  const rows = await db.select().from(flows).where(and(eq(flows.botId, botId), eq(flows.flowKind, "node_flow")));
+  return rows.map((row) => {
+    const definition = (row.definition as { nodes?: FlowDefinitionNode[]; inputs?: unknown[]; variables?: { color?: string } }) ?? {};
+    return {
+      ...toSummary(row),
+      inputs: definition.inputs ?? [],
+      routes: computeExitRoutes(definition.nodes ?? []),
+      color: definition.variables?.color ?? null,
+    };
+  });
 }
 
 export async function hasNodeType(botId: string, nodeType: string) {
