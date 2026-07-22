@@ -288,17 +288,20 @@ export default function DashboardPage() {
   }
 
   // ── Telegram CRUD ──
+  // Pega contra /bot/{botId}/telegram (bot_portal.py / web/app/api/bot/[botId]/telegram),
+  // el mismo endpoint que usa el portal de bot -- antes pegaba a /telegram
+  // (sin botId en el path), que nunca existió ni en el Python original.
   async function handleSaveTg({ token, botId }) {
-    const res = await call('POST', '/telegram', { botId, token })
-    if (res.error) return alert('Error: ' + res.error)
+    const res = await call('POST', `/bot/${botId}/telegram`, { token })
+    if (!res?.ok) return alert('Error: ' + (res?.detail || 'no se pudo agregar'))
     setTgModal({ open: false, botId: null })
     loadBots()
   }
 
-  async function handleDeleteTg(tokenId) {
+  async function handleDeleteTg(botId, tokenId) {
     if (!confirm(`¿Eliminar el bot de Telegram con token ID ${tokenId}?`)) return
-    const res = await call('DELETE', `/telegram/${tokenId}`)
-    if (res.error) return alert('Error: ' + res.error)
+    const res = await call('DELETE', `/bot/${botId}/telegram/${tokenId}`)
+    if (!res?.ok) return alert('Error: ' + (res?.detail || 'no se pudo eliminar'))
     loadBots()
   }
 
@@ -459,7 +462,7 @@ export default function DashboardPage() {
               onEditBot={b => setBotModal({ open: true, editBot: b })}
               onDeleteBot={botId => handleDeleteBot(botId)}
               onAddTelegram={botId => setTgModal({ open: true, botId })}
-              onDeleteTelegram={conn => handleDeleteTg(conn.number)}
+              onDeleteTelegram={conn => handleDeleteTg(bot.id, conn.number)}
               onReconnectTg={conn => handleReconnectTg(conn.number)}
               onReconnectWavi={number => setWaviModal({ open: true, session: number })}
               onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('drag-over') }}
@@ -510,7 +513,7 @@ export default function DashboardPage() {
               onEditBot={b => { openBotModal(null); setBotModal({ open: true, editBot: b }) }}
               onDeleteBot={botId => { openBotModal(null); handleDeleteBot(botId) }}
               onAddTelegram={botId => setTgModal({ open: true, botId })}
-              onDeleteTelegram={conn => handleDeleteTg(conn.number)}
+              onDeleteTelegram={conn => handleDeleteTg(expandedBot.bot.id, conn.number)}
               onReconnectTg={conn => handleReconnectTg(conn.number)}
               onReconnectWavi={number => setWaviModal({ open: true, session: number })}
             />

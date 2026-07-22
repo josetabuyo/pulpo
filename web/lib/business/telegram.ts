@@ -209,6 +209,23 @@ export function restoreSlotsForResume(slotsJson: unknown, startedAt: Date): Reco
   return saved;
 }
 
+// Valida un token contra la API real de Telegram (getMe) y devuelve el
+// snapshot que se guarda en telegramConnections.username/botName -- el
+// Python original nunca valida el token al momento del alta (recién falla
+// cuando intenta levantar el client de polling), pero acá no hay proceso
+// vivo que lo intente por nosotros, así que validar en el alta es la única
+// forma de no guardar un token roto silenciosamente.
+export async function getTelegramBotInfo(
+  token: string,
+): Promise<{ username: string; botName: string }> {
+  const res = await fetch(`https://api.telegram.org/bot${token}/getMe`);
+  const data = await res.json();
+  if (!res.ok || !data.ok) {
+    throw new Error(data.description || `Token inválido (HTTP ${res.status})`);
+  }
+  return { username: data.result.username ?? "", botName: data.result.first_name ?? "" };
+}
+
 // Único lugar que sabe cómo se envía un mensaje de Telegram -- mismo patrón
 // que lib/nodes/llm-client.ts (HTTP puro, sin SDK).
 export async function sendTelegramMessage(token: string, chatId: string, text: string): Promise<void> {

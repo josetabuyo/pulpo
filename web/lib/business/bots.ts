@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { bots, phoneConnections, telegramConnections } from "@/lib/db/schema";
+import { getTelegramBotInfo } from "@/lib/business/telegram";
 
 // TS port of pulpo/business/bots.py -- config-only (no live process status,
 // see management/HANDOFF_VERCEL_DEEP_MIGRATION.md: WhatsApp/Telegram daemons
@@ -33,8 +34,8 @@ export async function listBots() {
         tokenId: t.tokenId,
         sessionId: `${bot.id}-tg-${t.tokenId}`,
         status: "stopped",
-        username: "",
-        botName: "",
+        username: t.username || "",
+        botName: t.botName || "",
         allowMass: t.allowMass,
       })),
   }));
@@ -69,6 +70,56 @@ export async function deleteBot(botId: string) {
   await db.delete(telegramConnections).where(eq(telegramConnections.botId, botId));
   await db.delete(bots).where(eq(bots.id, botId));
   return true;
+}
+
+// TS port of pulpo/interfaces/ui/routers/bot_portal.py::bot_add_telegram --
+// scoped to the config write, no live client to start (see module docstring).
+// Unlike the Python original (which never calls getMe and only discovers a
+// bad token when it tries to start the polling client), this validates the
+// token against the real Telegram API up front -- there's no later attempt
+// that would otherwise catch it.
+export async function addTelegramConnection(botId: string, rawToken: string) {
+  const token = rawToken.trim();
+  if (!token || !token.includes(":")) {
+    throw new ValidationError("Token inválido (formato: 123456789:ABC...)");
+  }
+  const tokenId = token.split(":")[0];
+  const db = getDb();
+
+  const [bot] = await db.select().from(bots).where(eq(bots.id, botId));
+  if (!bot) throw new NotFoundError(`Bot no encontrada: ${botId}`);
+
+  const [existing] = await db
+    .select()
+    .from(telegramConnections)
+    .where(eq(telegramConnections.tokenId, tokenId));
+  if (existing) throw new ConflictError("Ese token ya está configurado");
+
+  let username = "";
+  let botName = "";
+  try {
+    ({ username, botName } = await getTelegramBotInfo(token));
+  } catch (err) {
+    throw new ValidationError(
+      `No se pudo validar el token contra Telegram: ${err instanceof Error ? err.message : err}`,
+    );
+  }
+
+  await db.insert(telegramConnections).values({ tokenId, botId, token, username, botName });
+  return { ok: true, session_id: `${botId}-tg-${tokenId}`, username, bot_name: botName };
+}
+
+export async function deleteTelegramConnection(botId: string, tokenId: string) {
+  const db = getDb();
+  const [conn] = await db
+    .select()
+    .from(telegramConnections)
+    .where(eq(telegramConnections.tokenId, tokenId));
+  if (!conn || conn.botId !== botId) {
+    throw new NotFoundError(`Conexión Telegram no encontrada: ${tokenId}`);
+  }
+  await db.delete(telegramConnections).where(eq(telegramConnections.tokenId, tokenId));
+  return { ok: true };
 }
 
 export async function patchTelegramSettings(botId: string, tokenId: string, allowMass: boolean) {

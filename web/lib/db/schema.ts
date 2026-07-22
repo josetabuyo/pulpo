@@ -78,6 +78,12 @@ export const telegramConnections = pgTable("telegram_connections", {
   botId: text("bot_id").notNull(),
   token: text("token").notNull(),
   allowMass: boolean("allow_mass").notNull().default(false),
+  // Snapshot de getMe() en el momento del alta -- no hay proceso vivo en
+  // Vercel que lo mantenga actualizado, a diferencia del Python original
+  // (que lo lee del client en memoria). Suficiente para mostrar @username
+  // en el dashboard en vez del tokenId pelado.
+  username: text("username"),
+  botName: text("bot_name"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
