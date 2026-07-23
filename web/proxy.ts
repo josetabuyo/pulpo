@@ -25,6 +25,45 @@ const TRIGGER_PATH_RE = /^\/api\/flows\/[^/]+\/trigger\/[^/]+$/;
 const TELEGRAM_WEBHOOK_RE = /^\/api\/telegram\/webhook\/[^/]+$/;
 const PUBLIC_PATHS = ["/api/auth/token"];
 
+// Paso 1 hacia Pulpo PRO/Lite (2026-07-22, ver auth.ts): allowlist explícita
+// y method-aware de qué puede pegar un usuario "scoped" (bot_users), UNA vez
+// que el botId en el path esté en su session.user.botIds. Cada entrada tiene
+// exactamente UN grupo de captura = el botId a comparar.
+//
+// Deliberadamente NO se usa una regla laxa tipo "si el path contiene algún
+// botId de la lista" -- eso sería explotable: /api/bots/A/users contiene "A"
+// y colaría el tab de gestión de usuarios (otorgar acceso es acción de
+// admin, no de un scoped sobre sí mismo); un `number` de conexión de
+// WhatsApp podría coincidir por casualidad con un botId; y no distinguiría
+// un bot ajeno si aparece como substring en otra parte del path. Por eso:
+// método exacto + regex anclada (^...$) que captura el segmento específico +
+// comparación exacta con `.includes()` contra botIds.
+//
+// Fuera de esta allowlist a propósito (quedan solo para "admin"):
+// GET/POST /api/bots (plural, lista todo), PUT/DELETE /api/bots/{id} (editar
+// nombre / borrar bot), /api/bots/{id}/users/** (otorgar acceso es admin-only,
+// aunque sea sobre el propio bot), /api/connections/** (keyed por `number`,
+// no por botId -- no se puede autorizar de forma segura acá), /api/runs*
+// (no filtra por bot todavía), /api/config/settings, /api/wavi/*, y las
+// sub-rutas de versions/node-flows de flows (no portadas a este paso).
+const SCOPED_BOT_ROUTES: { method: string; re: RegExp }[] = [
+  { method: "GET", re: /^\/api\/bots\/([^/]+)$/ },
+  { method: "GET", re: /^\/api\/bot\/([^/]+)\/paused$/ },
+  { method: "PUT", re: /^\/api\/bot\/([^/]+)\/paused$/ },
+  { method: "POST", re: /^\/api\/bot\/([^/]+)\/telegram$/ },
+  { method: "DELETE", re: /^\/api\/bot\/([^/]+)\/telegram\/[^/]+$/ },
+  { method: "PATCH", re: /^\/api\/bots\/([^/]+)\/telegram\/[^/]+\/settings$/ },
+  { method: "GET", re: /^\/api\/bots\/([^/]+)\/google-connections$/ },
+  { method: "POST", re: /^\/api\/bots\/([^/]+)\/google-connections$/ },
+  { method: "DELETE", re: /^\/api\/bots\/([^/]+)\/google-connections\/[^/]+$/ },
+  { method: "GET", re: /^\/api\/flows\/bots\/([^/]+)$/ },
+  { method: "POST", re: /^\/api\/flows\/bots\/([^/]+)$/ },
+  { method: "GET", re: /^\/api\/flows\/bots\/([^/]+)\/[^/]+$/ },
+  { method: "PUT", re: /^\/api\/flows\/bots\/([^/]+)\/[^/]+$/ },
+  { method: "DELETE", re: /^\/api\/flows\/bots\/([^/]+)\/[^/]+$/ },
+  { method: "GET", re: /^\/api\/flows\/bots\/([^/]+)\/has-node\/[^/]+$/ },
+];
+
 export default auth(async (request) => {
   const { pathname } = request.nextUrl;
 
@@ -45,17 +84,24 @@ export default auth(async (request) => {
     return Response.json({ error: "not authenticated" }, { status: 401 });
   }
 
-  // Paso 1 hacia Pulpo PRO/Lite (2026-07-22, ver auth.ts): un login de Google
-  // puede resolver a rol "admin" (dashboard completo, como hoy) o "scoped"
-  // (allowlist por bot en bot_users). Ninguna ruta bot-scoped existe todavía
-  // (el portal /bot/{id} es un paso posterior) -- hasta que exista, "scoped"
-  // no tiene acceso a nada bajo /api/*, para que un cliente logueado no
-  // pueda, por ejemplo, pegarle directo a GET /api/bots y ver todo.
-  if (request.auth.user.role !== "admin") {
-    return Response.json({ error: "forbidden" }, { status: 403 });
+  // Paso 2 hacia Pulpo PRO/Lite (2026-07-22, ver auth.ts): admin ve todo,
+  // como siempre. "scoped" solo pasa si el método+path matchea una entrada
+  // de SCOPED_BOT_ROUTES Y el botId capturado está en su session.botIds --
+  // cualquier otra cosa (incluido un botId ajeno) es 403. Ver el comentario
+  // de SCOPED_BOT_ROUTES arriba para el razonamiento de seguridad.
+  if (request.auth.user.role === "admin") {
+    return NextResponse.next();
   }
 
-  return NextResponse.next();
+  const botIds = request.auth.user.botIds ?? [];
+  for (const { method, re } of SCOPED_BOT_ROUTES) {
+    if (request.method !== method) continue;
+    const match = re.exec(pathname);
+    if (!match) continue;
+    if (botIds.includes(match[1])) return NextResponse.next();
+    return Response.json({ error: "forbidden" }, { status: 403 }); // bot ajeno
+  }
+  return Response.json({ error: "forbidden" }, { status: 403 }); // ruta no habilitada para scoped
 });
 
 export const config = {

@@ -41,6 +41,53 @@ export async function listBots() {
   }));
 }
 
+// Same per-bot shape as one item of listBots() -- used by GET /api/bots/{id}
+// (needed for the scoped/"un solo bot" portal, which can't call the plural
+// GET /api/bots). Frontend normalizes it with BotCard.jsx::normalizeBot(),
+// same as it already does for each item of the admin list.
+export async function getBot(botId: string) {
+  const db = getDb();
+  const [bot] = await db.select().from(bots).where(eq(bots.id, botId));
+  if (!bot) return null;
+  const [phoneRows, tgRows] = await Promise.all([
+    db.select().from(phoneConnections).where(eq(phoneConnections.botId, botId)),
+    db.select().from(telegramConnections).where(eq(telegramConnections.botId, botId)),
+  ]);
+  return {
+    id: bot.id,
+    name: bot.name,
+    phones: phoneRows.map((p) => ({
+      number: p.number,
+      alias: p.alias || "",
+      sessionId: p.number,
+      status: "stopped",
+      allowMass: p.allowMass,
+    })),
+    telegram: tgRows.map((t) => ({
+      tokenId: t.tokenId,
+      sessionId: `${bot.id}-tg-${t.tokenId}`,
+      status: "stopped",
+      username: t.username || "",
+      botName: t.botName || "",
+      allowMass: t.allowMass,
+    })),
+  };
+}
+
+export async function getBotPaused(botId: string): Promise<{ paused: boolean } | null> {
+  const db = getDb();
+  const [bot] = await db.select({ paused: bots.paused }).from(bots).where(eq(bots.id, botId));
+  return bot ?? null;
+}
+
+export async function setBotPaused(botId: string, paused: boolean): Promise<boolean> {
+  const db = getDb();
+  const [bot] = await db.select().from(bots).where(eq(bots.id, botId));
+  if (!bot) return false;
+  await db.update(bots).set({ paused, updatedAt: new Date() }).where(eq(bots.id, botId));
+  return true;
+}
+
 export async function createBot(id: string, name: string, password: string) {
   if (!id.trim() || !name.trim() || !password.trim()) {
     throw new ValidationError("id, name y password son requeridos");

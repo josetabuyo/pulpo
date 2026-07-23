@@ -146,7 +146,10 @@ export default function BotCard({
     { id: 'connections', label: 'Conexiones', count: conns.length },
     ...(hasSummarizer ? [{ id: 'uis', label: 'UIs', count: null }] : []),
     { id: 'flow', label: 'Flow', count: null },
-    { id: 'runs', label: 'Ejecuciones', count: null },
+    // GET /api/runs no filtra por bot todavía -- 403 para rol "scoped"
+    // (ver proxy.ts::SCOPED_BOT_ROUTES), así que no tiene sentido mostrar
+    // este tab en mode="bot" hasta que se porte ese filtro.
+    ...(mode === 'admin' ? [{ id: 'runs', label: 'Ejecuciones', count: null }] : []),
     { id: 'config', label: 'Configurar', count: null },
     ...(mode === 'admin' ? [{ id: 'users', label: 'Usuarios', count: null }] : []),
   ]

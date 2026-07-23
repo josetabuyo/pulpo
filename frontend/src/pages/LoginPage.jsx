@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { resolveHomePath } from '../lib/session.js'
 
 export default function LoginPage() {
   const [error, setError] = useState('')
@@ -7,12 +8,13 @@ export default function LoginPage() {
 
   useEffect(() => { document.title = 'Pulpo — Admin' }, [])
 
-  // Si ya hay una sesión de Google válida, saltar directo al dashboard.
+  // Si ya hay una sesión de Google válida, saltar directo a donde le
+  // corresponda según su rol (paso 1 de Pulpo PRO/Lite, ver lib/session.js).
   useEffect(() => {
     fetch('/api/auth/session')
       .then(res => res.json())
       .then(session => {
-        if (session?.user) navigate('/dashboard')
+        if (session?.user) navigate(resolveHomePath(session.user))
       })
       .catch(() => {})
   }, [navigate])

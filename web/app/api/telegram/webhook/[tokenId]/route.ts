@@ -46,6 +46,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
   const [bot] = await db.select().from(bots).where(eq(bots.id, conn.botId));
   if (!bot) return Response.json({ ok: true }); // conexión huérfana -- no debería pasar
 
+  // TS port simplificado de pulpo/core/paused.py: el original sigue
+  // corriendo el flow completo (para side effects como summarize) pero
+  // suprime el reply. Acá directamente no se dispatchea nada -- más simple,
+  // y suficiente mientras nada dependa de esos side effects en Vercel.
+  if (bot.paused) return Response.json({ ok: true, paused: true });
+
   const chatId = String(message.chat.id);
   const username: string | undefined = message.from?.username;
   const firstName: string = message.from?.first_name ?? "";

@@ -1,48 +1,25 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Link, useParams, useNavigate } from 'react-router-dom'
-import { authFetch, setAccessToken, clearAccessToken, getAccessToken } from '../lib/auth.js'
-import BotCard from '../components/BotCard.jsx'
+import { useParams } from 'react-router-dom'
+import { api } from '../api.js'
+import BotCard, { normalizeBot } from '../components/BotCard.jsx'
 
-// ─── Helpers de API bot ──────────────────────────────────────
+// Portal de "un solo bot" para el rol "scoped" (paso 1 de Pulpo PRO/Lite,
+// ver management/HANDOFF_VERCEL_DEEP_MIGRATION.md). El login viejo por
+// password de bot (JWT de 30 min, /api/bot/login|me|refresh|logout) nunca
+// se portó a web/ y ya no hace falta: el acceso es la misma sesión de
+// Google que usa el dashboard admin (RequireAuth.jsx ya redirige acá según
+// session.user.role/botIds), así que esta página solo necesita `api.js`
+// (fetch con credentials:'include', igual que DashboardPage) en vez de un
+// mecanismo de auth propio.
 
-async function botApi(method, path, body) {
-  if (method === 'GET_BLOB') {
-    const res = await authFetch('/api' + path, { method: 'GET' })
-    return res.blob()
-  }
-  if (method === 'GET_TEXT') {
-    const res = await authFetch('/api' + path, { method: 'GET' })
-    return res.text()
-  }
-  if (method === 'POST_FORM') {
-    // No poner Content-Type — el browser lo genera con el boundary correcto para multipart
-    const { getAccessToken } = await import('../lib/auth.js')
-    const token = getAccessToken()
-    const headers = {}
-    if (token) headers['Authorization'] = `Bearer ${token}`
-    const res = await fetch('/api' + path, { method: 'POST', body, headers, credentials: 'include' })
-    if (res.status === 401) return { _unauthorized: true }
-    return res.json()
-  }
-  const res = await authFetch('/api' + path, {
-    method,
-    body: body ? JSON.stringify(body) : undefined,
-  })
-  if (res.status === 401) return { _unauthorized: true }
-  return res.json()
-}
-
-// ─── BotDashboard ────────────────────────────────────────────
-
-function BotDashboard({ botId, botName: initialBotName, onLogout }) {
-  const [botName, setBotName] = useState(initialBotName)
-  const [data, setData]       = useState(null)
+function BotDashboard({ botId, onLogout }) {
+  const [bot, setBot] = useState(null)
+  const [error, setError] = useState('')
 
   const load = useCallback(async () => {
-    const res = await botApi('GET', `/bot/${botId}`, null).catch(() => null)
-    if (!res || res.detail) return
-    setData(res)
-    setBotName(res.bot_name)
+    const res = await api('GET', `/bots/${botId}`, null).catch(() => null)
+    if (!res || res.detail) { setError(res?.detail || 'No se pudo cargar la bot'); return }
+    setBot(res)
   }, [botId])
 
   useEffect(() => {
@@ -51,21 +28,13 @@ function BotDashboard({ botId, botName: initialBotName, onLogout }) {
     return () => clearInterval(iv)
   }, [load])
 
-  const bot = {
-    id: botId,
-    name: botName,
-    connections: (data?.connections ?? []).map(conn => ({
-      id: conn.id,
-      type: conn.type,
-      number: conn.type === 'telegram' ? conn.id.split('-tg-').pop() : conn.id,
-      status: conn.status,
-    })),
-  }
+  if (error) return <div className="empty" style={{ padding: 24 }}>{error}</div>
+  if (!bot) return <div className="empty" style={{ padding: 24 }}>Cargando...</div>
 
   return (
     <div className="client-portal">
       <header>
-        <span className="portal-title">🐙 {botName}</span>
+        <span className="portal-title">🐙 {bot.name}</span>
         <div className="header-actions">
           <button className="btn-ghost btn-sm" onClick={onLogout}>Salir</button>
         </div>
@@ -73,8 +42,8 @@ function BotDashboard({ botId, botName: initialBotName, onLogout }) {
       <main className="portal-main" style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 16px' }}>
         <BotCard
           mode="bot"
-          bot={bot}
-          apiCall={botApi}
+          bot={normalizeBot(bot)}
+          apiCall={api}
           onRefresh={load}
         />
       </main>
@@ -82,144 +51,48 @@ function BotDashboard({ botId, botName: initialBotName, onLogout }) {
   )
 }
 
-// ─── BotLogin ────────────────────────────────────────────────
-
-function BotLogin({ onLogin, prefillBotId = '' }) {
-  const [botId, setBotId] = useState(prefillBotId)
-  const [pwd, setPwd]     = useState('')
-  const [error, setError] = useState('')
-
-  async function handleSubmit(e) {
-    e.preventDefault(); setError('')
-    const res = await fetch('/api/bot/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ bot_id: botId.trim(), password: pwd }),
-    }).then(r => r.json()).catch(() => null)
-
-    if (!res?.access_token) { setError('Credenciales incorrectas.'); return }
-
-    setAccessToken(res.access_token)
-    sessionStorage.setItem('bot_bot_id', res.bot_id)
-
-    // Obtener nombre de la bot
-    const me = await fetch('/api/bot/me', {
-      headers: { 'Authorization': `Bearer ${res.access_token}` },
-      credentials: 'include',
-    }).then(r => r.json()).catch(() => null)
-
-    onLogin({ botId: res.bot_id, botName: me?.nombre ?? res.bot_id })
-  }
-
+// Rol "scoped" con más de un bot (PRO): lista mínima de links, no un
+// selector rico -- ver management/HANDOFF_VERCEL_DEEP_MIGRATION.md, la
+// semilla honesta de PRO queda para un paso posterior.
+function BotSelector({ botIds }) {
   return (
     <div className="connect-screen">
       <div className="connect-box">
         <div className="logo">🐙</div>
-        <h1>Portal de bot</h1>
-        <p className="subtitle">Ingresá tus credenciales</p>
-        <div className="error">{error}</div>
-        <form onSubmit={handleSubmit}>
-          <input placeholder="ID de bot (ej: bot_test)" value={botId}
-            onChange={e => setBotId(e.target.value)} autoFocus />
-          <input type="password" placeholder="Contraseña" value={pwd}
-            onChange={e => setPwd(e.target.value)} />
-          <button type="submit" className="btn-connect">Entrar</button>
-        </form>
-        <div className="connect-divider">¿Primera vez?</div>
-        <Link to="/bot/nueva" className="btn-ghost btn-sm" style={{ textAlign: 'center', display: 'block' }}>
-          Crear bot nueva →
-        </Link>
+        <h1>Tus bots</h1>
+        <p className="subtitle">Elegí a cuál entrar</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 16 }}>
+          {botIds.map(id => (
+            <a key={id} href={`/bot/${id}`} className="btn-ghost" style={{ textAlign: 'center' }}>{id}</a>
+          ))}
+        </div>
       </div>
     </div>
   )
 }
 
-// ─── Página principal ────────────────────────────────────────────
+function logout() {
+  window.location.href = '/api/auth/signout?callbackUrl=/'
+}
 
 export default function BotPage() {
-  const { botId: botIdFromUrl } = useParams()
-  const navigate = useNavigate()
-  const [session, setSession] = useState(null)
+  const { botId } = useParams()
+  const [botIds, setBotIds] = useState(null)
 
   useEffect(() => {
-    const token = getAccessToken()
-    const botId = sessionStorage.getItem('bot_bot_id')
-    if (!token || !botId) {
-      // Intento silencioso de recovery: si la URL tiene un botId, intentar refresh
-      if (botIdFromUrl) {
-        fetch('/api/bot/refresh', { method: 'POST', credentials: 'include' })
-          .then(r => r.ok ? r.json() : null)
-          .then(async data => {
-            if (!data?.access_token) return
-            // Verificar que el refresh corresponde al bot correcto
-            const me = await fetch('/api/bot/me', {
-              headers: { 'Authorization': `Bearer ${data.access_token}` },
-              credentials: 'include',
-            }).then(r => r.ok ? r.json() : null)
-            if (me?.bot_id === botIdFromUrl) {
-              setAccessToken(data.access_token)
-              sessionStorage.setItem('bot_bot_id', me.bot_id)
-              setSession({ botId: me.bot_id, botName: me.nombre })
-            }
-          })
-          // El recovery es opcional: si falla, el usuario ve el login normal
-          .catch(e => console.warn('[BotPage] recovery silencioso falló', e))
-      }
-      return
-    }
+    if (botId) return
+    fetch('/api/auth/session').then(r => r.json()).then(s => {
+      setBotIds(s?.user?.botIds ?? [])
+    }).catch(() => setBotIds([]))
+  }, [botId])
 
-    // Verificar que el token sigue siendo válido
-    fetch('/api/bot/me', {
-      headers: { 'Authorization': `Bearer ${token}` },
-      credentials: 'include',
-    }).then(r => {
-      if (r.ok) return r.json()
-      // Intentar refresh
-      return fetch('/api/bot/refresh', { method: 'POST', credentials: 'include' })
-        .then(r2 => {
-          if (!r2.ok) throw new Error('refresh failed')
-          return r2.json()
-        })
-        .then(data => {
-          setAccessToken(data.access_token)
-          return fetch('/api/bot/me', {
-            headers: { 'Authorization': `Bearer ${data.access_token}` },
-          }).then(r3 => r3.ok ? r3.json() : null)
-        })
-    }).then(me => {
-      if (me?.bot_id) setSession({ botId: me.bot_id, botName: me.nombre })
-      else {
-        clearAccessToken()
-        sessionStorage.removeItem('bot_bot_id')
-      }
-    }).catch(() => {
-      clearAccessToken()
-      sessionStorage.removeItem('bot_bot_id')
-    })
-  }, [])
-
-  function handleLogin({ botId, botName }) {
-    setSession({ botId, botName })
-    navigate(`/bot/${botId}`, { replace: true })
+  if (botId) {
+    return <BotDashboard botId={botId} onLogout={logout} />
   }
 
-  async function handleLogout() {
-    await fetch('/api/bot/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
-    clearAccessToken()
-    sessionStorage.removeItem('bot_bot_id')
-    setSession(null)
-  }
-
-  if (session) {
-    return (
-      <BotDashboard
-        botId={session.botId}
-        botName={session.botName}
-        onLogout={handleLogout}
-      />
-    )
-  }
-
-  return <BotLogin onLogin={handleLogin} prefillBotId={botIdFromUrl || ''} />
+  // Sin botId en la URL: RequireAuth ya nos manda acá solo cuando el
+  // usuario tiene más de un bot (PRO) -- si por algún motivo tiene 0,
+  // no hay nada útil que mostrar.
+  if (botIds === null) return null
+  return <BotSelector botIds={botIds} />
 }

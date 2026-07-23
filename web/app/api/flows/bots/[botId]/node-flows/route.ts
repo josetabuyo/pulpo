@@ -1,5 +1,6 @@
 import { listNodeFlows } from "@/lib/business/flows";
 import { errorResponse } from "@/lib/api/errors";
+import { assertBotAccess } from "@/lib/auth/bot-access";
 
 // TS port of pulpo/interfaces/api/routers/flows.py (GET ".../bots/{bot_id}/node-flows").
 // Lists the bot's NodoFlow templates (flow_kind === "node_flow") with
@@ -9,6 +10,8 @@ import { errorResponse } from "@/lib/api/errors";
 // flowStore.js's nodeFlowColors map).
 export async function GET(_request: Request, { params }: { params: Promise<{ botId: string }> }) {
   const { botId } = await params;
+  const denied = await assertBotAccess(botId);
+  if (denied) return denied;
   try {
     return Response.json(await listNodeFlows(botId));
   } catch (err) {

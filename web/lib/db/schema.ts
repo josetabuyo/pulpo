@@ -81,6 +81,12 @@ export const bots = pgTable("bots", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   password: text("password").notNull(),
+  // TS port of pulpo/core/paused.py's persisted flag (that file also
+  // suppresses replies while still running flows for side effects like
+  // summarize -- simplified here to just not dispatching at all while
+  // paused, see app/api/telegram/webhook/[tokenId]/route.ts. Real but not
+  // byte-for-byte the same semantics as Python.
+  paused: boolean("paused").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
