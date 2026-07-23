@@ -100,16 +100,16 @@ const pulpoHighlight = HighlightStyle.define([
   { tag: tags.string, color: '#4ade80' },
   { tag: tags.number, color: '#fbbf24' },
   { tag: tags.bool, color: '#f472b6' },
-  { tag: tags.null, color: '#64748b' },
-  { tag: tags.punctuation, color: '#64748b' },
-  { tag: tags.brace, color: '#94a3b8' },
-  { tag: tags.squareBracket, color: '#94a3b8' },
+  { tag: tags.null, color: 'var(--text-muted)' },
+  { tag: tags.punctuation, color: 'var(--text-muted)' },
+  { tag: tags.brace, color: 'var(--text-subtle)' },
+  { tag: tags.squareBracket, color: 'var(--text-subtle)' },
 ])
 
 const pulpoTheme = EditorView.theme({
   '&': {
-    backgroundColor: '#060d1a',
-    color: '#e2e8f0',
+    backgroundColor: 'var(--bg)',
+    color: 'var(--text)',
     fontSize: '12px',
     fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', monospace",
   },
@@ -124,20 +124,20 @@ const pulpoTheme = EditorView.theme({
     backgroundColor: '#1e3a5f !important',
   },
   '.cm-gutters': {
-    backgroundColor: '#050c18',
-    color: '#334155',
+    backgroundColor: 'var(--bg)',
+    color: 'var(--border-strong)',
     border: 'none',
-    borderRight: '1px solid #1e293b',
+    borderRight: '1px solid var(--surface-2)',
   },
   '.cm-activeLineGutter': {
-    backgroundColor: '#0f172a',
+    backgroundColor: 'var(--bg)',
   },
   '.cm-activeLine': {
-    backgroundColor: '#0f172a',
+    backgroundColor: 'var(--bg)',
   },
   '.cm-foldPlaceholder': {
-    backgroundColor: '#1e293b',
-    color: '#64748b',
+    backgroundColor: 'var(--surface-2)',
+    color: 'var(--text-muted)',
     border: 'none',
   },
   '.cm-matchingBracket': {
@@ -145,8 +145,8 @@ const pulpoTheme = EditorView.theme({
     outline: '1px solid #60a5fa',
   },
   '.cm-tooltip': {
-    backgroundColor: '#0f172a',
-    border: '1px solid #334155',
+    backgroundColor: 'var(--bg)',
+    border: '1px solid var(--border-strong)',
     borderRadius: '4px',
     boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
   },
@@ -157,7 +157,7 @@ const pulpoTheme = EditorView.theme({
     },
     '& > ul > li': {
       padding: '4px 8px',
-      color: '#e2e8f0',
+      color: 'var(--text)',
     },
     '& > ul > li[aria-selected]': {
       backgroundColor: '#1e3a5f',
@@ -168,7 +168,7 @@ const pulpoTheme = EditorView.theme({
     color: '#60a5fa',
   },
   '.cm-completionDetail': {
-    color: '#64748b',
+    color: 'var(--text-muted)',
     fontStyle: 'normal',
     marginLeft: '8px',
   },
@@ -283,7 +283,7 @@ export default function JsonNodeEditor({ config, schema, onChange }) {
       <div
         style={{
           borderRadius: 6,
-          border: `1px solid ${parseError ? '#7f1d1d' : '#1e293b'}`,
+          border: `1px solid ${parseError ? 'var(--danger-dim)' : 'var(--surface-2)'}`,
           overflow: 'hidden',
           transition: 'border-color 0.15s',
           height: editorHeight,
@@ -314,10 +314,10 @@ export default function JsonNodeEditor({ config, schema, onChange }) {
       {/* Parse error */}
       {parseError && (
         <div style={{
-          fontSize: 11, color: '#f87171', lineHeight: 1.4,
+          fontSize: 11, color: 'var(--danger)', lineHeight: 1.4,
           padding: '4px 6px',
-          background: '#1c0a0a',
-          border: '1px solid #7f1d1d',
+          background: 'var(--danger-dim)',
+          border: '1px solid var(--danger-dim)',
           borderRadius: 4,
         }}>
           ⚠ {parseError}
@@ -342,8 +342,8 @@ export default function JsonNodeEditor({ config, schema, onChange }) {
           />
 
           <div style={{
-            background: '#050c18',
-            border: '1px solid #1e293b',
+            background: 'var(--bg)',
+            border: '1px solid var(--surface-2)',
             borderRadius: 6,
             padding: '8px 10px',
             flex: 1,
@@ -354,7 +354,7 @@ export default function JsonNodeEditor({ config, schema, onChange }) {
             gap: 8,
           }}>
             <div style={{
-              fontSize: 9, color: '#334155', fontWeight: 700,
+              fontSize: 9, color: 'var(--border-strong)', fontWeight: 700,
               letterSpacing: '0.12em',
             }}>
               AYUDA
@@ -369,7 +369,7 @@ export default function JsonNodeEditor({ config, schema, onChange }) {
                     style={{
                       display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
                       padding: '2px 4px', margin: '-2px -4px', borderRadius: 4,
-                      background: copiedId === fieldId ? '#166534' : 'transparent',
+                      background: copiedId === fieldId ? 'var(--success-dim)' : 'transparent',
                     }}
                   >
                     <span style={{
@@ -378,16 +378,16 @@ export default function JsonNodeEditor({ config, schema, onChange }) {
                     }}>
                       {f.key}
                     </span>
-                    <span style={{ fontSize: 9, color: '#334155' }}>{f.type}</span>
+                    <span style={{ fontSize: 9, color: 'var(--border-strong)' }}>{f.type}</span>
                     {f.required && (
-                      <span style={{ fontSize: 9, color: '#7f1d1d', fontWeight: 700 }}>req</span>
+                      <span style={{ fontSize: 9, color: 'var(--danger-dim)', fontWeight: 700 }}>req</span>
                     )}
                     {copiedId === fieldId && (
                       <span style={{ fontSize: 9, color: '#4ade80' }}>✓ copiado</span>
                     )}
                   </div>
                   {(f.hint || f.label) && (
-                    <span style={{ fontSize: 10, color: '#475569', paddingLeft: 10 }}>
+                    <span style={{ fontSize: 10, color: 'var(--text-subtle)', paddingLeft: 10 }}>
                       {f.hint || f.label}
                     </span>
                   )}
@@ -398,7 +398,7 @@ export default function JsonNodeEditor({ config, schema, onChange }) {
                       overflowY: 'auto',
                       display: 'flex',
                       flexDirection: 'column',
-                      border: '1px solid #0d1929',
+                      border: '1px solid var(--border)',
                       borderRadius: 4,
                     }}>
                       {f.options.map(opt => {
@@ -412,9 +412,9 @@ export default function JsonNodeEditor({ config, schema, onChange }) {
                               fontSize: 10,
                               padding: '3px 6px',
                               cursor: 'pointer',
-                              color: copiedId === optId ? '#4ade80' : '#94a3b8',
-                              background: copiedId === optId ? '#166534' : 'transparent',
-                              borderBottom: '1px solid #0d1929',
+                              color: copiedId === optId ? '#4ade80' : 'var(--text-subtle)',
+                              background: copiedId === optId ? 'var(--success-dim)' : 'transparent',
+                              borderBottom: '1px solid var(--border)',
                               display: 'flex',
                               justifyContent: 'space-between',
                               gap: 8,

@@ -84,17 +84,17 @@ export default function ConfigForm({ node, schema, botId, flowId, apiCall, onGoT
       {nodeType === 'api_trigger' && flowId && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={S.label}>ENDPOINT</span>
-          <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.5 }}>
-            Enviá un <code style={{ color: '#60a5fa' }}>POST</code> a esta URL para disparar el flow:
+          <div style={{ fontSize: 11, color: 'var(--text-subtle)', lineHeight: 1.5 }}>
+            Enviá un <code style={{ color: 'var(--tg)' }}>POST</code> a esta URL para disparar el flow:
           </div>
           <div style={{
-            background: '#0f172a',
-            border: '1px solid #334155',
+            background: 'var(--bg)',
+            border: '1px solid var(--border-strong)',
             borderRadius: 6,
             padding: '8px 10px',
             fontFamily: 'monospace',
             fontSize: 10,
-            color: '#a78bfa',
+            color: 'var(--brand-light)',
             wordBreak: 'break-all',
             cursor: 'pointer',
             userSelect: 'all',
@@ -103,8 +103,8 @@ export default function ConfigForm({ node, schema, botId, flowId, apiCall, onGoT
           >
             {window.location.origin}/api/flows/{flowId}/trigger/{node.id}
           </div>
-          <div style={{ fontSize: 10, color: '#475569' }}>
-            Body JSON opcional: <code style={{ color: '#64748b' }}>{`{"message":"texto","contact_phone":"id"}`}</code>
+          <div style={{ fontSize: 10, color: 'var(--text-subtle)' }}>
+            Body JSON opcional: <code style={{ color: 'var(--text-muted)' }}>{`{"message":"texto","contact_phone":"id"}`}</code>
           </div>
         </div>
       )}
@@ -118,8 +118,8 @@ export default function ConfigForm({ node, schema, botId, flowId, apiCall, onGoT
             onClick={handleDownloadSummaries}
             style={{
               width: '100%', padding: '7px 12px',
-              background: 'transparent', border: '1px solid #155e75',
-              borderRadius: 6, color: '#22d3ee', fontSize: 12, cursor: 'pointer', fontWeight: 600,
+              background: 'transparent', border: '1px solid var(--tg)',
+              borderRadius: 6, color: 'var(--tg)', fontSize: 12, cursor: 'pointer', fontWeight: 600,
             }}
           >
             ↓ Descargar resúmenes (.zip)
@@ -130,15 +130,15 @@ export default function ConfigForm({ node, schema, botId, flowId, apiCall, onGoT
               disabled={backingUp}
               style={{
                 width: '100%', padding: '7px 12px',
-                background: 'transparent', border: '1px solid #7f1d1d',
-                borderRadius: 6, color: '#f87171', fontSize: 12, cursor: 'pointer', fontWeight: 600,
+                background: 'transparent', border: '1px solid var(--danger-dim)',
+                borderRadius: 6, color: 'var(--danger)', fontSize: 12, cursor: 'pointer', fontWeight: 600,
               }}
             >
               {backingUp ? '⏳ Haciendo backup...' : '⚠ Backup y limpiar resúmenes'}
             </button>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <div style={{ fontSize: 11, color: '#fbbf24', textAlign: 'center' }}>
+              <div style={{ fontSize: 11, color: 'var(--warning)', textAlign: 'center' }}>
                 Esto borra todos los .md actuales (quedan en .bak). ¿Confirmar?
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
@@ -146,8 +146,8 @@ export default function ConfigForm({ node, schema, botId, flowId, apiCall, onGoT
                   onClick={handleBackupAndClean}
                   style={{
                     flex: 1, padding: '6px 8px',
-                    background: '#7f1d1d', border: '1px solid #dc2626',
-                    borderRadius: 6, color: '#fca5a5', fontSize: 12, cursor: 'pointer', fontWeight: 600,
+                    background: 'var(--danger-dim)', border: '1px solid var(--danger)',
+                    borderRadius: 6, color: 'var(--danger)', fontSize: 12, cursor: 'pointer', fontWeight: 600,
                   }}
                 >
                   Sí, limpiar
@@ -156,8 +156,8 @@ export default function ConfigForm({ node, schema, botId, flowId, apiCall, onGoT
                   onClick={() => setShowBackupConfirm(false)}
                   style={{
                     flex: 1, padding: '6px 8px',
-                    background: 'transparent', border: '1px solid #334155',
-                    borderRadius: 6, color: '#94a3b8', fontSize: 12, cursor: 'pointer',
+                    background: 'transparent', border: '1px solid var(--border-strong)',
+                    borderRadius: 6, color: 'var(--text-subtle)', fontSize: 12, cursor: 'pointer',
                   }}
                 >
                   Cancelar
@@ -166,7 +166,7 @@ export default function ConfigForm({ node, schema, botId, flowId, apiCall, onGoT
             </div>
           )}
           {backupMsg && (
-            <div style={{ fontSize: 11, color: backupMsg.startsWith('✓') ? '#4ade80' : '#f87171', textAlign: 'center' }}>
+            <div style={{ fontSize: 11, color: backupMsg.startsWith('✓') ? 'var(--success)' : 'var(--danger)', textAlign: 'center' }}>
               {backupMsg}
             </div>
           )}
@@ -196,8 +196,8 @@ export default function ConfigForm({ node, schema, botId, flowId, apiCall, onGoT
             }}
             style={{
               width: '100%', padding: '6px 8px',
-              background: '#0f172a', border: '1px solid #334155',
-              borderRadius: 6, color: '#e2e8f0', fontSize: 12,
+              background: 'var(--bg)', border: '1px solid var(--border-strong)',
+              borderRadius: 6, color: 'var(--text)', fontSize: 12,
             }}
           >
             <option value="">(elegir un flow)</option>
@@ -226,43 +226,43 @@ export default function ConfigForm({ node, schema, botId, flowId, apiCall, onGoT
         return (
           <div style={{
             display: 'flex', flexDirection: 'column', gap: 8,
-            background: '#050c18', border: '1px solid #1e293b',
+            background: 'var(--bg)', border: '1px solid var(--surface-2)',
             borderRadius: 6, padding: '8px 10px',
           }}>
-            <span style={{ fontSize: 9, color: '#334155', fontWeight: 700, letterSpacing: '0.12em' }}>
+            <span style={{ fontSize: 9, color: 'var(--border-strong)', fontWeight: 700, letterSpacing: '0.12em' }}>
               REFERENCIA DEL SUB-FLOW — PARÁMETROS Y SALIDAS DISPONIBLES
             </span>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ fontSize: 10, color: '#64748b' }}>parámetros (claves sueltas en el JSON)</span>
+              <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>parámetros (claves sueltas en el JSON)</span>
               {inputs.length > 0 ? inputs.map(input => (
-                <div key={input.key} style={{ fontSize: 11, color: '#94a3b8', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  <code style={{ color: '#60a5fa' }}>{input.key}</code>
+                <div key={input.key} style={{ fontSize: 11, color: 'var(--text-subtle)', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <code style={{ color: 'var(--tg)' }}>{input.key}</code>
                   {input.label && <span>{input.label}</span>}
-                  <span style={{ color: '#475569' }}>
+                  <span style={{ color: 'var(--text-subtle)' }}>
                     ({input.type || 'text'}{input.default != null && input.default !== '' ? `, default: ${input.default}` : ''})
                   </span>
                 </div>
               )) : (
-                <span style={{ fontSize: 11, color: '#475569' }}>Este sub-flow no declara parámetros.</span>
+                <span style={{ fontSize: 11, color: 'var(--text-subtle)' }}>Este sub-flow no declara parámetros.</span>
               )}
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ fontSize: 10, color: '#64748b' }}>routes (salidas)</span>
+              <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>routes (salidas)</span>
               {routes.length > 0 ? (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                   {routes.map(r => (
                     <span key={r} style={{
                       fontSize: 10, padding: '2px 6px', borderRadius: 10,
-                      background: '#1e293b', color: '#4ade80', fontFamily: 'monospace',
+                      background: 'var(--surface-2)', color: 'var(--success)', fontFamily: 'monospace',
                     }}>
                       {r}
                     </span>
                   ))}
                 </div>
               ) : (
-                <span style={{ fontSize: 11, color: '#475569' }}>
+                <span style={{ fontSize: 11, color: 'var(--text-subtle)' }}>
                   Este sub-flow no expone salidas nombradas (sale sin ruta etiquetada).
                 </span>
               )}
@@ -284,14 +284,14 @@ export default function ConfigForm({ node, schema, botId, flowId, apiCall, onGoT
             disabled={cloning}
             style={{
               width: '100%', padding: '5px 12px',
-              background: 'transparent', border: '1px solid #1e3a5f',
-              borderRadius: 6, color: '#60a5fa', fontSize: 11, cursor: 'pointer',
+              background: 'transparent', border: '1px solid var(--tg)',
+              borderRadius: 6, color: 'var(--tg)', fontSize: 11, cursor: 'pointer',
             }}
           >
             {cloning ? 'Copiando...' : '↓ Usar como default de la conexión'}
           </button>
           {cloneMsg && (
-            <div style={{ fontSize: 10, color: '#60a5fa', textAlign: 'center' }}>{cloneMsg}</div>
+            <div style={{ fontSize: 10, color: 'var(--tg)', textAlign: 'center' }}>{cloneMsg}</div>
           )}
         </div>
       )}
