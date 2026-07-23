@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
-import { flowRunSteps, flowRuns, flows } from "@/lib/db/schema";
+import { flowRunSteps, flowRuns, flows, gateWaits } from "@/lib/db/schema";
 import { NODE_REGISTRY } from "@/lib/nodes/registry";
 import type { FlowState } from "@/lib/nodes/state";
 import type { FlowNodeDef, FlowEdgeDef } from "./graph";
@@ -70,13 +70,46 @@ export async function markWaitingGate(params: { runId: string; resumeNodeId: str
     .where(eq(flowRuns.runId, params.runId));
 }
 
+// TS port of GateNode's storage half (pulpo/graphs/nodes/gate.py's
+// _GATE_STORE/_store_waiting_run/_pop_waiting_run), moved from in-process
+// dicts to the gate_waits table since Vercel has no long-lived process. Each
+// call appends `message` for (nodeId, contactPhone) and reports whether the
+// gate just opened (accumulated length reached waitFor). See gateWaits in
+// lib/db/schema.ts for the one-slot waitingRunId caveat.
+export async function accumulateGate(params: {
+  nodeId: string;
+  contactPhone: string;
+  message: string;
+  waitFor: number;
+  runId: string;
+}): Promise<{ opened: boolean; messages: string[]; previousWaitingRunId: string | null }> {
+  "use step";
+  const db = getDb();
+  const where = and(eq(gateWaits.nodeId, params.nodeId), eq(gateWaits.contactPhone, params.contactPhone));
+  const [existing] = await db.select().from(gateWaits).where(where);
+  const messages = [...((existing?.messages as string[] | undefined) ?? []), params.message];
+
+  if (messages.length < params.waitFor) {
+    if (existing) {
+      await db.update(gateWaits).set({ messages, waitingRunId: params.runId, updatedAt: new Date() }).where(where);
+    } else {
+      await db.insert(gateWaits).values({ nodeId: params.nodeId, contactPhone: params.contactPhone, messages, waitingRunId: params.runId });
+    }
+    return { opened: false, messages, previousWaitingRunId: null };
+  }
+
+  const previousWaitingRunId = existing?.waitingRunId ?? null;
+  await db.delete(gateWaits).where(where);
+  return { opened: true, messages, previousWaitingRunId };
+}
+
 export async function logFlowStep(params: {
   runId: string;
   nodeId: string;
   nodeType: string;
   inputState: unknown;
   outputState: unknown;
-  status: "ok" | "error";
+  status: "ok" | "error" | "blocked";
 }) {
   "use step";
   // Best-effort like pulpo's _log_step -- logging failures must never abort the flow.

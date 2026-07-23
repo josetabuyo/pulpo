@@ -3,6 +3,7 @@ import { startConversation } from "@/lib/flow/conversation";
 import { expandNodeFlows } from "@/lib/flow/expand-node-flows";
 import { buildGraph, enqueueNeighbors, inDegrees, type FlowEdgeDef, type FlowNodeDef } from "@/lib/flow/graph";
 import {
+  accumulateGate,
   endFlowRun,
   fetchFlowDefinition,
   loadFlow,
@@ -15,8 +16,16 @@ import type { FlowState } from "@/lib/nodes/state";
 
 // TS port of execute_flow + _run_bfs (pulpo/graphs/compiler.py), using
 // Workflow DevKit as the durable executor instead of a hand-rolled
-// try/except BFS. Deliberately out of scope: gate (AND-join, only wait_user
-// is ported), __start__/__end__ visual markers.
+// try/except BFS. Deliberately out of scope: __start__/__end__ visual
+// markers.
+//
+// gate (AND-join) blocks like wait_user -- this run ends without enqueuing
+// gate's neighbors -- but does NOT persist resumeNodeId/slotsJson, because
+// there's nothing to "resume": each distinct trigger/path that reaches the
+// gate is its own independent run that walks the graph from its own entry
+// point and re-arrives at the same gate node, accumulating into gate_waits
+// (see lib/flow/steps.ts::accumulateGate) until enough paths have arrived.
+// The run that completes the count continues past the gate in-place.
 //
 // wait_user pauses this run entirely rather than suspending mid-workflow with
 // createHook() -- deliberate architecture choice (2026-07-22, see handoff
@@ -86,6 +95,47 @@ export async function runFlowWorkflow(
     if (!nodeDef) continue;
 
     const inputState = state;
+
+    if (nodeDef.type === "gate") {
+      const waitFor = inDegree[currentId] ?? 2;
+      const { opened, messages, previousWaitingRunId } = await accumulateGate({
+        nodeId: currentId,
+        contactPhone: state.contactPhone || "",
+        message: state.message || "",
+        waitFor,
+        runId,
+      });
+
+      if (!opened) {
+        hadWaitingGate = true;
+        await logFlowStep({
+          runId,
+          nodeId: currentId,
+          nodeType: "gate",
+          inputState,
+          outputState: state,
+          status: "blocked",
+        });
+        // Igual que wait_user: no se encolan vecinos, este run termina acá.
+        continue;
+      }
+
+      state = { ...state, data: { ...state.data, gate_messages: messages } };
+      if (previousWaitingRunId && previousWaitingRunId !== runId) {
+        await endFlowRun(previousWaitingRunId, "handed_off");
+      }
+      await logFlowStep({
+        runId,
+        nodeId: currentId,
+        nodeType: "gate",
+        inputState,
+        outputState: state,
+        status: "ok",
+      });
+      const route = (state.data.route as string) || "";
+      enqueueNeighbors(graph, currentId, visited, queue, route);
+      continue;
+    }
 
     if (nodeDef.type === "wait_user") {
       const neighbors = graph[currentId] ?? [];
