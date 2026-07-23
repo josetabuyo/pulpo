@@ -87,14 +87,14 @@ function EmbedFlowInner({ botId, flowIdParam }) {
 
   if (error) {
     return (
-      <div style={{ padding: 24, color: '#f87171', fontFamily: 'monospace', fontSize: 13 }}>
+      <div style={{ padding: 24, color: 'var(--danger)', fontFamily: 'monospace', fontSize: 13 }}>
         Error cargando el flow: {error}
       </div>
     )
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: '#0f172a', display: 'flex' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'var(--bg)', display: 'flex' }}>
       <FlowCanvas
         embed
         nodes={nodes}

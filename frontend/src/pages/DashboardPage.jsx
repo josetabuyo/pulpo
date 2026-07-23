@@ -59,7 +59,7 @@ function WaviModal({ open, onClose, session }) {
       <div className="modal" style={{ width: 420 }}>
         <button className="modal-close" onClick={onClose}>✕</button>
         <h3>{isSpecificSession ? `Conectar WhatsApp — ${session}` : 'Conectar WhatsApp (Wavi)'}</h3>
-        <p style={{ fontSize: 13, color: '#888', marginTop: 0 }}>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 0 }}>
           {isSpecificSession
             ? 'Iniciá el daemon y escaneá el QR con tu celular para reconectar esta sesión.'
             : 'Iniciá el daemon y escaneá el QR con tu celular.'}
@@ -76,7 +76,7 @@ function WaviModal({ open, onClose, session }) {
           <div style={{ marginTop: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Estado</div>
             {visibleSessions.map(s => (
-              <div key={s.session} style={{ fontSize: 12, color: s.authenticated ? '#22c55e' : '#888', marginBottom: 2 }}>
+              <div key={s.session} style={{ fontSize: 12, color: s.authenticated ? 'var(--success)' : 'var(--text-muted)', marginBottom: 2 }}>
                 {s.session}: {s.authenticated ? '✓ Conectado' : s.connecting ? '⏳ Conectando…' : 'Detenido'}
               </div>
             ))}
@@ -337,7 +337,7 @@ export default function DashboardPage() {
           <div className="card-title">Links para bots</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div>
-              <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>Alta nueva bot (link en blanco)</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Alta nueva bot (link en blanco)</div>
               <div className="share-row">
                 <input className="share-url" readOnly value={(import.meta.env.VITE_PUBLIC_URL || window.location.origin) + '/bot/nueva'} />
                 <button className="btn-blue" onClick={() => navigator.clipboard.writeText((import.meta.env.VITE_PUBLIC_URL || window.location.origin) + '/bot/nueva')}>Copiar</button>
