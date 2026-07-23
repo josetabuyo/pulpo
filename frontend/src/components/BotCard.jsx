@@ -19,6 +19,7 @@ import { GoogleSetupModal, GoogleConnectionsSection } from './bot/GoogleConnecti
 import { WaviConnectionsList, WaviSessionPicker } from './bot/WaviConnections.jsx'
 import RunsTab from './bot/RunsTab.jsx'
 import BotUsersTab from './bot/BotUsersTab.jsx'
+import ChatsTab from './bot/ChatsTab.jsx'
 
 // Normaliza un bot del formato admin (/bots) al formato canónico de BotCard
 export function normalizeBot(bot) {
@@ -151,6 +152,10 @@ export default function BotCard({
     // este tab en mode="bot" hasta que se porte ese filtro.
     ...(mode === 'admin' ? [{ id: 'runs', label: 'Ejecuciones', count: null }] : []),
     { id: 'config', label: 'Configurar', count: null },
+    // Gestión de PulpoChat: acción de PRO o admin dueño del bot (a diferencia
+    // de 'users', que sigue admin-only) -- visible en ambos modos, el
+    // backend ya lo garantiza vía proxy.ts::SCOPED_BOT_ROUTES.
+    { id: 'chats', label: 'Chats', count: null },
     ...(mode === 'admin' ? [{ id: 'users', label: 'Usuarios', count: null }] : []),
   ]
 
@@ -324,6 +329,11 @@ export default function BotCard({
             apiCall={apiCall}
             onNameChange={() => onRefresh?.()}
           />
+        )}
+
+        {/* ── Chats (PulpoChat -- PRO/admin dueño del bot) ── */}
+        {activeTab === 'chats' && (
+          <ChatsTab botId={botId} apiCall={apiCall} />
         )}
 
         {/* ── Usuarios (admin-only) ── */}
