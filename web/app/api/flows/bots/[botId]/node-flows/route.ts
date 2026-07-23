@@ -8,9 +8,9 @@ import { assertBotAccess } from "@/lib/auth/bot-access";
 // instances with the color declared by the sub-flow they reference (see
 // frontend/src/components/FlowEditor.jsx fetching this route into
 // flowStore.js's nodeFlowColors map).
-export async function GET(_request: Request, { params }: { params: Promise<{ botId: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ botId: string }> }) {
   const { botId } = await params;
-  const denied = await assertBotAccess(botId);
+  const denied = await assertBotAccess(request, botId);
   if (denied) return denied;
   try {
     return Response.json(await listNodeFlows(botId));

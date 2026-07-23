@@ -5,9 +5,9 @@ import { assertBotAccess } from "@/lib/auth/bot-access";
 
 // TS port of pulpo/interfaces/api/routers/flows.py (GET/PUT/DELETE "/bots/{bot_id}/{flow_id}").
 // Reachable by both admin and scoped (see proxy.ts::SCOPED_BOT_ROUTES).
-export async function GET(_request: Request, { params }: { params: Promise<{ botId: string; flowId: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ botId: string; flowId: string }> }) {
   const { botId, flowId } = await params;
-  const denied = await assertBotAccess(botId);
+  const denied = await assertBotAccess(request, botId);
   if (denied) return denied;
   const flow = await getFlow(botId, flowId);
   if (!flow) return Response.json({ detail: "Flow no encontrado" }, { status: 404 });
@@ -16,7 +16,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ bot
 
 export async function PUT(request: Request, { params }: { params: Promise<{ botId: string; flowId: string }> }) {
   const { botId, flowId } = await params;
-  const denied = await assertBotAccess(botId);
+  const denied = await assertBotAccess(request, botId);
   if (denied) return denied;
   const body = await request.json();
   const saveVersion = Boolean(body.save_version);
@@ -39,9 +39,9 @@ export async function PUT(request: Request, { params }: { params: Promise<{ botI
   }
 }
 
-export async function DELETE(_request: Request, { params }: { params: Promise<{ botId: string; flowId: string }> }) {
+export async function DELETE(request: Request, { params }: { params: Promise<{ botId: string; flowId: string }> }) {
   const { botId, flowId } = await params;
-  const denied = await assertBotAccess(botId);
+  const denied = await assertBotAccess(request, botId);
   if (denied) return denied;
   const ok = await deleteFlow(botId, flowId);
   if (!ok) return Response.json({ detail: "Flow no encontrado" }, { status: 404 });

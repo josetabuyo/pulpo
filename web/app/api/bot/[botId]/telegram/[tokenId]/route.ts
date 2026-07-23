@@ -4,11 +4,11 @@ import { assertBotAccess } from "@/lib/auth/bot-access";
 
 // TS port of pulpo/interfaces/ui/routers/bot_portal.py (DELETE "/bot/{bot_id}/telegram/{token_id}").
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ botId: string; tokenId: string }> },
 ) {
   const { botId, tokenId } = await params;
-  const denied = await assertBotAccess(botId);
+  const denied = await assertBotAccess(request, botId);
   if (denied) return denied;
   try {
     const result = await deleteTelegramConnection(botId, tokenId);

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { verifyAccessToken } from "@/lib/auth/jwt";
+import { isLocalNoAuth } from "@/lib/auth/local-bypass";
 
 // Fixes the root-cause auth bug found in pulpo/interfaces/ui/app.py: there,
 // `app.mount("/api", api)` creates a separate Starlette sub-app that the
@@ -77,6 +78,16 @@ export default auth(async (request) => {
     if (!token || !(await verifyAccessToken(token))) {
       return Response.json({ error: "missing or invalid bearer token" }, { status: 401 });
     }
+    return NextResponse.next();
+  }
+
+  // No-auth CLI bypass for local dev (management/HANDOFF_LOCAL_CLI_AND_NODES.md
+  // §4.3) -- see lib/auth/local-bypass.ts for the three-condition predicate
+  // (never Vercel + explicit opt-in env var + loopback host). Placed here,
+  // after the public/bearer schemes above (unchanged) and before the
+  // session gate below -- when it fires, the request proceeds as if it were
+  // an authenticated admin, without touching auth.ts or forging a session.
+  if (isLocalNoAuth(request)) {
     return NextResponse.next();
   }
 

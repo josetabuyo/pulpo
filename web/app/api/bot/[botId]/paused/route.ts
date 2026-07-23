@@ -5,9 +5,9 @@ import { assertBotAccess } from "@/lib/auth/bot-access";
 // "/bot/{bot_id}/paused"). Reachable by both admin and scoped (see
 // proxy.ts's SCOPED_BOT_ROUTES) -- assertBotAccess is the defense-in-depth
 // check for the scoped case.
-export async function GET(_request: Request, { params }: { params: Promise<{ botId: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ botId: string }> }) {
   const { botId } = await params;
-  const denied = await assertBotAccess(botId);
+  const denied = await assertBotAccess(request, botId);
   if (denied) return denied;
 
   const bot = await getBotPaused(botId);
@@ -17,7 +17,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ bot
 
 export async function PUT(request: Request, { params }: { params: Promise<{ botId: string }> }) {
   const { botId } = await params;
-  const denied = await assertBotAccess(botId);
+  const denied = await assertBotAccess(request, botId);
   if (denied) return denied;
 
   const body = await request.json();
