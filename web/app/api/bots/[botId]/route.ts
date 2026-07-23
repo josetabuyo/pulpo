@@ -5,9 +5,9 @@ import { assertBotAccess } from "@/lib/auth/bot-access";
 // plus a new GET for the scoped/"un solo bot" portal (see
 // proxy.ts::SCOPED_BOT_ROUTES -- only GET is in that allowlist, PUT/DELETE
 // stay admin-only, defended here too via assertBotAccess).
-export async function GET(_request: Request, { params }: { params: Promise<{ botId: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ botId: string }> }) {
   const { botId } = await params;
-  const denied = await assertBotAccess(botId);
+  const denied = await assertBotAccess(request, botId);
   if (denied) return denied;
 
   const bot = await getBot(botId);
@@ -23,7 +23,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ botI
   return Response.json({ ok: true });
 }
 
-export async function DELETE(_request: Request, { params }: { params: Promise<{ botId: string }> }) {
+export async function DELETE(request: Request, { params }: { params: Promise<{ botId: string }> }) {
   const { botId } = await params;
   const ok = await deleteBot(botId);
   if (!ok) return Response.json({ detail: `Bot no encontrada: ${botId}` }, { status: 404 });

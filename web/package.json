@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "db:push": "dotenv -e .env.local -- drizzle-kit push",
-    "seed:flow": "dotenv -e .env.local -- tsx scripts/seed-flow.ts"
+    "seed:flow": "dotenv -e .env.local -- tsx scripts/seed-flow.ts",
+    "pulpo": "dotenv -e .env.local -- tsx cli/main.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

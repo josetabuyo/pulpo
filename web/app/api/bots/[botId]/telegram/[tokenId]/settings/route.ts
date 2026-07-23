@@ -8,7 +8,7 @@ export async function PATCH(
   { params }: { params: Promise<{ botId: string; tokenId: string }> },
 ) {
   const { botId, tokenId } = await params;
-  const denied = await assertBotAccess(botId);
+  const denied = await assertBotAccess(request, botId);
   if (denied) return denied;
   const body = await request.json();
   try {

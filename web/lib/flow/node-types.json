@@ -239,35 +239,163 @@
             "label": "best:instruction"
           },
           {
+            "value": "best:instruction|local",
+            "label": "best:instruction — solo local"
+          },
+          {
+            "value": "best:instruction|local-first",
+            "label": "best:instruction — local → cloud"
+          },
+          {
+            "value": "best:instruction|cloud-first",
+            "label": "best:instruction — cloud (redundante, no usa local)"
+          },
+          {
+            "value": "best:instruction|cloud",
+            "label": "best:instruction — cloud con fallback a local"
+          },
+          {
             "value": "best:reasoning",
             "label": "best:reasoning"
+          },
+          {
+            "value": "best:reasoning|local",
+            "label": "best:reasoning — solo local"
+          },
+          {
+            "value": "best:reasoning|local-first",
+            "label": "best:reasoning — local → cloud"
+          },
+          {
+            "value": "best:reasoning|cloud-first",
+            "label": "best:reasoning — cloud (redundante, no usa local)"
+          },
+          {
+            "value": "best:reasoning|cloud",
+            "label": "best:reasoning — cloud con fallback a local"
           },
           {
             "value": "best:coding",
             "label": "best:coding"
           },
           {
+            "value": "best:coding|local",
+            "label": "best:coding — solo local"
+          },
+          {
+            "value": "best:coding|local-first",
+            "label": "best:coding — local → cloud"
+          },
+          {
+            "value": "best:coding|cloud-first",
+            "label": "best:coding — cloud (redundante, no usa local)"
+          },
+          {
+            "value": "best:coding|cloud",
+            "label": "best:coding — cloud con fallback a local"
+          },
+          {
             "value": "best:code_debug",
             "label": "best:code_debug"
+          },
+          {
+            "value": "best:code_debug|local",
+            "label": "best:code_debug — solo local"
+          },
+          {
+            "value": "best:code_debug|local-first",
+            "label": "best:code_debug — local → cloud"
+          },
+          {
+            "value": "best:code_debug|cloud-first",
+            "label": "best:code_debug — cloud (redundante, no usa local)"
+          },
+          {
+            "value": "best:code_debug|cloud",
+            "label": "best:code_debug — cloud con fallback a local"
           },
           {
             "value": "best:math",
             "label": "best:math"
           },
           {
+            "value": "best:math|local",
+            "label": "best:math — solo local"
+          },
+          {
+            "value": "best:math|local-first",
+            "label": "best:math — local → cloud"
+          },
+          {
+            "value": "best:math|cloud-first",
+            "label": "best:math — cloud (redundante, no usa local)"
+          },
+          {
+            "value": "best:math|cloud",
+            "label": "best:math — cloud con fallback a local"
+          },
+          {
             "value": "best:summarization",
             "label": "best:summarization"
+          },
+          {
+            "value": "best:summarization|local",
+            "label": "best:summarization — solo local"
+          },
+          {
+            "value": "best:summarization|local-first",
+            "label": "best:summarization — local → cloud"
+          },
+          {
+            "value": "best:summarization|cloud-first",
+            "label": "best:summarization — cloud (redundante, no usa local)"
+          },
+          {
+            "value": "best:summarization|cloud",
+            "label": "best:summarization — cloud con fallback a local"
           },
           {
             "value": "best:multilingual",
             "label": "best:multilingual"
           },
           {
+            "value": "best:multilingual|local",
+            "label": "best:multilingual — solo local"
+          },
+          {
+            "value": "best:multilingual|local-first",
+            "label": "best:multilingual — local → cloud"
+          },
+          {
+            "value": "best:multilingual|cloud-first",
+            "label": "best:multilingual — cloud (redundante, no usa local)"
+          },
+          {
+            "value": "best:multilingual|cloud",
+            "label": "best:multilingual — cloud con fallback a local"
+          },
+          {
             "value": "best:context",
             "label": "best:context"
+          },
+          {
+            "value": "best:context|local",
+            "label": "best:context — solo local"
+          },
+          {
+            "value": "best:context|local-first",
+            "label": "best:context — local → cloud"
+          },
+          {
+            "value": "best:context|cloud-first",
+            "label": "best:context — cloud (redundante, no usa local)"
+          },
+          {
+            "value": "best:context|cloud",
+            "label": "best:context — cloud con fallback a local"
           }
         ],
-        "hint": "(Vercel: siempre cloud — NVIDIA NIM -> Groq -> OpenRouter; no hay tier local en producción)"
+        "hint": "Sin sufijo o |cloud-first/|cloud = siempre cloud (NVIDIA NIM → Groq → OpenRouter) en Vercel y en local. |local y |local-first solo tienen efecto en dev local con local-models/router corriendo (localhost:9002) -- en Vercel esas dos también caen a cloud."
       },
       {
         "key": "max_visits",
@@ -366,35 +494,163 @@
             "label": "best:instruction"
           },
           {
+            "value": "best:instruction|local",
+            "label": "best:instruction — solo local"
+          },
+          {
+            "value": "best:instruction|local-first",
+            "label": "best:instruction — local → cloud"
+          },
+          {
+            "value": "best:instruction|cloud-first",
+            "label": "best:instruction — cloud (redundante, no usa local)"
+          },
+          {
+            "value": "best:instruction|cloud",
+            "label": "best:instruction — cloud con fallback a local"
+          },
+          {
             "value": "best:reasoning",
             "label": "best:reasoning"
+          },
+          {
+            "value": "best:reasoning|local",
+            "label": "best:reasoning — solo local"
+          },
+          {
+            "value": "best:reasoning|local-first",
+            "label": "best:reasoning — local → cloud"
+          },
+          {
+            "value": "best:reasoning|cloud-first",
+            "label": "best:reasoning — cloud (redundante, no usa local)"
+          },
+          {
+            "value": "best:reasoning|cloud",
+            "label": "best:reasoning — cloud con fallback a local"
           },
           {
             "value": "best:coding",
             "label": "best:coding"
           },
           {
+            "value": "best:coding|local",
+            "label": "best:coding — solo local"
+          },
+          {
+            "value": "best:coding|local-first",
+            "label": "best:coding — local → cloud"
+          },
+          {
+            "value": "best:coding|cloud-first",
+            "label": "best:coding — cloud (redundante, no usa local)"
+          },
+          {
+            "value": "best:coding|cloud",
+            "label": "best:coding — cloud con fallback a local"
+          },
+          {
             "value": "best:code_debug",
             "label": "best:code_debug"
+          },
+          {
+            "value": "best:code_debug|local",
+            "label": "best:code_debug — solo local"
+          },
+          {
+            "value": "best:code_debug|local-first",
+            "label": "best:code_debug — local → cloud"
+          },
+          {
+            "value": "best:code_debug|cloud-first",
+            "label": "best:code_debug — cloud (redundante, no usa local)"
+          },
+          {
+            "value": "best:code_debug|cloud",
+            "label": "best:code_debug — cloud con fallback a local"
           },
           {
             "value": "best:math",
             "label": "best:math"
           },
           {
+            "value": "best:math|local",
+            "label": "best:math — solo local"
+          },
+          {
+            "value": "best:math|local-first",
+            "label": "best:math — local → cloud"
+          },
+          {
+            "value": "best:math|cloud-first",
+            "label": "best:math — cloud (redundante, no usa local)"
+          },
+          {
+            "value": "best:math|cloud",
+            "label": "best:math — cloud con fallback a local"
+          },
+          {
             "value": "best:summarization",
             "label": "best:summarization"
+          },
+          {
+            "value": "best:summarization|local",
+            "label": "best:summarization — solo local"
+          },
+          {
+            "value": "best:summarization|local-first",
+            "label": "best:summarization — local → cloud"
+          },
+          {
+            "value": "best:summarization|cloud-first",
+            "label": "best:summarization — cloud (redundante, no usa local)"
+          },
+          {
+            "value": "best:summarization|cloud",
+            "label": "best:summarization — cloud con fallback a local"
           },
           {
             "value": "best:multilingual",
             "label": "best:multilingual"
           },
           {
+            "value": "best:multilingual|local",
+            "label": "best:multilingual — solo local"
+          },
+          {
+            "value": "best:multilingual|local-first",
+            "label": "best:multilingual — local → cloud"
+          },
+          {
+            "value": "best:multilingual|cloud-first",
+            "label": "best:multilingual — cloud (redundante, no usa local)"
+          },
+          {
+            "value": "best:multilingual|cloud",
+            "label": "best:multilingual — cloud con fallback a local"
+          },
+          {
             "value": "best:context",
             "label": "best:context"
+          },
+          {
+            "value": "best:context|local",
+            "label": "best:context — solo local"
+          },
+          {
+            "value": "best:context|local-first",
+            "label": "best:context — local → cloud"
+          },
+          {
+            "value": "best:context|cloud-first",
+            "label": "best:context — cloud (redundante, no usa local)"
+          },
+          {
+            "value": "best:context|cloud",
+            "label": "best:context — cloud con fallback a local"
           }
         ],
-        "hint": "(Vercel: siempre cloud — NVIDIA NIM -> Groq -> OpenRouter; no hay tier local en producción)"
+        "hint": "Sin sufijo o |cloud-first/|cloud = siempre cloud (NVIDIA NIM → Groq → OpenRouter) en Vercel y en local. |local y |local-first solo tienen efecto en dev local con local-models/router corriendo (localhost:9002) -- en Vercel esas dos también caen a cloud."
       },
       {
         "key": "temperature",
@@ -1309,6 +1565,79 @@
         "type": "string",
         "label": "Color (opcional)",
         "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "wavi_send",
+    "label": "WhatsApp local (Wavi)",
+    "color": "#25d366",
+    "description": "Envía un mensaje de WhatsApp real vía Wavi (Chromium local) -- solo dev local, en producción no hace nada.",
+    "help": "Requiere el servidor de Wavi corriendo en la Mac (localhost:8900 por default). En Vercel/producción este nodo se salta (loguea en _wavi_errors y el flow sigue) -- nunca manda nada ahí.",
+    "schema": [
+      {
+        "key": "session",
+        "type": "string",
+        "label": "Sesión de Wavi",
+        "default": "default",
+        "hint": "Sesión de Chromium logueada en Wavi -- puede ser tu WhatsApp personal, no uses un contacto real de cliente para probar."
+      },
+      {
+        "key": "contact",
+        "type": "string",
+        "label": "Contacto",
+        "default": "",
+        "required": true,
+        "hint": "Nombre/número tal como lo resuelve Wavi. Interpolable, ej: {{contact_phone}}."
+      },
+      {
+        "key": "message",
+        "type": "string",
+        "label": "Mensaje",
+        "default": "",
+        "required": true,
+        "hint": "Interpolable."
+      },
+      {
+        "key": "output",
+        "type": "string",
+        "label": "Guardar resultado en",
+        "default": "wavi_result"
+      }
+    ]
+  },
+  {
+    "id": "wavi_get",
+    "label": "Leer WhatsApp local (Wavi)",
+    "color": "#25d366",
+    "description": "Trae mensajes de una conversación de WhatsApp real vía Wavi -- solo dev local, en producción no hace nada.",
+    "help": "Requiere el servidor de Wavi corriendo en la Mac (localhost:8900 por default). En Vercel/producción este nodo se salta (loguea en _wavi_errors y el flow sigue).",
+    "schema": [
+      {
+        "key": "session",
+        "type": "string",
+        "label": "Sesión de Wavi",
+        "default": "default"
+      },
+      {
+        "key": "contact",
+        "type": "string",
+        "label": "Contacto",
+        "default": "",
+        "required": true,
+        "hint": "Interpolable, ej: {{contact_phone}}."
+      },
+      {
+        "key": "newest",
+        "type": "float",
+        "label": "Solo mensajes más nuevos que (timestamp, opcional)",
+        "default": null
+      },
+      {
+        "key": "output",
+        "type": "string",
+        "label": "Guardar burbujas en",
+        "default": "wavi_messages"
       }
     ]
   }
