@@ -65,7 +65,7 @@ export default function BotConfigTab({ botId, botName, apiCall, onNameChange }) 
             onChange={set('farewell_message')}
             placeholder="Ej: ¡Hola! Tu consulta anterior se cerró. ¡Escribinos cuando quieras!"
             rows={5}
-            style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit', fontSize: 13, padding: '6px 8px', borderRadius: 6, border: '1px solid #e2e8f0', lineHeight: 1.5 }}
+            style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit', fontSize: 13, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', lineHeight: 1.5 }}
           />
           <small style={{ color: 'var(--text-subtle)', fontSize: 11 }}>
             Vacío = usa el mensaje por defecto del sistema.

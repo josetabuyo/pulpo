@@ -83,7 +83,7 @@ export default function ConnectionRow({ conn, mode, botId, onDelete, onReconnect
                     <button className="conn-menu-item" onClick={() => { onToggleMass?.(conn); setMenuOpen(false) }}>
                       {conn.allowMass ? '🔇 Desactivar masivo' : '📣 Activar masivo'}
                     </button>
-                    <div style={{ margin: '4px 0', borderTop: '1px solid #334155' }} />
+                    <div style={{ margin: '4px 0', borderTop: '1px solid var(--border-strong)' }} />
                     <button className="conn-menu-item conn-menu-item--danger" onClick={() => { onDelete?.(conn); setMenuOpen(false) }}>
                       🗑 Eliminar conexión
                     </button>

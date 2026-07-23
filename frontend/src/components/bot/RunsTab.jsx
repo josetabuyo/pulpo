@@ -14,7 +14,7 @@ function SimBadge() {
     <span style={{
       marginLeft: 6, fontSize: 10, fontWeight: 700, letterSpacing: '0.04em',
       color: 'var(--brand-light)', background: 'rgba(167, 139, 250, 0.12)',
-      border: '1px solid #6d28d9', borderRadius: 4, padding: '1px 5px',
+      border: '1px solid var(--brand-hover)', borderRadius: 4, padding: '1px 5px',
     }}>
       SIMULADO
     </span>
@@ -62,7 +62,7 @@ function JsonNode({ label, value, depth }) {
         </span>
       </div>
       {open && (
-        <div style={{ borderLeft: '1px solid #e2e8f0', marginLeft: 5 }}>
+        <div style={{ borderLeft: '1px solid var(--border)', marginLeft: 5 }}>
           {entries.map(([k, v]) => (
             <JsonNode key={k} label={k} value={v} depth={depth + 1} />
           ))}
@@ -88,7 +88,7 @@ function StepRow({ step, nodeLabels }) {
     <>
       <tr
         onClick={() => setOpen(o => !o)}
-        style={{ cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
+        style={{ cursor: 'pointer', borderBottom: '1px solid var(--border)' }}
       >
         <td style={{ padding: '6px 8px', fontWeight: 500 }}>{step.node_type}</td>
         <td style={{ padding: '6px 8px', fontSize: 12, color: 'var(--text-muted)' }}>
@@ -113,7 +113,7 @@ function StepRow({ step, nodeLabels }) {
                   </div>
                   <div style={{
                     background: 'var(--surface)',
-                    border: '1px solid #e2e8f0', borderRadius: 4,
+                    border: '1px solid var(--border)', borderRadius: 4,
                     padding: '6px 8px',
                     maxHeight: 200, overflow: 'auto',
                   }}>
@@ -173,7 +173,7 @@ function RunDetail({ run, onClose, botId, apiCall }) {
         <div style={{
           fontSize: 12, color: 'var(--text-muted)', marginBottom: 6,
           background: 'var(--surface-2)', borderRadius: '6px 6px 0 0', padding: '6px 10px',
-          borderLeft: '3px solid #cbd5e1', borderBottom: '1px solid #e2e8f0',
+          borderLeft: '3px solid var(--border-strong)', borderBottom: '1px solid var(--border)',
         }}>
           <strong>{trigger.canal}</strong> · {trigger.contact_phone} · &quot;{firstMessage}&quot;
         </div>
@@ -181,7 +181,7 @@ function RunDetail({ run, onClose, botId, apiCall }) {
 
       <div style={{
         resize: 'vertical', overflow: 'auto', height: 220, minHeight: 90, maxHeight: 600,
-        border: '1px solid #e2e8f0', borderRadius: firstMessage ? '0 0 6px 6px' : 6,
+        border: '1px solid var(--border)', borderRadius: firstMessage ? '0 0 6px 6px' : 6,
         marginBottom: 14, background: 'var(--surface)', padding: '4px 0',
       }}>
         <JsonViewer data={trigger} />
@@ -255,7 +255,7 @@ export default function RunsTab({ botId, apiCall }) {
           </thead>
           <tbody>
             {runs.map(run => (
-              <tr key={run.run_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <tr key={run.run_id} style={{ borderBottom: '1px solid var(--border)' }}>
                 <td style={{ padding: '7px 8px', fontSize: 12, color: 'var(--text-muted)' }}>
                   {run.started_at?.slice(5, 16)}
                 </td>

@@ -44,7 +44,7 @@ function badge(state) {
   if (state === 'included') return { ...base, background: 'rgba(34,197,94,.15)', color: 'var(--success)', border: '1px solid rgba(34,197,94,.3)' }
   if (state === 'excl-btn') return { ...base, fontWeight: 400, background: 'transparent', color: 'var(--danger)', border: '1px solid rgba(239,68,68,.25)' }
   if (state === 'incl-btn') return { ...base, fontWeight: 400, background: 'transparent', color: 'var(--success)', border: '1px solid rgba(34,197,94,.25)' }
-  return { ...base, fontWeight: 400, background: 'transparent', color: 'var(--text-muted)', border: '1px solid #1e293b' }
+  return { ...base, fontWeight: 400, background: 'transparent', color: 'var(--text-muted)', border: '1px solid var(--surface-2)' }
 }
 
 export default function ContactFilterEditor({
@@ -187,7 +187,7 @@ export default function ContactFilterEditor({
           onKeyDown={e => e.key === 'Enter' && addManual()}
           style={{
             flex: 1, fontSize: 11, padding: '5px 8px',
-            background: 'var(--bg)', border: '1px solid #1e293b',
+            background: 'var(--bg)', border: '1px solid var(--surface-2)',
             borderRadius: 4, color: 'var(--text)', boxSizing: 'border-box',
           }}
         />
@@ -235,7 +235,7 @@ export default function ContactFilterEditor({
           onChange={e => setSearch(e.target.value)}
           style={{
             fontSize: 11, padding: '4px 8px', marginBottom: 4,
-            background: 'var(--bg)', border: '1px solid #1e293b',
+            background: 'var(--bg)', border: '1px solid var(--surface-2)',
             borderRadius: 4, color: 'var(--text)', width: '100%', boxSizing: 'border-box',
           }}
         />

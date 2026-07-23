@@ -69,7 +69,7 @@ function WaviModal({ open, onClose, session }) {
         </button>
         <iframe
           srcDoc={qrHtml}
-          style={{ width: '100%', height: 360, border: '1px solid #333', borderRadius: 6 }}
+          style={{ width: '100%', height: 360, border: '1px solid var(--border)', borderRadius: 6 }}
           title="WhatsApp QR"
         />
         {visibleSessions.length > 0 && (

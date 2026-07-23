@@ -57,7 +57,7 @@ export default function BotUsersTab({ botId, apiCall }) {
       )}
 
       {!loading && emails.map(email => (
-        <div key={email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
+        <div key={email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
           <span style={{ fontSize: 18 }}>👤</span>
           <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontFamily: 'monospace' }}>{email}</div>
           <button className="btn-danger btn-sm" onClick={() => handleRemove(email)}>Sacar</button>

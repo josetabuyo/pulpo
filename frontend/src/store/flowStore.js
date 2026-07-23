@@ -96,7 +96,7 @@ export function isValidColor(value) {
  */
 export function resolveNodeColor(config, typeColor) {
   const c = config?.color
-  return isValidColor(c) ? c.trim() : (typeColor || '#1e293b')
+  return isValidColor(c) ? c.trim() : (typeColor || 'var(--surface-2)')
 }
 
 /**
@@ -364,7 +364,7 @@ export function createFlowStore() {
           nodeType,
           config:      DEFAULT_CONFIGS[nodeType] || {},
           label:       meta.label       || nodeType,
-          color:       meta.color       || '#1e293b',
+          color:       meta.color       || 'var(--surface-2)',
           description: meta.description || '',
         },
       }
