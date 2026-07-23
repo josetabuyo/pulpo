@@ -4,6 +4,7 @@ import DashboardPage from './pages/DashboardPage.jsx'
 import BotPage from './pages/BotPage.jsx'
 import NewBotPage from './pages/NewBotPage.jsx'
 import EmbedFlowPage from './pages/EmbedFlowPage.jsx'
+import ChatPage from './pages/ChatPage.jsx'
 import RequireAuth from './components/RequireAuth.jsx'
 
 export default function App() {
@@ -19,6 +20,11 @@ export default function App() {
       {/* Solo-diagrama, sin login: usada por scripts/generate_e2e_report.py para
           capturar el flow real en vez de un screenshot recortado a mano. */}
       <Route path="/embed/flow/:botId" element={<EmbedFlowPage />} />
+      {/* Chat público/allowlist standalone -- ChatPage decide sola si hace
+          falta login (GET /api/chat/{botId}/config es siempre público, ver
+          ese componente). No pasa por el dashboard. */}
+      <Route path="/chat/:botId" element={<ChatPage />} />
+      <Route path="/chat/:botId/c/:conversationId" element={<ChatPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

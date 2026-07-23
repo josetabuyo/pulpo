@@ -9,7 +9,7 @@ export interface FlowState {
   connectionId: string;
   contactPhone: string;
   contactName: string;
-  canal: "telegram" | "wavi" | "api";
+  canal: "telegram" | "wavi" | "api" | "chat";
   timestamp?: string;
   fromDeltaSync?: boolean;
   data: Record<string, unknown>;

@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { telegramConnections } from "@/lib/db/schema";
 import { sendTelegramMessage } from "@/lib/business/telegram";
+import { insertBotMessage } from "@/lib/business/chats";
 import type { NodeDef } from "./base";
 import { interpolate } from "./interpolate";
 import { recordBotReply } from "./state";
@@ -57,6 +58,23 @@ export const replyNode: NodeDef = {
           }
         } catch (err) {
           console.error("[reply] falló el envío a Telegram (no aborta el flow)", err);
+        }
+      }
+
+      // Canal nuevo "chat" (PulpoChat, ver
+      // management/HANDOFF_DASHBOARD_CHATS_VIEW.md §2.4, gitignoreado): rama
+      // simétrica a Telegram arriba -- state.contactPhone ES el
+      // contact_identifier ("chat:{id}") de la conversación. Best-effort
+      // igual que el envío de Telegram: si falla el insert, loguear y no
+      // abortar el flow.
+      if (state.canal === "chat" && message) {
+        try {
+          // FlowState no trae el run_id acá (ver lib/nodes/state.ts) -- queda
+          // sin poblar (columna nullable, ver schema.ts chatMessages.runId),
+          // no crítico para v1: es solo un puntero de debug.
+          await insertBotMessage(state.contactPhone, message);
+        } catch (err) {
+          console.error("[reply] falló el insert en chat_messages (no aborta el flow)", err);
         }
       }
       return state;

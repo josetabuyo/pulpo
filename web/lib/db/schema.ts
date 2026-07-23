@@ -213,3 +213,66 @@ export const settings = pgTable("settings", {
   id: text("id").primaryKey().default("singleton"),
   waPollIntervalSeconds: text("wa_poll_interval_seconds").notNull().default("300"),
 });
+
+// ─── Chats ("PulpoChat") ────────────────────────────────────────────────
+// Vista "Chats": chat web embebible/standalone sobre el trigger HTTP.
+// Ver management/HANDOFF_DASHBOARD_CHATS_VIEW.md (gitignoreado, no en el
+// repo) para el diseño completo -- este comentario resume solo lo esencial.
+
+// Config del chat por bot (1 fila por bot). El chat existe solo si hay fila
+// + enabled=true. `is_public` es un booleano explícito, no un sentinel `*`
+// en una allowlist -- ver §2.1 del handoff para el razonamiento.
+export const chatConfigs = pgTable("chat_configs", {
+  botId: text("bot_id").primaryKey(),
+  flowId: text("flow_id").notNull(),
+  triggerNodeId: text("trigger_node_id").notNull(),
+  title: text("title").notNull().default("PulpoChat"),
+  isPublic: boolean("is_public").notNull().default(false),
+  enabled: boolean("enabled").notNull().default(false),
+  banners: jsonb("banners"),
+  themeVars: jsonb("theme_vars"),
+  customCss: text("custom_css"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+// Allowlist de emails con derecho a CHATEAR (no a gestionar) cuando el chat
+// no es público. Deliberadamente separada de `bot_users` (esa da acceso al
+// dashboard del bot) -- ver §2.2 del handoff.
+export const chatAccess = pgTable(
+  "chat_access",
+  {
+    botId: text("bot_id").notNull(),
+    email: text("email").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.botId, table.email] })],
+);
+
+// Identidad de cada conversación de chat -- `contact_identifier` (prefijo
+// "chat:") es lo que viaja como contactPhone al motor de flows, así que dos
+// conversaciones del mismo humano son dos contactos distintos (estilo
+// ChatGPT: cada hilo es independiente). `owner_key` ("email:{email}" o
+// "anon:{visitorKey}") es quién ve esta conversación en su sidebar.
+export const chatConversations = pgTable("chat_conversations", {
+  id: text("id").primaryKey(),
+  botId: text("bot_id").notNull(),
+  contactIdentifier: text("contact_identifier").notNull().unique(),
+  ownerKey: text("owner_key").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  lastMessageAt: timestamp("last_message_at", { withTimezone: true }).defaultNow(),
+});
+
+// Transcript liviano del chat -- tabla propia, NO reconstruida desde
+// flow_run_steps (ver §2.4 del handoff: flow_run_steps es jsonb pesado
+// pensado para debug, y una conversación de chat abarca múltiples runs).
+// Dos escritores: el POST de envío (role='user', antes de disparar el
+// flow) y lib/nodes/reply.ts cuando canal==="chat" y to vacío (role='bot').
+export const chatMessages = pgTable("chat_messages", {
+  id: serial("id").primaryKey(),
+  conversationId: text("conversation_id").notNull(),
+  role: text("role").notNull(), // 'user' | 'bot'
+  content: text("content").notNull(),
+  runId: text("run_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});

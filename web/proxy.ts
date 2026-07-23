@@ -21,8 +21,23 @@ import { verifyAccessToken } from "@/lib/auth/jwt";
 // session cookie nor a bearer token, so this path is public here -- the
 // route itself verifies the tokenId in the URL against telegram_connections
 // (and an optional secret_token header), see that route's docstring.
+//
+// /api/chat/** is a FOURTH scheme (2026-07-23, PulpoChat): public-or-session
+// depending on per-bot DB config (chat_configs.is_public), which the proxy
+// can't evaluate for every request -- so this path is let through here too,
+// and each handler self-validates via lib/auth/chat-access.ts::resolveChatCaller.
 const TRIGGER_PATH_RE = /^\/api\/flows\/[^/]+\/trigger\/[^/]+$/;
 const TELEGRAM_WEBHOOK_RE = /^\/api\/telegram\/webhook\/[^/]+$/;
+// Cuarto esquema (2026-07-23, PulpoChat -- ver
+// management/HANDOFF_DASHBOARD_CHATS_VIEW.md §4.3, gitignoreado): el runtime
+// del chat (/api/chat/{botId}/**) puede ser público o requerir sesión según
+// chat_configs.is_public, un dato que vive en la DB por-bot, no algo que el
+// proxy pueda decidir de forma estática para TODO request como hace con
+// TRIGGER_PATH_RE/TELEGRAM_WEBHOOK_RE. Igual que el webhook de Telegram: la
+// ruta se autovalida -- cada handler llama
+// lib/auth/chat-access.ts::resolveChatCaller(botId), que carga la config y
+// devuelve 401/403/404 según corresponda antes de tocar ningún dato.
+const CHAT_RE = /^\/api\/chat\/.+/;
 const PUBLIC_PATHS = ["/api/auth/token"];
 
 // Paso 1 hacia Pulpo PRO/Lite (2026-07-22, ver auth.ts): allowlist explícita
@@ -62,12 +77,28 @@ const SCOPED_BOT_ROUTES: { method: string; re: RegExp }[] = [
   { method: "PUT", re: /^\/api\/flows\/bots\/([^/]+)\/[^/]+$/ },
   { method: "DELETE", re: /^\/api\/flows\/bots\/([^/]+)\/[^/]+$/ },
   { method: "GET", re: /^\/api\/flows\/bots\/([^/]+)\/has-node\/[^/]+$/ },
+  // Gestión del chat ("PulpoChat", ver management/HANDOFF_DASHBOARD_CHATS_VIEW.md,
+  // gitignoreado): a diferencia de bot_users, ES acción de PRO o admin dueño
+  // del bot (pedido explícito de José) -- todas estas rutas además llaman
+  // assertBotAccess() como segunda capa (mismo patrón que el resto).
+  { method: "GET", re: /^\/api\/bots\/([^/]+)\/chat-config$/ },
+  { method: "PUT", re: /^\/api\/bots\/([^/]+)\/chat-config$/ },
+  { method: "GET", re: /^\/api\/bots\/([^/]+)\/chat-access$/ },
+  { method: "POST", re: /^\/api\/bots\/([^/]+)\/chat-access$/ },
+  { method: "DELETE", re: /^\/api\/bots\/([^/]+)\/chat-access\/[^/]+$/ },
+  { method: "GET", re: /^\/api\/bots\/([^/]+)\/chats$/ },
+  { method: "GET", re: /^\/api\/bots\/([^/]+)\/chats\/[^/]+\/messages$/ },
 ];
 
 export default auth(async (request) => {
   const { pathname } = request.nextUrl;
 
-  if (PUBLIC_PATHS.includes(pathname) || pathname.startsWith("/api/auth/") || TELEGRAM_WEBHOOK_RE.test(pathname)) {
+  if (
+    PUBLIC_PATHS.includes(pathname) ||
+    pathname.startsWith("/api/auth/") ||
+    TELEGRAM_WEBHOOK_RE.test(pathname) ||
+    CHAT_RE.test(pathname)
+  ) {
     return NextResponse.next();
   }
 
