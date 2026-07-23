@@ -85,6 +85,22 @@ export const bots = pgTable("bots", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
+// Allowlist of which Google account can log into the portal of which bot --
+// Paso 1 hacia "Pulpo Lite" (cliente ve solo su bot) / "Pulpo PRO" (ve varios
+// bots), ambos el mismo mecanismo: cuantas filas tenga un email acá es lo que
+// determina si ve uno o varios bots, no hay un rol separado para cada caso
+// (ver web/auth.ts). Distinto de `googleConnections`, que es una cuenta de
+// servicio de Google para que un bot lea/escriba un Sheet, no un login humano.
+export const botUsers = pgTable(
+  "bot_users",
+  {
+    botId: text("bot_id").notNull(),
+    email: text("email").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.botId, table.email] })]
+);
+
 export const phoneConnections = pgTable("phone_connections", {
   number: text("number").primaryKey(),
   botId: text("bot_id").notNull(),

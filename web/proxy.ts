@@ -45,6 +45,16 @@ export default auth(async (request) => {
     return Response.json({ error: "not authenticated" }, { status: 401 });
   }
 
+  // Paso 1 hacia Pulpo PRO/Lite (2026-07-22, ver auth.ts): un login de Google
+  // puede resolver a rol "admin" (dashboard completo, como hoy) o "scoped"
+  // (allowlist por bot en bot_users). Ninguna ruta bot-scoped existe todavía
+  // (el portal /bot/{id} es un paso posterior) -- hasta que exista, "scoped"
+  // no tiene acceso a nada bajo /api/*, para que un cliente logueado no
+  // pueda, por ejemplo, pegarle directo a GET /api/bots y ver todo.
+  if (request.auth.user.role !== "admin") {
+    return Response.json({ error: "forbidden" }, { status: 403 });
+  }
+
   return NextResponse.next();
 });
 
