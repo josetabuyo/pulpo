@@ -115,7 +115,7 @@ export default function FlowList({ botId, apiCall, connections, onGoToUIs }) {
         }}
       >
         <div style={{
-          background: '#fff',
+          background: 'var(--surface)',
           borderRadius: 16,
           width: '92vw',
           maxWidth: 1300,
@@ -143,14 +143,14 @@ export default function FlowList({ botId, apiCall, connections, onGoToUIs }) {
     <div style={{ padding: '16px 16px 8px' }}>
       {/* Header de la sección */}
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14 }}>
-        <span style={{ fontSize: 13, color: '#94a3b8', flex: 1 }}>
+        <span style={{ fontSize: 13, color: 'var(--text-subtle)', flex: 1 }}>
           {flows.length} flow{flows.length !== 1 ? 's' : ''}
         </span>
         <button
           onClick={() => handleNew()}
           disabled={creating}
           style={{
-            background: '#16a34a',
+            background: 'var(--success)',
             border: 'none',
             borderRadius: 6,
             color: '#fff',
@@ -202,8 +202,8 @@ export default function FlowList({ botId, apiCall, connections, onGoToUIs }) {
                   width: '100%',
                   background: 'none',
                   border: 'none',
-                  borderTop: '1px solid #1e293b',
-                  color: '#94a3b8',
+                  borderTop: '1px solid var(--surface-2)',
+                  color: 'var(--text-subtle)',
                   fontSize: 12,
                   fontWeight: 600,
                   padding: '10px 2px 6px',
@@ -237,15 +237,15 @@ export default function FlowList({ botId, apiCall, connections, onGoToUIs }) {
 
       {/* NodoFlows — flows reutilizables como nodo (flow_kind === 'node_flow') */}
       <div style={{ marginTop: 18 }}>
-        <div style={{ display: 'flex', alignItems: 'center', borderTop: '1px solid #1e293b', paddingTop: 10, marginBottom: 10 }}>
-          <span style={{ fontSize: 13, color: '#94a3b8', flex: 1, fontWeight: 600 }}>
+        <div style={{ display: 'flex', alignItems: 'center', borderTop: '1px solid var(--surface-2)', paddingTop: 10, marginBottom: 10 }}>
+          <span style={{ fontSize: 13, color: 'var(--text-subtle)', flex: 1, fontWeight: 600 }}>
             NodoFlows ({nodeFlows.length})
           </span>
           <button
             onClick={() => handleNew('node_flow')}
             disabled={creating}
             style={{
-              background: '#0e7490',
+              background: 'var(--tg)',
               border: 'none',
               borderRadius: 6,
               color: '#fff',
@@ -297,28 +297,28 @@ function FlowRow({ flow, connections, onEdit, onToggle, onDelete, isDeleting }) 
         alignItems: 'center',
         gap: 8,
         padding: '9px 12px',
-        background: '#0f172a',
+        background: 'var(--bg)',
         borderRadius: 8,
-        border: '1px solid #1e293b',
+        border: '1px solid var(--surface-2)',
         cursor: 'pointer',
       }}
-      onMouseEnter={e => e.currentTarget.style.borderColor = '#334155'}
-      onMouseLeave={e => e.currentTarget.style.borderColor = '#1e293b'}
+      onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--border-strong)'}
+      onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--surface-2)'}
     >
       {/* Indicador activo */}
       <div style={{
         width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-        background: flow.active ? '#16a34a' : '#475569',
+        background: flow.active ? 'var(--success)' : 'var(--text-subtle)',
       }} />
 
       {/* Nombre + metadatos */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, color: '#e2e8f0', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <div style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {flow.name}
         </div>
-        <div style={{ fontSize: 11, color: '#475569', marginTop: 2 }}>
-          {connLabel && <span style={{ marginRight: 8, color: '#64748b' }}>{connLabel}</span>}
-          {flow.contact_phone && <span style={{ marginRight: 8, color: '#64748b' }}>{flow.contact_phone}</span>}
+        <div style={{ fontSize: 11, color: 'var(--text-subtle)', marginTop: 2 }}>
+          {connLabel && <span style={{ marginRight: 8, color: 'var(--text-muted)' }}>{connLabel}</span>}
+          {flow.contact_phone && <span style={{ marginRight: 8, color: 'var(--text-muted)' }}>{flow.contact_phone}</span>}
           <span>Editado {formatDate(flow.updated_at)}</span>
         </div>
       </div>
@@ -329,7 +329,7 @@ function FlowRow({ flow, connections, onEdit, onToggle, onDelete, isDeleting }) 
         style={{
           background: 'none',
           border: 'none',
-          color: flow.active ? '#16a34a' : '#475569',
+          color: flow.active ? 'var(--success)' : 'var(--text-subtle)',
           cursor: 'pointer',
           fontSize: 15,
           padding: '2px 4px',
@@ -345,7 +345,7 @@ function FlowRow({ flow, connections, onEdit, onToggle, onDelete, isDeleting }) 
         style={{
           background: 'none',
           border: 'none',
-          color: '#7f1d1d',
+          color: 'var(--danger-dim)',
           cursor: isDeleting ? 'default' : 'pointer',
           fontSize: 15,
           padding: '2px 4px',

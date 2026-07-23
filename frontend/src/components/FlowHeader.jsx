@@ -225,10 +225,10 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
   }, [apiCall, flow.bot_id, flow.id, selectedNodeIds])
 
   const inputStyle = {
-    background: '#1e293b',
-    border: '1px solid #334155',
+    background: 'var(--surface-2)',
+    border: '1px solid var(--border-strong)',
     borderRadius: 6,
-    color: '#e2e8f0',
+    color: 'var(--text)',
     fontSize: 13,
     padding: '5px 8px',
   }
@@ -239,15 +239,15 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
       alignItems: 'center',
       gap: 8,
       padding: '8px 12px',
-      background: '#0f172a',
-      borderBottom: '1px solid #1e293b',
+      background: 'var(--bg)',
+      borderBottom: '1px solid var(--surface-2)',
       flexShrink: 0,
       minWidth: 0,
     }}>
       {/* Volver */}
       <button
         onClick={onBack}
-        style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: '0 2px', flexShrink: 0 }}
+        style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: '0 2px', flexShrink: 0 }}
         title="Volver"
       >←</button>
 
@@ -263,7 +263,7 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
 
       {/* Switch activo/inactivo */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-        <span style={{ fontSize: 11, color: '#64748b', whiteSpace: 'nowrap' }}>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
           {active ? 'Activo' : 'Inactivo'}
         </span>
         <button
@@ -279,7 +279,7 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
       {/* Guardar / Guardar como */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto', flexShrink: 0 }}>
         {extractMsg && (
-          <span style={{ fontSize: 11, color: extractMsg.startsWith('✓') ? '#4ade80' : '#ef4444' }}>{extractMsg}</span>
+          <span style={{ fontSize: 11, color: extractMsg.startsWith('✓') ? 'var(--success)' : 'var(--danger)' }}>{extractMsg}</span>
         )}
         {selectedNodeIds.length >= 2 && (
           <button
@@ -287,10 +287,10 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
             disabled={extracting}
             title="Extrae los nodos seleccionados a un NodoFlow reutilizable"
             style={{
-              background: '#1e293b',
-              border: '1px solid #0e7490',
+              background: 'var(--surface-2)',
+              border: '1px solid var(--tg)',
               borderRadius: 6,
-              color: '#22d3ee',
+              color: 'var(--tg)',
               fontSize: 13,
               padding: '5px 14px',
               cursor: extracting ? 'default' : 'pointer',
@@ -300,17 +300,17 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
             {extracting ? 'Creando...' : `Convertir selección en NodoFlow (${selectedNodeIds.length})`}
           </button>
         )}
-        {saveErr && <span style={{ fontSize: 11, color: '#ef4444' }}>{saveErr}</span>}
-        {isDirty && !saveErr && <span style={{ fontSize: 11, color: '#f59e0b' }}>Sin guardar</span>}
+        {saveErr && <span style={{ fontSize: 11, color: 'var(--danger)' }}>{saveErr}</span>}
+        {isDirty && !saveErr && <span style={{ fontSize: 11, color: 'var(--warning)' }}>Sin guardar</span>}
         <button
           onClick={handleBack}
           disabled={!canGoBack}
           title="Versión anterior"
           style={{
             background: 'none',
-            border: '1px solid #334155',
+            border: '1px solid var(--border-strong)',
             borderRadius: 6,
-            color: canGoBack ? '#e2e8f0' : '#475569',
+            color: canGoBack ? 'var(--text)' : 'var(--text-subtle)',
             fontSize: 13,
             padding: '5px 10px',
             cursor: canGoBack ? 'pointer' : 'default',
@@ -322,9 +322,9 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
           title="Versión siguiente"
           style={{
             background: 'none',
-            border: '1px solid #334155',
+            border: '1px solid var(--border-strong)',
             borderRadius: 6,
-            color: canGoForward ? '#e2e8f0' : '#475569',
+            color: canGoForward ? 'var(--text)' : 'var(--text-subtle)',
             fontSize: 13,
             padding: '5px 10px',
             cursor: canGoForward ? 'pointer' : 'default',
@@ -332,7 +332,7 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
         >▶</button>
         <label
           title="Guardar automáticamente 2.5s después de cada cambio"
-          style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#64748b', cursor: 'pointer', whiteSpace: 'nowrap' }}
+          style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--text-muted)', cursor: 'pointer', whiteSpace: 'nowrap' }}
         >
           <input
             type="checkbox"
@@ -346,10 +346,10 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
           onClick={() => { clearTimeout(autoSaveTimer.current); handleSave() }}
           disabled={saving}
           style={{
-            background: isDirty ? '#16a34a' : '#1e293b',
-            border: '1px solid ' + (isDirty ? '#16a34a' : '#334155'),
+            background: isDirty ? 'var(--success)' : 'var(--surface-2)',
+            border: '1px solid ' + (isDirty ? 'var(--success)' : 'var(--border-strong)'),
             borderRadius: 6,
-            color: isDirty ? '#fff' : '#64748b',
+            color: isDirty ? '#fff' : 'var(--text-muted)',
             fontSize: 13,
             padding: '5px 14px',
             cursor: saving ? 'default' : 'pointer',
@@ -365,10 +365,10 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
           disabled={savingAs}
           title="Duplicar este flow con otro nombre"
           style={{
-            background: '#1e293b',
-            border: '1px solid #334155',
+            background: 'var(--surface-2)',
+            border: '1px solid var(--border-strong)',
             borderRadius: 6,
-            color: '#e2e8f0',
+            color: 'var(--text)',
             fontSize: 13,
             padding: '5px 14px',
             cursor: savingAs ? 'default' : 'pointer',

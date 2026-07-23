@@ -17,7 +17,7 @@ const NODE_FLOW_VARIABLES_SCHEMA = [
   {
     key: 'color',
     type: 'string',
-    hint: 'Color RGB/hex (ej: #3b82f6) que tomará el nodo "Sub-flow" en otros '
+    hint: 'Color RGB/hex (ej: var(--tg)) que tomará el nodo "Sub-flow" en otros '
         + 'flows al elegir este flow como sub-flow.',
   },
 ]
@@ -56,15 +56,15 @@ function NodePicker({ typeMap, onSelect, onClose, onStartDrag }) {
         left: 0,
         right: 0,
         zIndex: 400,
-        background: '#0f172a',
-        border: '1px solid #334155',
+        background: 'var(--bg)',
+        border: '1px solid var(--border-strong)',
         borderRadius: 8,
         boxShadow: '0 12px 40px rgba(0,0,0,0.7)',
         overflow: 'hidden',
       }}
     >
       {/* Search */}
-      <div style={{ padding: '8px 10px', borderBottom: '1px solid #1e293b' }}>
+      <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--surface-2)' }}>
         <input
           ref={inputRef}
           id="node-picker-search"
@@ -92,10 +92,10 @@ function NodePicker({ typeMap, onSelect, onClose, onStartDrag }) {
             boxSizing: 'border-box',
             padding: '5px 8px',
             fontSize: 11,
-            background: '#1e293b',
-            border: '1px solid #334155',
+            background: 'var(--surface-2)',
+            border: '1px solid var(--border-strong)',
             borderRadius: 5,
-            color: '#cbd5e1',
+            color: 'var(--text)',
             outline: 'none',
             fontFamily: 'inherit',
           }}
@@ -105,10 +105,10 @@ function NodePicker({ typeMap, onSelect, onClose, onStartDrag }) {
       {/* Node list */}
       <div style={{ maxHeight: 280, overflowY: 'auto' }}>
         {allNodes.length === 0 && (
-          <div style={{ padding: '10px 12px', fontSize: 12, color: '#475569' }}>Cargando…</div>
+          <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--text-subtle)' }}>Cargando…</div>
         )}
         {allNodes.length > 0 && filtered.length === 0 && (
-          <div style={{ padding: '10px 12px', fontSize: 12, color: '#475569' }}>Sin resultados</div>
+          <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--text-subtle)' }}>Sin resultados</div>
         )}
         {filtered.map(nt => (
           <div
@@ -129,7 +129,7 @@ function NodePicker({ typeMap, onSelect, onClose, onStartDrag }) {
                 background: nt.color + '33',
                 border: `1.5px solid ${nt.color}`,
                 borderRadius: '6px',
-                color: '#e2e8f0',
+                color: 'var(--text)',
                 fontSize: '12px',
                 fontFamily: 'monospace',
                 whiteSpace: 'nowrap',
@@ -148,9 +148,9 @@ function NodePicker({ typeMap, onSelect, onClose, onStartDrag }) {
               gap: 10,
               padding: '8px 12px',
               cursor: 'grab',
-              borderBottom: '1px solid #0d1929',
+              borderBottom: '1px solid var(--border)',
             }}
-            onMouseEnter={e => e.currentTarget.style.background = '#1e293b'}
+            onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
             onMouseLeave={e => e.currentTarget.style.background = ''}
           >
             <div style={{
@@ -159,12 +159,12 @@ function NodePicker({ typeMap, onSelect, onClose, onStartDrag }) {
             }} />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
               <span style={{
-                fontSize: 12, color: '#e2e8f0', fontFamily: 'monospace',
+                fontSize: 12, color: 'var(--text)', fontFamily: 'monospace',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               }}>
                 {nt.id}
               </span>
-              <span style={{ fontSize: 10, color: '#475569' }}>{nt.label}</span>
+              <span style={{ fontSize: 10, color: 'var(--text-subtle)' }}>{nt.label}</span>
             </div>
           </div>
         ))}
@@ -233,8 +233,8 @@ export default function NodeConfigPanel({ botId, flowId, flowKind, connections, 
     return (
       <div style={{
         width: 36,
-        background: '#0b1120',
-        borderLeft: '1px solid #1e293b',
+        background: 'var(--bg)',
+        borderLeft: '1px solid var(--surface-2)',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
@@ -252,9 +252,9 @@ export default function NodeConfigPanel({ botId, flowId, flowKind, connections, 
             alignItems: 'center',
             justifyContent: 'center',
             background: 'transparent',
-            border: '1px solid #334155',
+            border: '1px solid var(--border-strong)',
             borderRadius: 6,
-            color: '#94a3b8',
+            color: 'var(--text-subtle)',
             cursor: 'pointer',
             fontSize: 10,
           }}
@@ -271,8 +271,8 @@ export default function NodeConfigPanel({ botId, flowId, flowKind, connections, 
       style={{
         position: 'relative',
         width,
-        background: '#0b1120',
-        borderLeft: '1px solid #1e293b',
+        background: 'var(--bg)',
+        borderLeft: '1px solid var(--surface-2)',
         display: 'flex',
         flexDirection: 'column',
         flexShrink: 0,
@@ -299,7 +299,7 @@ export default function NodeConfigPanel({ botId, flowId, flowKind, connections, 
       <div style={{
         position: 'relative',
         padding: '10px 12px',
-        borderBottom: '1px solid #1e293b',
+        borderBottom: '1px solid var(--surface-2)',
         flexShrink: 0,
       }}>
         <div style={{ display: 'flex', gap: 6 }}>
@@ -313,9 +313,9 @@ export default function NodeConfigPanel({ botId, flowId, flowKind, connections, 
               alignItems: 'center',
               justifyContent: 'center',
               background: 'transparent',
-              border: '1px solid #334155',
+              border: '1px solid var(--border-strong)',
               borderRadius: 6,
-              color: '#94a3b8',
+              color: 'var(--text-subtle)',
               cursor: 'pointer',
               fontSize: 10,
             }}
@@ -334,9 +334,9 @@ export default function NodeConfigPanel({ botId, flowId, flowKind, connections, 
               alignItems: 'center',
               justifyContent: 'center',
               background: 'transparent',
-              border: '1px solid #334155',
+              border: '1px solid var(--border-strong)',
               borderRadius: 6,
-              color: '#94a3b8',
+              color: 'var(--text-subtle)',
               cursor: (deleteMode || !selectedNode) ? 'not-allowed' : 'pointer',
               opacity: (deleteMode || !selectedNode) ? 0.4 : 1,
               fontSize: 13,
@@ -351,10 +351,10 @@ export default function NodeConfigPanel({ botId, flowId, flowKind, connections, 
             style={{
               flex: 1,
               padding: '7px 10px',
-              background: showPicker ? '#162032' : '#1e293b',
-              border: `1px solid ${showPicker ? '#3b82f6' : '#334155'}`,
+              background: showPicker ? 'rgba(46,166,218,.12)' : 'var(--surface-2)',
+              border: `1px solid ${showPicker ? 'var(--tg)' : 'var(--border-strong)'}`,
               borderRadius: 6,
-              color: showPicker ? '#60a5fa' : '#94a3b8',
+              color: showPicker ? 'var(--tg)' : 'var(--text-subtle)',
               fontSize: 12,
               fontWeight: 600,
               cursor: deleteMode ? 'not-allowed' : 'pointer',
@@ -375,10 +375,10 @@ export default function NodeConfigPanel({ botId, flowId, flowKind, connections, 
             title={deleteMode ? 'Salir del modo eliminar' : 'Activar modo eliminar'}
             style={{
               padding: '7px 12px',
-              background: deleteMode ? '#7f1d1d' : 'transparent',
-              border: `1px solid ${deleteMode ? '#ef4444' : '#334155'}`,
+              background: deleteMode ? 'var(--danger-dim)' : 'transparent',
+              border: `1px solid ${deleteMode ? 'var(--danger)' : 'var(--border-strong)'}`,
               borderRadius: 6,
-              color: deleteMode ? '#fca5a5' : '#94a3b8',
+              color: deleteMode ? 'var(--danger)' : 'var(--text-subtle)',
               fontSize: 11,
               cursor: 'pointer',
               fontWeight: 600,
@@ -417,7 +417,7 @@ export default function NodeConfigPanel({ botId, flowId, flowKind, connections, 
               gap: 8,
               padding: '12px 14px',
             }}>
-            <span style={{ fontSize: 9, color: '#334155', fontWeight: 700, letterSpacing: '0.12em' }}>
+            <span style={{ fontSize: 9, color: 'var(--border-strong)', fontWeight: 700, letterSpacing: '0.12em' }}>
               VARIABLES DEL FLOW
             </span>
             <JsonNodeEditor
@@ -443,7 +443,7 @@ export default function NodeConfigPanel({ botId, flowId, flowKind, connections, 
               display: 'flex',
               alignItems: 'center',
               gap: 8,
-              background: selectedNode.data.color || '#1e293b',
+              background: selectedNode.data.color || 'var(--surface-2)',
               borderRadius: 8,
               padding: '8px 12px',
               boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
