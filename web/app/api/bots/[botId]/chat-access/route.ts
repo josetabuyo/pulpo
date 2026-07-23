@@ -5,16 +5,16 @@ import { assertBotAccess } from "@/lib/auth/bot-access";
 // Allowlist de emails con derecho a CHATEAR con este bot (cuando no es
 // público) -- distinta de /bots/{botId}/users, que da acceso al dashboard.
 // Gestión de PRO/admin dueño del bot.
-export async function GET(_request: Request, { params }: { params: Promise<{ botId: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ botId: string }> }) {
   const { botId } = await params;
-  const denied = await assertBotAccess(botId);
+  const denied = await assertBotAccess(request, botId);
   if (denied) return denied;
   return Response.json(await listChatAccess(botId));
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ botId: string }> }) {
   const { botId } = await params;
-  const denied = await assertBotAccess(botId);
+  const denied = await assertBotAccess(request, botId);
   if (denied) return denied;
   const body = await request.json();
   try {

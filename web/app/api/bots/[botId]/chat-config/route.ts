@@ -5,9 +5,9 @@ import { assertBotAccess } from "@/lib/auth/bot-access";
 // Config del chat de este bot -- gestión, acción de PRO o admin dueño del
 // bot (a diferencia de bot_users, que es admin-only). Ver
 // management/HANDOFF_DASHBOARD_CHATS_VIEW.md §4.1/§2.1.
-export async function GET(_request: Request, { params }: { params: Promise<{ botId: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ botId: string }> }) {
   const { botId } = await params;
-  const denied = await assertBotAccess(botId);
+  const denied = await assertBotAccess(request, botId);
   if (denied) return denied;
   const config = await getChatConfig(botId);
   return Response.json(config); // null si el bot todavía no tiene chat configurado
@@ -15,7 +15,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ bot
 
 export async function PUT(request: Request, { params }: { params: Promise<{ botId: string }> }) {
   const { botId } = await params;
-  const denied = await assertBotAccess(botId);
+  const denied = await assertBotAccess(request, botId);
   if (denied) return denied;
   const body = await request.json();
   try {
