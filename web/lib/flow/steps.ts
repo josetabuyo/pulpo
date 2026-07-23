@@ -110,6 +110,7 @@ export async function logFlowStep(params: {
   inputState: unknown;
   outputState: unknown;
   status: "ok" | "error" | "blocked";
+  errorMessage?: string;
 }) {
   "use step";
   // Best-effort like pulpo's _log_step -- logging failures must never abort the flow.
@@ -121,6 +122,7 @@ export async function logFlowStep(params: {
       inputState: params.inputState,
       outputState: params.outputState,
       status: params.status,
+      errorMessage: params.errorMessage ?? null,
     });
   } catch (err) {
     console.error("[flow] failed to log step (non-fatal)", err);
@@ -149,6 +151,7 @@ export async function runNodeStep(
     return { state: nextState, error: null };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    console.error(`[flow] node ${nodeId} (${nodeType}) failed:`, err);
     return { state, error: message };
   }
 }

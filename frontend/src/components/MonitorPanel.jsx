@@ -1,187 +1,166 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 
-// ── Highlight lines ────────────────────────────────────────────────────────────
-const HIGHLIGHT = [
-  { pattern: 'ERROR',     color: '#ef5350', bg: 'rgba(239,83,80,0.13)' },
-  { pattern: 'WARNING',   color: '#ff9800', bg: 'rgba(255,152,0,0.11)' },
-  { pattern: 'Traceback', color: '#ef5350', bg: 'rgba(239,83,80,0.13)' },
-  { pattern: '200 OK',    color: '#66bb6a', bg: 'rgba(102,187,106,0.10)' },
-  { pattern: 'restored',  color: '#66bb6a', bg: 'rgba(102,187,106,0.10)' },
-  { pattern: ' DEBUG ',   color: '#546e7a', bg: 'rgba(84,110,122,0.08)' },
-]
+// TS port note: reescrito completo (2026-07-22) -- antes pegaba a
+// /api/logs/latest (tail de archivo de texto del proceso Python local), que
+// no existe en web/ (Vercel serverless no tiene filesystem persistente ni
+// proceso long-lived para eso). Los logs de infraestructura (crashes HTTP,
+// 500s) ya tienen su propio lugar nativo con niveles y volumen en el tiempo:
+// el dashboard de Vercel (Runtime Logs) / `vercel logs --level error`. Este
+// panel se enfoca en actividad de NEGOCIO -- triggers de flow, éxitos,
+// errores -- que Vercel no puede ver, alimentado por /api/runs/stats
+// (flow_runs en Neon). Ver management/HANDOFF_VERCEL_DEEP_MIGRATION.md.
 
-const LEVEL_OPTIONS = [
-  { value: 'DEBUG',   label: 'Debug',    color: '#546e7a' },
-  { value: 'INFO',    label: 'Info',     color: '#aaa' },
-  { value: 'WARNING', label: 'Warnings', color: '#ff9800' },
-  { value: 'ERROR',   label: 'Errores',  color: '#ef5350' },
-]
-
-function getLineLevel(line) {
-  if (line.includes('ERROR') || line.includes('Traceback') || line.includes('[browser:error]')) return 'ERROR'
-  if (line.includes('WARNING') || line.includes('⚠')) return 'WARNING'
-  if (line.includes(' DEBUG ')) return 'DEBUG'
-  return 'INFO'
-}
-const ALERT_PATTERNS = ['Traceback', 'HTTP/1.1 5', 'session lost']
-
-function getLineStyle(line) {
-  for (const h of HIGHLIGHT) {
-    if (line.includes(h.pattern)) return { color: h.color, background: h.bg }
-  }
-  return {}
+// Paleta de status (dataviz skill) -- validada contra la superficie oscura
+// de este panel (#141414): node scripts/validate_palette.js
+// "#0ca30c,#d03b3b" --mode dark --surface "#141414" -> PASS (ΔE 12.4,
+// piso de la banda CVD -- por eso el gráfico también lleva leyenda +
+// etiquetas directas + línea sólida encima del fill, no depende solo del color).
+const STATUS = {
+  success: { label: 'Éxitos',    color: '#0ca30c' },
+  error:   { label: 'Errores',   color: '#d03b3b' },
+  pending: { label: 'En curso',  color: '#6b7280' },
 }
 
-// ── Time windows ───────────────────────────────────────────────────────────────
-// bucketMin: tamaño de cada bucket en minutos; buckets: cantidad de puntos en el gráfico
 const TIME_WINDOWS = [
-  { label: '15m', minutes: 15,  buckets: 15, bucketMin: 1  },
-  { label: '30m', minutes: 30,  buckets: 30, bucketMin: 1  },
-  { label: '1h',  minutes: 60,  buckets: 30, bucketMin: 2  },
-  { label: '3h',  minutes: 180, buckets: 36, bucketMin: 5  },
+  { label: '15m', since: '15m' },
+  { label: '1h',  since: '1h'  },
+  { label: '6h',  since: '6h'  },
+  { label: '24h', since: '24h' },
+  { label: '7d',  since: '7d'  },
 ]
 
-// Cuántas líneas pedir según la ventana de tiempo (150 líneas/min estimado máximo)
-function linesForWindow(minutes) {
-  return Math.min(5000, minutes * 150)
-}
+const POLL_MS = 8000
 
-// ── Log parsing ────────────────────────────────────────────────────────────────
-const TS_RE = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/
-
-function parseTimestamp(line) {
-  const m = line.match(TS_RE)
-  return m ? new Date(m[1]).getTime() : null
-}
-
-function classifyLine(line) {
-  if (line.includes('Mensaje de ') || line.includes('[sim] MSG ←')) return 'received'
-  if (
-    line.includes('Mensaje enviado a') ||
-    line.includes('[sim] REPLY →') ||
-    line.includes('Respuesta enviada')
-  ) return 'replied'
-  if (line.includes('ERROR') || line.includes('Traceback') || line.includes('[browser:error]')) return 'error'
-  if (line.includes('WARNING') || line.includes('⚠')) return 'warning'
-  return 'other'
-}
-
-function buildMetrics(lines, windowCfg) {
-  const now = Date.now()
-  const { buckets, bucketMin, minutes } = windowCfg
-  const bucketMs   = bucketMin * 60 * 1000
-  const windowStart = now - minutes * 60 * 1000
-  const received = new Array(buckets).fill(0)
-  const replied  = new Array(buckets).fill(0)
-  const errors   = new Array(buckets).fill(0)
-  const warnings = new Array(buckets).fill(0)
-
-  for (const line of lines) {
-    const t = parseTimestamp(line)
-    if (!t || t < windowStart) continue
-    const ageMs = now - t
-    const idx = buckets - 1 - Math.floor(ageMs / bucketMs)
-    if (idx < 0 || idx >= buckets) continue
-    const type = classifyLine(line)
-    if      (type === 'received') received[idx]++
-    else if (type === 'replied')  replied[idx]++
-    else if (type === 'error')    errors[idx]++
-    else if (type === 'warning')  warnings[idx]++
+function formatBucketLabel(iso, bucketMinutes) {
+  const d = new Date(iso)
+  if (bucketMinutes >= 60 * 24) {
+    return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })
   }
-  return { received, replied, errors, warnings }
+  if (bucketMinutes >= 60) {
+    return d.toLocaleString('es-AR', { day: '2-digit', hour: '2-digit' }).replace(',', '')
+  }
+  return d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
 }
 
-function buildBucketLabels(windowCfg) {
-  const now = Date.now()
-  const { buckets, bucketMin, minutes } = windowCfg
-  return Array.from({ length: buckets }, (_, i) => {
-    const ageMin = minutes - i * bucketMin
-    const t  = new Date(now - ageMin * 60 * 1000)
-    const hh = t.getHours().toString().padStart(2, '0')
-    const mm = t.getMinutes().toString().padStart(2, '0')
-    return `${hh}:${mm}`
-  })
+// ── Polling hook ───────────────────────────────────────────────────────────
+function useRunStats(since, active) {
+  const [data, setData] = useState(null)
+  const [error, setError] = useState(null)
+
+  const fetchStats = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/runs/stats?since=${since}`, { credentials: 'include' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      setData(await res.json())
+      setError(null)
+    } catch (e) {
+      setError(e.message || 'fetch falló')
+    }
+  }, [since])
+
+  useEffect(() => { setData(null); fetchStats() }, [since, fetchStats])
+
+  useEffect(() => {
+    if (!active) return
+    const id = setInterval(fetchStats, POLL_MS)
+    return () => clearInterval(id)
+  }, [fetchStats, active])
+
+  return { data, error }
 }
 
-// ── Chart ──────────────────────────────────────────────────────────────────────
-const SERIES = [
-  { key: 'received', label: 'Mensajes recibidos',   color: '#25d366' },
-  { key: 'replied',  label: 'Mensajes respondidos', color: '#42a5f5' },
-  { key: 'errors',   label: 'Errores',              color: '#ef5350' },
-  { key: 'warnings', label: 'Warnings',             color: '#ff9800' },
-]
+// ── Chart: áreas solapadas éxito/error, un solo eje ─────────────────────────
+function OverlapChart({ buckets, bucketMinutes }) {
+  const [hoverIdx, setHoverIdx] = useState(null)
+  const svgRef = useRef(null)
 
-function MetricChart({ metrics, labels }) {
-  const W = 1000, H = 130
-  const PAD = { top: 12, right: 16, bottom: 26, left: 36 }
+  const W = 1000, H = 220
+  const PAD = { top: 16, right: 16, bottom: 28, left: 40 }
   const iW = W - PAD.left - PAD.right
   const iH = H - PAD.top - PAD.bottom
-  const n = labels.length
+  const n = buckets.length
 
-  const allVals = SERIES.flatMap(s => metrics[s.key] || [])
-  const maxVal  = Math.max(...allVals, 1)
+  const maxVal = Math.max(1, ...buckets.flatMap(b => [b.success, b.error]))
+  const toX = i => PAD.left + (n <= 1 ? iW / 2 : (i / (n - 1)) * iW)
+  const toY = v => PAD.top + iH - (v / maxVal) * iH
 
-  const toX = i  => PAD.left + (n <= 1 ? iW / 2 : (i / (n - 1)) * iW)
-  const toY = v  => PAD.top  + iH - (v / maxVal) * iH
+  const areaPath = (key) => {
+    const top = buckets.map((b, i) => `${toX(i)},${toY(b[key])}`).join(' L')
+    return `M${PAD.left},${toY(0)} L${top} L${toX(n - 1)},${toY(0)} Z`
+  }
+  const linePath = (key) =>
+    buckets.map((b, i) => `${toX(i)},${toY(b[key])}`).join(' L')
 
-  // Labels every ~5-6 points
-  const step = n <= 20 ? 2 : n <= 30 ? 4 : 6
-
-  // Y grid lines
   const yTicks = [0, Math.round(maxVal / 2), maxVal]
+  const xStep = n <= 12 ? 1 : n <= 30 ? Math.ceil(n / 12) : Math.ceil(n / 8)
+
+  function handleMove(e) {
+    const rect = svgRef.current.getBoundingClientRect()
+    const relX = ((e.clientX - rect.left) / rect.width) * W
+    const idx = Math.round(((relX - PAD.left) / iW) * (n - 1))
+    setHoverIdx(idx >= 0 && idx < n ? idx : null)
+  }
+
+  const hover = hoverIdx != null ? buckets[hoverIdx] : null
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', display: 'block' }}>
-      {/* Grid lines + Y labels */}
-      {yTicks.map((v, i) => {
-        const y = toY(v)
-        return (
-          <g key={i}>
-            <line
-              x1={PAD.left} y1={y} x2={W - PAD.right} y2={y}
-              stroke="#2e2e2e" strokeWidth="1"
-            />
-            <text x={PAD.left - 5} y={y + 4} textAnchor="end" fill="#555" fontSize="10">
-              {v}
-            </text>
-          </g>
-        )
-      })}
+    <div style={{ position: 'relative' }}>
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${W} ${H}`}
+        style={{ width: '100%', height: 'auto', display: 'block', cursor: 'crosshair' }}
+        onMouseMove={handleMove}
+        onMouseLeave={() => setHoverIdx(null)}
+      >
+        {yTicks.map((v, i) => {
+          const y = toY(v)
+          return (
+            <g key={i}>
+              <line x1={PAD.left} y1={y} x2={W - PAD.right} y2={y} stroke="#252525" strokeWidth="1" />
+              <text x={PAD.left - 6} y={y + 4} textAnchor="end" fill="#666" fontSize="10">{v}</text>
+            </g>
+          )
+        })}
 
-      {/* X labels */}
-      {labels.map((lbl, i) => {
-        if (i % step !== 0 && i !== n - 1) return null
-        return (
-          <text key={i} x={toX(i)} y={H - 6} textAnchor="middle" fill="#555" fontSize="10">
-            {lbl}
+        {buckets.map((b, i) => (i % xStep === 0 || i === n - 1) ? (
+          <text key={i} x={toX(i)} y={H - 8} textAnchor="middle" fill="#666" fontSize="10">
+            {formatBucketLabel(b.startedAt, bucketMinutes)}
           </text>
-        )
-      })}
+        ) : null)}
 
-      {/* Series lines */}
-      {SERIES.map(({ key, color }) => {
-        const data = metrics[key] || []
-        if (data.every(v => v === 0)) return null
-        const pts = data.map((v, i) => `${toX(i)},${toY(v)}`).join(' ')
-        return (
-          <g key={key}>
-            <polyline
-              points={pts} fill="none" stroke={color}
-              strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"
-            />
-            {data.map((v, i) =>
-              v > 0
-                ? <circle key={i} cx={toX(i)} cy={toY(v)} r="3" fill={color} />
-                : null
-            )}
+        {/* Éxitos: fill translúcido + línea sólida encima (secondary encoding, no depende solo del color) */}
+        <path d={areaPath('success')} fill={STATUS.success.color} fillOpacity="0.22" />
+        <path d={linePath('success')} fill="none" stroke={STATUS.success.color} strokeWidth="2" strokeLinejoin="round" />
+
+        {/* Errores: mismo tratamiento, dibujado encima para que el solapamiento sea legible en ambas direcciones */}
+        <path d={areaPath('error')} fill={STATUS.error.color} fillOpacity="0.30" />
+        <path d={linePath('error')} fill="none" stroke={STATUS.error.color} strokeWidth="2" strokeLinejoin="round" />
+
+        {hover && (
+          <g>
+            <line x1={toX(hoverIdx)} y1={PAD.top} x2={toX(hoverIdx)} y2={H - PAD.bottom} stroke="#555" strokeWidth="1" strokeDasharray="3,3" />
+            <circle cx={toX(hoverIdx)} cy={toY(hover.success)} r="4" fill={STATUS.success.color} stroke="#141414" strokeWidth="2" />
+            <circle cx={toX(hoverIdx)} cy={toY(hover.error)} r="4" fill={STATUS.error.color} stroke="#141414" strokeWidth="2" />
           </g>
-        )
-      })}
-    </svg>
+        )}
+      </svg>
+
+      {hover && (
+        <div
+          className="mon-tooltip"
+          style={{ left: `${(toX(hoverIdx) / W) * 100}%` }}
+        >
+          <div className="mon-tooltip-time">{formatBucketLabel(hover.startedAt, bucketMinutes)}</div>
+          <div><span style={{ color: STATUS.success.color }}>●</span> {STATUS.success.label}: {hover.success}</div>
+          <div><span style={{ color: STATUS.error.color }}>●</span> {STATUS.error.label}: {hover.error}</div>
+          <div><span style={{ color: STATUS.pending.color }}>●</span> {STATUS.pending.label}: {hover.pending}</div>
+        </div>
+      )}
+    </div>
   )
 }
 
-// ── Stat card ──────────────────────────────────────────────────────────────────
+// ── Stat card ─────────────────────────────────────────────────────────────
 function StatCard({ label, value, color }) {
   return (
     <div className="mon-stat">
@@ -191,117 +170,29 @@ function StatCard({ label, value, color }) {
   )
 }
 
-// ── Polling hook ───────────────────────────────────────────────────────────────
-function useLogPoller(source, paused, windowMinutes, active) {
-  const [lines, setLines] = useState([])
-  const [alerts, setAlerts] = useState([])
-  const knownRef = useRef(0)
+// ── Main component ───────────────────────────────────────────────────────
+export default function MonitorPanel({ active = true }) {
+  const [windowIdx, setWindowIdx] = useState(1) // default 1h
+  const [paused, setPaused] = useState(false)
+  const win = TIME_WINDOWS[windowIdx]
 
-  const fetchLines = useCallback(async () => {
-    try {
-      const n = linesForWindow(windowMinutes)
-      const res = await fetch(
-        `/api/logs/latest?source=${source}&lines=${n}`,
-        { credentials: 'include' }
-      )
-      if (!res.ok) return
-      const data = await res.json()
-      const incoming = data.lines || []
-      setLines(incoming)
-      const newLines = incoming.slice(knownRef.current)
-      knownRef.current = incoming.length
-      const found = []
-      for (const line of newLines)
-        for (const pat of ALERT_PATTERNS)
-          if (line.includes(pat)) found.push(line.trim())
-      if (found.length) setAlerts(prev => [...prev, ...found])
-    } catch (e) {
-      // El polling reintenta solo en el próximo tick; el rastro queda en consola
-      console.warn('[MonitorPanel] fetch de logs falló', e)
-    }
-  }, [source, windowMinutes])
+  const { data, error } = useRunStats(win.since, active && !paused)
 
-  useEffect(() => {
-    knownRef.current = 0
-    setLines([])
-    fetchLines()
-  }, [source, windowMinutes])
+  const buckets = data?.buckets ?? []
+  const bucketMinutes = data?.bucketMinutes ?? 1
 
-  // Fetch inmediato al activarse (expandir monitor)
-  useEffect(() => {
-    if (active) fetchLines()
-  }, [active])
+  const totals = useMemo(() => buckets.reduce((acc, b) => ({
+    success: acc.success + b.success,
+    error: acc.error + b.error,
+    pending: acc.pending + b.pending,
+  }), { success: 0, error: 0, pending: 0 }), [buckets])
 
-  useEffect(() => {
-    if (paused || !active) return
-    const id = setInterval(fetchLines, 2000)
-    return () => clearInterval(id)
-  }, [fetchLines, paused, active])
-
-  const clearAlerts = useCallback(() => setAlerts([]), [])
-  return { lines, alerts, clearAlerts }
-}
-
-// ── Main component ─────────────────────────────────────────────────────────────
-export default function MonitorPanel({ onAlertsChange, active = true }) {
-  const [source,       setSource]      = useState('backend')
-  const [paused,       setPaused]      = useState(false)
-  const [filter,       setFilter]      = useState('')
-  const [activeLevels, setActiveLevels] = useState(['INFO', 'WARNING', 'ERROR'])
-  const [windowIdx,    setWindowIdx]   = useState(0)
-
-  const bottomRef      = useRef(null)
-  const logRef         = useRef(null)
-  const userScrolled   = useRef(false)
-
-  const windowCfg = TIME_WINDOWS[windowIdx]
-  const { lines, alerts, clearAlerts } = useLogPoller(source, paused, windowCfg.minutes, active)
-
-  useEffect(() => { onAlertsChange?.(alerts.length) }, [alerts.length])
-
-  const metrics = useMemo(() => buildMetrics(lines, windowCfg), [lines, windowCfg])
-  const labels  = useMemo(() => buildBucketLabels(windowCfg),   [windowCfg])
-
-  const totals = useMemo(() => ({
-    received: metrics.received.reduce((a, b) => a + b, 0),
-    replied:  metrics.replied.reduce((a, b) => a + b, 0),
-    errors:   metrics.errors.reduce((a, b) => a + b, 0),
-    warnings: metrics.warnings.reduce((a, b) => a + b, 0),
-  }), [metrics])
-
-  const filtered = useMemo(() => {
-    let r = lines
-    if (filter) r = r.filter(l => l.toLowerCase().includes(filter.toLowerCase()))
-    r = r.filter(l => activeLevels.includes(getLineLevel(l)))
-    return r
-  }, [lines, filter, activeLevels])
-
-  useEffect(() => {
-    if (!paused && !userScrolled.current && logRef.current)
-      logRef.current.scrollTop = logRef.current.scrollHeight
-  }, [filtered.length, paused])
-
-  function handleScroll(e) {
-    const el = e.currentTarget
-    userScrolled.current = el.scrollHeight - el.scrollTop - el.clientHeight > 60
-  }
+  const total = totals.success + totals.error
+  const errorRate = total > 0 ? ((totals.error / total) * 100).toFixed(1) : '0.0'
 
   return (
     <div className="mon-inline">
-
-      {/* Controls bar */}
       <div className="mon-controls">
-        <div className="mon-tab-group">
-          <span className="mon-tab-label">Fuente</span>
-          {['backend', 'frontend'].map(s => (
-            <button
-              key={s}
-              className={`mon-tab${source === s ? ' mon-tab--active' : ''}`}
-              onClick={() => { setSource(s); userScrolled.current = false }}
-            >{s}</button>
-          ))}
-        </div>
-
         <div className="mon-tab-group">
           <span className="mon-tab-label">Ventana</span>
           {TIME_WINDOWS.map((w, i) => (
@@ -312,96 +203,39 @@ export default function MonitorPanel({ onAlertsChange, active = true }) {
             >{w.label}</button>
           ))}
         </div>
-
-        <button
-          className="btn-ghost btn-sm mon-pause-btn"
-          onClick={() => setPaused(p => !p)}
-        >{paused ? '▶ Reanudar' : '⏸ Pausar'}</button>
+        <button className="btn-ghost btn-sm mon-pause-btn" onClick={() => setPaused(p => !p)}>
+          {paused ? '▶ Reanudar' : '⏸ Pausar'}
+        </button>
       </div>
 
-      {/* Stat cards */}
       <div className="mon-stats">
-        <StatCard label={`Recibidos — últimos ${windowCfg.label}`}   value={totals.received} color="#25d366" />
-        <StatCard label={`Respondidos — últimos ${windowCfg.label}`} value={totals.replied}  color="#42a5f5" />
-        <StatCard label={`Errores — últimos ${windowCfg.label}`}     value={totals.errors}   color="#ef5350" />
-        <StatCard label={`Warnings — últimos ${windowCfg.label}`}    value={totals.warnings} color="#ff9800" />
+        <StatCard label={`Éxitos — últimos ${win.label}`}  value={totals.success} color={STATUS.success.color} />
+        <StatCard label={`Errores — últimos ${win.label}`} value={totals.error}   color={STATUS.error.color} />
+        <StatCard label={`En curso — últimos ${win.label}`} value={totals.pending} color={STATUS.pending.color} />
+        <StatCard label="Tasa de error" value={`${errorRate}%`} color={totals.error > 0 ? STATUS.error.color : '#888'} />
       </div>
 
-      {/* Chart */}
       <div className="mon-chart">
         <div className="mon-chart-header">
           <span className="mon-chart-title">
-            Actividad por {windowCfg.bucketMin === 1 ? 'minuto' : `${windowCfg.bucketMin} min`} — últimos {windowCfg.label}
+            Triggers de flow por {bucketMinutes >= 60 * 24 ? `${bucketMinutes / (60 * 24)}d` : bucketMinutes >= 60 ? `${bucketMinutes / 60}h` : `${bucketMinutes}min`} — últimos {win.label}
           </span>
           <div className="mon-legend">
-            {SERIES.map(s => (
-              <span key={s.key} className="mon-legend-item">
-                <span className="mon-legend-dot" style={{ background: s.color }} />
-                {s.label}
-              </span>
-            ))}
+            <span className="mon-legend-item"><span className="mon-legend-dot" style={{ background: STATUS.success.color }} />{STATUS.success.label}</span>
+            <span className="mon-legend-item"><span className="mon-legend-dot" style={{ background: STATUS.error.color }} />{STATUS.error.label}</span>
+            <span className="mon-legend-item"><span className="mon-legend-dot" style={{ background: STATUS.pending.color }} />{STATUS.pending.label}</span>
           </div>
         </div>
-        <MetricChart metrics={metrics} labels={labels} />
-      </div>
 
-      {/* Alerts */}
-      {alerts.length > 0 && (
-        <div className="mon-alerts">
-          <strong>⚠ {alerts.length} alerta{alerts.length > 1 ? 's' : ''}</strong>
-          <button className="btn-ghost btn-sm" onClick={clearAlerts}>Descartar</button>
-          <div className="mon-alert-list">
-            {alerts.slice(-3).map((a, i) => (
-              <div key={i} className="mon-alert-line">{a}</div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Log filter row */}
-      <div className="mon-filter-row">
-        <input
-          className="mon-filter"
-          placeholder="Filtrar log..."
-          value={filter}
-          onChange={e => setFilter(e.target.value)}
-        />
-        <div className="mon-level-checks">
-          {LEVEL_OPTIONS.map(({ value, label, color }) => {
-            const on = activeLevels.includes(value)
-            return (
-              <label
-                key={value}
-                className="mon-level-check"
-                style={{ color: on ? color : '#444' }}
-              >
-                <input
-                  type="checkbox"
-                  checked={on}
-                  onChange={() => setActiveLevels(prev =>
-                    prev.includes(value) ? prev.filter(l => l !== value) : [...prev, value]
-                  )}
-                />
-                {label}
-              </label>
-            )
-          })}
-        </div>
-        <span className="mon-count">{filtered.length} líneas</span>
-        {paused && <span className="mon-paused-badge">PAUSADO</span>}
-      </div>
-
-      {/* Log */}
-      <div className="mon-log" ref={logRef} onScroll={handleScroll}>
-        {filtered.length === 0 && (
-          <div className="mon-empty">Sin líneas en el log aún...</div>
+        {error && <div className="mon-empty">Error consultando métricas: {error}</div>}
+        {!error && !data && <div className="mon-empty">Cargando…</div>}
+        {!error && data && buckets.length > 0 && (
+          <OverlapChart buckets={buckets} bucketMinutes={bucketMinutes} />
         )}
-        {filtered.map((line, i) => (
-          <div key={i} className="mon-line" style={getLineStyle(line)}>{line}</div>
-        ))}
-        <div ref={bottomRef} />
+        {!error && data && buckets.length === 0 && (
+          <div className="mon-empty">Sin actividad de flows en esta ventana.</div>
+        )}
       </div>
-
     </div>
   )
 }

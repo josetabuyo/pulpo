@@ -176,6 +176,7 @@ export async function runFlowWorkflow(
       inputState,
       outputState: error ? null : state,
       status: error ? "error" : "ok",
+      errorMessage: error ?? undefined,
     });
 
     const route = (state.data.route as string) || "";

@@ -196,7 +196,6 @@ export default function DashboardPage() {
   const [botModal, setBotModal] = useState({ open: false, editBot: null })
   const [tgModal, setTgModal] = useState({ open: false, botId: null })
   const [expandedBot, setExpandedBot] = useState(null)
-  const [monitorAlerts,     setMonitorAlerts]     = useState(0)
   const [monitorCollapsed,  setMonitorCollapsed]  = useState(() => searchParams.get('monitor') !== '1')
   const [companiesCollapsed, setCompaniesCollapsed] = useState(false)
   const [configCollapsed,   setConfigCollapsed]   = useState(() => searchParams.get('config') !== '1')
@@ -392,17 +391,14 @@ export default function DashboardPage() {
         {/* ── Sección: Monitor ── */}
         <div className="section-block">
           <div className="section-block-header" onClick={() => toggleSection('monitor', monitorCollapsed, setMonitorCollapsed)}>
-            <div className="section-block-title">
-              📊 Monitor
-              {monitorAlerts > 0 && <span className="mon-badge-inline">{monitorAlerts} alertas</span>}
-            </div>
+            <div className="section-block-title">📊 Monitor</div>
             <button
               className="btn-ghost btn-sm"
               onClick={e => { e.stopPropagation(); toggleSection('monitor', monitorCollapsed, setMonitorCollapsed) }}
             >{monitorCollapsed ? '▼ Expandir' : '▲ Colapsar'}</button>
           </div>
           <div style={{ display: monitorCollapsed ? 'none' : 'block' }}>
-            <MonitorPanel onAlertsChange={setMonitorAlerts} active={!monitorCollapsed} />
+            <MonitorPanel active={!monitorCollapsed} />
           </div>
         </div>
 

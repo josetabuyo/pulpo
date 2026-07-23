@@ -176,6 +176,9 @@ export const flowRunSteps = pgTable("flow_run_steps", {
   branchTaken: text("branch_taken"),
   // ok | blocked | error
   status: text("status").notNull().default("ok"),
+  // Mensaje de la excepción cuando status = "error" -- antes se descartaba en
+  // runNodeStep (lib/flow/steps.ts), dejando el fallo sin rastro alguno.
+  errorMessage: text("error_message"),
 });
 
 // TS port of pulpo/core/config.py::get_settings/update_settings (JSON file
