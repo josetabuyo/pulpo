@@ -44,7 +44,7 @@ export default function BotUsersTab({ botId, apiCall }) {
 
   return (
     <div className="ec-config-tab">
-      <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
+      <p style={{ fontSize: 13, color: 'var(--text-subtle)', marginBottom: 16 }}>
         Estos emails de Google pueden entrar a la vista de solo esta bot
         (<code>/bot/{botId}</code>) sin ver el resto del dashboard. Si un
         email tiene acceso a más de una bot, ve todas las que le diste.
@@ -76,7 +76,7 @@ export default function BotUsersTab({ botId, apiCall }) {
           {adding ? 'Agregando...' : '+ Dar acceso'}
         </button>
       </form>
-      {err && <div style={{ color: '#c00', fontSize: 13, marginTop: 6 }}>{err}</div>}
+      {err && <div style={{ color: 'var(--danger)', fontSize: 13, marginTop: 6 }}>{err}</div>}
     </div>
   )
 }

@@ -181,7 +181,7 @@ export default function BotCard({
                   title={`${c.type === 'wavi' ? 'WA' : 'TG'} ${c.number}: ${STATUS_LABELS[c.status] || c.status}`}
                 />
               ))}
-              {conns.length === 0 && <span style={{ fontSize: 11, color: '#94a3b8' }}>Sin canales</span>}
+              {conns.length === 0 && <span style={{ fontSize: 11, color: 'var(--text-subtle)' }}>Sin canales</span>}
             </div>
             <div className="ec-header-actions">
               {/* Pausa visible en ambos modos */}
@@ -190,7 +190,7 @@ export default function BotCard({
                 onClick={togglePause}
                 disabled={pauseLoading}
                 title={paused ? 'Bot pausado — click para reanudar' : 'Pausar bot (sin desconectar)'}
-                style={paused ? { color: '#f59e0b', borderColor: '#f59e0b' } : {}}
+                style={paused ? { color: 'var(--warning)', borderColor: 'var(--warning)' } : {}}
               >
                 {pauseLoading ? '...' : paused ? '▶ Reanudar' : '⏸ Pausar'}
               </button>
@@ -258,9 +258,9 @@ export default function BotCard({
             {/* Add row */}
             {mode === 'admin' && (
               <div className="ec-add-row">
-                <button className="btn-sm" style={{ background: '#e3f2fd', color: '#0d47a1' }} onClick={() => onAddTelegram?.(botId)}>+ Telegram</button>
-                <button className="btn-sm" style={{ background: '#f0fdf4', color: '#15803d' }} onClick={() => setShowWaviPicker(true)}>+ WhatsApp</button>
-                <button className="btn-sm" style={{ background: '#f0fdf4', color: '#15803d' }} onClick={() => setShowGoogleModal(true)}>+ Google Sheets</button>
+                <button className="btn-sm" style={{ background: 'rgba(46,166,218,.12)', color: 'var(--tg)' }} onClick={() => onAddTelegram?.(botId)}>+ Telegram</button>
+                <button className="btn-sm" style={{ background: 'var(--success-dim)', color: 'var(--success)' }} onClick={() => setShowWaviPicker(true)}>+ WhatsApp</button>
+                <button className="btn-sm" style={{ background: 'var(--success-dim)', color: 'var(--success)' }} onClick={() => setShowGoogleModal(true)}>+ Google Sheets</button>
               </div>
             )}
 
@@ -274,21 +274,21 @@ export default function BotCard({
 
             {mode === 'bot' && (
               <div className="ec-add-forms">
-                <div className="ec-section-label" style={{ background: '#f8fafc', color: '#64748b', borderTop: '1px solid #e8e8f0' }}>Agregar canal</div>
+                <div className="ec-section-label" style={{ background: 'var(--surface-2)', color: 'var(--text-muted)', borderTop: '1px solid var(--border)' }}>Agregar canal</div>
                 <div className="ec-add-form-row">
                   <form onSubmit={handleAddTg} style={{ display: 'flex', gap: 8, flex: 1 }}>
                     <input value={tgInput} onChange={e => setTgInput(e.target.value)}
                       placeholder="Token @BotFather (123456:ABC...)" style={{ flex: 1 }} />
-                    <button type="submit" className="btn-sm" style={{ background: '#e3f2fd', color: '#0d47a1' }} disabled={addingConn}>+ TG</button>
+                    <button type="submit" className="btn-sm" style={{ background: 'rgba(46,166,218,.12)', color: 'var(--tg)' }} disabled={addingConn}>+ TG</button>
                   </form>
                   <button
                     type="button"
                     className="btn-sm"
-                    style={{ background: '#f0fdf4', color: '#15803d', alignSelf: 'center' }}
+                    style={{ background: 'var(--success-dim)', color: 'var(--success)', alignSelf: 'center' }}
                     onClick={() => setShowGoogleModal(true)}
                   >+ Google Sheets</button>
                 </div>
-                {tgErr && <div style={{ fontSize: 13, color: tgErr.includes('reinicio') ? '#b45309' : '#c00', padding: '4px 20px' }}>{tgErr}</div>}
+                {tgErr && <div style={{ fontSize: 13, color: tgErr.includes('reinicio') ? 'var(--warning)' : 'var(--danger)', padding: '4px 20px' }}>{tgErr}</div>}
               </div>
             )}
             {showGoogleModal && (

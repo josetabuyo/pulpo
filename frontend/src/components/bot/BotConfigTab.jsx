@@ -56,7 +56,7 @@ export default function BotConfigTab({ botId, botName, apiCall, onNameChange }) 
         <div className="fg">
           <label>
             Mensaje de despedida&nbsp;
-            <small style={{ fontWeight: 400, color: '#94a3b8' }}>
+            <small style={{ fontWeight: 400, color: 'var(--text-subtle)' }}>
               (se envía al usuario cuando la conversación expira por inactividad)
             </small>
           </label>
@@ -67,7 +67,7 @@ export default function BotConfigTab({ botId, botName, apiCall, onNameChange }) 
             rows={5}
             style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit', fontSize: 13, padding: '6px 8px', borderRadius: 6, border: '1px solid #e2e8f0', lineHeight: 1.5 }}
           />
-          <small style={{ color: '#94a3b8', fontSize: 11 }}>
+          <small style={{ color: 'var(--text-subtle)', fontSize: 11 }}>
             Vacío = usa el mensaje por defecto del sistema.
           </small>
         </div>
@@ -75,7 +75,7 @@ export default function BotConfigTab({ botId, botName, apiCall, onNameChange }) 
         <div className="fg">
           <label>
             Tiempo de vida de conversación (horas)&nbsp;
-            <small style={{ fontWeight: 400, color: '#94a3b8' }}>
+            <small style={{ fontWeight: 400, color: 'var(--text-subtle)' }}>
               (disponible con <code>{'{{_conv_ttl_hours}}'}</code> en nodos del flow)
             </small>
           </label>
@@ -87,13 +87,13 @@ export default function BotConfigTab({ botId, botName, apiCall, onNameChange }) 
             onChange={e => setForm(f => ({ ...f, conversation_ttl_hours: e.target.value }))}
             style={{ width: 100 }}
           />
-          <small style={{ color: '#94a3b8', fontSize: 11 }}>horas — default: 24</small>
+          <small style={{ color: 'var(--text-subtle)', fontSize: 11 }}>horas — default: 24</small>
         </div>
 
         <div className="fg">
           <label>
             Nueva contraseña&nbsp;
-            <small style={{ fontWeight: 400, color: '#94a3b8' }}>(dejar vacío para no cambiar)</small>
+            <small style={{ fontWeight: 400, color: 'var(--text-subtle)' }}>(dejar vacío para no cambiar)</small>
           </label>
           <input type="password" value={form.newPassword} onChange={set('newPassword')} placeholder="Nueva contraseña" />
         </div>

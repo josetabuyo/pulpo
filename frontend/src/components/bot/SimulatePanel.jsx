@@ -50,10 +50,10 @@ export default function SimulatePanel({ botId, apiCall, onSent }) {
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', gap: 8,
-      border: '1px solid #e2e8f0', borderRadius: 8, padding: 10, marginBottom: 14,
+      border: '1px solid var(--border)', borderRadius: 8, padding: 10, marginBottom: 14,
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b', letterSpacing: '0.04em' }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-subtle)', letterSpacing: '0.04em' }}>
           SIMULAR MENSAJE
         </span>
         {simId && (
@@ -67,7 +67,7 @@ export default function SimulatePanel({ botId, apiCall, onSent }) {
         <div style={{
           display: 'flex', flexDirection: 'column', gap: 6,
           maxHeight: 200, overflowY: 'auto',
-          background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: 8,
+          background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6, padding: 8,
         }}>
           {history.map((m, i) => (
             <div
@@ -75,10 +75,10 @@ export default function SimulatePanel({ botId, apiCall, onSent }) {
               style={{
                 alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
                 maxWidth: '85%',
-                background: m.role === 'user' ? '#dbeafe' : '#fff',
-                border: `1px solid ${m.role === 'user' ? '#93c5fd' : '#e2e8f0'}`,
+                background: m.role === 'user' ? 'rgba(46,166,218,.12)' : 'var(--surface)',
+                border: `1px solid ${m.role === 'user' ? 'var(--tg)' : 'var(--border)'}`,
                 borderRadius: 8, padding: '5px 8px',
-                fontSize: 12, color: '#334155', whiteSpace: 'pre-wrap',
+                fontSize: 12, color: 'var(--text)', whiteSpace: 'pre-wrap',
               }}
             >
               {m.text}
@@ -90,7 +90,7 @@ export default function SimulatePanel({ botId, apiCall, onSent }) {
       <div style={{ display: 'flex', gap: 6 }}>
         <input
           style={{
-            flex: 1, border: '1px solid #cbd5e1', borderRadius: 6,
+            flex: 1, border: '1px solid var(--border-strong)', borderRadius: 6,
             padding: '6px 9px', fontSize: 13, outline: 'none',
           }}
           type="text"
@@ -109,7 +109,7 @@ export default function SimulatePanel({ botId, apiCall, onSent }) {
         </button>
       </div>
 
-      {error && <div style={{ fontSize: 11, color: '#dc2626' }}>{error}</div>}
+      {error && <div style={{ fontSize: 11, color: 'var(--danger)' }}>{error}</div>}
     </div>
   )
 }

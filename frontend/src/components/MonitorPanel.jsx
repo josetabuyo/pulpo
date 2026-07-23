@@ -10,15 +10,17 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 // errores -- que Vercel no puede ver, alimentado por /api/runs/stats
 // (flow_runs en Neon). Ver management/HANDOFF_VERCEL_DEEP_MIGRATION.md.
 
-// Paleta de status (dataviz skill) -- validada contra la superficie oscura
-// de este panel (#141414): node scripts/validate_palette.js
-// "#0ca30c,#d03b3b" --mode dark --surface "#141414" -> PASS (ΔE 12.4,
-// piso de la banda CVD -- por eso el gráfico también lleva leyenda +
-// etiquetas directas + línea sólida encima del fill, no depende solo del color).
+// Paleta de status (dataviz skill) -- revalidada contra la superficie Dark
+// Ocean de este panel (var(--surface) #111c30, migración Dark Ocean 2026-07-23):
+// node scripts/validate_palette.js "#0ca30c,#d03b3b" --mode dark --surface "#111c30"
+// -> PASS (ΔE 12.4, piso de la banda CVD -- por eso el gráfico también lleva
+// leyenda + etiquetas directas + línea sólida encima del fill, no depende solo
+// del color). Los mismos valores servían contra la superficie negra anterior
+// (#141414); no hizo falta subir luminosidad.
 const STATUS = {
   success: { label: 'Éxitos',    color: '#0ca30c' },
   error:   { label: 'Errores',   color: '#d03b3b' },
-  pending: { label: 'En curso',  color: '#6b7280' },
+  pending: { label: 'En curso',  color: '#5e6e8f' }, // = --text-subtle (hex literal: fill SVG no resuelve var() de forma confiable en todos los browsers)
 }
 
 const TIME_WINDOWS = [
@@ -116,14 +118,14 @@ function OverlapChart({ buckets, bucketMinutes }) {
           const y = toY(v)
           return (
             <g key={i}>
-              <line x1={PAD.left} y1={y} x2={W - PAD.right} y2={y} stroke="#252525" strokeWidth="1" />
-              <text x={PAD.left - 6} y={y + 4} textAnchor="end" fill="#666" fontSize="10">{v}</text>
+              <line x1={PAD.left} y1={y} x2={W - PAD.right} y2={y} stroke="#24314b" strokeWidth="1" />
+              <text x={PAD.left - 6} y={y + 4} textAnchor="end" fill="#5e6e8f" fontSize="10">{v}</text>
             </g>
           )
         })}
 
         {buckets.map((b, i) => (i % xStep === 0 || i === n - 1) ? (
-          <text key={i} x={toX(i)} y={H - 8} textAnchor="middle" fill="#666" fontSize="10">
+          <text key={i} x={toX(i)} y={H - 8} textAnchor="middle" fill="#5e6e8f" fontSize="10">
             {formatBucketLabel(b.startedAt, bucketMinutes)}
           </text>
         ) : null)}
@@ -138,9 +140,9 @@ function OverlapChart({ buckets, bucketMinutes }) {
 
         {hover && (
           <g>
-            <line x1={toX(hoverIdx)} y1={PAD.top} x2={toX(hoverIdx)} y2={H - PAD.bottom} stroke="#555" strokeWidth="1" strokeDasharray="3,3" />
-            <circle cx={toX(hoverIdx)} cy={toY(hover.success)} r="4" fill={STATUS.success.color} stroke="#141414" strokeWidth="2" />
-            <circle cx={toX(hoverIdx)} cy={toY(hover.error)} r="4" fill={STATUS.error.color} stroke="#141414" strokeWidth="2" />
+            <line x1={toX(hoverIdx)} y1={PAD.top} x2={toX(hoverIdx)} y2={H - PAD.bottom} stroke="#33436a" strokeWidth="1" strokeDasharray="3,3" />
+            <circle cx={toX(hoverIdx)} cy={toY(hover.success)} r="4" fill={STATUS.success.color} stroke="#111c30" strokeWidth="2" />
+            <circle cx={toX(hoverIdx)} cy={toY(hover.error)} r="4" fill={STATUS.error.color} stroke="#111c30" strokeWidth="2" />
           </g>
         )}
       </svg>
@@ -212,7 +214,7 @@ export default function MonitorPanel({ active = true }) {
         <StatCard label={`Éxitos — últimos ${win.label}`}  value={totals.success} color={STATUS.success.color} />
         <StatCard label={`Errores — últimos ${win.label}`} value={totals.error}   color={STATUS.error.color} />
         <StatCard label={`En curso — últimos ${win.label}`} value={totals.pending} color={STATUS.pending.color} />
-        <StatCard label="Tasa de error" value={`${errorRate}%`} color={totals.error > 0 ? STATUS.error.color : '#888'} />
+        <StatCard label="Tasa de error" value={`${errorRate}%`} color={totals.error > 0 ? STATUS.error.color : '#9aaac8'} />
       </div>
 
       <div className="mon-chart">
