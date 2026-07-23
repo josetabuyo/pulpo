@@ -1,9 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api, apiQuiet } from '../api.js'
-import { useFbSession } from '../hooks/useFbSession.js'
 import MonitorPanel from '../components/MonitorPanel.jsx'
-import ArchitectureSection from '../components/ArchitectureSection.jsx'
 import BotCard, { normalizeBot } from '../components/BotCard.jsx'
 
 // ─── WaviModal ────────────────────────────────────────────────────────────────
@@ -198,10 +196,6 @@ export default function DashboardPage() {
   const [expandedBot, setExpandedBot] = useState(null)
   const [monitorCollapsed,  setMonitorCollapsed]  = useState(() => searchParams.get('monitor') !== '1')
   const [companiesCollapsed, setCompaniesCollapsed] = useState(false)
-  const [configCollapsed,   setConfigCollapsed]   = useState(() => searchParams.get('config') !== '1')
-  const [archCollapsed,     setArchCollapsed]     = useState(() => searchParams.get('arquitectura') !== '1')
-  const [pollMinutes,       setPollMinutes]        = useState(5)
-  const [pollSaving,        setPollSaving]         = useState(false)
   const [waviModal,         setWaviModal]          = useState({ open: false, session: null })
 
   useEffect(() => { document.title = 'Pulpo — Dashboard' }, [])
@@ -212,8 +206,6 @@ export default function DashboardPage() {
     []
   )
 
-  const { fbLabel: fbSessionLabel, fbRunning: fbSessionRunning, startFbSession: handleFbSession } = useFbSession(call)
-
   const loadBots = useCallback(async () => {
     const data = await call('GET', '/bots')
     if (Array.isArray(data)) setBots(data)
@@ -221,8 +213,6 @@ export default function DashboardPage() {
   }, [call])
 
   useEffect(() => {
-    apiQuiet('GET', '/config/settings', null)
-      .then(s => { if (s) setPollMinutes(Math.round((s.wa_poll_interval_seconds || 300) / 60)) })
     loadBots()
     const interval = setInterval(loadBots, 6000)
     return () => clearInterval(interval)
@@ -234,13 +224,6 @@ export default function DashboardPage() {
     const bot = bots.find(b => b.id === botId)
     if (bot) setExpandedBot({ bot, normalized: normalizeBot(bot) })
   }, [bots, searchParams, expandedBot])
-
-  async function savePollInterval() {
-    setPollSaving(true)
-    const secs = Math.max(60, Math.min(3600, Math.round(pollMinutes * 60)))
-    await apiQuiet('PUT', '/config/settings', { wa_poll_interval_seconds: secs })
-    setPollSaving(false)
-  }
 
   function logout() {
     window.location.href = '/api/auth/signout?callbackUrl=/'
@@ -335,59 +318,6 @@ export default function DashboardPage() {
 
       <main>
 
-        {/* ── Sección: Arquitectura ── */}
-        <div className="section-block">
-          <div className="section-block-header" onClick={() => toggleSection('arquitectura', archCollapsed, setArchCollapsed)}>
-            <div className="section-block-title">🏛 Arquitectura</div>
-            <button className="btn-ghost btn-sm" onClick={e => { e.stopPropagation(); toggleSection('arquitectura', archCollapsed, setArchCollapsed) }}>
-              {archCollapsed ? '▼ Expandir' : '▲ Colapsar'}
-            </button>
-          </div>
-          <div style={{ display: archCollapsed ? 'none' : 'block', padding: '12px 16px' }}>
-            <ArchitectureSection collapsed={archCollapsed} />
-          </div>
-        </div>
-
-        {/* ── Sección: Config ── */}
-        <div className="section-block">
-          <div className="section-block-header" onClick={() => toggleSection('config', configCollapsed, setConfigCollapsed)}>
-            <div className="section-block-title">⚙️ Config</div>
-            <button className="btn-ghost btn-sm" onClick={e => { e.stopPropagation(); toggleSection('config', configCollapsed, setConfigCollapsed) }}>
-              {configCollapsed ? '▼ Expandir' : '▲ Colapsar'}
-            </button>
-          </div>
-          <div style={{ display: configCollapsed ? 'none' : 'block', padding: '12px 16px' }}>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-              <button
-                className="btn-ghost btn-sm"
-                onClick={() => handleFbSession('luganense')}
-                disabled={fbSessionRunning}
-                title="Renovar cookies de Facebook (abre browser en el servidor)"
-              >
-                {fbSessionLabel}
-              </button>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-              <label style={{ fontSize: 13 }}>
-                Polling WhatsApp (minutos):&nbsp;
-                <input
-                  type="number" min={1} max={60} value={pollMinutes}
-                  onChange={e => setPollMinutes(Number(e.target.value))}
-                  style={{ width: 60, marginLeft: 4 }}
-                />
-              </label>
-              <button className="btn-ghost btn-sm" onClick={savePollInterval} disabled={pollSaving}>
-                {pollSaving ? 'Guardando…' : 'Guardar'}
-              </button>
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn-ghost btn-sm" onClick={() => setWaviModal({ open: true, session: null })}>
-                📱 Conectar WhatsApp (Wavi)
-              </button>
-            </div>
-          </div>
-        </div>
-
         {/* ── Sección: Monitor ── */}
         <div className="section-block">
           <div className="section-block-header" onClick={() => toggleSection('monitor', monitorCollapsed, setMonitorCollapsed)}>
@@ -406,14 +336,6 @@ export default function DashboardPage() {
         <div className="card">
           <div className="card-title">Links para bots</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div>
-              <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>Portal de bot (acceso con contraseña)</div>
-              <div className="share-row">
-                <input className="share-url" readOnly value={(import.meta.env.VITE_PUBLIC_URL || window.location.origin) + '/bot'} />
-                <button className="btn-blue" onClick={() => navigator.clipboard.writeText((import.meta.env.VITE_PUBLIC_URL || window.location.origin) + '/bot')}>Copiar</button>
-                <button className="btn-ghost" onClick={() => window.open((import.meta.env.VITE_PUBLIC_URL || window.location.origin) + '/bot')}>Abrir</button>
-              </div>
-            </div>
             <div>
               <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>Alta nueva bot (link en blanco)</div>
               <div className="share-row">
