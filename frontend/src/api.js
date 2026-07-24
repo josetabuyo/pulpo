@@ -14,6 +14,10 @@ export function api(method, path, body) {
     credentials: 'include',
     body: body ? JSON.stringify(body) : undefined,
   }).then(async r => {
+    // 204 No Content (p.ej. DELETE) no trae body -- r.json() tira
+    // SyntaxError sobre string vacío, lo que hacía que el caller nunca
+    // llegara a actualizar su estado local tras un delete exitoso.
+    if (r.status === 204) return r.ok ? null : { _status: r.status }
     const data = await r.json()
     if (!r.ok) return { ...data, _status: r.status }
     return data
