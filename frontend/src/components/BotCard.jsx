@@ -22,6 +22,7 @@ import BotConfigTab from './bot/BotConfigTab.jsx'
 import RunsTab from './bot/RunsTab.jsx'
 import BotUsersTab from './bot/BotUsersTab.jsx'
 import ChatsTab from './bot/ChatsTab.jsx'
+import TestReportsTab from './bot/TestReportsTab.jsx'
 
 // Normaliza un bot del formato admin (/bots) al formato canónico de BotCard
 export function normalizeBot(bot) {
@@ -102,6 +103,9 @@ export default function BotCard({
     // (ver proxy.ts::SCOPED_BOT_ROUTES), así que no tiene sentido mostrar
     // este tab en mode="bot" hasta que se porte ese filtro.
     ...(mode === 'admin' ? [{ id: 'runs', label: 'Ejecuciones', count: null }] : []),
+    // Reportes e2e -- mismo criterio que 'runs': GET /api/bots/{id}/test-reports
+    // todavía no pasa por proxy.ts::SCOPED_BOT_ROUTES, admin-only por ahora.
+    ...(mode === 'admin' ? [{ id: 'test', label: 'Test', count: null }] : []),
     { id: 'config', label: 'Configurar', count: null },
     // Gestión de PulpoChat: acción de PRO o admin dueño del bot (a diferencia
     // de 'users', que sigue admin-only) -- visible en ambos modos, el
@@ -227,6 +231,11 @@ export default function BotCard({
         {/* ── Usuarios (admin-only) ── */}
         {activeTab === 'users' && mode === 'admin' && (
           <BotUsersTab botId={botId} apiCall={apiCall} />
+        )}
+
+        {/* ── Test (reportes e2e, admin-only) ── */}
+        {activeTab === 'test' && mode === 'admin' && (
+          <TestReportsTab botId={botId} apiCall={apiCall} />
         )}
       </div>
 

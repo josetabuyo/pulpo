@@ -287,3 +287,23 @@ export const chatMessages = pgTable("chat_messages", {
   runId: text("run_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
+
+// Reportes HTML autocontenidos de corridas e2e (scripts/generate_e2e_report.py),
+// tab "Test" en el bot card (2026-07-24). El HTML (~1MB, incluye el diagrama
+// del flow embebido en base64) vive en la fila -- no en un archivo del repo
+// -- porque Vercel solo despliega el árbol de `web/` (`reports/` vive en la
+// raíz del monorepo, fuera de ese árbol) y así el reporte queda disponible
+// en prod sin un paso de build/bundling nuevo, igual que cualquier otro dato
+// de la app. `slug` es estable por flow (bot_slug-flow_slug, con el id corto
+// del flow pegado -- ver scenarios_*.py -- así sobrevive a que el flow se
+// renombre); subir un reporte con el mismo slug reemplaza al anterior --
+// solo importa el ÚLTIMO por flow, mismo criterio que ya usaba el archivo
+// sin fecha en reports/ (ver ese script).
+export const testReports = pgTable("test_reports", {
+  id: text("id").primaryKey(),
+  botId: text("bot_id").notNull(),
+  slug: text("slug").notNull().unique(),
+  title: text("title").notNull(),
+  html: text("html").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
