@@ -1,6 +1,6 @@
 import { and, desc, eq, gte } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
-import { flowRuns } from "@/lib/db/schema";
+import { flowRuns, flows } from "@/lib/db/schema";
 
 // Bucketed success/error/pending counts of flow_runs for the Monitor panel's
 // overlapping chart (frontend/src/components/MonitorPanel.jsx). This is
@@ -58,10 +58,13 @@ export async function getRunStats(params: {
 // contrato que el backend Python original. listRuns()/getRun() antes
 // devolvían las filas de Drizzle tal cual (camelCase) -- nunca las consumía
 // nadie hasta ahora (2026-07-24, primer e2e real), por eso no se notó.
-function toRunDto(row: typeof flowRuns.$inferSelect) {
+// flow_name viene de un LEFT JOIN con flows -- null si el flow fue borrado
+// (la tab Ejecuciones ya sabe mostrar el flow_id como fallback en ese caso).
+function toRunDto(row: typeof flowRuns.$inferSelect, flowName: string | null) {
   return {
     run_id: row.runId,
     flow_id: row.flowId,
+    flow_name: flowName,
     bot_id: row.botId,
     connection_id: row.connectionId,
     status: row.status,
@@ -85,16 +88,21 @@ export async function listRuns(params: { botId?: string; status?: string; limit?
   if (params.status) conditions.push(eq(flowRuns.status, params.status));
 
   const rows = await db
-    .select()
+    .select({ run: flowRuns, flowName: flows.name })
     .from(flowRuns)
+    .leftJoin(flows, eq(flows.id, flowRuns.flowId))
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(desc(flowRuns.startedAt))
     .limit(limit);
-  return rows.map(toRunDto);
+  return rows.map((r) => toRunDto(r.run, r.flowName));
 }
 
 export async function getRun(runId: string) {
   const db = getDb();
-  const [row] = await db.select().from(flowRuns).where(eq(flowRuns.runId, runId));
-  return row ? toRunDto(row) : null;
+  const [row] = await db
+    .select({ run: flowRuns, flowName: flows.name })
+    .from(flowRuns)
+    .leftJoin(flows, eq(flows.id, flowRuns.flowId))
+    .where(eq(flowRuns.runId, runId));
+  return row ? toRunDto(row.run, row.flowName) : null;
 }

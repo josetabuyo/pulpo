@@ -26,6 +26,14 @@ function duration(started, ended) {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`
 }
 
+function formatDateTime(iso) {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleString('es-AR', {
+    day: '2-digit', month: '2-digit', year: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+  })
+}
+
 // ─── Visor JSON colapsable ──────────────────────────────────────────────
 function JsonNode({ label, value, depth }) {
   const isObj = value !== null && typeof value === 'object'
@@ -254,10 +262,10 @@ export default function RunsTab({ botId, apiCall }) {
             {runs.map(run => (
               <tr key={run.run_id} style={{ borderBottom: '1px solid var(--border)' }}>
                 <td style={{ padding: '7px 8px', fontSize: 12, color: 'var(--text-muted)' }}>
-                  {run.started_at?.slice(5, 16)}
+                  {formatDateTime(run.started_at)}
                 </td>
-                <td style={{ padding: '7px 8px', fontFamily: 'monospace', fontSize: 11, color: 'var(--text-subtle)' }}>
-                  {run.flow_id.slice(0, 8)}
+                <td style={{ padding: '7px 8px', fontSize: 12, color: 'var(--text-subtle)' }}>
+                  {run.flow_name || run.flow_id.slice(0, 8)}
                 </td>
                 <td style={{ padding: '7px 8px' }}>
                   <span style={{ color: statusColor(run.status), fontWeight: 600 }}>{run.status}</span>
