@@ -123,12 +123,21 @@ async function main() {
     name: targetFlow.name,
     definition: targetFlow.definition,
   });
+  // active:false SIEMPRE, sin excepción -- traer un flow de otro ambiente y
+  // que arranque disparando solo porque comparte connection_id con el que
+  // ya corría ahí es exactamente el accidente que esto previene (2026-07-24,
+  // pedido explícito del usuario). Reactivarlo a mano después pasa por
+  // updateFlow(), que sí valida colisión de trigger (ver
+  // findActiveTriggerCollision en lib/business/flows.ts).
   await targetDb
     .update(flows)
-    .set({ definition: sourceFlow.definition, name: sourceFlow.name, updatedAt: new Date() })
+    .set({ definition: sourceFlow.definition, name: sourceFlow.name, active: false, updatedAt: new Date() })
     .where(eq(flows.id, flowId));
 
-  console.log(`Listo: ${direction} de ${botId}/${flowId} aplicado. Versión previa del destino guardada en flow_versions.`);
+  console.log(
+    `Listo: ${direction} de ${botId}/${flowId} aplicado -- quedó INACTIVO en el destino a propósito. ` +
+      `Versión previa del destino guardada en flow_versions. Activalo a mano cuando confirmes que corresponde.`,
+  );
 }
 
 if (process.argv[1]?.endsWith("sync-flow.ts")) {

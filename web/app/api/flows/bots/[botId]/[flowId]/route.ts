@@ -28,6 +28,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ botI
   if (body.contact_filter !== undefined) updates.contactFilter = body.contact_filter;
   if (body.flow_kind !== undefined) updates.flowKind = body.flow_kind;
   if (body.active !== undefined) updates.active = body.active;
+  if (body.force_activate !== undefined) updates.forceActivate = body.force_activate;
 
   try {
     const flow = await updateFlow(botId, flowId, updates, saveVersion);

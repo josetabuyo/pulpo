@@ -95,7 +95,27 @@ type FlowUpdates = {
   contactFilter?: Record<string, unknown> | null;
   flowKind?: string;
   active?: boolean;
+  // Bypass findActiveTriggerCollision() -- "sí, quiero dos flows activos
+  // disparando por el mismo trigger a propósito" (ver docstring de esa
+  // función). Nunca se persiste, solo gatea esta llamada puntual.
+  forceActivate?: boolean;
 };
+
+// Dos flows del mismo bot, ambos `active:true`, con el mismo `connection_id`
+// -- ambigüedad real: dispatch_message (ver ADR-006) no tiene forma de
+// decidir cuál de los dos debería correr para un mensaje entrante de esa
+// conexión. Casi siempre es un accidente (2026-07-24, motivado por
+// scripts/sync-flow.ts: traer un flow de otro ambiente y activarlo sin
+// querer pisa/duplica el trigger del que ya corría) -- por eso updateFlow
+// lo bloquea con ValidationError salvo `forceActivate:true` explícito, para
+// el caso legítimo de querer correr dos flows a propósito por el mismo
+// trigger.
+export async function findActiveTriggerCollision(botId: string, excludeFlowId: string, connectionId: string | null | undefined) {
+  if (!connectionId) return null;
+  const db = getDb();
+  const rows = await db.select().from(flows).where(and(eq(flows.botId, botId), eq(flows.active, true)));
+  return rows.find((r) => r.id !== excludeFlowId && r.connectionId === connectionId) ?? null;
+}
 
 export async function updateFlow(botId: string, flowId: string, updates: FlowUpdates, saveVersion: boolean) {
   const db = getDb();
@@ -106,6 +126,19 @@ export async function updateFlow(botId: string, flowId: string, updates: FlowUpd
     throw new ValidationError(
       "connection_id no puede quedar vacío. Un flow sin conexión no dispararía para nadie.",
     );
+  }
+
+  // Solo gatea la ACCIÓN de activar (updates.active === true explícito) --
+  // no re-valida en cada guardado de un flow que ya estaba activo, así no
+  // rompe ediciones normales de un flow con una colisión preexistente.
+  if (updates.active === true && !updates.forceActivate) {
+    const connectionId = updates.connectionId !== undefined ? updates.connectionId : flow.connectionId;
+    const collision = await findActiveTriggerCollision(botId, flowId, connectionId);
+    if (collision) {
+      throw new ValidationError(
+        `El flow '${collision.name}' (${collision.id}) ya está activo con esta misma conexión (${connectionId}) -- dos flows activos por el mismo trigger es ambiguo. Si es a propósito, reintentá con forceActivate:true.`,
+      );
+    }
   }
 
   const patch: Record<string, unknown> = { ...updates, updatedAt: new Date() };
