@@ -1,0 +1,10 @@
+# Presencia de este archivo hace que Vercel CLI ignore .gitignore para
+# decidir qué subir (2026-07-24, "un solo deploy") -- necesitamos que
+# public/assets/ y lib/generated/ SÍ se suban aunque estén gitignoreados
+# (son generados por scripts/build-spa.mjs a partir de frontend/, que no
+# viaja en el upload de este proyecto -- ver ese script).
+node_modules
+.next
+.vercel
+.env*
+*.tsbuildinfo

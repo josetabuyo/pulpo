@@ -65,7 +65,7 @@ export default function ConnectionRow({ conn, mode, botId, onDelete, onReconnect
                 bottom: menuPos.openUp ? window.innerHeight - menuPos.top : undefined,
                 left: menuPos.left - 180,
                 zIndex: 9999,
-                background: '#1e293b', border: '1px solid #334155', borderRadius: 6,
+                background: 'var(--surface-2)', border: '1px solid var(--border-strong)', borderRadius: 6,
                 boxShadow: '0 8px 24px rgba(0,0,0,.6)', minWidth: 190, padding: '4px 0',
               }}>
                 {mode === 'admin' && connected && (
@@ -83,7 +83,7 @@ export default function ConnectionRow({ conn, mode, botId, onDelete, onReconnect
                     <button className="conn-menu-item" onClick={() => { onToggleMass?.(conn); setMenuOpen(false) }}>
                       {conn.allowMass ? '🔇 Desactivar masivo' : '📣 Activar masivo'}
                     </button>
-                    <div style={{ margin: '4px 0', borderTop: '1px solid #334155' }} />
+                    <div style={{ margin: '4px 0', borderTop: '1px solid var(--border-strong)' }} />
                     <button className="conn-menu-item conn-menu-item--danger" onClick={() => { onDelete?.(conn); setMenuOpen(false) }}>
                       🗑 Eliminar conexión
                     </button>

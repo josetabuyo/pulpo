@@ -16,6 +16,7 @@ export function useFlowStore(selector) {
 export const PALETTE_TYPES = [
   'whatsapp_trigger',
   'telegram_trigger',
+  'trigger_chat',
   'api_trigger',
   'message_join',
   'gate',
@@ -47,6 +48,7 @@ const DEFAULT_CONFIGS = {
   message_trigger:   { connection_id: '', contact_phone: '', message_pattern: '' },
   whatsapp_trigger:  { connection_id: '', contact_filter: { include_all_known: false, include_unknown: false, included: [], excluded: [] }, message_pattern: '', cooldown_hours: 4 },
   telegram_trigger:  { connection_id: '', contact_filter: { include_all_known: false, include_unknown: false, included: [], excluded: [] }, message_pattern: '', cooldown_hours: 4 },
+  trigger_chat:      { chat_id: '', paused: false },
   api_trigger:       {},
   message_join:      {},
   gate:              {},
@@ -96,7 +98,7 @@ export function isValidColor(value) {
  */
 export function resolveNodeColor(config, typeColor) {
   const c = config?.color
-  return isValidColor(c) ? c.trim() : (typeColor || '#1e293b')
+  return isValidColor(c) ? c.trim() : (typeColor || 'var(--surface-2)')
 }
 
 /**
@@ -364,7 +366,7 @@ export function createFlowStore() {
           nodeType,
           config:      DEFAULT_CONFIGS[nodeType] || {},
           label:       meta.label       || nodeType,
-          color:       meta.color       || '#1e293b',
+          color:       meta.color       || 'var(--surface-2)',
           description: meta.description || '',
         },
       }

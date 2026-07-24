@@ -135,7 +135,7 @@ function LabeledEdge({ id, source, sourceX, sourceY, targetX, targetY, sourcePos
         path={edgePath}
         markerEnd={markerEnd}
         markerStart={markerStart}
-        style={{ stroke: deleteMode ? '#ef4444' : selected ? '#94a3b8' : '#475569', strokeWidth: 2, cursor: deleteMode ? 'pointer' : 'default' }}
+        style={{ stroke: deleteMode ? 'var(--danger)' : selected ? 'var(--text-subtle)' : 'var(--text-subtle)', strokeWidth: 2, cursor: deleteMode ? 'pointer' : 'default' }}
         onClick={deleteMode ? (e) => { e.stopPropagation(); deleteEdge?.(id) } : undefined}
       />
       <EdgeLabelRenderer>
@@ -148,10 +148,10 @@ function LabeledEdge({ id, source, sourceX, sourceY, targetX, targetY, sourcePos
             <span
               onPointerDown={!deleteMode ? startDrag : undefined}
               style={{
-                background: '#1e293b',
-                border: `1px solid ${hasBend && !deleteMode ? '#6366f1' : '#334155'}`,
+                background: 'var(--surface-2)',
+                border: `1px solid ${hasBend && !deleteMode ? 'var(--brand)' : 'var(--border-strong)'}`,
                 borderRadius: 4,
-                color: '#94a3b8',
+                color: 'var(--text-subtle)',
                 fontSize: 11,
                 padding: '1px 6px',
                 whiteSpace: 'nowrap',
@@ -171,8 +171,8 @@ function LabeledEdge({ id, source, sourceX, sourceY, targetX, targetY, sourcePos
               title={routes.length ? 'Clic para asignar ruta · arrastrá para doblar la flecha' : (hasBend ? 'Arrastrá · doble clic para resetear' : 'Arrastrá para doblar la flecha')}
               style={{
                 width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
-                background: routes.length ? '#f59e0b' : (hasBend ? '#6366f1' : '#94a3b8'),
-                border: '2px solid #0f172a',
+                background: routes.length ? 'var(--warning)' : (hasBend ? 'var(--brand)' : 'var(--text-subtle)'),
+                border: '2px solid var(--bg)',
                 cursor: 'grab',
               }}
             />
@@ -188,8 +188,8 @@ function LabeledEdge({ id, source, sourceX, sourceY, targetX, targetY, sourcePos
                 left: '50%',
                 transform: 'translateX(-50%)',
                 marginBottom: 6,
-                background: '#1e293b',
-                border: '1px solid #6366f1',
+                background: 'var(--surface-2)',
+                border: '1px solid var(--brand)',
                 borderRadius: 6,
                 padding: 4,
                 zIndex: 50,
@@ -202,7 +202,7 @@ function LabeledEdge({ id, source, sourceX, sourceY, targetX, targetY, sourcePos
                   defaultValue={label || ''}
                   onChange={(e) => { updateEdgeLabel(id, e.target.value); setEditing(false) }}
                   onBlur={() => setEditing(false)}
-                  style={{ fontSize: 11, background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 4, padding: '2px 4px' }}
+                  style={{ fontSize: 11, background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border-strong)', borderRadius: 4, padding: '2px 4px' }}
                 >
                   <option value="">(sin label)</option>
                   {routes.map(r => <option key={r} value={r}>{r}</option>)}
@@ -216,7 +216,7 @@ function LabeledEdge({ id, source, sourceX, sourceY, targetX, targetY, sourcePos
                     if (e.key === 'Escape') setEditing(false)
                   }}
                   onBlur={(e) => { updateEdgeLabel(id, e.target.value); setEditing(false) }}
-                  style={{ fontSize: 11, width: 110, background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 4, padding: '2px 4px' }}
+                  style={{ fontSize: 11, width: 110, background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border-strong)', borderRadius: 4, padding: '2px 4px' }}
                 />
               )}
             </div>
@@ -227,7 +227,7 @@ function LabeledEdge({ id, source, sourceX, sourceY, targetX, targetY, sourcePos
             <button
               onClick={onDelete}
               title="Borrar conexión"
-              style={{ background: '#7f1d1d', border: 'none', borderRadius: '50%', color: '#fca5a5', width: 18, height: 18, fontSize: 12, cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+              style={{ background: 'var(--danger-dim)', border: 'none', borderRadius: '50%', color: 'var(--danger)', width: 18, height: 18, fontSize: 12, cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
             >
               ×
             </button>
@@ -245,9 +245,11 @@ const EDGE_TYPES = { labeled: LabeledEdge }
 function FlowNode({ id, data, selected }) {
   const isStart = data.nodeType === 'start'
   const isEnd   = data.nodeType === 'end'
-  const handleStyle = { background: '#64748b', width: 8, height: 8, border: '2px solid #0f172a' }
+  const handleStyle = { background: 'var(--text-muted)', width: 8, height: 8, border: '2px solid var(--bg)' }
   const isDanger = data.deleteMode || data.pendingDelete
-  const borderColor = isDanger ? '#ef4444' : (selected ? '#22c55e' : 'transparent')
+  // Borde base en todos los nodos (Dark Ocean §6 paso 6): separación figura-fondo
+  // para los nodos más oscuros del catálogo (p.ej. #14532d) sin tocar node-types.json.
+  const borderColor = isDanger ? 'var(--danger)' : (selected ? 'var(--success)' : 'var(--border-strong)')
 
   return (
     <div
@@ -427,7 +429,7 @@ export default function FlowCanvas({
   const enrichedEdges = (editEdges || []).map(e => ({
     ...e,
     type: 'labeled',
-    markerEnd: { type: MarkerType.ArrowClosed, color: deleteMode ? '#ef4444' : '#475569' },
+    markerEnd: { type: MarkerType.ArrowClosed, color: deleteMode ? 'var(--danger)' : 'var(--text-subtle)' },
   }))
 
   const getNodeRoutes = useCallback((nodeId) => {
@@ -450,7 +452,7 @@ export default function FlowCanvas({
     <EdgeActionsCtx.Provider value={{ deleteMode, embed, deleteEdge, updateEdgeBend: onEdgeBendChange, updateEdgeLabel: onEdgeLabelChange, getNodeRoutes }}>
       <div
         ref={reactFlowWrapper}
-        style={{ flex: 1, background: '#0f172a', overflow: 'hidden', position: 'relative', cursor: canvasCursor }}
+        style={{ flex: 1, background: 'var(--bg)', overflow: 'hidden', position: 'relative', cursor: canvasCursor }}
         onDrop={externalOnDrop}
         onDragOver={handleDragOver}
       >
@@ -459,7 +461,7 @@ export default function FlowCanvas({
           edges={enrichedEdges}
           nodeTypes={NODE_TYPES_RF}
           edgeTypes={EDGE_TYPES}
-          defaultEdgeOptions={{ type: 'labeled', markerEnd: { type: MarkerType.ArrowClosed, color: '#475569' } }}
+          defaultEdgeOptions={{ type: 'labeled', markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--text-subtle)' } }}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
@@ -485,20 +487,20 @@ export default function FlowCanvas({
           deleteKeyCode={null}
           proOptions={{ hideAttribution: true }}
         >
-          <Background color="#1e293b" gap={GRID_SIZE} />
+          <Background color="var(--surface-2)" gap={GRID_SIZE} />
           {!embed && (
-            <Controls showInteractive={false} style={{ background: '#1e293b', border: '1px solid #334155' }}>
+            <Controls showInteractive={false} style={{ background: 'var(--surface-2)', border: '1px solid var(--border-strong)' }}>
               <ControlButton
                 onClick={() => setTool('select')}
                 title="Seleccionar (V)"
-                style={{ background: tool === 'select' ? '#334155' : undefined, color: tool === 'select' ? '#e2e8f0' : undefined }}
+                style={{ background: tool === 'select' ? 'var(--border-strong)' : undefined, color: tool === 'select' ? 'var(--text)' : undefined }}
               >
                 <PointerIcon />
               </ControlButton>
               <ControlButton
                 onClick={() => setTool('pan')}
                 title="Mover el lienzo (mantené espacio para activarlo momentáneamente)"
-                style={{ background: tool === 'pan' ? '#334155' : undefined, color: tool === 'pan' ? '#e2e8f0' : undefined }}
+                style={{ background: tool === 'pan' ? 'var(--border-strong)' : undefined, color: tool === 'pan' ? 'var(--text)' : undefined }}
               >
                 <HandIcon />
               </ControlButton>
@@ -514,8 +516,8 @@ export default function FlowCanvas({
               left: '50%',
               transform: 'translateX(-50%)',
               zIndex: 20,
-              background: '#1c0a0a',
-              border: '1px solid #7f1d1d',
+              background: 'var(--danger-dim)',
+              border: '1px solid var(--danger-dim)',
               borderRadius: 8,
               padding: '10px 14px',
               display: 'flex',
@@ -524,15 +526,15 @@ export default function FlowCanvas({
               boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
             }}
           >
-            <span style={{ fontSize: 12, color: '#fca5a5' }}>
+            <span style={{ fontSize: 12, color: 'var(--danger)' }}>
               ¿Eliminar <strong>&quot;{pendingDeleteNode.data?.label}&quot;</strong>?
             </span>
             <button
               onClick={() => { deleteNode(pendingDeleteNode.id); setPendingDeleteNodeId(null) }}
               style={{
                 padding: '5px 10px',
-                background: '#7f1d1d', border: '1px solid #dc2626',
-                borderRadius: 5, color: '#fca5a5',
+                background: 'var(--danger-dim)', border: '1px solid var(--danger)',
+                borderRadius: 5, color: 'var(--danger)',
                 fontSize: 11, cursor: 'pointer', fontWeight: 600,
               }}
             >
@@ -542,8 +544,8 @@ export default function FlowCanvas({
               onClick={() => setPendingDeleteNodeId(null)}
               style={{
                 padding: '5px 10px',
-                background: 'transparent', border: '1px solid #334155',
-                borderRadius: 5, color: '#64748b',
+                background: 'transparent', border: '1px solid var(--border-strong)',
+                borderRadius: 5, color: 'var(--text-muted)',
                 fontSize: 11, cursor: 'pointer',
               }}
             >
@@ -560,8 +562,8 @@ export default function FlowCanvas({
               left: '50%',
               transform: 'translateX(-50%)',
               zIndex: 20,
-              background: '#1c0a0a',
-              border: '1px solid #7f1d1d',
+              background: 'var(--danger-dim)',
+              border: '1px solid var(--danger-dim)',
               borderRadius: 8,
               padding: '10px 14px',
               display: 'flex',
@@ -570,15 +572,15 @@ export default function FlowCanvas({
               boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
             }}
           >
-            <span style={{ fontSize: 12, color: '#fca5a5' }}>
+            <span style={{ fontSize: 12, color: 'var(--danger)' }}>
               ¿Eliminar <strong>{pendingDeleteNodesList.length}</strong> nodo{pendingDeleteNodesList.length === 1 ? '' : 's'}?
             </span>
             <button
               onClick={() => deleteNodes(pendingDeleteNodeIds)}
               style={{
                 padding: '5px 10px',
-                background: '#7f1d1d', border: '1px solid #dc2626',
-                borderRadius: 5, color: '#fca5a5',
+                background: 'var(--danger-dim)', border: '1px solid var(--danger)',
+                borderRadius: 5, color: 'var(--danger)',
                 fontSize: 11, cursor: 'pointer', fontWeight: 600,
               }}
             >
@@ -588,8 +590,8 @@ export default function FlowCanvas({
               onClick={() => setPendingDeleteNodeIds([])}
               style={{
                 padding: '5px 10px',
-                background: 'transparent', border: '1px solid #334155',
-                borderRadius: 5, color: '#64748b',
+                background: 'transparent', border: '1px solid var(--border-strong)',
+                borderRadius: 5, color: 'var(--text-muted)',
                 fontSize: 11, cursor: 'pointer',
               }}
             >

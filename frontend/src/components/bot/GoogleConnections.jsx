@@ -69,18 +69,18 @@ export function GoogleSetupModal({ botId, apiCall, onClose, onSaved }) {
 
         {tab === 'pulpo' && (
           <div>
-            <p style={{ fontSize: 14, marginBottom: 12, color: '#374151' }}>
+            <p style={{ fontSize: 14, marginBottom: 12, color: 'var(--text-muted)' }}>
               La cuenta de servicio de Pulpo puede escribir en tu hoja.
               Solo necesitás compartirla como <strong>Editor</strong>.
             </p>
-            <div style={{ background: '#f1f5f9', borderRadius: 8, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+            <div style={{ background: 'var(--surface-3)', borderRadius: 8, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
               <span style={{ fontSize: 13, fontFamily: 'monospace', flex: 1 }}>{PULPO_EMAIL}</span>
               <button
                 className="btn-ghost btn-sm"
                 onClick={() => navigator.clipboard.writeText(PULPO_EMAIL)}
               >Copiar</button>
             </div>
-            <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 20 }}>
+            <p style={{ fontSize: 13, color: 'var(--text-subtle)', marginBottom: 20 }}>
               En tu Google Sheet: <strong>Compartir → pegar el email → Editor → Listo</strong>
             </p>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
@@ -94,7 +94,7 @@ export function GoogleSetupModal({ botId, apiCall, onClose, onSaved }) {
 
         {tab === 'propia' && (
           <form onSubmit={handleSavePropia}>
-            <div style={{ fontSize: 13, color: '#374151', marginBottom: 12 }}>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
               <strong>Pasos para obtener el JSON:</strong>
               <ol style={{ paddingLeft: 18, marginTop: 6, lineHeight: 1.8 }}>
                 <li>console.cloud.google.com → Biblioteca → <em>Google Sheets API</em> → Habilitar</li>
@@ -117,7 +117,7 @@ export function GoogleSetupModal({ botId, apiCall, onClose, onSaved }) {
               placeholder="Nombre amigable (opcional)"
               style={{ width: '100%', marginTop: 8, boxSizing: 'border-box' }}
             />
-            {err && <div style={{ color: '#c00', fontSize: 13, marginTop: 6 }}>{err}</div>}
+            {err && <div style={{ color: 'var(--danger)', fontSize: 13, marginTop: 6 }}>{err}</div>}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
               <button type="button" className="btn-ghost btn-sm" onClick={onClose}>Cancelar</button>
               <button type="submit" className="btn-primary btn-sm" disabled={saving}>
@@ -157,16 +157,16 @@ export function GoogleConnectionsSection({ botId, apiCall, mode, hideAddButton =
 
   return (
     <div>
-      <div className="ec-section-label" style={{ background: '#f0fdf4', color: '#15803d' }}>Google Sheets</div>
+      <div className="ec-section-label" style={{ background: 'var(--success-dim)', color: 'var(--success)' }}>Google Sheets</div>
       {conns.map(conn => (
-        <div key={conn.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', borderBottom: '1px solid #f1f5f9' }}>
+        <div key={conn.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', borderBottom: '1px solid var(--border)' }}>
           <span style={{ fontSize: 18 }}>📗</span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 500, fontSize: 13 }}>{conn.label}</div>
-            <div style={{ fontSize: 12, color: '#6b7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{conn.email}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-subtle)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{conn.email}</div>
           </div>
           {conn.id === 'pulpo-default' && (
-            <span style={{ fontSize: 11, color: '#6b7280', background: '#f1f5f9', borderRadius: 4, padding: '2px 6px' }}>Pulpo</span>
+            <span style={{ fontSize: 11, color: 'var(--text-subtle)', background: 'var(--surface-3)', borderRadius: 4, padding: '2px 6px' }}>Pulpo</span>
           )}
           {conn.id !== 'pulpo-default' && (
             <button className="btn-danger btn-sm" onClick={() => handleDelete(conn)}>Eliminar</button>
@@ -175,7 +175,7 @@ export function GoogleConnectionsSection({ botId, apiCall, mode, hideAddButton =
       ))}
       {!hideAddButton && mode === 'admin' && (
         <div className="ec-add-row">
-          <button className="btn-sm" style={{ background: '#f0fdf4', color: '#15803d' }} onClick={() => setShowModal(true)}>+ Google Sheets</button>
+          <button className="btn-sm" style={{ background: 'var(--success-dim)', color: 'var(--success)' }} onClick={() => setShowModal(true)}>+ Google Sheets</button>
         </div>
       )}
       {showModal && <GoogleSetupModal botId={botId} apiCall={apiCall} onClose={() => setShowModal(false)} onSaved={load} />}

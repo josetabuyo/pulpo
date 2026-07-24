@@ -36,9 +36,9 @@ export function CopyButton({ text }) {
       onClick={copy}
       style={{
         fontSize: 10, padding: '2px 7px', borderRadius: 4, cursor: 'pointer',
-        background: copied ? '#166534' : 'transparent',
-        border: `1px solid ${copied ? '#16a34a' : '#334155'}`,
-        color: copied ? '#4ade80' : '#64748b',
+        background: copied ? 'var(--success-dim)' : 'transparent',
+        border: `1px solid ${copied ? 'var(--success)' : 'var(--border-strong)'}`,
+        color: copied ? 'var(--success)' : 'var(--text-muted)',
         flexShrink: 0, transition: 'all 0.2s',
       }}
     >
@@ -80,13 +80,13 @@ export function JsonField({ field, value, set, labelEl }) {
           minHeight: 160,
           fontFamily: 'monospace',
           fontSize: 11,
-          border: error ? '1px solid #ef4444' : S.textarea.border,
+          border: error ? '1px solid var(--danger)' : S.textarea.border,
         }}
         value={raw}
         onChange={e => handleChange(e.target.value)}
         spellCheck={false}
       />
-      {error && <span style={{ ...S.hint, color: '#ef4444' }}>{error}</span>}
+      {error && <span style={{ ...S.hint, color: 'var(--danger)' }}>{error}</span>}
       {!error && hint && <span style={S.hint}>{hint}</span>}
     </div>
   )
@@ -101,7 +101,7 @@ function GoogleAccountField({ value, set, labelEl, accounts }) {
       <div style={S.fieldWrap}>
         {labelEl}
         {accounts.length === 0 ? (
-          <span style={{ fontSize: 11, color: '#ef4444' }}>
+          <span style={{ fontSize: 11, color: 'var(--danger)' }}>
             No hay cuentas Google configuradas (falta GOOGLE_SERVICE_ACCOUNT_JSON en .env)
           </span>
         ) : (
@@ -114,17 +114,17 @@ function GoogleAccountField({ value, set, labelEl, accounts }) {
       </div>
       {selected && (
         <div style={{
-          background: '#0f172a', border: '1px solid #1e3a5f', borderRadius: 6,
+          background: 'var(--bg)', border: '1px solid var(--tg)', borderRadius: 6,
           padding: '7px 10px', display: 'flex', flexDirection: 'column', gap: 4,
         }}>
-          <span style={{ fontSize: 10, color: '#60a5fa', fontWeight: 700, letterSpacing: '0.06em' }}>
+          <span style={{ fontSize: 10, color: 'var(--tg)', fontWeight: 700, letterSpacing: '0.06em' }}>
             COMPARTIR PLANILLA CON PULPO
           </span>
-          <span style={{ fontSize: 10, color: '#64748b', lineHeight: 1.5 }}>
+          <span style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.5 }}>
             Para que este nodo pueda acceder a tu Google Sheet, compartila con este email:
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 11, color: '#94a3b8', fontFamily: 'monospace', flex: 1, wordBreak: 'break-all' }}>
+            <span style={{ fontSize: 11, color: 'var(--text-subtle)', fontFamily: 'monospace', flex: 1, wordBreak: 'break-all' }}>
               {selected.email}
             </span>
             <CopyButton text={selected.email} />
@@ -140,14 +140,14 @@ function GoogleAccountField({ value, set, labelEl, accounts }) {
 function InfoField({ label, hint }) {
   return (
     <div style={{
-      background: '#0f172a', border: '1px solid #1e3a5f', borderRadius: 6,
+      background: 'var(--bg)', border: '1px solid var(--tg)', borderRadius: 6,
       padding: '7px 10px', display: 'flex', flexDirection: 'column', gap: 4,
     }}>
-      <span style={{ fontSize: 10, color: '#60a5fa', fontWeight: 700, letterSpacing: '0.06em' }}>
+      <span style={{ fontSize: 10, color: 'var(--tg)', fontWeight: 700, letterSpacing: '0.06em' }}>
         {label.toUpperCase()}
       </span>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ fontSize: 11, color: '#94a3b8', fontFamily: 'monospace', flex: 1, wordBreak: 'break-all' }}>
+        <span style={{ fontSize: 11, color: 'var(--text-subtle)', fontFamily: 'monospace', flex: 1, wordBreak: 'break-all' }}>
           {hint || label}
         </span>
         <CopyButton text={hint || label} />
@@ -166,7 +166,7 @@ export function Field({ field, config, onChange }) {
 
   const labelEl = (
     <label style={S.label}>
-      {label.toUpperCase()}{required && <span style={{ color: '#ef4444' }}> *</span>}
+      {label.toUpperCase()}{required && <span style={{ color: 'var(--danger)' }}> *</span>}
     </label>
   )
 
@@ -236,9 +236,9 @@ export function Field({ field, config, onChange }) {
           type="checkbox"
           checked={!!value}
           onChange={e => set(e.target.checked)}
-          style={{ accentColor: '#6b21a8', cursor: 'pointer' }}
+          style={{ accentColor: 'var(--brand)', cursor: 'pointer' }}
         />
-        <label htmlFor={key} style={{ ...S.label, margin: 0, cursor: 'pointer', fontSize: 12, color: '#cbd5e1', fontWeight: 400, letterSpacing: 0 }}>
+        <label htmlFor={key} style={{ ...S.label, margin: 0, cursor: 'pointer', fontSize: 12, color: 'var(--text)', fontWeight: 400, letterSpacing: 0 }}>
           {label}
         </label>
       </div>

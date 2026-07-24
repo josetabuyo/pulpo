@@ -1,20 +1,19 @@
 import { useState, useEffect, useCallback } from 'react'
 import { humanizeId } from '../../store/flowStore.js'
-import SimulatePanel from './SimulatePanel.jsx'
 
 function statusColor(s) {
-  if (s === 'completed') return '#16a34a'
-  if (s === 'error')     return '#dc2626'
-  if (s === 'running')   return '#2563eb'
-  return '#94a3b8'
+  if (s === 'completed') return 'var(--success)'
+  if (s === 'error')     return 'var(--danger)'
+  if (s === 'running')   return 'var(--tg)'
+  return 'var(--text-subtle)'
 }
 
 function SimBadge() {
   return (
     <span style={{
       marginLeft: 6, fontSize: 10, fontWeight: 700, letterSpacing: '0.04em',
-      color: '#a78bfa', background: 'rgba(167, 139, 250, 0.12)',
-      border: '1px solid #6d28d9', borderRadius: 4, padding: '1px 5px',
+      color: 'var(--brand-light)', background: 'rgba(167, 139, 250, 0.12)',
+      border: '1px solid var(--brand-hover)', borderRadius: 4, padding: '1px 5px',
     }}>
       SIMULADO
     </span>
@@ -36,8 +35,8 @@ function JsonNode({ label, value, depth }) {
   if (!isObj || isEmpty) {
     return (
       <div style={{ padding: '1px 0 1px 14px' }}>
-        {label != null && <span style={{ color: '#0369a1' }}>{label}: </span>}
-        <span style={{ color: '#334155' }}>
+        {label != null && <span style={{ color: 'var(--tg)' }}>{label}: </span>}
+        <span style={{ color: 'var(--text-muted)' }}>
           {isEmpty ? (Array.isArray(value) ? '[]' : '{}') : JSON.stringify(value)}
         </span>
       </div>
@@ -53,16 +52,16 @@ function JsonNode({ label, value, depth }) {
         onClick={() => setOpen(o => !o)}
         style={{ padding: '1px 0 1px 14px', cursor: 'pointer', userSelect: 'none' }}
       >
-        <span style={{ color: '#94a3b8', display: 'inline-block', width: 12 }}>
+        <span style={{ color: 'var(--text-subtle)', display: 'inline-block', width: 12 }}>
           {open ? '▾' : '▸'}
         </span>
-        {label != null && <span style={{ color: '#0369a1' }}>{label}: </span>}
-        <span style={{ color: '#94a3b8' }}>
+        {label != null && <span style={{ color: 'var(--tg)' }}>{label}: </span>}
+        <span style={{ color: 'var(--text-subtle)' }}>
           {isArray ? `Array(${entries.length})` : `{${entries.length}}`}
         </span>
       </div>
       {open && (
-        <div style={{ borderLeft: '1px solid #e2e8f0', marginLeft: 5 }}>
+        <div style={{ borderLeft: '1px solid var(--border)', marginLeft: 5 }}>
           {entries.map(([k, v]) => (
             <JsonNode key={k} label={k} value={v} depth={depth + 1} />
           ))}
@@ -73,7 +72,7 @@ function JsonNode({ label, value, depth }) {
 }
 
 function JsonViewer({ data }) {
-  if (data == null) return <div style={{ color: '#94a3b8', fontSize: 12, padding: 8 }}>null</div>
+  if (data == null) return <div style={{ color: 'var(--text-subtle)', fontSize: 12, padding: 8 }}>null</div>
   return (
     <div style={{ fontFamily: 'monospace', fontSize: 12, lineHeight: 1.6 }}>
       <JsonNode label={null} value={data} depth={0} />
@@ -88,32 +87,32 @@ function StepRow({ step, nodeLabels }) {
     <>
       <tr
         onClick={() => setOpen(o => !o)}
-        style={{ cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
+        style={{ cursor: 'pointer', borderBottom: '1px solid var(--border)' }}
       >
         <td style={{ padding: '6px 8px', fontWeight: 500 }}>{step.node_type}</td>
-        <td style={{ padding: '6px 8px', fontSize: 12, color: '#334155' }}>
+        <td style={{ padding: '6px 8px', fontSize: 12, color: 'var(--text-muted)' }}>
           {label}
         </td>
         <td style={{ padding: '6px 8px', color: statusColor(step.status), fontWeight: 600 }}>
           {step.status}
         </td>
-        <td style={{ padding: '6px 8px', color: '#64748b' }}>{step.branch_taken ?? '—'}</td>
-        <td style={{ padding: '6px 8px', color: '#94a3b8', fontSize: 12 }}>
+        <td style={{ padding: '6px 8px', color: 'var(--text-subtle)' }}>{step.branch_taken ?? '—'}</td>
+        <td style={{ padding: '6px 8px', color: 'var(--text-subtle)', fontSize: 12 }}>
           {duration(step.started_at, step.ended_at)}
         </td>
       </tr>
       {open && (
         <tr>
-          <td colSpan={5} style={{ padding: '10px 12px', background: '#f8fafc' }}>
+          <td colSpan={5} style={{ padding: '10px 12px', background: 'var(--surface-2)' }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               {[['INPUT', step.input_state], ['OUTPUT', step.output_state]].map(([label, data]) => (
                 <div key={label}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', marginBottom: 4, letterSpacing: 1 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-subtle)', marginBottom: 4, letterSpacing: 1 }}>
                     {label}
                   </div>
                   <div style={{
-                    background: '#fff',
-                    border: '1px solid #e2e8f0', borderRadius: 4,
+                    background: 'var(--surface)',
+                    border: '1px solid var(--border)', borderRadius: 4,
                     padding: '6px 8px',
                     maxHeight: 200, overflow: 'auto',
                   }}>
@@ -155,14 +154,14 @@ function RunDetail({ run, onClose, botId, apiCall }) {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#94a3b8' }}>
+          <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-subtle)' }}>
             {run.run_id.slice(0, 8)}…
           </span>
           <span style={{ color: statusColor(run.status), fontWeight: 600, fontSize: 13 }}>
             {run.status}
           </span>
           {run.is_sim && <SimBadge />}
-          <span style={{ fontSize: 12, color: '#64748b' }}>
+          <span style={{ fontSize: 12, color: 'var(--text-subtle)' }}>
             {duration(run.started_at, run.ended_at)}
           </span>
         </div>
@@ -171,9 +170,9 @@ function RunDetail({ run, onClose, botId, apiCall }) {
 
       {firstMessage && (
         <div style={{
-          fontSize: 12, color: '#475569', marginBottom: 6,
-          background: '#f8fafc', borderRadius: '6px 6px 0 0', padding: '6px 10px',
-          borderLeft: '3px solid #cbd5e1', borderBottom: '1px solid #e2e8f0',
+          fontSize: 12, color: 'var(--text-muted)', marginBottom: 6,
+          background: 'var(--surface-2)', borderRadius: '6px 6px 0 0', padding: '6px 10px',
+          borderLeft: '3px solid var(--border-strong)', borderBottom: '1px solid var(--border)',
         }}>
           <strong>{trigger.canal}</strong> · {trigger.contact_phone} · &quot;{firstMessage}&quot;
         </div>
@@ -181,15 +180,15 @@ function RunDetail({ run, onClose, botId, apiCall }) {
 
       <div style={{
         resize: 'vertical', overflow: 'auto', height: 220, minHeight: 90, maxHeight: 600,
-        border: '1px solid #e2e8f0', borderRadius: firstMessage ? '0 0 6px 6px' : 6,
-        marginBottom: 14, background: '#fff', padding: '4px 0',
+        border: '1px solid var(--border)', borderRadius: firstMessage ? '0 0 6px 6px' : 6,
+        marginBottom: 14, background: 'var(--surface)', padding: '4px 0',
       }}>
         <JsonViewer data={trigger} />
       </div>
 
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
         <thead>
-          <tr style={{ background: '#f1f5f9' }}>
+          <tr style={{ background: 'var(--border)' }}>
             {['Tipo', 'Nodo', 'Status', 'Rama', 'Tiempo'].map(h => (
               <th key={h} style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600, fontSize: 12 }}>{h}</th>
             ))}
@@ -197,7 +196,7 @@ function RunDetail({ run, onClose, botId, apiCall }) {
         </thead>
         <tbody>
           {(run.steps ?? []).length === 0
-            ? <tr><td colSpan={5} style={{ textAlign: 'center', padding: 24, color: '#94a3b8' }}>Sin steps</td></tr>
+            ? <tr><td colSpan={5} style={{ textAlign: 'center', padding: 24, color: 'var(--text-subtle)' }}>Sin steps</td></tr>
             : (run.steps ?? []).map(s => <StepRow key={s.id} step={s} nodeLabels={nodeLabels} />)
           }
         </tbody>
@@ -229,17 +228,15 @@ export default function RunsTab({ botId, apiCall }) {
 
   return (
     <div>
-      <SimulatePanel botId={botId} apiCall={apiCall} onSent={load} />
-
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <span style={{ fontSize: 12, color: '#94a3b8' }}>
+        <span style={{ fontSize: 12, color: 'var(--text-subtle)' }}>
           {runs.length === 0 ? 'Sin ejecuciones' : `${runs.length} ejecuciones recientes`}
         </span>
         <button className="btn-ghost btn-sm" onClick={load}>↺ Actualizar</button>
       </div>
 
       {runs.length === 0 && (
-        <div style={{ textAlign: 'center', padding: '40px 0', color: '#94a3b8', fontSize: 13 }}>
+        <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-subtle)', fontSize: 13 }}>
           Los flows se loguean automáticamente al disparar.
         </div>
       )}
@@ -247,7 +244,7 @@ export default function RunsTab({ botId, apiCall }) {
       {runs.length > 0 && (
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
-            <tr style={{ background: '#f1f5f9' }}>
+            <tr style={{ background: 'var(--border)' }}>
               {['Inicio', 'Flow', 'Status', 'Tiempo', ''].map(h => (
                 <th key={h} style={{ textAlign: 'left', padding: '6px 8px', fontWeight: 600, fontSize: 12 }}>{h}</th>
               ))}
@@ -255,18 +252,18 @@ export default function RunsTab({ botId, apiCall }) {
           </thead>
           <tbody>
             {runs.map(run => (
-              <tr key={run.run_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                <td style={{ padding: '7px 8px', fontSize: 12, color: '#475569' }}>
+              <tr key={run.run_id} style={{ borderBottom: '1px solid var(--border)' }}>
+                <td style={{ padding: '7px 8px', fontSize: 12, color: 'var(--text-muted)' }}>
                   {run.started_at?.slice(5, 16)}
                 </td>
-                <td style={{ padding: '7px 8px', fontFamily: 'monospace', fontSize: 11, color: '#64748b' }}>
+                <td style={{ padding: '7px 8px', fontFamily: 'monospace', fontSize: 11, color: 'var(--text-subtle)' }}>
                   {run.flow_id.slice(0, 8)}
                 </td>
                 <td style={{ padding: '7px 8px' }}>
                   <span style={{ color: statusColor(run.status), fontWeight: 600 }}>{run.status}</span>
                   {run.is_sim && <SimBadge />}
                 </td>
-                <td style={{ padding: '7px 8px', color: '#94a3b8', fontSize: 12 }}>
+                <td style={{ padding: '7px 8px', color: 'var(--text-subtle)', fontSize: 12 }}>
                   {duration(run.started_at, run.ended_at)}
                 </td>
                 <td style={{ padding: '7px 8px', textAlign: 'right' }}>

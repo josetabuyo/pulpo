@@ -1,14 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { api, apiQuiet } from '../api.js'
-import { useFbSession } from '../hooks/useFbSession.js'
 import MonitorPanel from '../components/MonitorPanel.jsx'
-import ArchitectureSection from '../components/ArchitectureSection.jsx'
 import BotCard, { normalizeBot } from '../components/BotCard.jsx'
 
 // ─── WaviModal ────────────────────────────────────────────────────────────────
 
-function WaviModal({ open, onClose, pwd, session }) {
+function WaviModal({ open, onClose, session }) {
   const [sessions, setSessions] = useState([])
   const [starting, setStarting] = useState(false)
   const [qrHtml, setQrHtml] = useState('')
@@ -18,18 +16,17 @@ function WaviModal({ open, onClose, pwd, session }) {
     setSessions([])
     setStarting(false)
     setQrHtml('')
-    const fetchSessions = () => apiQuiet('GET', '/wavi/sessions', null, pwd).then(s => { if (s) setSessions(s) })
+    const fetchSessions = () => apiQuiet('GET', '/wavi/sessions', null).then(s => { if (s) setSessions(s) })
     fetchSessions()
     const id = setInterval(fetchSessions, 3000)
     return () => clearInterval(id)
-  }, [open, pwd, session])
+  }, [open, session])
 
-  // Fetches QR HTML con header de auth — la contraseña nunca va en la URL
   useEffect(() => {
     if (!open) return
     const fetchQr = async () => {
       try {
-        const res = await fetch('/api/wavi/qr-page', { headers: { 'x-password': pwd } })
+        const res = await fetch('/api/wavi/qr-page', { credentials: 'include' })
         if (res.ok) setQrHtml(await res.text())
       } catch (e) {
         // El polling reintenta solo en el próximo tick; el rastro queda en consola
@@ -39,16 +36,16 @@ function WaviModal({ open, onClose, pwd, session }) {
     fetchQr()
     const id = setInterval(fetchQr, 5000)
     return () => clearInterval(id)
-  }, [open, pwd])
+  }, [open])
 
   const isSpecificSession = session && session !== 'default'
 
   async function handleConnect() {
     setStarting(true)
     if (isSpecificSession) {
-      await apiQuiet('POST', `/wavi/sessions/${session}/connect`, null, pwd)
+      await apiQuiet('POST', `/wavi/sessions/${session}/connect`, null)
     } else {
-      await apiQuiet('POST', '/wavi/sessions', { session: null }, pwd)
+      await apiQuiet('POST', '/wavi/sessions', { session: null })
     }
     setStarting(false)
   }
@@ -62,7 +59,7 @@ function WaviModal({ open, onClose, pwd, session }) {
       <div className="modal" style={{ width: 420 }}>
         <button className="modal-close" onClick={onClose}>✕</button>
         <h3>{isSpecificSession ? `Conectar WhatsApp — ${session}` : 'Conectar WhatsApp (Wavi)'}</h3>
-        <p style={{ fontSize: 13, color: '#888', marginTop: 0 }}>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 0 }}>
           {isSpecificSession
             ? 'Iniciá el daemon y escaneá el QR con tu celular para reconectar esta sesión.'
             : 'Iniciá el daemon y escaneá el QR con tu celular.'}
@@ -72,14 +69,14 @@ function WaviModal({ open, onClose, pwd, session }) {
         </button>
         <iframe
           srcDoc={qrHtml}
-          style={{ width: '100%', height: 360, border: '1px solid #333', borderRadius: 6 }}
+          style={{ width: '100%', height: 360, border: '1px solid var(--border)', borderRadius: 6 }}
           title="WhatsApp QR"
         />
         {visibleSessions.length > 0 && (
           <div style={{ marginTop: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Estado</div>
             {visibleSessions.map(s => (
-              <div key={s.session} style={{ fontSize: 12, color: s.authenticated ? '#22c55e' : '#888', marginBottom: 2 }}>
+              <div key={s.session} style={{ fontSize: 12, color: s.authenticated ? 'var(--success)' : 'var(--text-muted)', marginBottom: 2 }}>
                 {s.session}: {s.authenticated ? '✓ Conectado' : s.connecting ? '⏳ Conectando…' : 'Detenido'}
               </div>
             ))}
@@ -188,9 +185,7 @@ function TelegramModal({ open, onClose, botId, onSave }) {
 // ─── Dashboard principal ───────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const pwd = sessionStorage.getItem('admin_pwd') || ''
 
   const [bots, setBots] = useState([])
   const [loading, setLoading] = useState(true)
@@ -199,28 +194,17 @@ export default function DashboardPage() {
   const [botModal, setBotModal] = useState({ open: false, editBot: null })
   const [tgModal, setTgModal] = useState({ open: false, botId: null })
   const [expandedBot, setExpandedBot] = useState(null)
-  const [monitorAlerts,     setMonitorAlerts]     = useState(0)
   const [monitorCollapsed,  setMonitorCollapsed]  = useState(() => searchParams.get('monitor') !== '1')
   const [companiesCollapsed, setCompaniesCollapsed] = useState(false)
-  const [configCollapsed,   setConfigCollapsed]   = useState(() => searchParams.get('config') !== '1')
-  const [archCollapsed,     setArchCollapsed]     = useState(() => searchParams.get('arquitectura') !== '1')
-  const [pollMinutes,       setPollMinutes]        = useState(5)
-  const [pollSaving,        setPollSaving]         = useState(false)
   const [waviModal,         setWaviModal]          = useState({ open: false, session: null })
 
   useEffect(() => { document.title = 'Pulpo — Dashboard' }, [])
 
-  // Redirect si no hay pwd
-  useEffect(() => {
-    if (!pwd) navigate('/')
-  }, [pwd, navigate])
-
+  // La sesión ya se valida en RequireAuth (App.jsx) antes de montar esta página.
   const call = useCallback(
-    (method, path, body) => api(method, path, body, pwd),
-    [pwd]
+    (method, path, body) => api(method, path, body),
+    []
   )
-
-  const { fbLabel: fbSessionLabel, fbRunning: fbSessionRunning, startFbSession: handleFbSession } = useFbSession(call)
 
   const loadBots = useCallback(async () => {
     const data = await call('GET', '/bots')
@@ -229,13 +213,10 @@ export default function DashboardPage() {
   }, [call])
 
   useEffect(() => {
-    if (!pwd) return
-    apiQuiet('GET', '/config/settings', null, pwd)
-      .then(s => { if (s) setPollMinutes(Math.round((s.wa_poll_interval_seconds || 300) / 60)) })
     loadBots()
     const interval = setInterval(loadBots, 6000)
     return () => clearInterval(interval)
-  }, [loadBots, pwd])
+  }, [loadBots])
 
   useEffect(() => {
     const botId = searchParams.get('bot')
@@ -244,16 +225,8 @@ export default function DashboardPage() {
     if (bot) setExpandedBot({ bot, normalized: normalizeBot(bot) })
   }, [bots, searchParams, expandedBot])
 
-  async function savePollInterval() {
-    setPollSaving(true)
-    const secs = Math.max(60, Math.min(3600, Math.round(pollMinutes * 60)))
-    await apiQuiet('PUT', '/config/settings', { wa_poll_interval_seconds: secs }, pwd)
-    setPollSaving(false)
-  }
-
   function logout() {
-    sessionStorage.removeItem('admin_pwd')
-    navigate('/')
+    window.location.href = '/api/auth/signout?callbackUrl=/'
   }
 
   function toggleSection(key, collapsed, setCollapsed) {
@@ -297,17 +270,20 @@ export default function DashboardPage() {
   }
 
   // ── Telegram CRUD ──
+  // Pega contra /bot/{botId}/telegram (bot_portal.py / web/app/api/bot/[botId]/telegram),
+  // el mismo endpoint que usa el portal de bot -- antes pegaba a /telegram
+  // (sin botId en el path), que nunca existió ni en el Python original.
   async function handleSaveTg({ token, botId }) {
-    const res = await call('POST', '/telegram', { botId, token })
-    if (res.error) return alert('Error: ' + res.error)
+    const res = await call('POST', `/bot/${botId}/telegram`, { token })
+    if (!res?.ok) return alert('Error: ' + (res?.detail || 'no se pudo agregar'))
     setTgModal({ open: false, botId: null })
     loadBots()
   }
 
-  async function handleDeleteTg(tokenId) {
+  async function handleDeleteTg(botId, tokenId) {
     if (!confirm(`¿Eliminar el bot de Telegram con token ID ${tokenId}?`)) return
-    const res = await call('DELETE', `/telegram/${tokenId}`)
-    if (res.error) return alert('Error: ' + res.error)
+    const res = await call('DELETE', `/bot/${botId}/telegram/${tokenId}`)
+    if (!res?.ok) return alert('Error: ' + (res?.detail || 'no se pudo eliminar'))
     loadBots()
   }
 
@@ -342,73 +318,17 @@ export default function DashboardPage() {
 
       <main>
 
-        {/* ── Sección: Arquitectura ── */}
-        <div className="section-block">
-          <div className="section-block-header" onClick={() => toggleSection('arquitectura', archCollapsed, setArchCollapsed)}>
-            <div className="section-block-title">🏛 Arquitectura</div>
-            <button className="btn-ghost btn-sm" onClick={e => { e.stopPropagation(); toggleSection('arquitectura', archCollapsed, setArchCollapsed) }}>
-              {archCollapsed ? '▼ Expandir' : '▲ Colapsar'}
-            </button>
-          </div>
-          <div style={{ display: archCollapsed ? 'none' : 'block', padding: '12px 16px' }}>
-            <ArchitectureSection pwd={pwd} collapsed={archCollapsed} />
-          </div>
-        </div>
-
-        {/* ── Sección: Config ── */}
-        <div className="section-block">
-          <div className="section-block-header" onClick={() => toggleSection('config', configCollapsed, setConfigCollapsed)}>
-            <div className="section-block-title">⚙️ Config</div>
-            <button className="btn-ghost btn-sm" onClick={e => { e.stopPropagation(); toggleSection('config', configCollapsed, setConfigCollapsed) }}>
-              {configCollapsed ? '▼ Expandir' : '▲ Colapsar'}
-            </button>
-          </div>
-          <div style={{ display: configCollapsed ? 'none' : 'block', padding: '12px 16px' }}>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-              <button
-                className="btn-ghost btn-sm"
-                onClick={() => handleFbSession('luganense')}
-                disabled={fbSessionRunning}
-                title="Renovar cookies de Facebook (abre browser en el servidor)"
-              >
-                {fbSessionLabel}
-              </button>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-              <label style={{ fontSize: 13 }}>
-                Polling WhatsApp (minutos):&nbsp;
-                <input
-                  type="number" min={1} max={60} value={pollMinutes}
-                  onChange={e => setPollMinutes(Number(e.target.value))}
-                  style={{ width: 60, marginLeft: 4 }}
-                />
-              </label>
-              <button className="btn-ghost btn-sm" onClick={savePollInterval} disabled={pollSaving}>
-                {pollSaving ? 'Guardando…' : 'Guardar'}
-              </button>
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn-ghost btn-sm" onClick={() => setWaviModal({ open: true, session: null })}>
-                📱 Conectar WhatsApp (Wavi)
-              </button>
-            </div>
-          </div>
-        </div>
-
         {/* ── Sección: Monitor ── */}
         <div className="section-block">
           <div className="section-block-header" onClick={() => toggleSection('monitor', monitorCollapsed, setMonitorCollapsed)}>
-            <div className="section-block-title">
-              📊 Monitor
-              {monitorAlerts > 0 && <span className="mon-badge-inline">{monitorAlerts} alertas</span>}
-            </div>
+            <div className="section-block-title">📊 Monitor</div>
             <button
               className="btn-ghost btn-sm"
               onClick={e => { e.stopPropagation(); toggleSection('monitor', monitorCollapsed, setMonitorCollapsed) }}
             >{monitorCollapsed ? '▼ Expandir' : '▲ Colapsar'}</button>
           </div>
           <div style={{ display: monitorCollapsed ? 'none' : 'block' }}>
-            <MonitorPanel pwd={pwd} onAlertsChange={setMonitorAlerts} active={!monitorCollapsed} />
+            <MonitorPanel active={!monitorCollapsed} />
           </div>
         </div>
 
@@ -417,15 +337,7 @@ export default function DashboardPage() {
           <div className="card-title">Links para bots</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div>
-              <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>Portal de bot (acceso con contraseña)</div>
-              <div className="share-row">
-                <input className="share-url" readOnly value={(import.meta.env.VITE_PUBLIC_URL || window.location.origin) + '/bot'} />
-                <button className="btn-blue" onClick={() => navigator.clipboard.writeText((import.meta.env.VITE_PUBLIC_URL || window.location.origin) + '/bot')}>Copiar</button>
-                <button className="btn-ghost" onClick={() => window.open((import.meta.env.VITE_PUBLIC_URL || window.location.origin) + '/bot')}>Abrir</button>
-              </div>
-            </div>
-            <div>
-              <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>Alta nueva bot (link en blanco)</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Alta nueva bot (link en blanco)</div>
               <div className="share-row">
                 <input className="share-url" readOnly value={(import.meta.env.VITE_PUBLIC_URL || window.location.origin) + '/bot/nueva'} />
                 <button className="btn-blue" onClick={() => navigator.clipboard.writeText((import.meta.env.VITE_PUBLIC_URL || window.location.origin) + '/bot/nueva')}>Copiar</button>
@@ -468,7 +380,7 @@ export default function DashboardPage() {
               onEditBot={b => setBotModal({ open: true, editBot: b })}
               onDeleteBot={botId => handleDeleteBot(botId)}
               onAddTelegram={botId => setTgModal({ open: true, botId })}
-              onDeleteTelegram={conn => handleDeleteTg(conn.number)}
+              onDeleteTelegram={conn => handleDeleteTg(bot.id, conn.number)}
               onReconnectTg={conn => handleReconnectTg(conn.number)}
               onReconnectWavi={number => setWaviModal({ open: true, session: number })}
               onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('drag-over') }}
@@ -500,7 +412,6 @@ export default function DashboardPage() {
       <WaviModal
         open={waviModal.open}
         onClose={() => setWaviModal({ open: false, session: null })}
-        pwd={pwd}
         session={waviModal.session}
       />
 
@@ -520,7 +431,7 @@ export default function DashboardPage() {
               onEditBot={b => { openBotModal(null); setBotModal({ open: true, editBot: b }) }}
               onDeleteBot={botId => { openBotModal(null); handleDeleteBot(botId) }}
               onAddTelegram={botId => setTgModal({ open: true, botId })}
-              onDeleteTelegram={conn => handleDeleteTg(conn.number)}
+              onDeleteTelegram={conn => handleDeleteTg(expandedBot.bot.id, conn.number)}
               onReconnectTg={conn => handleReconnectTg(conn.number)}
               onReconnectWavi={number => setWaviModal({ open: true, session: number })}
             />

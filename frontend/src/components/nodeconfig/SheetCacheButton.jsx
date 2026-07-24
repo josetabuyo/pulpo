@@ -16,19 +16,19 @@ export default function SheetCacheButton({ apiCall }) {
     setTimeout(() => setStatus(''), 3000)
   }
   return (
-    <div style={{ paddingTop: 8, borderTop: '1px solid #1e293b' }}>
+    <div style={{ paddingTop: 8, borderTop: '1px solid var(--surface-2)' }}>
       <button
         onClick={handleClear}
         style={{
           width: '100%', padding: '7px 12px',
-          background: 'transparent', border: '1px solid #0e7490',
-          borderRadius: 6, color: '#22d3ee', fontSize: 12,
+          background: 'transparent', border: '1px solid var(--tg)',
+          borderRadius: 6, color: 'var(--tg)', fontSize: 12,
           cursor: 'pointer', fontWeight: 600,
         }}
       >
         🗑 Limpiar caché de hoja
       </button>
-      {status && <div style={{ fontSize: 11, color: '#22d3ee', textAlign: 'center', marginTop: 4 }}>{status}</div>}
+      {status && <div style={{ fontSize: 11, color: 'var(--tg)', textAlign: 'center', marginTop: 4 }}>{status}</div>}
     </div>
   )
 }

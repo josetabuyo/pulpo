@@ -17,7 +17,7 @@ export function ConexionRow({ conn, onDelete }) {
   useEffect(() => setStatus(conn.status), [conn.status])
 
   return (
-    <div className="phone-row" style={{ background: '#f0f4ff' }}>
+    <div className="phone-row" style={{ background: 'var(--brand-dim)' }}>
       <div className="phone-number">
         <span className="tg-label">TG</span>
         <span className="phone-id">{conn.id}</span>
@@ -134,8 +134,8 @@ function StepConexiones({ session, onDone }) {
 
       <div className="card" style={{ marginBottom: 24 }}>
         <div className="card-title">✈️ Telegram</div>
-        <details open style={{ marginBottom: 12, fontSize: 13, color: '#555' }}>
-          <summary style={{ cursor: 'pointer', fontWeight: 600, color: '#3b5bdb' }}>
+        <details open style={{ marginBottom: 12, fontSize: 13, color: 'var(--text-muted)' }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--brand-light)' }}>
             ¿Cómo crear un bot con @BotFather?
           </summary>
           <ol style={{ margin: '8px 0 0 16px', lineHeight: 1.8 }}>
@@ -151,7 +151,7 @@ function StepConexiones({ session, onDone }) {
             placeholder="Token de @BotFather (123456:ABC...)" />
           <button type="submit" className="btn-primary btn-sm" disabled={loading}>Agregar</button>
         </form>
-        {tgError && <div style={{ fontSize: 13, color: tgError.includes('Requiere') ? '#b45309' : 'var(--error)', marginBottom: 8 }}>{tgError}</div>}
+        {tgError && <div style={{ fontSize: 13, color: tgError.includes('Requiere') ? 'var(--warning)' : 'var(--danger)', marginBottom: 8 }}>{tgError}</div>}
         <div className="phones-table">
           {conns.map(c => (
             <ConexionRow key={c.id} conn={c} botId={botId} onDelete={removeConn} />
@@ -189,7 +189,7 @@ function StepListo({ session }) {
       <p className="subtitle">
         <strong>{session.botName}</strong> está configurada y lista para usar.
       </p>
-      <p className="subtitle" style={{ marginTop: 8, fontSize: 13, color: '#888' }}>
+      <p className="subtitle" style={{ marginTop: 8, fontSize: 13, color: 'var(--text-muted)' }}>
         Guardá tu contraseña: podés entrar en cualquier momento desde el portal de bot.
       </p>
       <button className="btn-connect" style={{ marginTop: 24 }} onClick={goPortal}>

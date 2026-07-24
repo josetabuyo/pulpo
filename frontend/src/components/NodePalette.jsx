@@ -14,8 +14,8 @@ function NodeTooltip({ nt, anchorEl }) {
       left: rect.right + 10,
       zIndex: 9999,
       width: 260,
-      background: '#0f172a',
-      border: '1px solid #334155',
+      background: 'var(--bg)',
+      border: '1px solid var(--border-strong)',
       borderRadius: 8,
       boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
       padding: '10px 12px',
@@ -26,31 +26,31 @@ function NodeTooltip({ nt, anchorEl }) {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <div style={{ width: 8, height: 8, borderRadius: 2, background: nt.color, flexShrink: 0 }} />
-        <span style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>{nt.label}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{nt.label}</span>
       </div>
       {nt.description && (
-        <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.5 }}>{nt.description}</div>
+        <div style={{ fontSize: 11, color: 'var(--text-subtle)', lineHeight: 1.5 }}>{nt.description}</div>
       )}
       {nt.help && (
         <div style={{
-          fontSize: 10, color: '#64748b', lineHeight: 1.6,
-          borderTop: '1px solid #1e293b', paddingTop: 6, whiteSpace: 'pre-wrap',
+          fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6,
+          borderTop: '1px solid var(--surface-2)', paddingTop: 6, whiteSpace: 'pre-wrap',
         }}>
           {nt.help}
         </div>
       )}
       {fields.length > 0 && (
-        <div style={{ borderTop: '1px solid #1e293b', paddingTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <span style={{ fontSize: 9, color: '#475569', fontWeight: 700, letterSpacing: '0.08em' }}>PARÁMETROS</span>
+        <div style={{ borderTop: '1px solid var(--surface-2)', paddingTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ fontSize: 9, color: 'var(--text-subtle)', fontWeight: 700, letterSpacing: '0.08em' }}>PARÁMETROS</span>
           {fields.map(f => (
             <div key={f.key} style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                <span style={{ fontSize: 10, color: '#cbd5e1', fontFamily: 'monospace' }}>{f.key}</span>
-                <span style={{ fontSize: 9, color: '#475569' }}>{f.type}</span>
-                {f.required && <span style={{ fontSize: 9, color: '#ef4444' }}>*</span>}
+                <span style={{ fontSize: 10, color: 'var(--text)', fontFamily: 'monospace' }}>{f.key}</span>
+                <span style={{ fontSize: 9, color: 'var(--text-subtle)' }}>{f.type}</span>
+                {f.required && <span style={{ fontSize: 9, color: 'var(--danger)' }}>*</span>}
               </div>
               {(f.hint || f.label) && (
-                <span style={{ fontSize: 10, color: '#64748b', paddingLeft: 6 }}>{f.hint || f.label}</span>
+                <span style={{ fontSize: 10, color: 'var(--text-muted)', paddingLeft: 6 }}>{f.hint || f.label}</span>
               )}
             </div>
           ))}
@@ -101,8 +101,8 @@ export default function NodePalette({ typeMap }) {
         data-testid="node-palette"
         style={{
           width: 160,
-          background: '#0f172a',
-          borderRight: '1px solid #1e293b',
+          background: 'var(--bg)',
+          borderRight: '1px solid var(--surface-2)',
           display: 'flex',
           flexDirection: 'column',
           padding: '12px 6px',
@@ -110,7 +110,7 @@ export default function NodePalette({ typeMap }) {
         }}
       >
         <div style={{
-          fontSize: 10, color: '#334155', fontWeight: 700,
+          fontSize: 10, color: 'var(--border-strong)', fontWeight: 700,
           letterSpacing: '0.1em', marginBottom: 8, paddingLeft: 4,
         }}>
           NODOS
@@ -118,7 +118,7 @@ export default function NodePalette({ typeMap }) {
 
         <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
           {allNodes.length === 0 && (
-            <div style={{ fontSize: 12, color: '#475569', padding: '8px 4px' }}>Cargando…</div>
+            <div style={{ fontSize: 12, color: 'var(--text-subtle)', padding: '8px 4px' }}>Cargando…</div>
           )}
           {allNodes.map(nt => (
             <div
@@ -136,7 +136,7 @@ export default function NodePalette({ typeMap }) {
                 cursor: 'grab',
                 userSelect: 'none',
                 marginBottom: 1,
-                background: hoveredId === nt.id ? '#1e293b' : 'transparent',
+                background: hoveredId === nt.id ? 'var(--surface-2)' : 'transparent',
               }}
             >
               <div style={{
@@ -145,7 +145,7 @@ export default function NodePalette({ typeMap }) {
               }} />
               <div style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
                 <span style={{
-                  fontSize: 10, color: '#94a3b8', fontFamily: 'monospace',
+                  fontSize: 10, color: 'var(--text-subtle)', fontFamily: 'monospace',
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                 }}>
                   {nt.id}

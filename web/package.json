@@ -1,0 +1,39 @@
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p ${WEB_BACKEND_PORT:-9010}",
+    "build": "node scripts/build-spa.mjs && next build",
+    "build:api-only": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "db:push": "dotenv -e .env.local -- drizzle-kit push",
+    "seed:flow": "dotenv -e .env.local -- tsx scripts/seed-flow.ts",
+    "pulpo": "dotenv -e .env.local -- tsx cli/main.ts"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
+    "drizzle-orm": "^0.45.2",
+    "jose": "^6.2.4",
+    "next": "16.2.11",
+    "next-auth": "^5.0.0-beta.32",
+    "pg": "^8.22.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "workflow": "^4.6.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/pg": "^8.20.0",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "dotenv-cli": "^11.0.0",
+    "drizzle-kit": "^0.31.10",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.11",
+    "tsx": "^4.23.1",
+    "typescript": "^5"
+  }
+}

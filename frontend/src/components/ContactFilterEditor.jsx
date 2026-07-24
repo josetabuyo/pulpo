@@ -24,27 +24,27 @@ export const DEFAULT_FILTER = {
 const T = {
   section: {
     fontSize: 9, fontWeight: 700, letterSpacing: '0.08em',
-    color: '#475569', padding: '8px 0 4px', display: 'block',
+    color: 'var(--text-muted)', padding: '8px 0 4px', display: 'block',
   },
   row: {
     display: 'flex', alignItems: 'center', gap: 6,
-    padding: '4px 0', borderBottom: '1px solid rgba(15,23,42,0.8)',
+    padding: '4px 0', borderBottom: '1px solid rgba(10,17,32,0.8)',
   },
   name: {
-    flex: 1, fontSize: 12, color: '#cbd5e1',
+    flex: 1, fontSize: 12, color: 'var(--text)',
     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
   },
   check: { flexShrink: 0, width: 13, height: 13, cursor: 'pointer' },
-  lbl: { fontSize: 11, color: '#94a3b8', cursor: 'pointer', margin: 0 },
+  lbl: { fontSize: 11, color: 'var(--text-subtle)', cursor: 'pointer', margin: 0 },
 }
 
 function badge(state) {
   const base = { fontSize: 10, padding: '2px 6px', borderRadius: 4, cursor: 'pointer', fontWeight: 500, flexShrink: 0 }
-  if (state === 'excluded') return { ...base, background: 'rgba(220,38,38,.15)', color: '#f87171', border: '1px solid rgba(220,38,38,.3)' }
-  if (state === 'included') return { ...base, background: 'rgba(34,197,94,.15)', color: '#4ade80', border: '1px solid rgba(34,197,94,.3)' }
-  if (state === 'excl-btn') return { ...base, fontWeight: 400, background: 'transparent', color: '#ef4444', border: '1px solid rgba(239,68,68,.25)' }
-  if (state === 'incl-btn') return { ...base, fontWeight: 400, background: 'transparent', color: '#22c55e', border: '1px solid rgba(34,197,94,.25)' }
-  return { ...base, fontWeight: 400, background: 'transparent', color: '#475569', border: '1px solid #1e293b' }
+  if (state === 'excluded') return { ...base, background: 'rgba(220,38,38,.15)', color: 'var(--danger)', border: '1px solid rgba(220,38,38,.3)' }
+  if (state === 'included') return { ...base, background: 'rgba(34,197,94,.15)', color: 'var(--success)', border: '1px solid rgba(34,197,94,.3)' }
+  if (state === 'excl-btn') return { ...base, fontWeight: 400, background: 'transparent', color: 'var(--danger)', border: '1px solid rgba(239,68,68,.25)' }
+  if (state === 'incl-btn') return { ...base, fontWeight: 400, background: 'transparent', color: 'var(--success)', border: '1px solid rgba(34,197,94,.25)' }
+  return { ...base, fontWeight: 400, background: 'transparent', color: 'var(--text-muted)', border: '1px solid var(--surface-2)' }
 }
 
 export default function ContactFilterEditor({
@@ -148,11 +148,11 @@ export default function ContactFilterEditor({
       <div style={T.row}>
         <span style={T.name} title={name}>
           {name}
-          {sub && <span style={{ fontSize: 10, color: '#64748b', marginLeft: 4 }}>{sub}</span>}
+          {sub && <span style={{ fontSize: 10, color: 'var(--text-subtle)', marginLeft: 4 }}>{sub}</span>}
         </span>
         {isOrphan && onBootstrap && (
           <span
-            style={{ ...badge('neutral'), fontSize: 10, color: '#38bdf8', border: '1px solid rgba(56,189,248,.3)', cursor: bootstrapping[name] ? 'default' : 'pointer', opacity: bootstrapping[name] ? 0.5 : 1 }}
+            style={{ ...badge('neutral'), fontSize: 10, color: 'var(--tg)', border: '1px solid rgba(56,189,248,.3)', cursor: bootstrapping[name] ? 'default' : 'pointer', opacity: bootstrapping[name] ? 0.5 : 1 }}
             onClick={() => handleBootstrap(name)}
             title="Importar historial de WhatsApp"
           >
@@ -187,8 +187,8 @@ export default function ContactFilterEditor({
           onKeyDown={e => e.key === 'Enter' && addManual()}
           style={{
             flex: 1, fontSize: 11, padding: '5px 8px',
-            background: '#0f172a', border: '1px solid #1e293b',
-            borderRadius: 4, color: '#cbd5e1', boxSizing: 'border-box',
+            background: 'var(--bg)', border: '1px solid var(--surface-2)',
+            borderRadius: 4, color: 'var(--text)', boxSizing: 'border-box',
           }}
         />
         <button
@@ -197,7 +197,7 @@ export default function ContactFilterEditor({
           style={{
             fontSize: 11, padding: '4px 10px', borderRadius: 4, cursor: 'pointer',
             background: manualInput.trim() ? 'rgba(34,197,94,.15)' : 'transparent',
-            border: '1px solid rgba(34,197,94,.3)', color: '#4ade80',
+            border: '1px solid rgba(34,197,94,.3)', color: 'var(--success)',
             opacity: manualInput.trim() ? 1 : 0.4,
           }}
         >
@@ -220,7 +220,7 @@ export default function ContactFilterEditor({
           </label>
         </div>
       ) : (
-        <div style={{ fontSize: 10, color: '#64748b', marginBottom: 8, fontStyle: 'italic' }}>
+        <div style={{ fontSize: 10, color: 'var(--text-subtle)', marginBottom: 8, fontStyle: 'italic' }}>
           Masivo deshabilitado — solo contactos específicos
         </div>
       )}
@@ -235,8 +235,8 @@ export default function ContactFilterEditor({
           onChange={e => setSearch(e.target.value)}
           style={{
             fontSize: 11, padding: '4px 8px', marginBottom: 4,
-            background: '#0f172a', border: '1px solid #1e293b',
-            borderRadius: 4, color: '#cbd5e1', width: '100%', boxSizing: 'border-box',
+            background: 'var(--bg)', border: '1px solid var(--surface-2)',
+            borderRadius: 4, color: 'var(--text)', width: '100%', boxSizing: 'border-box',
           }}
         />
       )}
@@ -279,7 +279,7 @@ export default function ContactFilterEditor({
 
       {isEmpty && (
         <div style={{
-          marginTop: 6, fontSize: 10, color: '#ef4444',
+          marginTop: 6, fontSize: 10, color: 'var(--danger)',
           background: 'rgba(239,68,68,.08)', borderRadius: 4, padding: '4px 6px',
         }}>
           ⚠ Sin filtro activo — el flow no responderá a nadie

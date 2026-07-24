@@ -10,9 +10,9 @@ export const STATUS_LABELS = {
 }
 
 export function dotColor(status) {
-  if (status === 'ready') return '#2196f3'
-  if (['connecting'].includes(status)) return '#f59e0b'
-  return '#ef4444'
+  if (status === 'ready') return 'var(--tg)'
+  if (['connecting'].includes(status)) return 'var(--warning)'
+  return 'var(--danger)'
 }
 
 export function CopyLinkBtn({ botId }) {
@@ -39,7 +39,7 @@ export function CopyLinkBtn({ botId }) {
       style={{
         cursor: 'pointer',
         fontSize: 13,
-        color: copied ? '#22c55e' : '#475569',
+        color: copied ? 'var(--success)' : 'var(--text-muted)',
         transition: 'color 0.2s',
         userSelect: 'none',
         lineHeight: 1,

@@ -1,0 +1,377 @@
+/**
+ * Paleta "PulpoChat" -- profundidad oceánica de noche + la piel del pulpo.
+ * Ver management/HANDOFF_DASHBOARD_CHATS_VIEW.md §6 (gitignoreado) para el
+ * razonamiento completo de cada token y sus ratios de contraste. Scopeada
+ * bajo .pulpochat a propósito -- NO toca index.css/el resto del dashboard
+ * (que sigue en tema claro).
+ */
+.pulpochat {
+  --pc-bg-deep: #0A1220;
+  --pc-bg: #0E1829;
+  --pc-surface: #16233A;
+  --pc-surface-raised: #1D2E4A;
+
+  --pc-border: #24365A;
+  --pc-border-subtle: #1A2942;
+
+  --pc-accent: #8B5CF6;
+  --pc-accent-bright: #A78BFA;
+  --pc-accent-deep: #6D28D9;
+  --pc-accent-glow: rgba(139, 92, 246, .16);
+
+  --pc-wine-deep: #4A1A2E;
+  --pc-wine: #A83A5C;
+  --pc-wine-bright: #E0708F;
+
+  --pc-text: #E8EDF7;
+  --pc-text-muted: #9AAAC8;
+  --pc-text-subtle: #5E6E8F;
+
+  --pc-ok: #34D399;
+  --pc-error: #F87171;
+  --pc-warn: #FBBF24;
+
+  --pc-radius-surface: 12px;
+  --pc-radius-bubble: 16px;
+  --pc-radius-bubble-tail: 4px;
+  --pc-shadow: 0 8px 24px rgba(4, 8, 18, .5);
+  --pc-gradient-hero: linear-gradient(165deg, #101C33 0%, #0A1220 60%, #140F2E 100%);
+
+  position: fixed;
+  inset: 0;
+  display: flex;
+  background: var(--pc-bg-deep);
+  color: var(--pc-text);
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Uso embebido (2026-07-23, ChatsTab): contenido dentro de la card del bot,
+   no fullscreen -- .pulpochat base ya asume position:fixed/inset:0 (pensado
+   para ChatPage standalone), acá lo acotamos a un contenedor con altura fija. */
+.pulpochat--embedded {
+  position: relative;
+  inset: auto;
+  height: 560px;
+  border-radius: var(--pc-radius-surface);
+  overflow: hidden;
+}
+
+.pulpochat * { box-sizing: border-box; }
+
+.pulpochat button {
+  font-family: inherit;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: opacity .15s, background .15s;
+}
+.pulpochat button:disabled { opacity: .45; cursor: not-allowed; }
+
+.pulpochat a { color: var(--pc-accent-bright); }
+
+/* ─── Layout: 3 columnas ─── */
+.pc-layout {
+  display: grid;
+  grid-template-columns: 240px 1fr 220px;
+  width: 100%;
+  height: 100%;
+}
+
+/* ─── Sidebar (izquierda) ─── */
+.pc-sidebar {
+  background: var(--pc-surface);
+  border-right: 1px solid var(--pc-border);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.pc-sidebar-header {
+  padding: 16px;
+  border-bottom: 1px solid var(--pc-border-subtle);
+}
+.pc-sidebar-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--pc-text);
+  margin-bottom: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pc-new-btn {
+  width: 100%;
+  padding: 9px 12px;
+  background: var(--pc-accent);
+  color: white;
+  font-size: 13px;
+  font-weight: 600;
+}
+.pc-new-btn:hover { background: var(--pc-accent-deep); opacity: 1; }
+
+.pc-conv-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+.pc-conv-item {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: var(--pc-text-muted);
+  padding: 10px 12px;
+  font-size: 13px;
+  border-radius: 8px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid transparent;
+}
+.pc-conv-item:hover { background: var(--pc-surface-raised); opacity: 1; }
+.pc-conv-item--active {
+  background: var(--pc-accent-glow);
+  color: var(--pc-accent-bright);
+  font-weight: 600;
+}
+.pc-conv-empty {
+  color: var(--pc-text-subtle);
+  font-size: 13px;
+  padding: 16px 12px;
+  text-align: center;
+}
+
+/* ─── Centro: thread + composer ─── */
+.pc-main {
+  background: var(--pc-bg);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.pc-main-header {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--pc-border-subtle);
+  background: var(--pc-gradient-hero);
+}
+.pc-main-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--pc-text);
+}
+
+.pc-thread {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pc-bubble-row { display: flex; }
+.pc-bubble-row--user { justify-content: flex-end; }
+.pc-bubble-row--bot { justify-content: flex-start; }
+
+.pc-bubble {
+  max-width: 70%;
+  padding: 10px 14px;
+  border-radius: var(--pc-radius-bubble);
+  font-size: 14px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.pc-bubble--bot {
+  background: var(--pc-surface);
+  color: var(--pc-text);
+  border-bottom-left-radius: var(--pc-radius-bubble-tail);
+}
+.pc-bubble--user {
+  background: var(--pc-wine-deep);
+  color: var(--pc-text);
+  border-bottom-right-radius: var(--pc-radius-bubble-tail);
+}
+.pc-bubble-time {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--pc-text-subtle);
+}
+
+.pc-typing {
+  display: inline-flex;
+  gap: 4px;
+  padding: 10px 14px;
+  background: var(--pc-surface);
+  border-radius: var(--pc-radius-bubble);
+  border-bottom-left-radius: var(--pc-radius-bubble-tail);
+  width: fit-content;
+}
+.pc-typing span {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--pc-text-muted);
+  animation: pc-bounce 1.2s infinite ease-in-out;
+}
+.pc-typing span:nth-child(2) { animation-delay: .15s; }
+.pc-typing span:nth-child(3) { animation-delay: .3s; }
+@keyframes pc-bounce { 0%, 80%, 100% { opacity: .3; } 40% { opacity: 1; } }
+
+/* ─── Composer ─── */
+.pc-composer {
+  display: flex;
+  gap: 10px;
+  padding: 14px 20px;
+  background: var(--pc-surface-raised);
+  border-top: 1px solid var(--pc-border);
+}
+.pc-composer textarea {
+  flex: 1;
+  resize: none;
+  background: var(--pc-bg-deep);
+  border: 1px solid var(--pc-border);
+  border-radius: 10px;
+  color: var(--pc-text);
+  padding: 10px 12px;
+  font-family: inherit;
+  font-size: 14px;
+  min-height: 40px;
+  max-height: 120px;
+}
+.pc-composer textarea:focus {
+  outline: none;
+  border-color: var(--pc-accent);
+  box-shadow: 0 0 0 3px var(--pc-accent-glow);
+}
+.pc-composer textarea::placeholder { color: var(--pc-text-subtle); }
+.pc-send-btn {
+  background: var(--pc-accent);
+  color: white;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 0 18px;
+}
+.pc-send-btn:hover:not(:disabled) { background: var(--pc-accent-deep); opacity: 1; }
+
+/* ─── Banners (derecha) ─── */
+.pc-banners {
+  background: var(--pc-surface);
+  border-left: 1px solid var(--pc-border);
+  padding: 16px 12px;
+  overflow-y: auto;
+}
+.pc-banners-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--pc-text-subtle);
+  margin-bottom: 10px;
+}
+.pc-banner-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.pc-banner-cell {
+  aspect-ratio: 1;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--pc-surface-raised);
+  border: 1px solid var(--pc-border);
+  transition: opacity .4s ease;
+}
+.pc-banner-cell img { width: 100%; height: 100%; object-fit: cover; }
+.pc-banner-cell iframe { width: 100%; height: 100%; border: 0; }
+.pc-banner-cell--fading { opacity: 0; }
+.pc-banner-default {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--pc-accent-glow);
+  font-size: 22px;
+}
+
+/* ─── Estados (error/ok/warn) ─── */
+.pc-status {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.pc-status--error { color: var(--pc-error); }
+.pc-status--ok { color: var(--pc-ok); }
+.pc-status--warn { color: var(--pc-warn); }
+
+/* ─── Login gate ─── */
+.pc-login-screen {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 16px;
+  background: var(--pc-gradient-hero);
+}
+.pc-login-box {
+  background: var(--pc-surface);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-surface);
+  padding: 32px;
+  text-align: center;
+  box-shadow: var(--pc-shadow);
+  max-width: 320px;
+}
+.pc-login-box h1 { font-size: 18px; margin-bottom: 8px; }
+.pc-login-box p { color: var(--pc-text-muted); font-size: 13px; margin-bottom: 18px; }
+.pc-login-btn {
+  width: 100%;
+  padding: 11px;
+  background: var(--pc-accent);
+  color: white;
+  font-weight: 600;
+  font-size: 14px;
+}
+.pc-login-btn:hover { background: var(--pc-accent-deep); opacity: 1; }
+
+.pc-fullscreen-msg {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--pc-text-muted);
+  font-size: 14px;
+  text-align: center;
+  padding: 24px;
+}
+
+/* ─── Mobile: columna única, sidebar/banners como drawer ─── */
+@media (max-width: 860px) {
+  .pc-layout { grid-template-columns: 1fr; }
+  .pc-sidebar, .pc-banners {
+    position: fixed;
+    top: 0; bottom: 0;
+    width: 260px;
+    z-index: 20;
+    transform: translateX(-105%);
+    transition: transform .2s ease;
+    box-shadow: var(--pc-shadow);
+  }
+  .pc-sidebar { left: 0; }
+  .pc-banners { right: 0; transform: translateX(105%); width: 200px; }
+  .pc-sidebar--open { transform: translateX(0); }
+  .pc-banners--open { transform: translateX(0); }
+  .pc-mobile-bar {
+    display: flex;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--pc-surface-raised);
+    border-bottom: 1px solid var(--pc-border);
+  }
+  .pc-mobile-bar button {
+    background: var(--pc-surface);
+    color: var(--pc-text-muted);
+    font-size: 12px;
+    padding: 6px 10px;
+  }
+}
+@media (min-width: 861px) {
+  .pc-mobile-bar { display: none; }
+}

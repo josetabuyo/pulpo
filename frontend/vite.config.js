@@ -20,7 +20,13 @@ function loadRootEnv() {
 
 export default defineConfig(() => {
   const env = loadRootEnv()
-  const backendPort = env.BACKEND_PORT || '8000'
+  // WEB_BACKEND_PORT (shell env, no el .env compartido) apunta el proxy al
+  // backend Next.js de la migración a Vercel (web/) en vez del backend
+  // Python (BACKEND_PORT) -- así probar un stack no pisa el puerto del
+  // otro. Ver web/package.json (dev corre en :9010 por default, puerto
+  // reclamado vía `las ports claim` para este worktree) y
+  // management/HANDOFF_VERCEL_DEEP_MIGRATION.md.
+  const backendPort = process.env.WEB_BACKEND_PORT || env.BACKEND_PORT || '8000'
   const frontendPort = parseInt(env.FRONTEND_PORT || '5173', 10)
 
   return {

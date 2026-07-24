@@ -76,7 +76,7 @@ function TestPanel({ title, cmd, report }) {
   )
 }
 
-export default function ArchitectureSection({ pwd, collapsed }) {
+export default function ArchitectureSection({ collapsed }) {
   const [data, setData] = useState(null)
   const [error, setError] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -85,7 +85,7 @@ export default function ArchitectureSection({ pwd, collapsed }) {
   async function load() {
     setLoading(true)
     setError(false)
-    const d = await apiQuiet('GET', '/architecture', null, pwd, 'architecture')
+    const d = await apiQuiet('GET', '/architecture', null, 'architecture')
     if (d && d.system) setData(d)
     else setError(true)
     setLoading(false)
