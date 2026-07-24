@@ -265,23 +265,32 @@ export async function getLastRunStatus(botId: string, contactIdentifier: string)
 export async function getOwnRunSteps(botId: string, contactIdentifier: string, runId: string) {
   const db = getDb();
   const [run] = await db
-    .select({ id: flowRuns.runId })
+    .select({ id: flowRuns.runId, status: flowRuns.status })
     .from(flowRuns)
     .where(and(eq(flowRuns.runId, runId), eq(flowRuns.botId, botId), eq(flowRuns.contactPhone, contactIdentifier)));
   if (!run) return null;
   const rows = await db.select().from(flowRunSteps).where(eq(flowRunSteps.runId, runId)).orderBy(asc(flowRunSteps.id));
-  return rows.map((s) => ({
-    id: s.id,
-    node_id: s.nodeId,
-    node_type: s.nodeType,
-    started_at: s.startedAt,
-    ended_at: s.endedAt,
-    input_state: s.inputState,
-    output_state: s.outputState,
-    branch_taken: s.branchTaken,
-    status: s.status,
-    error_message: s.errorMessage,
-  }));
+  return {
+    // Status de ESTE run puntual -- distinto de getLastRunStatus (el run
+    // más reciente del contacto, ambiguo justo en el instante del handoff:
+    // ver ChatConversation.send_and_wait en tests/e2e/helpers.py, bug real
+    // encontrado 2026-07-24 -- el run viejo sigue en "waiting_gate" un
+    // instante después de que ya existe un run_id nuevo para el turno
+    // siguiente).
+    status: run.status,
+    steps: rows.map((s) => ({
+      id: s.id,
+      node_id: s.nodeId,
+      node_type: s.nodeType,
+      started_at: s.startedAt,
+      ended_at: s.endedAt,
+      input_state: s.inputState,
+      output_state: s.outputState,
+      branch_taken: s.branchTaken,
+      status: s.status,
+      error_message: s.errorMessage,
+    })),
+  };
 }
 
 // ─── Conversaciones (runtime: propias del caller, de UN chat puntual) ──

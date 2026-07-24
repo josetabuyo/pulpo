@@ -5,8 +5,8 @@ E2E — smoke de conectividad Telegram / bot Luganense.
 real (`@luganense_bot` vía `TeliConversation`, Telethon con la sesión
 `user_me`). Toda la lógica de negocio (rutas de comercio, producto, servicio,
 noticias, fuera de scope, agotamiento) se movió al simulador in-band — ver
-`scenarios_orquestador_vendedor_mejorado.py` (fuente única, también usada por
-`scripts/generate_e2e_report.py`) y `test_orquestador_vendedor_mejorado_sim.py`
+`scenarios_orquestador_vendedor_0019d8f2.py` (fuente única, también usada por
+`scripts/generate_e2e_report.py`) y `test_orquestador_vendedor_0019d8f2_sim.py`
 (marker `e2e_sim`).
 
 `test_conectividad_hola_responde` solo confirma que el bot está vivo y
@@ -30,9 +30,16 @@ import asyncio
 import pytest
 
 from tests.e2e.helpers import TeliConversation
-from tests.e2e.luganense.scenarios_orquestador_vendedor_mejorado import CIERRE
 
 _BOT = "luganense_bot"
+# Vivía como import de scenarios_*.py hasta que ese módulo lo sacó en el
+# rewrite v4 (2026-07-13, "no quiero validaciones de texto en el reply" —
+# scenarios.py pasó a validar solo contra el log de ejecución). Import roto
+# desde entonces (bug real, encontrado 2026-07-24): este test SÍ necesita
+# comparar texto -- es justo el que prueba que un bug de max_tokens no trunca
+# la respuesta a mitad de frase -- así que la constante vive acá, único
+# consumidor, en vez de reintroducirla en scenarios.py.
+CIERRE = "escribime cuando quieras"
 
 pytestmark = pytest.mark.e2e
 

@@ -1,14 +1,14 @@
 """
-E2E (simulado) — Orquestador Vendedor Mejorado / bot Luganense.
+E2E (chat, contra prod) — Orquestador Vendedor / bot Luganense.
 
-Wrapper delgado sobre `scenarios_orquestador_vendedor_mejorado.py` (fuente
+Wrapper delgado sobre `scenarios_orquestador_vendedor_0019d8f2.py` (fuente
 única compartida con `scripts/generate_e2e_report.py` — mismas
 conversaciones, mismas validaciones, sin duplicar lógica entre el test y el
 reporte).
 
 Nombres de test: `test_<bot_slug>__<flow_slug>__<scenario_id>` (ver
 BOT_SLUG/FLOW_SLUG en el módulo de escenarios) — así `pytest -k luganense`
-filtra todo el bot, `pytest -k orquestador_vendedor_mejorado` filtra este
+filtra todo el bot, `pytest -k orquestador_vendedor` filtra este
 flow puntual, y cuando el bot tenga un segundo flow activo sus tests no
 colisionan de nombre ni de filtro con estos.
 
@@ -18,19 +18,23 @@ COMPLETA de punta a punta — arranca en el trigger real y SIEMPRE llega a un
 reintentos de dirección). Nada de conversaciones que terminan a mitad de
 camino (ej. un test que solo manda "hola" y no sigue — eso no es un caso e2e
 válido). Las validaciones leen el LOG REAL de ejecución (`flow_run_steps` vía
-`SimConversation.step/ran_node/state_field/branch_taken`), no solo texto
+`ChatConversation.step/ran_node/state_field/branch_taken`), no solo texto
 suelto del reply.
 
-Requiere solo el backend local corriendo (`http://localhost:8000` por
-default), sin `ENABLE_BOTS`/teli — excepto el escenario de conectividad, que
-vive aparte en `test_conectividad_telegram.py` (único test real con Telegram
-de toda esta suite).
+2026-07-24: corre contra el flow REAL de PROD (`web/` + Neon,
+`https://pulpo-bot.vercel.app` por default) vía un nodo `trigger_chat`
+agregado al flow en paralelo al `telegram_trigger` (ver
+`scripts/add-chat-trigger-luganense.ts`) — no requiere backend local ni
+Telegram, y no hay riesgo de divergencia entre lo que testea la suite y lo
+que corre para usuarios reales. El escenario de conectividad de Telegram
+vive aparte, en `test_conectividad_telegram.py` (único test real con
+Telegram de toda esta suite).
 """
 import asyncio
 
 import pytest
 
-from tests.e2e.luganense.scenarios_orquestador_vendedor_mejorado import SCENARIOS, BOT_SLUG, FLOW_SLUG
+from tests.e2e.luganense.scenarios_orquestador_vendedor_0019d8f2 import SCENARIOS, BOT_SLUG, FLOW_SLUG
 
 pytestmark = pytest.mark.e2e_sim
 

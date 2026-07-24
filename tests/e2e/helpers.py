@@ -467,25 +467,21 @@ class ChatConversation(_StepsAnalysisMixin):
 
         deadline = asyncio.get_event_loop().time() + timeout
         reply: str | None = None
-        run_status: str | None = None
-        # Esperar a que aparezca un mensaje bot NO alcanza -- reply.ts
-        # inserta ese mensaje ANTES de que el run termine y su status en
-        # flow_runs pase a un estado terminal (waiting_gate/completed/...).
-        # Por eso se espera a un status terminal, no solo al mensaje.
-        #
-        # "handed_off" NO cuenta como terminal acá -- carrera real
-        # encontrada 2026-07-24: `run_status` es el status del run MÁS
-        # RECIENTE para este contacto, no de un run_id puntual. Justo en el
-        # instante del handoff (dispatchInbound::resumeWaitingConversation),
-        # el run VIEJO pasa a "handed_off" ANTES de que el run NUEVO
-        # (el que responde a este mensaje) siquiera exista en flow_runs --
-        # una consulta justo en ese instante ve "handed_off" y, si se tratara
-        # como terminal, `send_and_wait` cortaría creyendo que este turno ya
-        # terminó, sin haber esperado nada del run nuevo (steps/reply vacíos,
-        # aunque el run nuevo termine bien un segundo después). "handed_off"
-        # nunca es el status final de un run nuevo -- solo lo adquiere un run
-        # ya resuelto cuando ALGÚN OTRO run lo sucede, así que ignorarlo acá
-        # y seguir esperando el próximo status real es siempre correcto.
+        # `run_status` de GET .../messages es el status del run MÁS RECIENTE
+        # para el contacto, NO de este run_id puntual -- ambiguo durante el
+        # handoff (bug real encontrado 2026-07-24, dos variantes):
+        #   1. El run VIEJO pasa a "handed_off" antes de que el run NUEVO
+        #      exista en flow_runs -- una consulta justo ahí ve "handed_off".
+        #   2. Peor -- el run VIEJO puede seguir mostrando "waiting_gate"
+        #      (su status real hasta el momento del handoff) todavía un
+        #      instante DESPUÉS de que el POST ya devolvió el run_id nuevo,
+        #      porque el run nuevo recién está por insertarse. Una consulta
+        #      en esa ventana ve "waiting_gate" y, tratado como terminal,
+        #      `send_and_wait` corta creyendo que ESTE turno ya terminó --
+        #      sin haber esperado nada del run nuevo (reply/steps vacíos).
+        # Por eso el status que importa acá es el de `self.last_run_id`
+        # puntual (`.../runs/{run_id}/steps`, ver `_fetch_own_run`), nunca
+        # el de GET .../messages -- ese solo se usa para el texto del reply.
         while asyncio.get_event_loop().time() < deadline:
             await asyncio.sleep(poll_interval)
             poll = await self._client.get(
@@ -494,13 +490,14 @@ class ChatConversation(_StepsAnalysisMixin):
             )
             poll.raise_for_status()
             data = poll.json()
-            run_status = data.get("run_status")
             bot_msgs = [m for m in data.get("messages", []) if m.get("role") == "bot"]
             if data.get("messages"):
                 self._last_message_id = max(m["id"] for m in data["messages"])
             if bot_msgs:
                 reply = bot_msgs[-1]["content"]
-            if run_status in ("waiting_gate", "completed", "error"):
+
+            own_status, _ = await self._fetch_own_run(self.last_run_id, retries=1)
+            if own_status in ("waiting_gate", "completed", "error"):
                 break
 
         if self.last_run_id:
@@ -521,22 +518,43 @@ class ChatConversation(_StepsAnalysisMixin):
         if not self.last_run_id or not self.conversation_id:
             self._last_steps = []
             return self._last_steps
-        url = f"{self._chat_base}/conversations/{self.conversation_id}/runs/{self.last_run_id}/steps"
-        # `start(runFlowWorkflow, ...)` (Workflow DevKit) devuelve el run_id
-        # ANTES de que su primer step (el INSERT en flow_runs, ver
-        # lib/business/dispatch.ts::startFlowRun) sea visible para una query
-        # posterior -- carrera real encontrada 2026-07-24: si el bot
-        # respondió rápido, `send_and_wait` ya vio el reply y llama acá antes
-        # de que exista la fila. 404 = "run not found" (getOwnRunSteps
-        # devuelve null) -- reintentar corto en vez de fallar el escenario.
+        _, steps = await self._fetch_own_run(self.last_run_id, retries=6)
+        self._last_steps = steps
+        self.all_steps.extend(steps)
+        return self._last_steps
+
+    async def _fetch_own_run(self, run_id: str, retries: int) -> tuple[str | None, list[dict]]:
+        """
+        `(status, steps)` de `run_id` puntual (status de ESE run, no del más
+        reciente para el contacto -- ver nota en `send_and_wait`).
+        `start(runFlowWorkflow, ...)` (Workflow DevKit) devuelve el run_id
+        ANTES de que su primer step (el INSERT en flow_runs, ver
+        lib/business/dispatch.ts::startFlowRun) sea visible para una query
+        posterior -- carrera real encontrada 2026-07-24: consultar
+        demasiado rápido puede pegarle a esa ventana. 404 = "run not found"
+        (getOwnRunSteps devuelve null) -- reintenta corto en vez de fallar
+        de una. `retries=1` (usado desde el loop de polling, que ya reintenta
+        solo con el próximo tick) vs `retries=6` (usado al final, cuando ya
+        no hay más ticks de polling esperando) según el caller.
+        """
+        if not self.conversation_id:
+            return None, []
+        url = f"{self._chat_base}/conversations/{self.conversation_id}/runs/{run_id}/steps"
         last_error: httpx.HTTPStatusError | None = None
-        for attempt in range(6):
+        for attempt in range(retries):
             resp = await self._client.get(url)
             if resp.status_code != 404:
                 resp.raise_for_status()
-                self._last_steps = resp.json().get("steps", [])
-                self.all_steps.extend(self._last_steps)
-                return self._last_steps
+                data = resp.json()
+                return data.get("status"), data.get("steps", [])
             last_error = httpx.HTTPStatusError(f"404 en intento {attempt + 1}", request=resp.request, response=resp)
-            await asyncio.sleep(2 * (attempt + 1))
-        raise last_error
+            if attempt < retries - 1:
+                await asyncio.sleep(2 * (attempt + 1))
+        if retries > 1:
+            # Solo el caller "final" (last_run_steps, retries=6) hace que un
+            # 404 persistente sea un error real -- el loop de polling
+            # (retries=1, dentro de send_and_wait) ya reintenta solo, con el
+            # próximo tick, así que ahí un 404 puntual no es más que "todavía
+            # no existe", no una falla.
+            raise last_error
+        return None, []

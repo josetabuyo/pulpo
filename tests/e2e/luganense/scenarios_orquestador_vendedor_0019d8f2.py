@@ -1,7 +1,7 @@
 """
 Fuente única de las conversaciones e2e del flow "Orquestador Vendedor
 Mejorado" del bot Luganense — usada tanto por
-`test_orquestador_vendedor_mejorado_sim.py` (pytest) como por
+`test_orquestador_vendedor_0019d8f2_sim.py` (pytest) como por
 `scripts/generate_e2e_report.py` (reporte HTML). Un solo lugar, sin duplicar
 lógica entre el test y el reporte.
 
@@ -22,7 +22,7 @@ las versiones anteriores de esta suite asserteaban/logueaban sobre el TEXTO
 del reply (`"pizza" in reply`, `"escribime cuando quieras" in reply`, etc.) —
 eso es indirectamente lo mismo que asserter sobre la redacción de un LLM, que
 es no determinista por naturaleza. Esta versión valida ÚNICAMENTE contra el
-LOG REAL de ejecución (`flow_run_steps`, vía `SimConversation.ran_node/
+LOG REAL de ejecución (`flow_run_steps`, vía `ChatConversation.ran_node/
 state_field/branch_taken/fetch_errors/node_errors`) — nunca contra el texto
 visible del reply:
   - Que la conversación haya pasado por los nodos que ese camino DEBE
@@ -30,9 +30,9 @@ visible del reply:
     está confirmado por inspección en vivo, ver más abajo.
   - Que ningún fetch HTTP haya fallado (404, timeout, DNS) ni haya
     disparado con un placeholder `{{...}}` sin resolver en la URL
-    (`SimConversation.fetch_errors()`, ver `FetchHttpNode._record_fetch_error`
+    (`ChatConversation.fetch_errors()`, ver `FetchHttpNode._record_fetch_error`
     — antes esto quedaba invisible, el output simplemente caía en `None`).
-  - Que ningún nodo haya crasheado (`SimConversation.node_errors()` /
+  - Que ningún nodo haya crasheado (`ChatConversation.node_errors()` /
     `crashed_nodes()`, del `_node_errors`/`status="error"` que loguea
     compiler.py).
   - Que ningún placeholder `{{...}}` haya quedado sin resolver en el reply
@@ -209,21 +209,47 @@ import json
 from dataclasses import dataclass
 from typing import Awaitable, Callable
 
-from tests.e2e.helpers import SimConversation, TeliConversation, has_unresolved_templates
+import functools
+
+from tests.e2e.helpers import ChatConversation as _ChatConversation
+from tests.e2e.helpers import _StepsAnalysisMixin
+from tests.e2e.helpers import TeliConversation, has_unresolved_templates
 
 BOT_ID = "luganense"
+FLOW_ID = "0019d8f2-ada5-4409-99bf-50921beb875b"
 # Identidad bot+flow — un bot puede tener N flows activos (con distintos
 # triggers) y M inactivos; este módulo prueba UNO en particular. BOT_SLUG y
 # FLOW_SLUG nombran los tests (test_<bot>__<flow>__<id>, ver
-# test_orquestador_vendedor_mejorado_sim.py) y el archivo del reporte HTML
-# (generate_e2e_report.py). FLOW_SLUG queda fijo aunque el flow se renombre en
-# el editor — un rename de producto no debe romper nombres de test/artefactos
-# ya commiteados. FLOW_NAME es el nombre real en la DB: generate_e2e_report.py
-# lo usa para resolver el flow_id activo en runtime (GET /api/flows/bots/{bot})
-# antes de capturar el diagrama, así el reporte no depende de un UUID fijo.
+# test_orquestador_vendedor_0019d8f2_sim.py) y el archivo del reporte HTML
+# (generate_e2e_report.py).
+#
+# FLOW_SLUG lleva el id corto de FLOW_ID pegado al final a propósito
+# (2026-07-24, tras feedback: "_mejorado desapareció [del nombre del flow],
+# cambié el título" — el slug viejo ERA el nombre del flow en el editor, así
+# que un rename de producto rompía archivos/nombres de test ya commiteados;
+# pasó de verdad con el rename "Orquestador Vendedor Mejorado" → "Orquestador
+# Vendedor"). Mismo patrón que una key de Jira (PROJ-123): el id es la parte
+# que importa para el 1:1 test↔reporte↔flow, la palabra descriptiva es solo
+# un hint para humanos que puede quedar desactualizada sin romper nada — NO
+# hace falta volver a renombrar test/reporte cada vez que alguien edite el
+# título del flow en el editor. FLOW_NAME sí es el nombre real actual en la
+# DB, pero solo para mostrarlo en el reporte — generate_e2e_report.py ya no
+# lo usa para resolver el flow_id (usa FLOW_ID fijo arriba), porque resolver
+# por nombre vía GET /api/flows/bots/{bot} requeriría auth admin contra prod.
 BOT_SLUG = "luganense"
-FLOW_SLUG = "orquestador_vendedor_mejorado"
-FLOW_NAME = "Orquestador Vendedor Mejorado"
+# Underscore, no guión -- FLOW_SLUG se usa también para armar el nombre de
+# la función de test (test_<bot>__<flow>__<id>), y un guión ahí rompería
+# `pytest -k` / cualquier código que asuma que es un identificador Python.
+FLOW_SLUG = f"orquestador_vendedor_{FLOW_ID[:8]}"
+FLOW_NAME = "Orquestador Vendedor"
+
+# 2026-07-24: corre contra el flow REAL de prod (`web/` + Neon) vía el nodo
+# `trigger_chat_e2e` agregado en paralelo al telegram_trigger (ver
+# scripts/add-chat-trigger-luganense.ts) y su chat_config -- nada de
+# Telegram real ni de una copia local que puede haber divergido.
+CHAT_ID = "fd879c18-b7bf-4639-b028-df9e5e2ff3bd"
+CHAT_BASE_URL = "https://pulpo-bot.vercel.app"
+ChatConversation = functools.partial(_ChatConversation, chat_id=CHAT_ID, base_url=CHAT_BASE_URL)
 
 # ─── Node ids (ver docstring) ────────────────────────────────────────────────
 # "Obtener Necesidad" — nodo_flow → sub-flow "get_data" (patrón A), expandido
@@ -343,7 +369,7 @@ def _log(label: str, detail: str = "") -> Check:
     return Check(label, True, detail, kind="log")
 
 
-def _ran_all(label: str, conv: SimConversation, *node_ids: str) -> Check:
+def _ran_all(label: str, conv: _StepsAnalysisMixin, *node_ids: str) -> Check:
     """Assert real: TODOS los `node_ids` deben haber corrido (`ran_node`) en
     algún momento de la conversación acumulada — el camino esperado por el log
     de ejecución, no por lo que dice el reply."""
@@ -351,7 +377,7 @@ def _ran_all(label: str, conv: SimConversation, *node_ids: str) -> Check:
     return _c(label, not faltantes, detail=f"no corrieron: {faltantes}" if faltantes else "")
 
 
-def _found_real_news(conv: SimConversation, fetch_node_id: str) -> Check:
+def _found_real_news(conv: _StepsAnalysisMixin, fetch_node_id: str) -> Check:
     """
     Assert real (no solo "el nodo corrió", ver bug real 2026-07-20: el fetch
     de noticias corría OK y el test lo marcaba en verde aunque devolviera 0
@@ -381,7 +407,7 @@ def _found_real_news(conv: SimConversation, fetch_node_id: str) -> Check:
     )
 
 
-def _infra_checks(conv: SimConversation, reply: str | None) -> list[Check]:
+def _infra_checks(conv: _StepsAnalysisMixin, reply: str | None) -> list[Check]:
     """
     Chequeos comunes a TODA conversación (feliz o infeliz) — 100%
     deterministas, derivados del log de ejecución real, nunca del texto del
@@ -439,7 +465,7 @@ def _no_separator_leak(turns: list[tuple[str, str]]) -> Check:
     )
 
 
-def _total_real_directorio(conv: SimConversation, fetch_node_id: str, field: str) -> int:
+def _total_real_directorio(conv: _StepsAnalysisMixin, fetch_node_id: str, field: str) -> int:
     """Análogo a `_total_real_news`/`_total_real_news` pero para los fetch
     de directorio (comercio/producto) — estos NO usan `array_input` (una
     sola llamada), así que `state_field` devuelve un único string JSON crudo,
@@ -461,7 +487,7 @@ def _total_real_directorio(conv: SimConversation, fetch_node_id: str, field: str
 
 async def _run_comercio() -> ScenarioResult:
     turns = []
-    async with SimConversation(BOT_ID) as conv:
+    async with ChatConversation(BOT_ID) as conv:
         r1 = await conv.send_and_wait("hola")
         turns.append(("user", "hola")); turns.append(("bot", r1))
         r2 = await conv.send_and_wait("asdfgh")
@@ -527,35 +553,54 @@ async def _run_comercio() -> ScenarioResult:
 async def _run_comercio_agotado() -> ScenarioResult:
     """
     Camino infeliz de la rama comercio (migrada 2026-07-21 al patrón B
-    "confirm_choice"): el vecino insiste rechazando las 3 propuestas seguidas
-    sin confirmar ninguna — el flow debe cerrar solo igual, por la rama de
+    "confirm_choice"): el vecino insiste rechazando las propuestas sin
+    confirmar ninguna — el flow debe cerrar solo igual, por la rama de
     disculpa (`not_found` → disculpar_sin_comercio), no quedarse colgado ni
     repetir la misma propuesta indefinidamente.
+
+    Revisión 2026-07-24 (tras bug real encontrado): antes mandaba EXACTAMENTE
+    3 rechazos, asumiendo que siempre se agota por `max_visits=3` (node_condition,
+    ver confirm_choice). Pero `not_found` tiene DOS caminos posibles -- max_visits
+    agotado, o `node_choose` devolviendo SIN_RESULTADOS porque ya no quedan
+    candidatos ÚNICOS en el directorio para proponer (node_check_empty) -- y
+    cuál de los dos dispara depende de CUÁNTOS comercios "ferretería" haya
+    cargados en el directorio en este momento, un dato externo que puede
+    cambiar. Con 3 rechazos fijos, si el directorio solo tiene 1-2
+    ferreterías, la conversación ya cerró en el rechazo 2 y el 3er mensaje
+    quedaba huérfano (nada esperándolo) -- exactamente lo que pasó. Ahora
+    manda rechazos de a uno, hasta que la conversación cierre sola (con un
+    tope duro para no colgarse si un bug real la deja abierta para siempre),
+    y valida el cierre correcto sin asumir CUÁL de los dos caminos lo causó.
     """
     turns = []
-    async with SimConversation(BOT_ID) as conv:
+    async with ChatConversation(BOT_ID) as conv:
         m1 = "busco una ferretería"
         last_reply = await conv.send_and_wait(m1)
         turns.append(("user", m1)); turns.append(("bot", last_reply))
 
-        rechazos = ["no, ese no es", "no, tampoco es ese", "no, ese tampoco"]
-        for msg in rechazos:
+        MAX_RECHAZOS = 5  # tope duro -- max_visits=3 nunca debería necesitar más de esto
+        rechazo_msgs = ["no, ese no es", "no, tampoco es ese", "no, ese tampoco", "no, otro más no", "no, ese no"]
+        n_rechazos = 0
+        for msg in rechazo_msgs[:MAX_RECHAZOS]:
+            if conv.reached_end_conversation():
+                break
             last_reply = await conv.send_and_wait(msg)
             turns.append(("user", msg)); turns.append(("bot", last_reply))
+            n_rechazos += 1
 
         checks = [
             _ran_all(
                 "Propuso al menos una vez antes de agotar los intentos",
                 conv, N_COMERCIO_FETCH, N_COMERCIO_ELEGIR,
             ),
-            _log("Rama de \"Confirmó la propuesta?\" tras agotar reintentos (esperado: not_found)",
-                 detail=f"branch={conv.branch_taken(N_COMERCIO_CONDICION)!r}"),
+            _c(f"Cerró dentro del tope de {MAX_RECHAZOS} rechazos (no quedó colgada)", n_rechazos < MAX_RECHAZOS,
+               detail=f"n_rechazos={n_rechazos}"),
         ]
         visitas = conv.state_field(N_COMERCIO_CONDICION, "_visits_" + N_COMERCIO_CONDICION)
-        checks.append(_c(
-            f"El contador de reintentos (_visits_{N_COMERCIO_CONDICION}) llegó exactamente a 3 "
-            "(mecánica del engine — max_visits, no una decisión de contenido del LLM)",
-            visitas == 3, detail=f"visits={visitas!r}",
+        checks.append(_log(
+            "Camino de cierre (informativo -- max_visits agotado O SIN_RESULTADOS por "
+            "directorio corto, ambos son un cierre válido, ver docstring)",
+            detail=f"visits={visitas!r} n_rechazos={n_rechazos}",
         ))
         checks += _infra_checks(conv, last_reply)
         checks.append(_ran_all(
@@ -571,7 +616,7 @@ async def _run_comercio_agotado() -> ScenarioResult:
 
 async def _run_comercio_sin_rubro() -> ScenarioResult:
     turns = []
-    async with SimConversation(BOT_ID) as conv:
+    async with ChatConversation(BOT_ID) as conv:
         msg = "Hola, ¿podés decirme el teléfono de Kiosco Don Jorge?"
         propone = await conv.send_and_wait(msg)
         turns.append(("user", msg)); turns.append(("bot", propone))
@@ -629,7 +674,7 @@ async def _run_comercio_sin_rubro() -> ScenarioResult:
 
 async def _run_producto() -> ScenarioResult:
     turns = []
-    async with SimConversation(BOT_ID) as conv:
+    async with ChatConversation(BOT_ID) as conv:
         msg = "Hola, necesito comprar unos focos LED para mi casa"
         propone_1 = await conv.send_and_wait(msg)
         turns.append(("user", msg)); turns.append(("bot", propone_1))
@@ -690,30 +735,37 @@ async def _run_producto() -> ScenarioResult:
 #         disculpa, sin quedarse colgado ni reintentar indefinidamente.
 
 async def _run_producto_agotado() -> ScenarioResult:
+    """Ver docstring de `_run_comercio_agotado` (2026-07-24) -- mismo fix:
+    rechazos de a uno hasta que cierre sola, sin asumir cuántos productos
+    únicos hay cargados en el directorio."""
     turns = []
-    async with SimConversation(BOT_ID) as conv:
+    async with ChatConversation(BOT_ID) as conv:
         m1 = "Hola, necesito comprar unos focos LED para mi casa"
         last_reply = await conv.send_and_wait(m1)
         turns.append(("user", m1)); turns.append(("bot", last_reply))
 
-        rechazos = ["no, ese no es", "no, tampoco es ese", "no, ese tampoco"]
-        for msg in rechazos:
+        MAX_RECHAZOS = 5
+        rechazo_msgs = ["no, ese no es", "no, tampoco es ese", "no, ese tampoco", "no, otro más no", "no, ese no"]
+        n_rechazos = 0
+        for msg in rechazo_msgs[:MAX_RECHAZOS]:
+            if conv.reached_end_conversation():
+                break
             last_reply = await conv.send_and_wait(msg)
             turns.append(("user", msg)); turns.append(("bot", last_reply))
+            n_rechazos += 1
 
         checks = [
             _ran_all(
                 "Propuso al menos una vez antes de agotar los intentos",
                 conv, N_PRODUCTO_FETCH, N_PRODUCTO_ELEGIR,
             ),
-            _log("Rama de \"Confirmó la propuesta?\" tras agotar reintentos (esperado: not_found)",
-                 detail=f"branch={conv.branch_taken(N_PRODUCTO_CONDICION)!r}"),
+            _c(f"Cerró dentro del tope de {MAX_RECHAZOS} rechazos (no quedó colgada)", n_rechazos < MAX_RECHAZOS,
+               detail=f"n_rechazos={n_rechazos}"),
         ]
         visitas = conv.state_field(N_PRODUCTO_CONDICION, "_visits_" + N_PRODUCTO_CONDICION)
-        checks.append(_c(
-            f"El contador de reintentos (_visits_{N_PRODUCTO_CONDICION}) llegó exactamente a 3 "
-            "(mecánica del engine — max_visits, no una decisión de contenido del LLM)",
-            visitas == 3, detail=f"visits={visitas!r}",
+        checks.append(_log(
+            "Camino de cierre (informativo -- max_visits agotado O SIN_RESULTADOS por directorio corto)",
+            detail=f"visits={visitas!r} n_rechazos={n_rechazos}",
         ))
         checks += _infra_checks(conv, last_reply)
         checks.append(_ran_all(
@@ -734,7 +786,7 @@ async def _run_producto_agotado() -> ScenarioResult:
 # `_run_noticias_agotado`). Este escenario ejercita el camino feliz completo:
 # 1ª propuesta rechazada → 2ª propuesta (distinta) confirmada.
 
-def _total_real_news(conv: SimConversation, fetch_node_id: str = None) -> int:
+def _total_real_news(conv: _StepsAnalysisMixin, fetch_node_id: str = None) -> int:
     """Cuenta resultados reales devueltos por el fetch de noticias (ver
     `_found_real_news` — misma lógica de parseo, expuesta acá para poder
     decidir cuántas propuestas distintas son esperables antes de aserter
@@ -755,7 +807,7 @@ def _total_real_news(conv: SimConversation, fetch_node_id: str = None) -> int:
 
 async def _run_noticias() -> ScenarioResult:
     turns = []
-    async with SimConversation(BOT_ID) as conv:
+    async with ChatConversation(BOT_ID) as conv:
         m1 = "Hola, qué se sabe del corte de luz en Lugano"
         propone_1 = await conv.send_and_wait(m1)
         turns.append(("user", m1)); turns.append(("bot", propone_1))
@@ -826,15 +878,24 @@ async def _run_noticias_agotado() -> ScenarioResult:
     abajo, no solo el cierre final).
     """
     turns = []
-    async with SimConversation(BOT_ID) as conv:
+    async with ChatConversation(BOT_ID) as conv:
         m1 = "Hola, qué se sabe del corte de luz en Lugano"
         last_reply = await conv.send_and_wait(m1)
         turns.append(("user", m1)); turns.append(("bot", last_reply))
 
-        rechazos = ["no, esa no es", "no, tampoco es esa", "no, esa tampoco"]
-        for msg in rechazos:
+        # 2026-07-24 (ver docstring de _run_comercio_agotado): rechazos de a
+        # uno hasta que cierre sola -- no asumir que siempre hay >=3
+        # publicaciones distintas cargadas para agotar por max_visits en vez
+        # de por SIN_RESULTADOS.
+        MAX_RECHAZOS = 5
+        rechazo_msgs = ["no, esa no es", "no, tampoco es esa", "no, esa tampoco", "no, otra más no", "no, esa no"]
+        n_rechazos = 0
+        for msg in rechazo_msgs[:MAX_RECHAZOS]:
+            if conv.reached_end_conversation():
+                break
             last_reply = await conv.send_and_wait(msg)
             turns.append(("user", msg)); turns.append(("bot", last_reply))
+            n_rechazos += 1
 
         checks = [
             _ran_all(
@@ -842,14 +903,13 @@ async def _run_noticias_agotado() -> ScenarioResult:
                 conv, N_NOTICIAS_EXPANDIR, N_NOTICIAS_FETCH, N_NOTICIAS_ELEGIR,
             ),
             _found_real_news(conv, N_NOTICIAS_FETCH),
-            _log("Rama de \"Confirmó la propuesta?\" tras agotar reintentos (esperado: not_found)",
-                 detail=f"branch={conv.branch_taken(N_NOTICIAS_CONDICION)!r}"),
+            _c(f"Cerró dentro del tope de {MAX_RECHAZOS} rechazos (no quedó colgada)", n_rechazos < MAX_RECHAZOS,
+               detail=f"n_rechazos={n_rechazos}"),
         ]
         visitas = conv.state_field(N_NOTICIAS_CONDICION, "_visits_" + N_NOTICIAS_CONDICION)
-        checks.append(_c(
-            f"El contador de reintentos (_visits_{N_NOTICIAS_CONDICION}) llegó exactamente a 3 "
-            "(mecánica del engine — max_visits, no una decisión de contenido del LLM)",
-            visitas == 3, detail=f"visits={visitas!r}",
+        checks.append(_log(
+            "Camino de cierre (informativo -- max_visits agotado O SIN_RESULTADOS)",
+            detail=f"visits={visitas!r} n_rechazos={n_rechazos}",
         ))
         checks += _infra_checks(conv, last_reply)
         checks.append(_ran_all(
@@ -875,7 +935,7 @@ async def _run_noticias_agotado() -> ScenarioResult:
 
 async def _run_servicio() -> ScenarioResult:
     turns = []
-    async with SimConversation(BOT_ID) as conv:
+    async with ChatConversation(BOT_ID) as conv:
         # Necesidad deliberadamente ambigua entre varios rubros (gas + agua) —
         # así el 1er rubro propuesto por "Elegir propuesta" (N_ELEGIR_RUBRO)
         # puede no ser el que el vecino tenía en mente, y el rechazo +
@@ -980,7 +1040,7 @@ async def _run_servicio() -> ScenarioResult:
 
 async def _run_fuera_de_scope() -> ScenarioResult:
     turns = []
-    async with SimConversation(BOT_ID) as conv:
+    async with ChatConversation(BOT_ID) as conv:
         msg = "Hola, qué noticias hay en Recoleta"
         reply = await conv.send_and_wait(msg)
         turns.append(("user", msg)); turns.append(("bot", reply))
@@ -1021,7 +1081,7 @@ async def _run_servicio_agotado() -> ScenarioResult:
     no tiene nada que resumir) y rompe el escenario — evitarlo.
     """
     turns = []
-    async with SimConversation(BOT_ID) as conv:
+    async with ChatConversation(BOT_ID) as conv:
         m1 = "Hola, se me rompió una canilla, necesito un plomero urgente"
         pide_confirmacion = await conv.send_and_wait(m1)
         turns.append(("user", m1)); turns.append(("bot", pide_confirmacion))

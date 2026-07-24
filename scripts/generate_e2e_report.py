@@ -8,8 +8,8 @@ para cada conversación e2e, una vista partida — la conversación como chat a
 la izquierda, lo que se validó a la derecha.
 
 Las conversaciones y sus validaciones NO viven acá — vienen de
-`tests/e2e/luganense/scenarios_orquestador_vendedor_mejorado.py`, la misma
-fuente que usa `test_orquestador_vendedor_mejorado_sim.py` (pytest). Un solo
+`tests/e2e/luganense/scenarios_orquestador_vendedor_0019d8f2.py`, la misma
+fuente que usa `test_orquestador_vendedor_0019d8f2_sim.py` (pytest). Un solo
 lugar, sin duplicar lógica entre el test y el reporte — si se agrega/cambia
 un escenario, este reporte lo refleja solo.
 
@@ -67,7 +67,7 @@ con turns+checks de CADA escenario, y el PNG del diagrama
                            estructura del flow en el editor)
 Sin --only, corre TODOS (comportamiento de siempre) y refresca el cache
 entero. El cache es un espejo en disco de exactamente los mismos objetos
-`ScenarioResult`/`Check` que ya define scenarios_orquestador_vendedor_mejorado.py
+`ScenarioResult`/`Check` que ya define scenarios_orquestador_vendedor_0019d8f2.py
 — no hay una segunda fuente de verdad, solo serialización.
 """
 import argparse
@@ -84,7 +84,7 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tests.e2e.luganense.capture_diagram import DiagramCaptureError, capture_flow_diagram
-from tests.e2e.luganense.scenarios_orquestador_vendedor_mejorado import (
+from tests.e2e.luganense.scenarios_orquestador_vendedor_0019d8f2 import (
     BOT_ID, BOT_SLUG, Check, FLOW_NAME, FLOW_SLUG, SCENARIOS, ScenarioResult,
 )
 

@@ -24,7 +24,7 @@ export async function GET(
     return Response.json({ error: "forbidden" }, { status: 403 });
   }
 
-  const steps = await getOwnRunSteps(botId, conversation.contactIdentifier, runId);
-  if (steps === null) return Response.json({ error: "run not found" }, { status: 404 });
-  return Response.json({ steps });
+  const result = await getOwnRunSteps(botId, conversation.contactIdentifier, runId);
+  if (result === null) return Response.json({ error: "run not found" }, { status: 404 });
+  return Response.json(result);
 }
