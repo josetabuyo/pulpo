@@ -59,6 +59,16 @@ export async function runFlowWorkflow(
     edges = expanded.edges;
   }
 
+  let state = initialState;
+  // Reanudar un wait_user ya llamó continueConversation() antes de esta
+  // llamada (ver el webhook route) -- el guard de startConversation() lo
+  // hace no-op ahí. Para un trigger "puro" (primer turno), esto arranca la
+  // conversación de este run. Tiene que correr ANTES de startFlowRun (que
+  // persiste `state` como trigger_data) -- si no, el snapshot guardado
+  // queda sin `data.conversation` aunque la ejecución en memoria sí lo
+  // tenga (mismo orden que el Python original, ver compiler.py).
+  startConversation(state);
+
   await startFlowRun({
     runId,
     flowId,
@@ -68,13 +78,6 @@ export async function runFlowWorkflow(
     triggerData: initialState,
     workflowRunId,
   });
-
-  let state = initialState;
-  // Reanudar un wait_user ya llamó continueConversation() antes de esta
-  // llamada (ver el webhook route) -- el guard de startConversation() lo
-  // hace no-op ahí. Para un trigger "puro" (primer turno), esto arranca la
-  // conversación de este run.
-  startConversation(state);
 
   const nodeById: Record<string, FlowNodeDef> = {};
   for (const node of nodes) nodeById[node.id] = node;
