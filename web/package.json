@@ -8,6 +8,7 @@
     "build:api-only": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "tsx --test scripts/*.test.ts",
     "db:push": "dotenv -e .env.local -- drizzle-kit push",
     "seed:flow": "dotenv -e .env.local -- tsx scripts/seed-flow.ts",
     "pulpo": "dotenv -e .env.local -- tsx cli/main.ts"

@@ -214,6 +214,7 @@ import functools
 from tests.e2e.helpers import ChatConversation as _ChatConversation
 from tests.e2e.helpers import _StepsAnalysisMixin
 from tests.e2e.helpers import TeliConversation, has_unresolved_templates
+from tests.e2e.helpers import resolve_chat_base_url, resolve_e2e_target
 
 BOT_ID = "luganense"
 FLOW_ID = "0019d8f2-ada5-4409-99bf-50921beb875b"
@@ -243,12 +244,23 @@ BOT_SLUG = "luganense"
 FLOW_SLUG = f"orquestador_vendedor_{FLOW_ID[:8]}"
 FLOW_NAME = "Orquestador Vendedor"
 
-# 2026-07-24: corre contra el flow REAL de prod (`web/` + Neon) vía el nodo
-# `trigger_chat_e2e` agregado en paralelo al telegram_trigger (ver
+# 2026-07-24: corre contra el flow REAL vía el nodo `trigger_chat_e2e`
+# agregado en paralelo al telegram_trigger (ver
 # scripts/add-chat-trigger-luganense.ts) y su chat_config -- nada de
-# Telegram real ni de una copia local que puede haber divergido.
-CHAT_ID = "fd879c18-b7bf-4639-b028-df9e5e2ff3bd"
-CHAT_BASE_URL = "https://pulpo-bot.vercel.app"
+# Telegram real. Por default apunta a local (`http://localhost:9010`, Local
+# World de Workflow DevKit, cero cuota -- ver resolve_chat_base_url() y
+# management/HANDOFF_WORKFLOW_LOCAL_DEV.md); `chat_config.id` es distinto
+# por ambiente (createChatConfig genera un UUID random por insert, no es
+# portable entre DBs aunque el flow_id sí lo sea), por eso el switch cubre
+# los dos, no solo la URL. Para confirmar contra prod puntualmente:
+# `PULPO_E2E_TARGET=prod pytest ...` (requiere que el chat_config de prod
+# siga existiendo -- se creó una sola vez, 2026-07-24).
+_CHAT_ID_BY_TARGET = {
+    "local": "80f14777-c459-4d7f-a237-8599e0213628",
+    "prod": "fd879c18-b7bf-4639-b028-df9e5e2ff3bd",
+}
+CHAT_BASE_URL = resolve_chat_base_url()
+CHAT_ID = _CHAT_ID_BY_TARGET[resolve_e2e_target()]
 ChatConversation = functools.partial(_ChatConversation, chat_id=CHAT_ID, base_url=CHAT_BASE_URL)
 
 # ─── Node ids (ver docstring) ────────────────────────────────────────────────

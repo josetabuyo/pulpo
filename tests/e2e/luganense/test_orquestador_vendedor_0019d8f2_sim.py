@@ -1,5 +1,5 @@
 """
-E2E (chat, contra prod) — Orquestador Vendedor / bot Luganense.
+E2E (chat) — Orquestador Vendedor / bot Luganense.
 
 Wrapper delgado sobre `scenarios_orquestador_vendedor_0019d8f2.py` (fuente
 única compartida con `scripts/generate_e2e_report.py` — mismas
@@ -21,14 +21,16 @@ válido). Las validaciones leen el LOG REAL de ejecución (`flow_run_steps` vía
 `ChatConversation.step/ran_node/state_field/branch_taken`), no solo texto
 suelto del reply.
 
-2026-07-24: corre contra el flow REAL de PROD (`web/` + Neon,
-`https://pulpo-bot.vercel.app` por default) vía un nodo `trigger_chat`
-agregado al flow en paralelo al `telegram_trigger` (ver
-`scripts/add-chat-trigger-luganense.ts`) — no requiere backend local ni
-Telegram, y no hay riesgo de divergencia entre lo que testea la suite y lo
-que corre para usuarios reales. El escenario de conectividad de Telegram
-vive aparte, en `test_conectividad_telegram.py` (único test real con
-Telegram de toda esta suite).
+2026-07-24: corre contra el flow REAL (`web/` + Postgres) vía un nodo
+`trigger_chat` agregado al flow en paralelo al `telegram_trigger` (ver
+`scripts/add-chat-trigger-luganense.ts`) — no requiere Telegram. Por
+default apunta a `http://localhost:9010` (`next dev`, Local World de
+Workflow DevKit, cero cuota Vercel — ver `resolve_chat_base_url()` en
+`tests/e2e/helpers.py`); `PULPO_E2E_TARGET=prod` para confirmar
+puntualmente contra `https://pulpo-bot.vercel.app` antes de un cambio
+grande (ver management/HANDOFF_WORKFLOW_LOCAL_DEV.md). El escenario de
+conectividad de Telegram vive aparte, en `test_conectividad_telegram.py`
+(único test real con Telegram de toda esta suite).
 """
 import asyncio
 

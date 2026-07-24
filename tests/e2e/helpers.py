@@ -30,11 +30,41 @@ fuerza su propio flow en vez de depender de "el primero que matchea". Ver
 también el TODO en pulpo/business/flows.py::simulate_message.
 """
 import asyncio
+import os
 import re
 import time
 from pathlib import Path
 
 import httpx
+
+LOCAL_CHAT_BASE_URL = "http://localhost:9010"
+PROD_CHAT_BASE_URL = "https://pulpo-bot.vercel.app"
+
+
+def resolve_e2e_target() -> str:
+    """
+    Lee `PULPO_E2E_TARGET` ("local" default | "prod") -- el switch único que
+    decide contra qué ambiente corre toda la suite de chat e2e (base_url y,
+    por módulo de escenarios, el `chat_config.id` correspondiente, que es un
+    UUID random por ambiente y no portable). Local corre contra `next dev`
+    en :9010, que usa el Local World de Workflow DevKit (zero-config, activo
+    automáticamente cuando no hay VERCEL_DEPLOYMENT_ID -- ver withWorkflow
+    en web/next.config.ts) y por lo tanto NO consume cuota de Vercel
+    Workflow. "prod" existe solo para confirmar puntualmente contra
+    `https://pulpo-bot.vercel.app` antes de un cambio grande -- no para
+    correr la suite completa (2026-07-24, ver
+    management/HANDOFF_WORKFLOW_LOCAL_DEV.md -- gastar cuota real en cada
+    iteración no es sostenible).
+    """
+    target = os.environ.get("PULPO_E2E_TARGET", "local").strip().lower()
+    if target not in ("local", "prod"):
+        raise ValueError(f"PULPO_E2E_TARGET inválido: {target!r} (esperado 'local' o 'prod')")
+    return target
+
+
+def resolve_chat_base_url() -> str:
+    """`base_url` de `ChatConversation` para el target resuelto por `resolve_e2e_target()`."""
+    return PROD_CHAT_BASE_URL if resolve_e2e_target() == "prod" else LOCAL_CHAT_BASE_URL
 
 _TELI_DATA = Path("/Users/josetabuyo/Development/teli/data")
 _SESSION = str(_TELI_DATA / "sessions" / "user_me")
@@ -383,14 +413,22 @@ class SimConversation(_StepsAnalysisMixin):
 
 class ChatConversation(_StepsAnalysisMixin):
     """
-    Conversación multi-turno contra un flow REAL corriendo en `web/` (Vercel
-    + Neon -- el stack que de verdad sirve producción hoy), vía la API de
-    "PulpoChat" (`lib/business/chats.ts`) en vez de Telegram o el
+    Conversación multi-turno contra un flow REAL corriendo en `web/` (Next.js
+    + Postgres -- el mismo motor que sirve producción, ver ADR-006), vía la
+    API de "PulpoChat" (`lib/business/chats.ts`) en vez de Telegram o el
     `/simulate` del backend Python viejo. Pensada para testear Luganense (y
-    cualquier otro bot) contra EXACTAMENTE lo que corre en prod, sin
-    depender de una copia local que puede haber divergido (2026-07-24,
-    pedido explícito del usuario: nada de sincronizar flows entre
-    ambientes).
+    cualquier otro bot) contra el flow real, sin mandar mensajes de Telegram
+    de verdad.
+
+    Por default corre contra `http://localhost:9010` (`next dev`, Local
+    World de Workflow DevKit -- zero-config, cero cuota de Vercel Workflow,
+    ver `resolve_chat_base_url()` más abajo). La definición del flow es
+    portable entre ambientes (`scripts/seed-local-from-prod.ts`), así que
+    testear local es equivalente a testear prod salvo por infra de
+    ejecución. Confirmar contra `https://pulpo-bot.vercel.app` (real,
+    `PULPO_E2E_TARGET=prod`) queda para antes de un cambio grande, no para
+    cada corrida (2026-07-24, ver management/HANDOFF_WORKFLOW_LOCAL_DEV.md
+    -- gastar cuota real en cada iteración no es sostenible).
 
     Requiere que el flow tenga un nodo `trigger_chat` (lib/nodes/trigger-chat.ts)
     en paralelo al trigger real (telegram_trigger, etc. -- mismo target que

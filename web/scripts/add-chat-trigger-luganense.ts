@@ -75,11 +75,17 @@ async function main() {
     return;
   }
 
+  // isPublic:true es obligatorio -- resolveChatCaller (lib/auth/chat-access.ts)
+  // solo acepta X-Chat-Visitor sin login cuando is_public=true; con false
+  // devuelve 401 siempre. El chat es igual "privado" en la práctica porque
+  // el id no se linkea desde ninguna UI (bug real encontrado 2026-07-24: la
+  // primera versión de este script lo creaba con isPublic:false y el e2e
+  // fallaba con 401 -- en prod se corrigió a mano, no vía este script).
   const chatConfig = await createChatConfig(BOT_ID, {
     flowId: FLOW_ID,
     triggerNodeId: NEW_NODE_ID,
     title: "E2E test (interno)",
-    isPublic: false,
+    isPublic: true,
     enabled: true,
   });
   console.log("chat_config creado:", JSON.stringify(chatConfig));
