@@ -30,8 +30,9 @@ function markReady() {
 }
 
 function EmbedFlowInner({ botId, flowIdParam }) {
-  const loadFlow   = useFlowStore(s => s.loadFlow)
-  const setTypeMap = useFlowStore(s => s.setTypeMap)
+  const loadFlow         = useFlowStore(s => s.loadFlow)
+  const setTypeMap       = useFlowStore(s => s.setTypeMap)
+  const setNodeFlowColors = useFlowStore(s => s.setNodeFlowColors)
   const nodes      = useFlowStore(s => s.nodes)
   const edges      = useFlowStore(s => s.edges)
   const [error, setError] = useState(null)
@@ -42,12 +43,19 @@ function EmbedFlowInner({ botId, flowIdParam }) {
 
     async function run() {
       try {
-        const [typesRes, flowsRes] = await Promise.all([
+        const [typesRes, flowsRes, nodeFlowsRes] = await Promise.all([
           fetch('/api/flows/node-types', { signal: controller.signal }),
           fetch(`/api/flows/bots/${botId}`, { signal: controller.signal }),
+          fetch(`/api/flows/bots/${botId}/node-flows`, { signal: controller.signal }),
         ])
         if (!typesRes.ok) throw new Error(`GET /flows/node-types → ${typesRes.status}`)
         if (!flowsRes.ok) throw new Error(`GET /flows/bots/${botId} → ${flowsRes.status}`)
+        // node-flows es best-effort (igual que en FlowEditor.jsx) — si falla,
+        // los nodo_flow quedan con el color default del tipo en vez del color
+        // real del sub-flow, pero no bloquea la captura del diagrama.
+        const nodeFlowList = nodeFlowsRes.ok ? await nodeFlowsRes.json() : []
+        const nodeFlowColors = {}
+        for (const f of (nodeFlowList || [])) if (f.color) nodeFlowColors[f.id] = f.color
 
         const typeList = await typesRes.json()
         const typeMap = Object.fromEntries((typeList || []).map(t => [t.id, t]))
@@ -70,6 +78,12 @@ function EmbedFlowInner({ botId, flowIdParam }) {
 
         if (cancelled) return
         setTypeMap(typeMap)
+        // Antes de loadFlow: dbNodeToRF() resuelve el color de los nodo_flow
+        // contra `nodeFlowColors` del store en el momento de construir los
+        // nodos (flowStore.js::loadFlow lee get().nodeFlowColors) — si se
+        // llama después, el primer frame capturado ya quedó pintado con el
+        // color default y este fetch no tiene efecto retroactivo.
+        setNodeFlowColors(nodeFlowColors)
         loadFlow(full.definition, typeMap)
       } catch (e) {
         if (cancelled || e.name === 'AbortError') return

@@ -461,6 +461,13 @@ async def execute_flow(
     definition = flow.get("definition", {})
     nodes = definition.get("nodes", [])
     edges = definition.get("edges", [])
+    # Variables del flow (editor: panel "VARIABLES DEL FLOW" al clickear el
+    # fondo del canvas, ver NodeConfigPanel.jsx) — constantes/mensajes/prompts
+    # reusables entre nodos vía {{clave}}. `setdefault` para no pisar estado
+    # ya presente al reanudar un wait_user (resume_wait_user_run ya restauró
+    # slots_json en state.data antes de esta llamada).
+    for _key, _value in (definition.get("variables") or {}).items():
+        state.data.setdefault(_key, _value)
     if any(n.get("type") == "nodo_flow" for n in nodes):
         from pulpo.core import db as _db
         try:

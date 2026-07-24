@@ -34,6 +34,47 @@ async def test_api_trigger_sin_mensaje_no_crea_conversacion():
     assert "conversation" not in result.data
 
 
+# ─── definition.variables: inyección en state.data (panel "VARIABLES DEL FLOW") ─
+
+_FLOW_CON_VARIABLES = {
+    "id": "flow-vars",
+    "bot_id": "bot1",
+    "definition": {
+        "nodes": [{"id": "trigger1", "type": "api_trigger", "config": {}}],
+        "edges": [],
+        "variables": {"saludo": "Hola vecino!", "telefono_soporte": "011-5555-0000"},
+    },
+}
+
+
+@pytest.mark.asyncio
+async def test_execute_flow_inyecta_variables_del_flow_en_state():
+    state = FlowState(message="hola", contact_phone="user1")
+    result = await execute_flow(_FLOW_CON_VARIABLES, state, entry_node_id="trigger1")
+    assert result.data["saludo"] == "Hola vecino!"
+    assert result.data["telefono_soporte"] == "011-5555-0000"
+
+
+@pytest.mark.asyncio
+async def test_execute_flow_variables_no_pisan_state_ya_presente():
+    """setdefault: si state.data ya trae la clave (ej. reanudando un wait_user
+    con slots restaurados), la variable del flow NO debe pisar el valor real."""
+    state = FlowState(message="hola", contact_phone="user1")
+    state.data["saludo"] = "Ya viene con este valor de la conversación"
+    result = await execute_flow(_FLOW_CON_VARIABLES, state, entry_node_id="trigger1")
+    assert result.data["saludo"] == "Ya viene con este valor de la conversación"
+
+
+@pytest.mark.asyncio
+async def test_execute_flow_sin_variables_no_rompe():
+    """Flows sin `variables` en la definition (la mayoría, hoy) siguen andando igual."""
+    state = FlowState(message="hola", contact_phone="user1")
+    result = await execute_flow(_FLOW, state, entry_node_id="trigger1")
+    assert result.data["conversation"] == [
+        {"origin": "user", "content": "hola", "type": "text"}
+    ]
+
+
 # ─── expand_node_flows: expansión de subgrafos (NodoFlow) ────────────────────
 
 

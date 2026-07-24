@@ -67,15 +67,36 @@ cambian, hay que actualizar acá):
   node_1783194257636  metric            (solo en la rama found)
   node_1783192962168  router            "Elegir Mostrador" → servicio | comercio | producto | noticias
 
-  Rama "comercio":
-  node_1783949463710  fetch_http        → state.comercio_luganense
-  node_1783196060944  llm               "mensaje_referencia_comercio"
-  end_conv_comercio   end_conversation
+  Rama "comercio" (migrada 2026-07-21 al mismo patrón B ("confirm_choice") que
+  "noticias"/"servicio" — antes armaba un mensaje libre con TODOS los
+  resultados crudos en un solo turno, sin confirmar nada; ahora propone UN
+  comercio del directorio y pregunta si es ese, igual que noticias):
+  node_1783949463710  fetch_http        "Buscar comercio" → state.comercio_luganense
+                                        (JSON crudo {results:[{nombre,rubro,
+                                        descripcion,direccion,contactos,
+                                        horarios,link,...}],total})
+  "Obtener Comercio Confirmado" (nodo_flow → sub-flow "confirm_choice"),
+  expandido en runtime con prefijo `obtener_comercio_confirmado::`:
+  obtener_comercio_confirmado::node_choose     llm        → state.propuesta_actual
+                                                           ("nombre ||| datos" o "SIN_RESULTADOS")
+  obtener_comercio_confirmado::node_check      llm        "Verificar confirmación" → state.comercio_confirmado
+  obtener_comercio_confirmado::node_condition  condition  found | pedir_mas_info | not_found (max_visits=3)
+  responder_comercio_encontrado  nodo_flow  (mensaje fijo, found)
+  disculpar_sin_comercio         nodo_flow  (mensaje fijo, not_found — agotado o sin resultados)
 
-  Rama "producto":
-  node_1783949755356  fetch_http        → state.producto_luganense
-  node_1783195927257  llm               "mensaje_oferta_producto"
-  end_conv_producto   end_conversation
+  Rama "producto" (mismo patrón B, misma migración 2026-07-21):
+  node_1783949755356  fetch_http        "Buscar producto" → state.producto_luganense
+                                        (JSON crudo {results:[{nombre,categoria,
+                                        descripcion,precio,proveedor,contactos,
+                                        link,...}],total})
+  "Obtener Producto Confirmado" (nodo_flow → sub-flow "confirm_choice"),
+  expandido en runtime con prefijo `obtener_producto_confirmado::`:
+  obtener_producto_confirmado::node_choose     llm        → state.propuesta_actual
+                                                           ("nombre ||| datos" o "SIN_RESULTADOS")
+  obtener_producto_confirmado::node_check      llm        "Verificar confirmación" → state.producto_confirmado
+  obtener_producto_confirmado::node_condition  condition  found | pedir_mas_info | not_found (max_visits=3)
+  responder_producto_encontrado  nodo_flow  (mensaje fijo, found)
+  disculpar_sin_producto         nodo_flow  (mensaje fijo, not_found — agotado o sin resultados)
 
   Rama "noticias" (rediseñada 2026-07-20/21 — antes tiraba hasta 3 resultados
   en UN solo mensaje sin confirmar nada; ahora itera de a una publicación,
@@ -212,10 +233,28 @@ N_CONDICION = "node_1784503628687::node_1783356000392"  # condition → found | 
 N_ELEGIR_MOSTRADOR = "node_1783192962168"
 
 N_COMERCIO_FETCH = "node_1783949463710"
-N_COMERCIO_LLM = "node_1783196060944"
+# "Obtener Comercio Confirmado" — nodo_flow → sub-flow "confirm_choice"
+# (patrón B, migrado 2026-07-21 desde la vieja llm "Armar mensaje referencia
+# de comercio" + "Cerrar conversación" sueltas — mismo patrón que noticias),
+# expandido en runtime con prefijo `obtener_comercio_confirmado::`.
+N_COMERCIO_ELEGIR = "obtener_comercio_confirmado::node_choose"  # llm → state.propuesta_actual ("nombre ||| datos" o SIN_RESULTADOS)
+N_COMERCIO_CONFIRMAR = "obtener_comercio_confirmado::node_check"  # llm "Verificar confirmación" → state.comercio_confirmado
+N_COMERCIO_CONDICION = "obtener_comercio_confirmado::node_condition"  # condition → found | pedir_mas_info | not_found
+N_RESPONDER_COMERCIO_ENCONTRADO = "responder_comercio_encontrado::node_send"  # mensaje fijo (sin LLM) si found
+N_END_CONV_COMERCIO_FOUND = "responder_comercio_encontrado::node_close"
+N_DISCULPAR_SIN_COMERCIO = "disculpar_sin_comercio::node_send"  # mensaje fijo (sin LLM) si not_found (agotado o sin resultados)
+N_END_CONV_COMERCIO_NOTFOUND = "disculpar_sin_comercio::node_close"
 
 N_PRODUCTO_FETCH = "node_1783949755356"
-N_PRODUCTO_LLM = "node_1783195927257"
+# "Obtener Producto Confirmado" — mismo patrón/migración que comercio arriba,
+# expandido en runtime con prefijo `obtener_producto_confirmado::`.
+N_PRODUCTO_ELEGIR = "obtener_producto_confirmado::node_choose"  # llm → state.propuesta_actual ("nombre ||| datos" o SIN_RESULTADOS)
+N_PRODUCTO_CONFIRMAR = "obtener_producto_confirmado::node_check"  # llm "Verificar confirmación" → state.producto_confirmado
+N_PRODUCTO_CONDICION = "obtener_producto_confirmado::node_condition"  # condition → found | pedir_mas_info | not_found
+N_RESPONDER_PRODUCTO_ENCONTRADO = "responder_producto_encontrado::node_send"  # mensaje fijo (sin LLM) si found
+N_END_CONV_PRODUCTO_FOUND = "responder_producto_encontrado::node_close"
+N_DISCULPAR_SIN_PRODUCTO = "disculpar_sin_producto::node_send"  # mensaje fijo (sin LLM) si not_found (agotado o sin resultados)
+N_END_CONV_PRODUCTO_NOTFOUND = "disculpar_sin_producto::node_close"
 
 N_NOTICIAS_EXPANDIR = "expandir_consulta"
 N_NOTICIAS_FETCH = "node_1783693824414"
@@ -224,8 +263,15 @@ N_NOTICIAS_FETCH = "node_1783693824414"
 N_NOTICIAS_ELEGIR = "obtener_noticia_confirmada::node_choose"  # llm → state.propuesta_actual ("url ||| resumen" o SIN_RESULTADOS)
 N_NOTICIAS_CONFIRMAR = "obtener_noticia_confirmada::node_check"  # llm "Verificar confirmación" → state.noticia_confirmada
 N_NOTICIAS_CONDICION = "obtener_noticia_confirmada::node_condition"  # condition → found | pedir_mas_info | not_found
-N_RESPONDER_NOTICIA_ENCONTRADA = "responder_noticia_encontrada"  # mensaje fijo (sin LLM) si found
-N_DISCULPAR_SIN_NOTICIA = "disculpar_sin_noticia"  # mensaje fijo (sin LLM) si not_found (agotado o sin resultados)
+# "responder_noticia_encontrada" / "disculpar_sin_noticia" pasaron a ser
+# instancias de "reply_and_close" (refactor 2026-07-21, ver backup
+# "pre-reply_and_close-refactor") — ya no hay un nodo "end_conv_noticias"
+# suelto, el cierre (send + end_conversation) vive ADENTRO del propio
+# nodo_flow, expandido en runtime con "::node_send"/"::node_close".
+N_RESPONDER_NOTICIA_ENCONTRADA = "responder_noticia_encontrada::node_send"  # mensaje fijo (sin LLM) si found
+N_END_CONV_NOTICIAS_FOUND = "responder_noticia_encontrada::node_close"
+N_DISCULPAR_SIN_NOTICIA = "disculpar_sin_noticia::node_send"  # mensaje fijo (sin LLM) si not_found (agotado o sin resultados)
+N_END_CONV_NOTICIAS_NOTFOUND = "disculpar_sin_noticia::node_close"
 
 # "Obtener Dirección Confirmada" — nodo_flow → sub-flow "get_data" (patrón A),
 # expandido en runtime con prefijo "obtener_direccion_confirmada::".
@@ -246,6 +292,17 @@ N_DISCULPAR_RUBRO_AGOTADO = "disculpar_rubro_agotado"  # mensaje fijo (sin LLM) 
 N_NOTIFICAR_TRABAJADOR = "notificar_trabajador"
 N_RESPONDER_SERVICIO = "responder_vecino_oficio"
 N_SET_DIRECCION = "set_direccion"
+# El cierre de "servicio" (antes "end_conv_ok") NO quedó envuelto en
+# "reply_and_close" como los demás — sigue siendo un send_message + un
+# end_conversation sueltos, pero con un id autogenerado (sin slug propio
+# puesto en el editor) en vez de "end_conv_ok". Frágil si se vuelve a tocar
+# ese nodo en el editor (el id cambiaría) — vale la pena pedirle a quien
+# haga el próximo pase por el editor que le ponga un id/nombre estable.
+N_END_CONV_OK = "node_1784655913105"
+# "end_conv_scope" y "end_conv_fail" sí son "reply_and_close" (mismo
+# refactor 2026-07-21) — cierre real en "<id>::node_close".
+N_END_CONV_SCOPE = "end_conv_scope::node_close"
+N_END_CONV_FAIL = "end_conv_fail::node_close"
 
 
 @dataclass
@@ -368,7 +425,39 @@ def _infra_checks(conv: SimConversation, reply: str | None) -> list[Check]:
     return checks
 
 
-# ─── 1. Comercio — con loop de aclaración + resiliencia a mensaje ambiguo ───
+def _no_separator_leak(turns: list[tuple[str, str]]) -> Check:
+    """Assert real (estructural, no de redacción): ningún reply del bot debe
+    filtrar el separador técnico "|||" que usa `confirm_choice` para
+    codificar "identificador ||| resumen" en `propuesta_actual` — es un dato
+    interno entre `node_choose` y `node_ask`, nunca algo para mostrarle al
+    vecino (bug real encontrado 2026-07-21 al migrar comercio/producto: el
+    LLM de `node_ask` a veces copia el string crudo en vez de redactarlo)."""
+    filtrados = [text for role, text in turns if role == "bot" and "|||" in (text or "")]
+    return _c(
+        "Ningún reply del bot filtró el separador técnico \"|||\" (siempre redactado en prosa)",
+        not filtrados, detail=str(filtrados) if filtrados else "",
+    )
+
+
+def _total_real_directorio(conv: SimConversation, fetch_node_id: str, field: str) -> int:
+    """Análogo a `_total_real_news`/`_total_real_news` pero para los fetch
+    de directorio (comercio/producto) — estos NO usan `array_input` (una
+    sola llamada), así que `state_field` devuelve un único string JSON crudo,
+    no una lista de strings."""
+    raw = conv.state_field(fetch_node_id, field)
+    if not raw:
+        return 0
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return 0
+    return len(parsed.get("results") or [])
+
+
+# ─── 1. Comercio — con loop de aclaración + resiliencia a mensaje ambiguo,
+#        más el loop de confirmación de "confirm_choice" (migrado 2026-07-21,
+#        mismo patrón que "noticias": propone un comercio, si el vecino
+#        rechaza propone otro sin repetir, hasta que confirma) ──────────────
 
 async def _run_comercio() -> ScenarioResult:
     turns = []
@@ -377,8 +466,16 @@ async def _run_comercio() -> ScenarioResult:
         turns.append(("user", "hola")); turns.append(("bot", r1))
         r2 = await conv.send_and_wait("asdfgh")
         turns.append(("user", "asdfgh")); turns.append(("bot", r2))
-        reply = await conv.send_and_wait("busco una ferretería")
-        turns.append(("user", "busco una ferretería")); turns.append(("bot", reply))
+        propone_1 = await conv.send_and_wait("busco una ferretería")
+        turns.append(("user", "busco una ferretería")); turns.append(("bot", propone_1))
+
+        m4 = "no, ese no es"
+        propone_2 = await conv.send_and_wait(m4)
+        turns.append(("user", m4)); turns.append(("bot", propone_2))
+
+        m5 = "sí, ese es"
+        reply = await conv.send_and_wait(m5)
+        turns.append(("user", m5)); turns.append(("bot", reply))
 
         checks = [
             _log("Turno 1 (\"hola\", ambiguo): clasificación de necesidad",
@@ -387,34 +484,121 @@ async def _run_comercio() -> ScenarioResult:
             _c("Turno 1: el bot respondió pidiendo aclaración (no vacío)", bool(r1)),
             _c("Turno 2 (\"asdfgh\", ambiguo de nuevo): el flow no se rompió, siguió respondiendo (no vacío)", bool(r2)),
         ]
-        checks += _infra_checks(conv, reply)
         checks.append(_log("Turno 3: rama tomada por Elegir Mostrador", detail=f"branch={conv.branch_taken(N_ELEGIR_MOSTRADOR)!r}"))
         checks.append(_ran_all(
-            "Pasó por los nodos esperados de la rama comercio (fetch al directorio + armado de mensaje + cierre)",
-            conv, N_COMERCIO_FETCH, N_COMERCIO_LLM, "end_conv_comercio",
+            "Turno 3: pasó por el fetch al directorio y propuso un comercio",
+            conv, N_COMERCIO_FETCH, N_COMERCIO_ELEGIR,
         ))
+        checks.append(_c("Turno 3: el bot propuso algo (no vacío)", bool(propone_1)))
+        propuesta_1a = conv.state_field(N_COMERCIO_ELEGIR, "propuesta_actual", occurrence=0)
+        propuesta_2a = conv.state_field(N_COMERCIO_ELEGIR, "propuesta_actual", occurrence=1)
+        checks.append(_log("Comercio propuesto (1ª propuesta)", detail=f"{propuesta_1a!r}"))
+        checks.append(_log("Rama de \"Confirmó la propuesta?\" (turno 4, rechaza)",
+                            detail=f"branch={conv.branch_taken(N_COMERCIO_CONDICION, occurrence=0)!r}"))
+        checks.append(_ran_all(
+            "Turno 4: volvió a proponer tras el rechazo (2ª ejecución, sin re-pegarle al fetch)",
+            conv, N_COMERCIO_ELEGIR,
+        ))
+        checks.append(_log("Comercio propuesto (2ª propuesta, tras el rechazo)", detail=f"{propuesta_2a!r}"))
+        total_results = _total_real_directorio(conv, N_COMERCIO_FETCH, "comercio_luganense")
+        if total_results > 1:
+            checks.append(_c(
+                "No repitió el mismo comercio en la 2ª propuesta habiendo más de 1 candidato (dedup de confirm_choice)",
+                propuesta_2a != propuesta_1a,
+                detail=f"1ª={propuesta_1a!r} 2ª={propuesta_2a!r} total_results={total_results}",
+            ))
+        checks.append(_log("Rama de \"Confirmó la propuesta?\" (turno 5, confirma)",
+                            detail=f"branch={conv.branch_taken(N_COMERCIO_CONDICION, occurrence=1)!r}"))
+        checks += _infra_checks(conv, reply)
+        checks.append(_ran_all(
+            "Turno 5: confirmó el comercio y cerró por la rama de éxito (found)",
+            conv, N_COMERCIO_CONFIRMAR, N_RESPONDER_COMERCIO_ENCONTRADO, N_END_CONV_COMERCIO_FOUND,
+        ))
+        checks.append(_no_separator_leak(turns))
     return ScenarioResult(turns, checks)
 
 
-# ─── 2. Comercio sin rubro explícito (Kiosco Don Jorge) — resolución en 1 turno ─
+# ─── 1b. (único camino infeliz de comercio) Agotamiento tras 3 rechazos ──────
+#         Insistencia del vecino: rechaza TODAS las propuestas de comercio
+#         (3 intentos, max_visits de "confirm_choice", ver N_COMERCIO_CONDICION)
+#         sin confirmar ninguna — mismo camino infeliz que noticias
+#         (`_run_noticias_agotado`), aplicado a la rama migrada de comercio.
+
+async def _run_comercio_agotado() -> ScenarioResult:
+    """
+    Camino infeliz de la rama comercio (migrada 2026-07-21 al patrón B
+    "confirm_choice"): el vecino insiste rechazando las 3 propuestas seguidas
+    sin confirmar ninguna — el flow debe cerrar solo igual, por la rama de
+    disculpa (`not_found` → disculpar_sin_comercio), no quedarse colgado ni
+    repetir la misma propuesta indefinidamente.
+    """
+    turns = []
+    async with SimConversation(BOT_ID) as conv:
+        m1 = "busco una ferretería"
+        last_reply = await conv.send_and_wait(m1)
+        turns.append(("user", m1)); turns.append(("bot", last_reply))
+
+        rechazos = ["no, ese no es", "no, tampoco es ese", "no, ese tampoco"]
+        for msg in rechazos:
+            last_reply = await conv.send_and_wait(msg)
+            turns.append(("user", msg)); turns.append(("bot", last_reply))
+
+        checks = [
+            _ran_all(
+                "Propuso al menos una vez antes de agotar los intentos",
+                conv, N_COMERCIO_FETCH, N_COMERCIO_ELEGIR,
+            ),
+            _log("Rama de \"Confirmó la propuesta?\" tras agotar reintentos (esperado: not_found)",
+                 detail=f"branch={conv.branch_taken(N_COMERCIO_CONDICION)!r}"),
+        ]
+        visitas = conv.state_field(N_COMERCIO_CONDICION, "_visits_" + N_COMERCIO_CONDICION)
+        checks.append(_c(
+            f"El contador de reintentos (_visits_{N_COMERCIO_CONDICION}) llegó exactamente a 3 "
+            "(mecánica del engine — max_visits, no una decisión de contenido del LLM)",
+            visitas == 3, detail=f"visits={visitas!r}",
+        ))
+        checks += _infra_checks(conv, last_reply)
+        checks.append(_ran_all(
+            "Cerró por la rama de disculpa (disculpar_sin_comercio), no se quedó colgado",
+            conv, N_DISCULPAR_SIN_COMERCIO, N_END_CONV_COMERCIO_NOTFOUND,
+        ))
+        checks.append(_no_separator_leak(turns))
+    return ScenarioResult(turns, checks)
+
+
+# ─── 2. Comercio sin rubro explícito (Kiosco Don Jorge) — resolución de la
+#        necesidad en 1 turno, más un turno de confirmación (patrón B) ──────
 
 async def _run_comercio_sin_rubro() -> ScenarioResult:
     turns = []
     async with SimConversation(BOT_ID) as conv:
         msg = "Hola, ¿podés decirme el teléfono de Kiosco Don Jorge?"
-        reply = await conv.send_and_wait(msg)
-        turns.append(("user", msg)); turns.append(("bot", reply))
+        propone = await conv.send_and_wait(msg)
+        turns.append(("user", msg)); turns.append(("bot", propone))
+
+        m2 = "sí, es ese"
+        reply = await conv.send_and_wait(m2)
+        turns.append(("user", m2)); turns.append(("bot", reply))
 
         checks = [
             _log("¿Resolvió la necesidad en el PRIMER turno, sin pedir aclaración?",
                  detail=f"branch={conv.branch_taken(N_CONDICION)!r}"),
             _log("Rama tomada por Elegir Mostrador", detail=f"branch={conv.branch_taken(N_ELEGIR_MOSTRADOR)!r}"),
         ]
+        checks.append(_ran_all(
+            "Turno 1: pasó por el fetch al directorio y propuso un comercio",
+            conv, N_COMERCIO_FETCH, N_COMERCIO_ELEGIR,
+        ))
+        checks.append(_c("Turno 1: el bot propuso algo (no vacío)", bool(propone)))
+        checks.append(_log("Comercio propuesto", detail=f"{conv.state_field(N_COMERCIO_ELEGIR, 'propuesta_actual', occurrence=0)!r}"))
+        checks.append(_log("Rama de \"Confirmó la propuesta?\" (turno 2, confirma)",
+                            detail=f"branch={conv.branch_taken(N_COMERCIO_CONDICION)!r}"))
         checks += _infra_checks(conv, reply)
         checks.append(_ran_all(
-            "Pasó por los nodos esperados de la rama comercio (fetch al directorio + armado de mensaje + cierre)",
-            conv, N_COMERCIO_FETCH, N_COMERCIO_LLM, "end_conv_comercio",
+            "Turno 2: confirmó el comercio y cerró por la rama de éxito (found)",
+            conv, N_COMERCIO_CONFIRMAR, N_RESPONDER_COMERCIO_ENCONTRADO, N_END_CONV_COMERCIO_FOUND,
         ))
+        checks.append(_no_separator_leak(turns))
     return ScenarioResult(turns, checks)
 
 
@@ -434,23 +618,109 @@ async def _run_comercio_sin_rubro() -> ScenarioResult:
 # prueba. "Focos LED" (Iluminación LuzHogar, confirmado en el mismo API) no
 # calza en ninguna categoría de comercio de barrio reconocible → mucho menos
 # ambiguo para el router.
+#
+# Migrado 2026-07-21 al mismo patrón B ("confirm_choice") que comercio/
+# noticias — ahora hace falta confirmar la propuesta, y (a pedido de
+# Luganense, que sumó 2 productos más de QA en la categoría iluminación el
+# mismo día — ver `las agent inject Luganense`) "focos LED" tiene 3
+# candidatos reales, así que este escenario ejercita el mismo camino que
+# comercio: 1ª propuesta rechazada → 2ª propuesta (distinta, sin repetir) →
+# confirmada.
 
 async def _run_producto() -> ScenarioResult:
     turns = []
     async with SimConversation(BOT_ID) as conv:
         msg = "Hola, necesito comprar unos focos LED para mi casa"
-        reply = await conv.send_and_wait(msg)
-        turns.append(("user", msg)); turns.append(("bot", reply))
+        propone_1 = await conv.send_and_wait(msg)
+        turns.append(("user", msg)); turns.append(("bot", propone_1))
+
+        m2 = "no, ese no es"
+        propone_2 = await conv.send_and_wait(m2)
+        turns.append(("user", m2)); turns.append(("bot", propone_2))
+
+        m3 = "sí, ese es"
+        reply = await conv.send_and_wait(m3)
+        turns.append(("user", m3)); turns.append(("bot", reply))
 
         checks = [
             _log("Rama tomada por la Condición", detail=f"branch={conv.branch_taken(N_CONDICION)!r}"),
         ]
-        checks += _infra_checks(conv, reply)
         checks.append(_log("Rama tomada por Elegir Mostrador", detail=f"branch={conv.branch_taken(N_ELEGIR_MOSTRADOR)!r}"))
         checks.append(_ran_all(
-            "Pasó por los nodos esperados de la rama producto (fetch de productos + armado de mensaje + cierre)",
-            conv, N_PRODUCTO_FETCH, N_PRODUCTO_LLM, "end_conv_producto",
+            "Turno 1: pasó por el fetch de productos y propuso uno",
+            conv, N_PRODUCTO_FETCH, N_PRODUCTO_ELEGIR,
         ))
+        checks.append(_c("Turno 1: el bot propuso algo (no vacío)", bool(propone_1)))
+        propuesta_1a = conv.state_field(N_PRODUCTO_ELEGIR, "propuesta_actual", occurrence=0)
+        propuesta_2a = conv.state_field(N_PRODUCTO_ELEGIR, "propuesta_actual", occurrence=1)
+        checks.append(_log("Producto propuesto (1ª propuesta)", detail=f"{propuesta_1a!r}"))
+        checks.append(_log("Rama de \"Confirmó la propuesta?\" (turno 2, rechaza)",
+                            detail=f"branch={conv.branch_taken(N_PRODUCTO_CONDICION, occurrence=0)!r}"))
+        checks.append(_ran_all(
+            "Turno 2: volvió a proponer tras el rechazo (2ª ejecución, sin re-pegarle al fetch)",
+            conv, N_PRODUCTO_ELEGIR,
+        ))
+        checks.append(_log("Producto propuesto (2ª propuesta, tras el rechazo)", detail=f"{propuesta_2a!r}"))
+        total_results = _total_real_directorio(conv, N_PRODUCTO_FETCH, "producto_luganense")
+        if total_results > 1:
+            checks.append(_c(
+                "No repitió el mismo producto en la 2ª propuesta habiendo más de 1 candidato (dedup de confirm_choice)",
+                propuesta_2a != propuesta_1a,
+                detail=f"1ª={propuesta_1a!r} 2ª={propuesta_2a!r} total_results={total_results}",
+            ))
+        checks.append(_log("Rama de \"Confirmó la propuesta?\" (turno 3, confirma)",
+                            detail=f"branch={conv.branch_taken(N_PRODUCTO_CONDICION, occurrence=1)!r}"))
+        checks += _infra_checks(conv, reply)
+        checks.append(_ran_all(
+            "Turno 3: confirmó el producto y cerró por la rama de éxito (found)",
+            conv, N_PRODUCTO_CONFIRMAR, N_RESPONDER_PRODUCTO_ENCONTRADO, N_END_CONV_PRODUCTO_FOUND,
+        ))
+        checks.append(_no_separator_leak(turns))
+    return ScenarioResult(turns, checks)
+
+
+# ─── 3b. (único camino infeliz de producto) Agotamiento tras 3 rechazos ──────
+#         Insistencia del vecino: rechaza TODAS las propuestas de producto
+#         (3 intentos, max_visits de "confirm_choice", ver N_PRODUCTO_CONDICION)
+#         sin confirmar ninguna — mismo camino infeliz que noticias/comercio,
+#         aplicado a producto. "Focos LED" tiene 3 candidatos reales (ver
+#         docstring de `_run_producto` más arriba), así que las 3 propuestas
+#         pueden ser distintas entre sí (sin necesidad de repetir por falta
+#         de opciones) — el flow debe cerrar solo igual por la rama de
+#         disculpa, sin quedarse colgado ni reintentar indefinidamente.
+
+async def _run_producto_agotado() -> ScenarioResult:
+    turns = []
+    async with SimConversation(BOT_ID) as conv:
+        m1 = "Hola, necesito comprar unos focos LED para mi casa"
+        last_reply = await conv.send_and_wait(m1)
+        turns.append(("user", m1)); turns.append(("bot", last_reply))
+
+        rechazos = ["no, ese no es", "no, tampoco es ese", "no, ese tampoco"]
+        for msg in rechazos:
+            last_reply = await conv.send_and_wait(msg)
+            turns.append(("user", msg)); turns.append(("bot", last_reply))
+
+        checks = [
+            _ran_all(
+                "Propuso al menos una vez antes de agotar los intentos",
+                conv, N_PRODUCTO_FETCH, N_PRODUCTO_ELEGIR,
+            ),
+            _log("Rama de \"Confirmó la propuesta?\" tras agotar reintentos (esperado: not_found)",
+                 detail=f"branch={conv.branch_taken(N_PRODUCTO_CONDICION)!r}"),
+        ]
+        visitas = conv.state_field(N_PRODUCTO_CONDICION, "_visits_" + N_PRODUCTO_CONDICION)
+        checks.append(_c(
+            f"El contador de reintentos (_visits_{N_PRODUCTO_CONDICION}) llegó exactamente a 3 "
+            "(mecánica del engine — max_visits, no una decisión de contenido del LLM)",
+            visitas == 3, detail=f"visits={visitas!r}",
+        ))
+        checks += _infra_checks(conv, last_reply)
+        checks.append(_ran_all(
+            "Cerró por la rama de disculpa (disculpar_sin_producto), no se quedó colgado",
+            conv, N_DISCULPAR_SIN_PRODUCTO, N_END_CONV_PRODUCTO_NOTFOUND,
+        ))
+        checks.append(_no_separator_leak(turns))
     return ScenarioResult(turns, checks)
 
 
@@ -533,8 +803,9 @@ async def _run_noticias() -> ScenarioResult:
         checks += _infra_checks(conv, reply)
         checks.append(_ran_all(
             "Turno 3: confirmó la publicación y cerró por la rama de éxito (found)",
-            conv, N_NOTICIAS_CONFIRMAR, N_RESPONDER_NOTICIA_ENCONTRADA, "end_conv_noticias",
+            conv, N_NOTICIAS_CONFIRMAR, N_RESPONDER_NOTICIA_ENCONTRADA, N_END_CONV_NOTICIAS_FOUND,
         ))
+        checks.append(_no_separator_leak(turns))
     return ScenarioResult(turns, checks)
 
 
@@ -583,8 +854,9 @@ async def _run_noticias_agotado() -> ScenarioResult:
         checks += _infra_checks(conv, last_reply)
         checks.append(_ran_all(
             "Cerró por la rama de disculpa (disculpar_sin_noticia → end_conv_noticias), no se quedó colgado",
-            conv, N_DISCULPAR_SIN_NOTICIA, "end_conv_noticias",
+            conv, N_DISCULPAR_SIN_NOTICIA, N_END_CONV_NOTICIAS_NOTFOUND,
         ))
+        checks.append(_no_separator_leak(turns))
     return ScenarioResult(turns, checks)
 
 
@@ -690,7 +962,7 @@ async def _run_servicio() -> ScenarioResult:
         ))
         checks.append(_ran_all(
             "Pasó por los nodos esperados de cierre (notificó al prestador, armó la respuesta final, cerró end_conv_ok)",
-            conv, N_NOTIFICAR_TRABAJADOR, N_RESPONDER_SERVICIO, "end_conv_ok",
+            conv, N_NOTIFICAR_TRABAJADOR, N_RESPONDER_SERVICIO, N_END_CONV_OK,
         ))
     return ScenarioResult(turns, checks)
 
@@ -718,7 +990,7 @@ async def _run_fuera_de_scope() -> ScenarioResult:
             _log("Rama tomada por la Condición", detail=f"branch={conv.branch_taken(N_CONDICION)!r}"),
         ]
         checks += _infra_checks(conv, reply)
-        checks.append(_ran_all("Cerró específicamente por end_conv_scope", conv, "end_conv_scope"))
+        checks.append(_ran_all("Cerró específicamente por end_conv_scope", conv, N_END_CONV_SCOPE))
         checks.append(_c(
             "NO buscó noticias reales de otro barrio (el guardrail de scope corta ANTES de tocar la API)",
             not conv.ran_node(N_NOTICIAS_FETCH),
@@ -784,7 +1056,7 @@ async def _run_servicio_agotado() -> ScenarioResult:
         checks += _infra_checks(conv, last_reply)
         checks.append(_ran_all(
             "Cerró por la rama de disculpa (disculpar_dir → end_conv_fail), no se quedó colgado",
-            conv, "disculpar_dir", "end_conv_fail",
+            conv, N_END_CONV_FAIL,
         ))
     return ScenarioResult(turns, checks)
 
@@ -802,22 +1074,37 @@ async def _run_conectividad_telegram() -> ScenarioResult:
 
 SCENARIOS: list[Scenario] = [
     Scenario(
-        id="comercio", title="Comercio — aclaración + resiliencia a ambiguo + ferretería",
+        id="comercio", title="Comercio — aclaración + resiliencia a ambiguo + ferretería + confirmación",
         desc="Arranca con un saludo ambiguo (pide aclaración), tolera un mensaje sin sentido en el medio sin romperse, "
-             "y recién se resuelve al dar el pedido real — cierra pasando por el fetch real del directorio de comercios.",
+             "se resuelve al dar el pedido real — fetch real del directorio de comercios — y recién cierra tras "
+             "rechazar una propuesta y confirmar la segunda (patrón confirm_choice, igual que noticias).",
         run=_run_comercio,
     ),
     Scenario(
-        id="comercio-sin-rubro", title="Comercio sin rubro explícito — \"Kiosco Don Jorge\" (1 turno)",
+        id="comercio-agotado", title="[Único camino infeliz de comercio] Rechaza las 3 propuestas seguidas",
+        desc="El vecino rechaza TODOS los comercios que se le proponen (3 intentos, max_visits) sin confirmar "
+             "ninguno — el flow debe cerrar solo igual, por la rama de disculpa, en vez de quedar colgado.",
+        run=_run_comercio_agotado,
+    ),
+    Scenario(
+        id="comercio-sin-rubro", title="Comercio sin rubro explícito — \"Kiosco Don Jorge\" (necesidad en 1 turno)",
         desc="Un nombre propio de comercio sin decir el rubro debe resolverse en el PRIMER turno, sin pedir aclaración "
-             "(regresión 2026-07-08) — y aun así cerrar la conversación de punta a punta.",
+             "(regresión 2026-07-08) — y aun así cerrar de punta a punta, confirmando la propuesta (confirm_choice).",
         run=_run_comercio_sin_rubro,
     ),
     Scenario(
-        id="producto", title="Producto — focos LED (necesidad directa en el saludo)",
+        id="producto", title="Producto — focos LED (necesidad directa en el saludo + rechazo + confirmación)",
         desc="Pedido de un producto puntual (focos LED) directo en el primer mensaje, sin loop de aclaración "
-             "(eso ya lo cubre el escenario \"comercio\") → fetch real del directorio de productos → cierre.",
+             "(eso ya lo cubre el escenario \"comercio\") → fetch real del directorio de productos (3 candidatos "
+             "reales de QA) → propone uno, el vecino lo RECHAZA → propone otro distinto (sin repetir) → CONFIRMA → "
+             "cierre.",
         run=_run_producto,
+    ),
+    Scenario(
+        id="producto-agotado", title="[Único camino infeliz de producto] Rechaza las 3 propuestas seguidas",
+        desc="El vecino rechaza TODOS los productos que se le proponen (3 intentos, max_visits) sin confirmar "
+             "ninguno — el flow debe cerrar solo igual, por la rama de disculpa, en vez de quedar colgado.",
+        run=_run_producto_agotado,
     ),
     Scenario(
         id="noticias", title="Noticias — corte de luz, itera propuesta rechazada + propuesta confirmada",
