@@ -112,107 +112,25 @@ def has_unresolved_templates(*texts: str | None) -> bool:
     return any(t and _UNRESOLVED_TEMPLATE_RE.search(t) for t in texts)
 
 
-class SimConversation:
+class _StepsAnalysisMixin:
     """
-    Conversación multi-turno contra el motor real de flows, sin Telegram, vía
-    el endpoint de simulación in-band `POST /api/flows/bots/{bot_id}/simulate`
-    (pulpo/business/flows.py::simulate_message). Equivalente a mandarle el
-    mensaje a la bot por Telegram: el flow y el trigger que aplican se
-    resuelven solos (igual que dispatch_message), sin flow_id ni
-    trigger_node_id. Namespacea la conversación con un `sim_id` reusado entre
-    turnos — el mismo mecanismo que permite continuar una simulación pausada
-    en `wait_user`.
+    Accesores de validación compartidos por cualquier conversación e2e que
+    acumule turnos en `self.all_steps`/`self._last_steps` (mismo shape que
+    `GET /runs/{run_id}` en AMBOS backends -- Python viejo y el puerto TS de
+    web/, ver web/app/api/runs/[runId]/route.ts: node_id/node_type/status/
+    output_state/branch_taken). Separado de `SimConversation` el 2026-07-24
+    para que `ChatConversation` (vía `web/`, sin Telegram ni `/simulate`)
+    reuse toda esta lógica de validación sin duplicarla -- la única
+    diferencia entre las dos clases es CÓMO se manda el mensaje y se
+    resuelve el reply, nunca cómo se valida el log de ejecución.
 
-    A diferencia de `TeliConversation`, no hay settle-time de verdad: el
-    motor corre síncrono dentro del propio request HTTP. `settle_seconds`
-    es solo un delay chico para no disparar turnos instantáneos pegados.
-
-    Limitación documentada (ver simulate_message.__doc__): solo replica la
-    continuación multi-turno vía `wait_user`, no `open_conversation` sin
-    wait_user ni el lock `_IN_FLIGHT` de dispatch_message.
+    Requiere que la subclase setee `self._last_steps: list[dict]` (steps del
+    último turno) y `self.all_steps: list[dict]` (acumulado de todos los
+    turnos).
     """
 
-    def __init__(self, bot_id: str, base_url: str = "http://localhost:8000"):
-        self.bot_id = bot_id
-        self.base_url = base_url.rstrip("/")
-        self.sim_id: str | None = None
-        self.last_run_id: str | None = None
-        self._last_steps: list[dict] = []
-        # Acumulado de TODOS los steps de TODOS los turnos de la conversación
-        # (cada turno de wait_user genera un run_id nuevo — _last_steps solo
-        # tiene el último). Necesario para validar cosas que pasaron en un
-        # turno anterior (ej. que buscar_directorio corrió bien en el primer
-        # turno, aunque el cierre sea 3 turnos después).
-        self.all_steps: list[dict] = []
-        self._client: httpx.AsyncClient | None = None
-
-    async def __aenter__(self) -> "SimConversation":
-        # 900s: un solo turno corre sincrónico dentro del request y puede
-        # encadenar varios nodos LLM en cloud-first — medido hasta 8m26s en
-        # el escenario "noticias" (2026-07-15, router+expandir+responder).
-        self._client = httpx.AsyncClient(timeout=900)
-        return self
-
-    async def __aexit__(self, *exc) -> None:
-        if self._client:
-            await self._client.aclose()
-
-    def _client_or_temp(self) -> httpx.AsyncClient:
-        return self._client or httpx.AsyncClient(timeout=900)
-
-    async def send_and_wait(self, message: str, settle_seconds: float = 0.5) -> str | None:
-        """
-        Manda `message` a `/simulate`, guarda `sim_id`/`run_id` del turno,
-        trae y acumula los steps de ese turno (para los accesores de
-        validación: `step`, `ran_node`, `state_field`, `branch_taken`), y
-        espera `settle_seconds` antes de devolver el reply.
-        """
-        body = {"message": message, "contact_name": "Simulación E2E"}
-        if self.sim_id:
-            body["sim_id"] = self.sim_id
-
-        url = f"{self.base_url}/api/flows/bots/{self.bot_id}/simulate"
-        if self._client is not None:
-            resp = await self._client.post(url, json=body)
-        else:
-            async with httpx.AsyncClient(timeout=900) as client:
-                resp = await client.post(url, json=body)
-        resp.raise_for_status()
-        data = resp.json()
-
-        self.sim_id = data.get("sim_id") or self.sim_id
-        self.last_run_id = data.get("run_id") or self.last_run_id
-        if self.last_run_id:
-            await self.last_run_steps()
-
-        if settle_seconds:
-            await asyncio.sleep(settle_seconds)
-
-        return data.get("reply")
-
-    async def last_run_steps(self) -> list[dict]:
-        """
-        Steps (`flow_run_steps`) del ÚLTIMO run_id visto (GET /runs/{run_id}).
-        Cada turno de `/simulate` genera un run_id nuevo por el hand-off de
-        `wait_user` — usa siempre `self.last_run_id`, no el primero visto.
-        Cachea el resultado en `self._last_steps` (para `reached_end_conversation()`)
-        y lo suma a `self.all_steps` (para validar across-turnos). Ya se llama
-        sola desde `send_and_wait` — solo hace falta invocarla a mano si se
-        necesita refrescar sin mandar un mensaje nuevo.
-        """
-        if not self.last_run_id:
-            self._last_steps = []
-            return self._last_steps
-        url = f"{self.base_url}/api/runs/{self.last_run_id}"
-        if self._client is not None:
-            resp = await self._client.get(url)
-        else:
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.get(url)
-        resp.raise_for_status()
-        self._last_steps = resp.json().get("steps", [])
-        self.all_steps.extend(self._last_steps)
-        return self._last_steps
+    _last_steps: list[dict]
+    all_steps: list[dict]
 
     def reached_end_conversation(self) -> bool:
         """True si el ÚLTIMO turno terminó en un nodo end_conversation (cierre real)."""
@@ -353,3 +271,272 @@ class SimConversation:
         """node_id de todo step que corrió con status="error" (ver `_log_step`
         en compiler.py) — mecánica del engine, no depende de qué generó el LLM."""
         return [s["node_id"] for s in self.all_steps if s.get("status") == "error"]
+
+
+class SimConversation(_StepsAnalysisMixin):
+    """
+    Conversación multi-turno contra el motor real de flows, sin Telegram, vía
+    el endpoint de simulación in-band `POST /api/flows/bots/{bot_id}/simulate`
+    (pulpo/business/flows.py::simulate_message) del backend Python VIEJO
+    (`:8000`). Equivalente a mandarle el mensaje a la bot por Telegram: el
+    flow y el trigger que aplican se resuelven solos (igual que
+    dispatch_message), sin flow_id ni trigger_node_id. Namespacea la
+    conversación con un `sim_id` reusado entre turnos — el mismo mecanismo
+    que permite continuar una simulación pausada en `wait_user`.
+
+    A diferencia de `TeliConversation`, no hay settle-time de verdad: el
+    motor corre síncrono dentro del propio request HTTP. `settle_seconds`
+    es solo un delay chico para no disparar turnos instantáneos pegados.
+
+    Limitación documentada (ver simulate_message.__doc__): solo replica la
+    continuación multi-turno vía `wait_user`, no `open_conversation` sin
+    wait_user ni el lock `_IN_FLIGHT` de dispatch_message.
+
+    2026-07-24: reemplazada por `ChatConversation` para los escenarios de
+    Luganense (el backend Python quedó desactualizado respecto a lo que
+    corre en prod, ver web/ + Neon) -- queda acá por si algún otro bot
+    todavía corre sobre el stack viejo.
+    """
+
+    def __init__(self, bot_id: str, base_url: str = "http://localhost:8000"):
+        self.bot_id = bot_id
+        self.base_url = base_url.rstrip("/")
+        self.sim_id: str | None = None
+        self.last_run_id: str | None = None
+        self._last_steps: list[dict] = []
+        # Acumulado de TODOS los steps de TODOS los turnos de la conversación
+        # (cada turno de wait_user genera un run_id nuevo — _last_steps solo
+        # tiene el último). Necesario para validar cosas que pasaron en un
+        # turno anterior (ej. que buscar_directorio corrió bien en el primer
+        # turno, aunque el cierre sea 3 turnos después).
+        self.all_steps: list[dict] = []
+        self._client: httpx.AsyncClient | None = None
+
+    async def __aenter__(self) -> "SimConversation":
+        # 900s: un solo turno corre sincrónico dentro del request y puede
+        # encadenar varios nodos LLM en cloud-first — medido hasta 8m26s en
+        # el escenario "noticias" (2026-07-15, router+expandir+responder).
+        self._client = httpx.AsyncClient(timeout=900)
+        return self
+
+    async def __aexit__(self, *exc) -> None:
+        if self._client:
+            await self._client.aclose()
+
+    def _client_or_temp(self) -> httpx.AsyncClient:
+        return self._client or httpx.AsyncClient(timeout=900)
+
+    async def send_and_wait(self, message: str, settle_seconds: float = 0.5) -> str | None:
+        """
+        Manda `message` a `/simulate`, guarda `sim_id`/`run_id` del turno,
+        trae y acumula los steps de ese turno (para los accesores de
+        validación: `step`, `ran_node`, `state_field`, `branch_taken`), y
+        espera `settle_seconds` antes de devolver el reply.
+        """
+        body = {"message": message, "contact_name": "Simulación E2E"}
+        if self.sim_id:
+            body["sim_id"] = self.sim_id
+
+        url = f"{self.base_url}/api/flows/bots/{self.bot_id}/simulate"
+        if self._client is not None:
+            resp = await self._client.post(url, json=body)
+        else:
+            async with httpx.AsyncClient(timeout=900) as client:
+                resp = await client.post(url, json=body)
+        resp.raise_for_status()
+        data = resp.json()
+
+        self.sim_id = data.get("sim_id") or self.sim_id
+        self.last_run_id = data.get("run_id") or self.last_run_id
+        if self.last_run_id:
+            await self.last_run_steps()
+
+        if settle_seconds:
+            await asyncio.sleep(settle_seconds)
+
+        return data.get("reply")
+
+    async def last_run_steps(self) -> list[dict]:
+        """
+        Steps (`flow_run_steps`) del ÚLTIMO run_id visto (GET /runs/{run_id}).
+        Cada turno de `/simulate` genera un run_id nuevo por el hand-off de
+        `wait_user` — usa siempre `self.last_run_id`, no el primero visto.
+        Cachea el resultado en `self._last_steps` (para `reached_end_conversation()`)
+        y lo suma a `self.all_steps` (para validar across-turnos). Ya se llama
+        sola desde `send_and_wait` — solo hace falta invocarla a mano si se
+        necesita refrescar sin mandar un mensaje nuevo.
+        """
+        if not self.last_run_id:
+            self._last_steps = []
+            return self._last_steps
+        url = f"{self.base_url}/api/runs/{self.last_run_id}"
+        if self._client is not None:
+            resp = await self._client.get(url)
+        else:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.get(url)
+        resp.raise_for_status()
+        self._last_steps = resp.json().get("steps", [])
+        self.all_steps.extend(self._last_steps)
+        return self._last_steps
+
+
+class ChatConversation(_StepsAnalysisMixin):
+    """
+    Conversación multi-turno contra un flow REAL corriendo en `web/` (Vercel
+    + Neon -- el stack que de verdad sirve producción hoy), vía la API de
+    "PulpoChat" (`lib/business/chats.ts`) en vez de Telegram o el
+    `/simulate` del backend Python viejo. Pensada para testear Luganense (y
+    cualquier otro bot) contra EXACTAMENTE lo que corre en prod, sin
+    depender de una copia local que puede haber divergido (2026-07-24,
+    pedido explícito del usuario: nada de sincronizar flows entre
+    ambientes).
+
+    Requiere que el flow tenga un nodo `trigger_chat` (lib/nodes/trigger-chat.ts)
+    en paralelo al trigger real (telegram_trigger, etc. -- mismo target que
+    ese trigger, para correr exactamente la misma rama) y un `chat_configs`
+    apuntándole (ver scripts/add-chat-trigger-luganense.ts para Luganense).
+    El chat usado para testing es privado por convención (no linkeado desde
+    ninguna UI) pero `is_public=True` para no necesitar login real -- solo
+    manda un `X-Chat-Visitor` propio.
+
+    A diferencia de Telegram (polling de mensajes nuevos) o `/simulate`
+    (síncrono dentro del request), acá el POST de mensaje es fire-and-forget
+    (`dispatchInbound` corre en background vía Workflow DevKit) -- hay que
+    hacer polling de `GET .../messages` hasta ver un mensaje `bot` nuevo o
+    que el run llegue a un estado terminal.
+    """
+
+    def __init__(
+        self,
+        bot_id: str,
+        chat_id: str,
+        base_url: str = "http://localhost:9010",
+        visitor_id: str | None = None,
+    ):
+        self.bot_id = bot_id
+        self.chat_id = chat_id
+        self.base_url = base_url.rstrip("/")
+        self.visitor_id = visitor_id or f"e2e-{bot_id}-{id(self):x}"
+        self.conversation_id: str | None = None
+        self.last_run_id: str | None = None
+        self._last_message_id = 0
+        self._last_steps: list[dict] = []
+        self.all_steps: list[dict] = []
+        self._client: httpx.AsyncClient | None = None
+
+    async def __aenter__(self) -> "ChatConversation":
+        self._client = httpx.AsyncClient(timeout=60, headers={"X-Chat-Visitor": self.visitor_id})
+        return self
+
+    async def __aexit__(self, *exc) -> None:
+        if self._client:
+            await self._client.aclose()
+
+    @property
+    def _chat_base(self) -> str:
+        return f"{self.base_url}/api/chat/{self.bot_id}/{self.chat_id}"
+
+    async def _ensure_conversation(self) -> str:
+        if self.conversation_id:
+            return self.conversation_id
+        resp = await self._client.post(f"{self._chat_base}/conversations")
+        resp.raise_for_status()
+        self.conversation_id = resp.json()["id"]
+        return self.conversation_id
+
+    async def send_and_wait(
+        self, message: str, timeout: float = 480, poll_interval: float = 4,
+    ) -> str | None:
+        """
+        Crea la conversación si hace falta, manda `message`, y hace polling
+        de `GET .../messages` hasta ver un mensaje `bot` nuevo (posterior al
+        último visto) -- devuelve su `content`, o `None` si se agota
+        `timeout` sin ninguno. `timeout` en 480s por default: el run puede
+        encadenar varios nodos LLM en cloud-first (medido hasta 8m26s en el
+        escenario "noticias" contra el motor viejo; el nuevo corre sobre
+        Workflow DevKit, tiempos comparables).
+        """
+        conversation_id = await self._ensure_conversation()
+        resp = await self._client.post(
+            f"{self._chat_base}/conversations/{conversation_id}/messages",
+            json={"message": message},
+        )
+        resp.raise_for_status()
+        self.last_run_id = resp.json().get("run_id") or self.last_run_id
+
+        deadline = asyncio.get_event_loop().time() + timeout
+        reply: str | None = None
+        run_status: str | None = None
+        # Esperar a que aparezca un mensaje bot NO alcanza -- reply.ts
+        # inserta ese mensaje ANTES de que el run termine y su status en
+        # flow_runs pase a un estado terminal (waiting_gate/completed/...).
+        # Por eso se espera a un status terminal, no solo al mensaje.
+        #
+        # "handed_off" NO cuenta como terminal acá -- carrera real
+        # encontrada 2026-07-24: `run_status` es el status del run MÁS
+        # RECIENTE para este contacto, no de un run_id puntual. Justo en el
+        # instante del handoff (dispatchInbound::resumeWaitingConversation),
+        # el run VIEJO pasa a "handed_off" ANTES de que el run NUEVO
+        # (el que responde a este mensaje) siquiera exista en flow_runs --
+        # una consulta justo en ese instante ve "handed_off" y, si se tratara
+        # como terminal, `send_and_wait` cortaría creyendo que este turno ya
+        # terminó, sin haber esperado nada del run nuevo (steps/reply vacíos,
+        # aunque el run nuevo termine bien un segundo después). "handed_off"
+        # nunca es el status final de un run nuevo -- solo lo adquiere un run
+        # ya resuelto cuando ALGÚN OTRO run lo sucede, así que ignorarlo acá
+        # y seguir esperando el próximo status real es siempre correcto.
+        while asyncio.get_event_loop().time() < deadline:
+            await asyncio.sleep(poll_interval)
+            poll = await self._client.get(
+                f"{self._chat_base}/conversations/{conversation_id}/messages",
+                params={"after": self._last_message_id},
+            )
+            poll.raise_for_status()
+            data = poll.json()
+            run_status = data.get("run_status")
+            bot_msgs = [m for m in data.get("messages", []) if m.get("role") == "bot"]
+            if data.get("messages"):
+                self._last_message_id = max(m["id"] for m in data["messages"])
+            if bot_msgs:
+                reply = bot_msgs[-1]["content"]
+            if run_status in ("waiting_gate", "completed", "error"):
+                break
+
+        if self.last_run_id:
+            await self.last_run_steps()
+
+        return reply
+
+    async def last_run_steps(self) -> list[dict]:
+        """
+        Steps del ÚLTIMO run_id visto -- mismo shape/contrato que
+        `SimConversation.last_run_steps`, pero vía
+        `.../conversations/{id}/runs/{run_id}/steps` en vez de
+        `GET /api/runs/{run_id}`: esa ruta exige sesión admin (proxy.ts),
+        mientras que esta usa el mismo auth por `X-Chat-Visitor` que ya
+        habilita mandar mensajes (ver lib/business/chats.ts::getOwnRunSteps
+        -- solo devuelve steps de un run que sea de ESTA conversación).
+        """
+        if not self.last_run_id or not self.conversation_id:
+            self._last_steps = []
+            return self._last_steps
+        url = f"{self._chat_base}/conversations/{self.conversation_id}/runs/{self.last_run_id}/steps"
+        # `start(runFlowWorkflow, ...)` (Workflow DevKit) devuelve el run_id
+        # ANTES de que su primer step (el INSERT en flow_runs, ver
+        # lib/business/dispatch.ts::startFlowRun) sea visible para una query
+        # posterior -- carrera real encontrada 2026-07-24: si el bot
+        # respondió rápido, `send_and_wait` ya vio el reply y llama acá antes
+        # de que exista la fila. 404 = "run not found" (getOwnRunSteps
+        # devuelve null) -- reintentar corto en vez de fallar el escenario.
+        last_error: httpx.HTTPStatusError | None = None
+        for attempt in range(6):
+            resp = await self._client.get(url)
+            if resp.status_code != 404:
+                resp.raise_for_status()
+                self._last_steps = resp.json().get("steps", [])
+                self.all_steps.extend(self._last_steps)
+                return self._last_steps
+            last_error = httpx.HTTPStatusError(f"404 en intento {attempt + 1}", request=resp.request, response=resp)
+            await asyncio.sleep(2 * (attempt + 1))
+        raise last_error

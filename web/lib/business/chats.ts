@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gt } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
-import { bots, chatAccess, chatConfigs, chatConversations, chatMessages, flowRuns } from "@/lib/db/schema";
+import { bots, chatAccess, chatConfigs, chatConversations, chatMessages, flowRuns, flowRunSteps } from "@/lib/db/schema";
 import { NotFoundError, ValidationError } from "@/lib/business/bots";
 
 // CRUD de las 4 tablas de "PulpoChat" (chat web sobre nodos trigger de
@@ -251,6 +251,37 @@ export async function getLastRunStatus(botId: string, contactIdentifier: string)
     .orderBy(desc(flowRuns.startedAt))
     .limit(1);
   return row?.status ?? null;
+}
+
+// Steps (`flow_run_steps`) de un run, SOLO si ese run pertenece a esta
+// conversación (contact_identifier del run === contactIdentifier) -- scoped
+// a propósito, no un `getRun` general: `GET /api/runs/{runId}` (mismo shape)
+// exige sesión admin vía proxy.ts, así que un caller autenticado solo por
+// X-Chat-Visitor (ver resolveChatCaller) no podría usarlo. Esto es lo que
+// scripts/generate_e2e_report.py (vía tests/e2e/helpers.py::ChatConversation)
+// necesita para validar el log de ejecución de SU PROPIA conversación,
+// contra prod, sin login real -- ver app/api/chat/[botId]/[chatId]/
+// conversations/[conversationId]/runs/[runId]/steps/route.ts.
+export async function getOwnRunSteps(botId: string, contactIdentifier: string, runId: string) {
+  const db = getDb();
+  const [run] = await db
+    .select({ id: flowRuns.runId })
+    .from(flowRuns)
+    .where(and(eq(flowRuns.runId, runId), eq(flowRuns.botId, botId), eq(flowRuns.contactPhone, contactIdentifier)));
+  if (!run) return null;
+  const rows = await db.select().from(flowRunSteps).where(eq(flowRunSteps.runId, runId)).orderBy(asc(flowRunSteps.id));
+  return rows.map((s) => ({
+    id: s.id,
+    node_id: s.nodeId,
+    node_type: s.nodeType,
+    started_at: s.startedAt,
+    ended_at: s.endedAt,
+    input_state: s.inputState,
+    output_state: s.outputState,
+    branch_taken: s.branchTaken,
+    status: s.status,
+    error_message: s.errorMessage,
+  }));
 }
 
 // ─── Conversaciones (runtime: propias del caller, de UN chat puntual) ──
