@@ -6,6 +6,7 @@ import {
   jsonb,
   serial,
   primaryKey,
+  index,
 } from "drizzle-orm/pg-core";
 
 // Mirrors pulpo/core/db.py (SQLite, raw SQL) -- that file is the source of
@@ -219,22 +220,28 @@ export const settings = pgTable("settings", {
 // Ver management/HANDOFF_DASHBOARD_CHATS_VIEW.md (gitignoreado, no en el
 // repo) para el diseño completo -- este comentario resume solo lo esencial.
 
-// Config del chat por bot (1 fila por bot). El chat existe solo si hay fila
-// + enabled=true. `is_public` es un booleano explícito, no un sentinel `*`
-// en una allowlist -- ver §2.1 del handoff para el razonamiento.
-export const chatConfigs = pgTable("chat_configs", {
-  botId: text("bot_id").primaryKey(),
-  flowId: text("flow_id").notNull(),
-  triggerNodeId: text("trigger_node_id").notNull(),
-  title: text("title").notNull().default("PulpoChat"),
-  isPublic: boolean("is_public").notNull().default(false),
-  enabled: boolean("enabled").notNull().default(false),
-  banners: jsonb("banners"),
-  themeVars: jsonb("theme_vars"),
-  customCss: text("custom_css"),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-});
+// Config de un chat (N por bot, 2026-07-23: cada trigger_chat de la tab
+// Chats es su propia fila). El chat existe solo si hay fila + enabled=true.
+// `is_public` es un booleano explícito, no un sentinel `*` en una allowlist
+// -- ver §2.1 del handoff para el razonamiento.
+export const chatConfigs = pgTable(
+  "chat_configs",
+  {
+    id: text("id").primaryKey(),
+    botId: text("bot_id").notNull(),
+    flowId: text("flow_id").notNull(),
+    triggerNodeId: text("trigger_node_id").notNull(),
+    title: text("title").notNull().default("PulpoChat"),
+    isPublic: boolean("is_public").notNull().default(false),
+    enabled: boolean("enabled").notNull().default(false),
+    banners: jsonb("banners"),
+    themeVars: jsonb("theme_vars"),
+    customCss: text("custom_css"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [index("chat_configs_bot_id_idx").on(table.botId)],
+);
 
 // Allowlist de emails con derecho a CHATEAR (no a gestionar) cuando el chat
 // no es público. Deliberadamente separada de `bot_users` (esa da acceso al
@@ -257,6 +264,10 @@ export const chatAccess = pgTable(
 export const chatConversations = pgTable("chat_conversations", {
   id: text("id").primaryKey(),
   botId: text("bot_id").notNull(),
+  // A qué chat (chat_configs.id) pertenece esta conversación -- necesario
+  // desde que un bot puede tener N chats (2026-07-23): sin esto no hay forma
+  // de saber qué flow/trigger_node_id resolver al reanudar una conversación.
+  chatConfigId: text("chat_config_id").notNull(),
   contactIdentifier: text("contact_identifier").notNull().unique(),
   ownerKey: text("owner_key").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),

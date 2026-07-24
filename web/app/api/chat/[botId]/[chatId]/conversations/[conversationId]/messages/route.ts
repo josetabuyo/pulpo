@@ -1,14 +1,15 @@
 import { resolveChatCaller } from "@/lib/auth/chat-access";
 import { dispatchInbound } from "@/lib/business/dispatch";
 import { getConversation, getLastRunStatus, insertUserMessage, listConversationMessages } from "@/lib/business/chats";
+import { getFlowNode } from "@/lib/business/flows";
 
-// Runtime del chat: transcript + envío de mensajes de UNA conversación.
-// Valida que la conversación sea del caller (owner_key) -- incluso
-// admin/dueño del bot pega 403 acá si no es el owner; para leer/enviar como
-// gestión, usar /api/bots/{botId}/chats/{id}/messages (solo lectura, ver
-// §4.1 del handoff).
-async function loadOwnConversation(botId: string, conversationId: string, request: Request) {
-  const resolved = await resolveChatCaller(botId, request);
+// Runtime del chat: transcript + envío de mensajes de UNA conversación de UN
+// chat puntual. Valida que la conversación sea del caller (owner_key) --
+// incluso admin/dueño del bot pega 403 acá si no es el owner; para leer/
+// enviar como gestión, usar /api/bots/{botId}/chats/{id}/messages (solo
+// lectura, ver §4.1 del handoff).
+async function loadOwnConversation(botId: string, chatId: string, conversationId: string, request: Request) {
+  const resolved = await resolveChatCaller(botId, chatId, request);
   if (resolved instanceof Response) return { error: resolved } as const;
   const conversation = await getConversation(botId, conversationId);
   if (!conversation) return { error: Response.json({ error: "not found" }, { status: 404 }) } as const;
@@ -23,10 +24,10 @@ async function loadOwnConversation(botId: string, conversationId: string, reques
 // 2s hasta ver mensajes bot nuevos con run_status terminal/waiting_gate).
 export async function GET(
   request: Request,
-  { params }: { params: Promise<{ botId: string; conversationId: string }> },
+  { params }: { params: Promise<{ botId: string; chatId: string; conversationId: string }> },
 ) {
-  const { botId, conversationId } = await params;
-  const loaded = await loadOwnConversation(botId, conversationId, request);
+  const { botId, chatId, conversationId } = await params;
+  const loaded = await loadOwnConversation(botId, chatId, conversationId, request);
   if ("error" in loaded) return loaded.error;
 
   const url = new URL(request.url);
@@ -47,15 +48,24 @@ export async function GET(
 // respuesta del bot.
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ botId: string; conversationId: string }> },
+  { params }: { params: Promise<{ botId: string; chatId: string; conversationId: string }> },
 ) {
-  const { botId, conversationId } = await params;
-  const loaded = await loadOwnConversation(botId, conversationId, request);
+  const { botId, chatId, conversationId } = await params;
+  const loaded = await loadOwnConversation(botId, chatId, conversationId, request);
   if ("error" in loaded) return loaded.error;
 
   const body = await request.json().catch(() => ({}));
   const message = String(body.message ?? "").trim();
   if (!message) return Response.json({ error: "message vacío" }, { status: 400 });
+
+  // Un trigger pausado no acepta activaciones nuevas -- ver
+  // lib/business/telegram.ts::findMatchingTriggers para el mismo guard del
+  // lado de Telegram. No bloquea la reanudación de un run ya en curso
+  // (dispatchInbound intenta resume primero), solo el arranque fresco.
+  const triggerNode = await getFlowNode(loaded.resolved.config.flow_id, loaded.resolved.config.trigger_node_id);
+  if (triggerNode?.config?.paused) {
+    return Response.json({ error: "Este trigger está pausado" }, { status: 409 });
+  }
 
   await insertUserMessage(conversationId, message);
 

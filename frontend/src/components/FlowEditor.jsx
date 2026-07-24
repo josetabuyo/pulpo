@@ -19,7 +19,7 @@ import FlowHeader     from './FlowHeader.jsx'
 
 // ─── Inner — necesita estar dentro de ReactFlowProvider para useReactFlow ────
 
-function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved, onSavedAs, onGoToUIs }) {
+function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved, onSavedAs, onGoToUIs, initialSelectedNodeId }) {
   const { screenToFlowPosition } = useReactFlow()
   const loadFlow         = useFlowStore(s => s.loadFlow)
   const setTypeMap       = useFlowStore(s => s.setTypeMap)
@@ -49,6 +49,9 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
     let cancelled = false
     setTypeMap(typeMap)
     loadFlow(flow.definition, typeMap)
+    // Deep-link desde la tab "Triggers" ("Configurar" abre este flow con el
+    // nodo ya seleccionado, en vez de duplicar el formulario de config).
+    if (initialSelectedNodeId) setSelectedNodeId(initialSelectedNodeId)
     apiCall('GET', `/flows/bots/${flow.bot_id}/node-flows`, null)
       .then(list => {
         if (cancelled) return
@@ -158,7 +161,7 @@ function FlowEditorInner({ flow, connections, apiCall, typeMap, onBack, onSaved,
 
 // ─── FlowEditor — wrappea con ReactFlowProvider ───────────────────────────────
 
-export default function FlowEditor({ flow, connections, apiCall, typeMap, onBack, onSaved, onSavedAs, onGoToUIs }) {
+export default function FlowEditor({ flow, connections, apiCall, typeMap, onBack, onSaved, onSavedAs, onGoToUIs, initialSelectedNodeId }) {
   const store = useMemo(() => createFlowStore(), [])
   return (
     <FlowStoreContext.Provider value={store}>
@@ -172,6 +175,7 @@ export default function FlowEditor({ flow, connections, apiCall, typeMap, onBack
           onSaved={onSaved}
           onSavedAs={onSavedAs}
           onGoToUIs={onGoToUIs}
+          initialSelectedNodeId={initialSelectedNodeId}
         />
       </ReactFlowProvider>
     </FlowStoreContext.Provider>

@@ -18,11 +18,12 @@ function formatDate(iso) {
   return new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' })
 }
 
-export default function FlowList({ botId, apiCall, connections, onGoToUIs }) {
+export default function FlowList({ botId, apiCall, connections, onGoToUIs, openRequest, onOpenRequestConsumed }) {
   const [flows,    setFlows]    = useState([])
   const [loading,  setLoading]  = useState(true)
   const [typeMap,  setTypeMap]  = useState({})
   const [editing,  setEditing]  = useState(null)   // flow completo (con definition)
+  const [editingNodeId, setEditingNodeId] = useState(null) // deep-link desde tab Triggers
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState(null)
   const [savedExpanded, setSavedExpanded] = useState(false)
@@ -49,6 +50,18 @@ export default function FlowList({ botId, apiCall, connections, onGoToUIs }) {
   }, [apiCall])
 
   useEffect(() => { loadFlows() }, [loadFlows])
+
+  // Deep-link desde la tab "Triggers": "Configurar" en una fila abre este
+  // flow directo con el nodo ya seleccionado, en vez de un formulario aparte.
+  useEffect(() => {
+    if (!openRequest || flows.length === 0) return
+    const flow = flows.find(f => f.id === openRequest.flowId)
+    if (!flow) return
+    setEditingNodeId(openRequest.nodeId || null)
+    handleEdit(flow)
+    onOpenRequestConsumed?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openRequest, flows])
 
   async function handleNew(flowKind) {
     setCreating(true)
@@ -131,10 +144,11 @@ export default function FlowList({ botId, apiCall, connections, onGoToUIs }) {
             connections={connections}
             apiCall={apiCall}
             typeMap={typeMap}
-            onBack={() => { setEditing(null); loadFlows() }}
+            onBack={() => { setEditing(null); setEditingNodeId(null); loadFlows() }}
             onSaved={() => loadFlows()}
             onSavedAs={handleSavedAs}
             onGoToUIs={onGoToUIs}
+            initialSelectedNodeId={editingNodeId}
           />
         </div>
       </div>

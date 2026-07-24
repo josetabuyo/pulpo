@@ -211,6 +211,80 @@ export async function listNodeFlows(botId: string) {
   });
 }
 
+// ─── Triggers (tab "Triggers", 2026-07-23) ─────────────────────────────
+// Reemplaza la vieja tab "Conexiones": cada canal se configura desde su
+// propio nodo trigger en el flow (no hay más una capa de "conexión"
+// administrada aparte, ver docs de la migración en este worktree). Esta
+// función lista, de TODOS los flows del bot (activos o no -- se puede
+// pausar/ver aunque el flow esté inactivo), únicamente los nodos que son
+// triggers reales. Nodos de conexión no-trigger (ej. Google Sheets) NO
+// aparecen acá -- se configuran solo desde su propio nodo en el editor.
+const TRIGGER_NODE_TYPES = new Set(["telegram_trigger", "whatsapp_trigger", "trigger_chat"]);
+
+export interface TriggerListItem {
+  flowId: string;
+  flowName: string;
+  nodeId: string;
+  nodeType: string;
+  config: Record<string, unknown>;
+}
+
+interface FlowNode {
+  id?: string;
+  type?: string;
+  config?: Record<string, unknown>;
+}
+
+export async function listBotTriggers(botId: string): Promise<TriggerListItem[]> {
+  await requireBot(botId);
+  const db = getDb();
+  const rows = await db.select().from(flows).where(eq(flows.botId, botId));
+  const out: TriggerListItem[] = [];
+  for (const row of rows) {
+    const definition = (row.definition as { nodes?: FlowNode[] }) ?? {};
+    for (const node of definition.nodes ?? []) {
+      if (!node.id || !node.type || !TRIGGER_NODE_TYPES.has(node.type)) continue;
+      out.push({ flowId: row.id, flowName: row.name, nodeId: node.id, nodeType: node.type, config: node.config ?? {} });
+    }
+  }
+  return out;
+}
+
+// Lee un nodo puntual de la definición de un flow -- usado por el guard de
+// `paused` (dispatch.ts/telegram.ts) y por cualquier caller que necesite el
+// config actual de un nodo sin traer el flow completo.
+export async function getFlowNode(flowId: string, nodeId: string): Promise<FlowNode | null> {
+  const db = getDb();
+  const [row] = await db.select().from(flows).where(eq(flows.id, flowId));
+  if (!row) return null;
+  const definition = (row.definition as { nodes?: FlowNode[] }) ?? {};
+  return (definition.nodes ?? []).find((n) => n.id === nodeId) ?? null;
+}
+
+// PATCH liviano del config de UN nodo -- no reabre/reescribe el editor de
+// flow completo. Usado por el toggle "Pausar" y por el modal "Configurar"
+// de la tab Triggers (y por el inspector de nodo del editor, mismo
+// endpoint). No guarda flow_versions -- es un ajuste de config, no una
+// edición estructural del flow.
+export async function setFlowNodeConfig(botId: string, flowId: string, nodeId: string, config: Record<string, unknown>) {
+  const db = getDb();
+  const [row] = await db.select().from(flows).where(eq(flows.id, flowId));
+  if (!row || row.botId !== botId) throw new NotFoundError(`Flow no encontrado: ${flowId}`);
+
+  const definition = (row.definition as { nodes?: FlowNode[]; edges?: unknown; viewport?: unknown }) ?? {};
+  const nodes = definition.nodes ?? [];
+  const idx = nodes.findIndex((n) => n.id === nodeId);
+  if (idx === -1) throw new NotFoundError(`Nodo no encontrado: ${nodeId}`);
+
+  nodes[idx] = { ...nodes[idx], config };
+  await db
+    .update(flows)
+    .set({ definition: { ...definition, nodes }, updatedAt: new Date() })
+    .where(eq(flows.id, flowId));
+
+  return { flow_id: flowId, node_id: nodeId, config };
+}
+
 export async function hasNodeType(botId: string, nodeType: string) {
   const db = getDb();
   const rows = await db.execute(sql`

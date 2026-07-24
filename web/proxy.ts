@@ -78,12 +78,23 @@ const SCOPED_BOT_ROUTES: { method: string; re: RegExp }[] = [
   { method: "PUT", re: /^\/api\/flows\/bots\/([^/]+)\/[^/]+$/ },
   { method: "DELETE", re: /^\/api\/flows\/bots\/([^/]+)\/[^/]+$/ },
   { method: "GET", re: /^\/api\/flows\/bots\/([^/]+)\/has-node\/[^/]+$/ },
+  // Tab "Triggers" (2026-07-23, reemplaza "Conexiones"): listar todos los
+  // nodos trigger de todos los flows del bot, y el PATCH liviano de config
+  // de un nodo puntual (pausar/configurar sin reabrir el editor completo).
+  { method: "GET", re: /^\/api\/bots\/([^/]+)\/triggers$/ },
+  { method: "PATCH", re: /^\/api\/flows\/bots\/([^/]+)\/[^/]+\/nodes\/[^/]+\/config$/ },
+  // Tab "Ejecuciones" (runs de un bot puntual) -- antes esta ruta no
+  // existía, ver app/api/runs/bots/[botId]/route.ts.
+  { method: "GET", re: /^\/api\/runs\/bots\/([^/]+)$/ },
   // Gestión del chat ("PulpoChat", ver management/HANDOFF_DASHBOARD_CHATS_VIEW.md,
   // gitignoreado): a diferencia de bot_users, ES acción de PRO o admin dueño
   // del bot (pedido explícito de José) -- todas estas rutas además llaman
   // assertBotAccess() como segunda capa (mismo patrón que el resto).
-  { method: "GET", re: /^\/api\/bots\/([^/]+)\/chat-config$/ },
-  { method: "PUT", re: /^\/api\/bots\/([^/]+)\/chat-config$/ },
+  { method: "GET", re: /^\/api\/bots\/([^/]+)\/chat-configs$/ },
+  { method: "POST", re: /^\/api\/bots\/([^/]+)\/chat-configs$/ },
+  { method: "GET", re: /^\/api\/bots\/([^/]+)\/chat-configs\/[^/]+$/ },
+  { method: "PUT", re: /^\/api\/bots\/([^/]+)\/chat-configs\/[^/]+$/ },
+  { method: "DELETE", re: /^\/api\/bots\/([^/]+)\/chat-configs\/[^/]+$/ },
   { method: "GET", re: /^\/api\/bots\/([^/]+)\/chat-access$/ },
   { method: "POST", re: /^\/api\/bots\/([^/]+)\/chat-access$/ },
   { method: "DELETE", re: /^\/api\/bots\/([^/]+)\/chat-access\/[^/]+$/ },

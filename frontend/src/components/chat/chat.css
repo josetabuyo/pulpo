@@ -46,6 +46,17 @@
   -webkit-font-smoothing: antialiased;
 }
 
+/* Uso embebido (2026-07-23, ChatsTab): contenido dentro de la card del bot,
+   no fullscreen -- .pulpochat base ya asume position:fixed/inset:0 (pensado
+   para ChatPage standalone), acá lo acotamos a un contenedor con altura fija. */
+.pulpochat--embedded {
+  position: relative;
+  inset: auto;
+  height: 560px;
+  border-radius: var(--pc-radius-surface);
+  overflow: hidden;
+}
+
 .pulpochat * { box-sizing: border-box; }
 
 .pulpochat button {

@@ -1,4 +1,4 @@
-import { desc, eq, gte } from "drizzle-orm";
+import { and, desc, eq, gte } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { flowRuns } from "@/lib/db/schema";
 
@@ -53,29 +53,48 @@ export async function getRunStats(params: {
   return { bucketMinutes: params.bucketMinutes, buckets };
 }
 
-// Recent flow_runs, most recent first -- for drill-down under the chart
-// (not consumed by the frontend yet, left ready per the handoff's pending
-// "GET /api/runs para listar" item).
-export async function listRuns(params: { status?: string; limit?: number }) {
-  const db = getDb();
-  const columns = {
-    runId: flowRuns.runId,
-    flowId: flowRuns.flowId,
-    botId: flowRuns.botId,
-    status: flowRuns.status,
-    startedAt: flowRuns.startedAt,
-    endedAt: flowRuns.endedAt,
-    contactPhone: flowRuns.contactPhone,
+// DTO snake_case -- RunsTab.jsx/RunDetail (frontend/src/components/bot/RunsTab.jsx)
+// leen run.run_id/flow_id/started_at/ended_at/is_sim/trigger_data, mismo
+// contrato que el backend Python original. listRuns()/getRun() antes
+// devolvían las filas de Drizzle tal cual (camelCase) -- nunca las consumía
+// nadie hasta ahora (2026-07-24, primer e2e real), por eso no se notó.
+function toRunDto(row: typeof flowRuns.$inferSelect) {
+  return {
+    run_id: row.runId,
+    flow_id: row.flowId,
+    bot_id: row.botId,
+    connection_id: row.connectionId,
+    status: row.status,
+    started_at: row.startedAt,
+    ended_at: row.endedAt,
+    trigger_data: row.triggerData,
+    contact_phone: row.contactPhone,
+    resume_node_id: row.resumeNodeId,
+    is_sim: row.isSim,
   };
-  const limit = params.limit ?? 20;
+}
 
-  if (params.status) {
-    return db
-      .select(columns)
-      .from(flowRuns)
-      .where(eq(flowRuns.status, params.status))
-      .orderBy(desc(flowRuns.startedAt))
-      .limit(limit);
-  }
-  return db.select(columns).from(flowRuns).orderBy(desc(flowRuns.startedAt)).limit(limit);
+// Recent flow_runs, most recent first -- para el drill-down de la tab
+// Ejecuciones. `botId` filtra a los runs de un bot puntual (RunsTab.jsx
+// pega a /api/runs/bots/{botId}); sin botId es el listado global (Monitor).
+export async function listRuns(params: { botId?: string; status?: string; limit?: number }) {
+  const db = getDb();
+  const limit = params.limit ?? 20;
+  const conditions = [];
+  if (params.botId) conditions.push(eq(flowRuns.botId, params.botId));
+  if (params.status) conditions.push(eq(flowRuns.status, params.status));
+
+  const rows = await db
+    .select()
+    .from(flowRuns)
+    .where(conditions.length ? and(...conditions) : undefined)
+    .orderBy(desc(flowRuns.startedAt))
+    .limit(limit);
+  return rows.map(toRunDto);
+}
+
+export async function getRun(runId: string) {
+  const db = getDb();
+  const [row] = await db.select().from(flowRuns).where(eq(flowRuns.runId, runId));
+  return row ? toRunDto(row) : null;
 }

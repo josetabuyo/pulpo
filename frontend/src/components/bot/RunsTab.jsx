@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
 import { humanizeId } from '../../store/flowStore.js'
-import SimulatePanel from './SimulatePanel.jsx'
 
 function statusColor(s) {
   if (s === 'completed') return 'var(--success)'
@@ -229,8 +228,6 @@ export default function RunsTab({ botId, apiCall }) {
 
   return (
     <div>
-      <SimulatePanel botId={botId} apiCall={apiCall} onSent={load} />
-
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <span style={{ fontSize: 12, color: 'var(--text-subtle)' }}>
           {runs.length === 0 ? 'Sin ejecuciones' : `${runs.length} ejecuciones recientes`}

@@ -1,22 +1,24 @@
 /**
- * BotCard — card de una bot con sus conexiones, flows y UIs.
+ * BotCard — card de una bot con sus triggers, flows y UIs.
  * Funciona en dos modos: 'admin' (dashboard) y 'bot' (portal del cliente).
  *
  * Las piezas viven en components/bot/:
- *   widgets.jsx           — StatusPill, CopyLinkBtn, dotColor, STATUS_LABELS
- *   ConnectionRow.jsx     — fila Telegram con menú contextual
- *   WaviConnections.jsx   — listado WhatsApp + picker de sesiones wavi
- *   GoogleConnections.jsx — listado Google Sheets + modal de alta
- *   BotConfigTab.jsx  — tab Configurar (nombre/contraseña)
+ *   widgets.jsx        — StatusPill, CopyLinkBtn, dotColor, STATUS_LABELS
+ *   TriggersTab.jsx     — tab Triggers (reemplaza a la vieja "Conexiones",
+ *                         2026-07-23): lista los nodos trigger de todos los
+ *                         flows, con pausar/configurar/simular. La gestión
+ *                         de credenciales de canal (Telegram/Wavi/Google) ya
+ *                         no vive acá -- cada nodo es dueño de su propia
+ *                         config, editable desde el editor de Flow (ver
+ *                         "Configurar" en TriggersTab, que abre ese nodo ahí).
+ *   BotConfigTab.jsx    — tab Configurar (solo nombre/farewell/ttl del bot)
  */
 import { useState, useEffect } from 'react'
 import FlowList from './FlowList.jsx'
 import UIsList from './UIsList.jsx'
 import { STATUS_LABELS, dotColor, CopyLinkBtn } from './bot/widgets.jsx'
-import ConnectionRow from './bot/ConnectionRow.jsx'
+import TriggersTab from './bot/TriggersTab.jsx'
 import BotConfigTab from './bot/BotConfigTab.jsx'
-import { GoogleSetupModal, GoogleConnectionsSection } from './bot/GoogleConnections.jsx'
-import { WaviConnectionsList, WaviSessionPicker } from './bot/WaviConnections.jsx'
 import RunsTab from './bot/RunsTab.jsx'
 import BotUsersTab from './bot/BotUsersTab.jsx'
 import ChatsTab from './bot/ChatsTab.jsx'
@@ -47,17 +49,22 @@ export default function BotCard({
 
   // Admin-only — abren modales en el padre:
   onEditBot, onDeleteBot,
-  onAddTelegram,
-  onDeleteTelegram, onReconnectTg,
-  onReconnectWavi,
 
   // Drag & drop (admin only)
   onDragOver, onDragLeave, onDrop,
 }) {
-  const [activeTab, setActiveTab] = useState('connections')
+  const [activeTab, setActiveTab] = useState('triggers')
   const [paused, setPaused] = useState(false)
   const [pauseLoading, setPauseLoading] = useState(false)
   const [hasSummarizer, setHasSummarizer] = useState(false)
+  // Deep-link "Configurar" desde TriggersTab -- abre la tab Flow con el
+  // flow/nodo puntual ya seleccionado (ver FlowList.jsx/FlowEditor.jsx).
+  const [flowOpenRequest, setFlowOpenRequest] = useState(null)
+
+  function handleConfigureTriggerNode(flowId, nodeId) {
+    setFlowOpenRequest({ flowId, nodeId })
+    setActiveTab('flow')
+  }
 
   const botId = bot.id
 
@@ -84,67 +91,11 @@ export default function BotCard({
     }
   }
 
-  // Bot mode: inline add forms for connections
-  const [tgInput, setTgInput] = useState('')
-  const [showGoogleModal, setShowGoogleModal] = useState(false)
-  const [tgErr, setTgErr] = useState('')
-  const [addingConn, setAddingConn] = useState(false)
-
-  // Wavi (WhatsApp) add — admin mode
-  const [showWaviPicker, setShowWaviPicker] = useState(false)
-
-  async function handleAddWavi(sessionName) {
-    setShowWaviPicker(false)
-    await apiCall('POST', '/connections', { botId: botId, number: sessionName }).catch(() => null)
-    onRefresh?.()
-  }
-
-  async function handleDeleteWavi(number) {
-    if (!confirm(`¿Desconectar WhatsApp ${number} de esta bot?`)) return
-    await apiCall('DELETE', `/connections/${number}`, null).catch(() => null)
-    onRefresh?.()
-  }
-
-  async function handleReconnectWavi(number) {
-    if (onReconnectWavi) {
-      onReconnectWavi(number)  // abre el modal QR en el padre (admin dashboard)
-      return
-    }
-    // fallback directo (sin modal QR)
-    await apiCall('POST', `/wavi/sessions/${number}/connect`, null).catch(() => null)
-    onRefresh?.()
-  }
-
-  async function handleAddTg(e) {
-    e.preventDefault(); setTgErr('')
-    const token = tgInput.trim(); if (!token) return
-    setAddingConn(true)
-    const res = await apiCall('POST', `/bot/${botId}/telegram`, { token }).catch(() => null)
-    setAddingConn(false)
-    if (!res?.ok) { setTgErr(res?.detail || 'Error al agregar'); return }
-    if (res.requires_restart) setTgErr('Agregado. Requiere reinicio del servidor para activarse.')
-    setTgInput(''); onRefresh?.()
-  }
-
-  async function handleToggleMass(conn) {
-    await apiCall('PATCH', `/bots/${botId}/telegram/${conn.number}/settings`, { allow_mass: !conn.allowMass }).catch(() => null)
-    onRefresh?.()
-  }
-
-  async function handleRemoveConn(conn) {
-    if (!confirm(`¿Eliminar ${conn.number}?`)) return
-    const tokenId = conn.id.split('-tg-')[1]
-    await apiCall('DELETE', `/bot/${botId}/telegram/${tokenId}`, null).catch(() => null)
-    onRefresh?.()
-  }
-
   // Computed
   const conns = bot.connections ?? []
-  const tgConns = conns.filter(c => c.type === 'telegram')
-  const waviConns = conns.filter(c => c.type === 'wavi')
 
   const tabs = [
-    { id: 'connections', label: 'Conexiones', count: conns.length },
+    { id: 'triggers', label: 'Triggers', count: null },
     ...(hasSummarizer ? [{ id: 'uis', label: 'UIs', count: null }] : []),
     { id: 'flow', label: 'Flow', count: null },
     // GET /api/runs no filtra por bot todavía -- 403 para rol "scoped"
@@ -233,77 +184,9 @@ export default function BotCard({
       {/* ─── Content ─── */}
       <div className="ec-content">
 
-        {/* ── Connections ── */}
-        {activeTab === 'connections' && (
-          <div>
-            {tgConns.length > 0 && (
-              <div>
-                <div className="ec-section-label ec-section-label--tg">Telegram</div>
-                {tgConns.map(conn => (
-                  <ConnectionRow
-                    key={conn.id} conn={conn} mode={mode}
-                    botId={botId} apiCall={apiCall}
-                    onDelete={mode === 'admin' ? conn => onDeleteTelegram?.(conn) : conn => handleRemoveConn(conn)}
-                    onReconnect={conn => onReconnectTg?.(conn)}
-                    onToggleMass={handleToggleMass}
-                  />
-                ))}
-              </div>
-            )}
-
-            <WaviConnectionsList conns={waviConns} mode={mode} onDelete={handleDeleteWavi} onReconnect={handleReconnectWavi} />
-
-            {conns.length === 0 && mode === 'bot' && (
-              <div className="empty" style={{ padding: '20px 0 8px' }}>Sin canales configurados</div>
-            )}
-
-            {/* Google Connections */}
-            <GoogleConnectionsSection botId={botId} apiCall={apiCall} mode={mode} hideAddButton={mode === 'admin'} />
-
-            {/* Add row */}
-            {mode === 'admin' && (
-              <div className="ec-add-row">
-                <button className="btn-sm" style={{ background: 'rgba(46,166,218,.12)', color: 'var(--tg)' }} onClick={() => onAddTelegram?.(botId)}>+ Telegram</button>
-                <button className="btn-sm" style={{ background: 'var(--success-dim)', color: 'var(--success)' }} onClick={() => setShowWaviPicker(true)}>+ WhatsApp</button>
-                <button className="btn-sm" style={{ background: 'var(--success-dim)', color: 'var(--success)' }} onClick={() => setShowGoogleModal(true)}>+ Google Sheets</button>
-              </div>
-            )}
-
-            {showWaviPicker && (
-              <WaviSessionPicker
-                apiCall={apiCall}
-                onAssign={handleAddWavi}
-                onClose={() => setShowWaviPicker(false)}
-              />
-            )}
-
-            {mode === 'bot' && (
-              <div className="ec-add-forms">
-                <div className="ec-section-label" style={{ background: 'var(--surface-2)', color: 'var(--text-muted)', borderTop: '1px solid var(--border)' }}>Agregar canal</div>
-                <div className="ec-add-form-row">
-                  <form onSubmit={handleAddTg} style={{ display: 'flex', gap: 8, flex: 1 }}>
-                    <input value={tgInput} onChange={e => setTgInput(e.target.value)}
-                      placeholder="Token @BotFather (123456:ABC...)" style={{ flex: 1 }} />
-                    <button type="submit" className="btn-sm" style={{ background: 'rgba(46,166,218,.12)', color: 'var(--tg)' }} disabled={addingConn}>+ TG</button>
-                  </form>
-                  <button
-                    type="button"
-                    className="btn-sm"
-                    style={{ background: 'var(--success-dim)', color: 'var(--success)', alignSelf: 'center' }}
-                    onClick={() => setShowGoogleModal(true)}
-                  >+ Google Sheets</button>
-                </div>
-                {tgErr && <div style={{ fontSize: 13, color: tgErr.includes('reinicio') ? 'var(--warning)' : 'var(--danger)', padding: '4px 20px' }}>{tgErr}</div>}
-              </div>
-            )}
-            {showGoogleModal && (
-              <GoogleSetupModal
-                botId={botId} apiCall={apiCall}
-                onClose={() => setShowGoogleModal(false)}
-                onSaved={() => { setShowGoogleModal(false); onRefresh?.() }}
-              />
-            )}
-          </div>
+        {/* ── Triggers (reemplaza a la vieja "Conexiones") ── */}
+        {activeTab === 'triggers' && (
+          <TriggersTab botId={botId} apiCall={apiCall} onConfigureNode={handleConfigureTriggerNode} />
         )}
 
         {/* ── UIs ── */}
@@ -313,7 +196,12 @@ export default function BotCard({
 
         {/* ── Flow ── */}
         {activeTab === 'flow' && (
-          <FlowList botId={botId} apiCall={apiCall} connections={conns} onGoToUIs={() => setActiveTab('uis')} />
+          <FlowList
+            botId={botId} apiCall={apiCall} connections={conns}
+            onGoToUIs={() => setActiveTab('uis')}
+            openRequest={flowOpenRequest}
+            onOpenRequestConsumed={() => setFlowOpenRequest(null)}
+          />
         )}
 
         {/* ── Ejecuciones ── */}

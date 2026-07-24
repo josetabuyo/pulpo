@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p ${WEB_BACKEND_PORT:-9010}",
-    "build": "next build",
+    "build": "node scripts/build-spa.mjs && next build",
+    "build:api-only": "next build",
     "start": "next start",
     "lint": "eslint",
     "db:push": "dotenv -e .env.local -- drizzle-kit push",

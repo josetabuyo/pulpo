@@ -86,6 +86,13 @@
         "hint": "Tiempo mínimo entre respuestas al mismo contacto. 0 = sin límite."
       },
       {
+        "key": "paused",
+        "type": "bool",
+        "label": "Pausado",
+        "default": false,
+        "hint": "Un trigger pausado no dispara el flow, sin afectar a otros triggers."
+      },
+      {
         "key": "color",
         "type": "string",
         "label": "Color (opcional)",
@@ -133,10 +140,40 @@
         "hint": "Tiempo mínimo entre respuestas al mismo contacto. 0 = sin límite."
       },
       {
+        "key": "paused",
+        "type": "bool",
+        "label": "Pausado",
+        "default": false,
+        "hint": "Un trigger pausado no dispara el flow, sin afectar a otros triggers."
+      },
+      {
         "key": "color",
         "type": "string",
         "label": "Color (opcional)",
         "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
+    "id": "trigger_chat",
+    "label": "Chat Trigger",
+    "color": "#c026d3",
+    "description": "Punto de entrada para mensajes desde un chat de la tab Chats.",
+    "help": "",
+    "schema": [
+      {
+        "key": "chat_id",
+        "type": "chat_select",
+        "label": "Chat",
+        "default": "",
+        "hint": "Informativo -- el ruteo real lo define el chat en la tab Chats, que apunta directo a este nodo."
+      },
+      {
+        "key": "paused",
+        "type": "bool",
+        "label": "Pausado",
+        "default": false,
+        "hint": "Un trigger pausado no dispara el flow, sin afectar a otros triggers."
       }
     ]
   },

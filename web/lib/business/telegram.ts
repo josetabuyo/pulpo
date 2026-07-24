@@ -155,6 +155,10 @@ export async function findMatchingTriggers(
 
     for (const node of triggerNodes) {
       const config = node.config ?? {};
+      // Pausa por-nodo (2026-07-23, tab "Triggers"): un trigger pausado no
+      // matchea nunca, sin afectar a otros triggers del mismo flow ni de
+      // otros flows -- ver web/lib/business/flows.ts::setFlowNodeConfig.
+      if (config.paused) continue;
       const requiredConnection = (config.connection_id as string | undefined) ?? "";
       if (!requiredConnection || !connectionMatches(requiredConnection, sessionId)) continue;
       if (!matchesContactFilter(config.contact_filter as ContactFilter | undefined, chatId, isKnown, allowMass)) continue;

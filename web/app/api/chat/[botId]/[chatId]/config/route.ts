@@ -7,9 +7,12 @@ import { getChatConfigRow, toPublicConfigDto } from "@/lib/business/chats";
 // por eso NO pasa por resolveChatCaller (que 404-ea si enabled=false; acá
 // queremos poder mostrar "este chat está deshabilitado" con datos de marca
 // si los hay).
-export async function GET(_request: Request, { params }: { params: Promise<{ botId: string }> }) {
-  const { botId } = await params;
-  const row = await getChatConfigRow(botId);
-  if (!row) return Response.json({ error: "not found" }, { status: 404 });
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ botId: string; chatId: string }> },
+) {
+  const { botId, chatId } = await params;
+  const row = await getChatConfigRow(chatId);
+  if (!row || row.botId !== botId) return Response.json({ error: "not found" }, { status: 404 });
   return Response.json(toPublicConfigDto(row));
 }

@@ -36,6 +36,14 @@ yarn-error.log*
 # vercel
 .vercel
 
+# SPA integrada (scripts/build-spa.mjs, "un solo deploy") -- generado en
+# cada build a partir de frontend/dist (incluye frontend/public/* copiado
+# tal cual por Vite), no versionar
+/public/assets
+/public/pulpo.svg
+/public/vite.svg
+/lib/generated
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

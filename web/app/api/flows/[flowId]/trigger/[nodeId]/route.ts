@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { flows } from "@/lib/db/schema";
 import { dispatchInbound } from "@/lib/business/dispatch";
+import { getFlowNode } from "@/lib/business/flows";
 
 // TS port of POST /api/flows/{flow_id}/trigger/{node_id}
 // (pulpo/interfaces/api/routers/flows.py), backed by ApiTriggerNode
@@ -33,6 +34,14 @@ export async function POST(
   if (contactPhone) {
     const [flow] = await getDb().select({ botId: flows.botId }).from(flows).where(eq(flows.id, flowId));
     botId = flow?.botId ?? "";
+  }
+
+  // Pausa por-nodo (2026-07-23): un trigger pausado no acepta activaciones
+  // nuevas, sea por HTTP directo, simulador, o trigger_chat -- mismo criterio
+  // que findMatchingTriggers para Telegram.
+  const triggerNode = await getFlowNode(flowId, nodeId);
+  if (triggerNode?.config?.paused) {
+    return Response.json({ error: "Este trigger está pausado" }, { status: 409 });
   }
 
   const { runId, resumed } = await dispatchInbound({

@@ -20,11 +20,13 @@ export default function App() {
       {/* Solo-diagrama, sin login: usada por scripts/generate_e2e_report.py para
           capturar el flow real en vez de un screenshot recortado a mano. */}
       <Route path="/embed/flow/:botId" element={<EmbedFlowPage />} />
-      {/* Chat público/allowlist standalone -- ChatPage decide sola si hace
-          falta login (GET /api/chat/{botId}/config es siempre público, ver
-          ese componente). No pasa por el dashboard. */}
-      <Route path="/chat/:botId" element={<ChatPage />} />
-      <Route path="/chat/:botId/c/:conversationId" element={<ChatPage />} />
+      {/* Chat público/allowlist standalone, UN chat puntual de un bot
+          (2026-07-23: un bot puede tener N chats) -- ChatPage/PulpoChatWidget
+          deciden solos si hace falta login (GET
+          /api/chat/{botId}/{chatId}/config es siempre público). No pasa por
+          el dashboard. */}
+      <Route path="/chat/:botId/:chatId" element={<ChatPage />} />
+      <Route path="/chat/:botId/:chatId/c/:conversationId" element={<ChatPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

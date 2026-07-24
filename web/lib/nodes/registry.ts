@@ -10,6 +10,7 @@ import { llmNode } from "./llm";
 import { metricNode } from "./metric";
 import { subflowEndNode, subflowStartNode } from "./subflow";
 import { messageTriggerNode, telegramTriggerNode } from "./trigger";
+import { triggerChatNode } from "./trigger-chat";
 import { waviGetNode, waviSendNode } from "./wavi";
 
 // TS port of NODE_REGISTRY (pulpo/graphs/nodes/__init__.py), scoped per
@@ -42,6 +43,7 @@ export const NODE_REGISTRY: Record<string, NodeDef> = {
   subflow_end: subflowEndNode,
   message_trigger: messageTriggerNode,
   telegram_trigger: telegramTriggerNode,
+  trigger_chat: triggerChatNode,
   wavi_send: waviSendNode,
   wavi_get: waviGetNode,
 };

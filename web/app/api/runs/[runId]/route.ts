@@ -1,19 +1,36 @@
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
-import { flowRuns, flowRunSteps } from "@/lib/db/schema";
+import { flowRunSteps } from "@/lib/db/schema";
+import { getRun } from "@/lib/business/run-stats";
 
-// TS port of GET /runs/{run_id} (pulpo/interfaces/api/routers/runs.py) --
-// enough to validate end-to-end in the spike (step 7 of the plan) that
-// flow_runs/flow_run_steps get populated correctly by the Workflow DevKit
-// executor, same journal shape the existing frontend "runs" panel expects.
+// GET /runs/{run_id} -- detalle con steps, mismo contrato snake_case que el
+// backend Python original (frontend/src/components/bot/RunsTab.jsx::RunDetail/
+// StepRow leen step.node_id/node_type/branch_taken/input_state/output_state).
 export async function GET(_request: Request, { params }: { params: Promise<{ runId: string }> }) {
   const { runId } = await params;
-  const db = getDb();
 
-  const [run] = await db.select().from(flowRuns).where(eq(flowRuns.runId, runId));
+  const run = await getRun(runId);
   if (!run) return Response.json({ error: "run not found" }, { status: 404 });
 
-  const steps = await db.select().from(flowRunSteps).where(eq(flowRunSteps.runId, runId));
+  const db = getDb();
+  const stepRows = await db
+    .select()
+    .from(flowRunSteps)
+    .where(eq(flowRunSteps.runId, runId))
+    .orderBy(asc(flowRunSteps.id));
+
+  const steps = stepRows.map((s) => ({
+    id: s.id,
+    node_id: s.nodeId,
+    node_type: s.nodeType,
+    started_at: s.startedAt,
+    ended_at: s.endedAt,
+    input_state: s.inputState,
+    output_state: s.outputState,
+    branch_taken: s.branchTaken,
+    status: s.status,
+    error_message: s.errorMessage,
+  }));
 
   return Response.json({ ...run, steps });
 }

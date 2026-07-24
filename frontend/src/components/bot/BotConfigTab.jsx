@@ -1,13 +1,16 @@
 /**
- * Tab "Configurar" del portal de bot: nombre, contraseña y mensaje de despedida.
+ * Tab "Configurar" del portal de bot -- solo lo genuinamente bot-scope
+ * (nombre, mensaje de despedida, TTL de conversación). La contraseña se
+ * sacó (2026-07-23): la auth real ya pasa por credenciales de Google Cloud,
+ * el campo era vestigial. La gestión de canales (Telegram/WhatsApp/Google
+ * Sheets) tampoco vive acá -- cada nodo es dueño de su config, ver tab
+ * Triggers.
  */
 import { useState, useEffect } from 'react'
 
 export default function BotConfigTab({ botId, botName, apiCall, onNameChange }) {
   const [form, setForm] = useState({
     name: botName,
-    newPassword: '',
-    confirmPassword: '',
     farewell_message: '',
     conversation_ttl_hours: 24,
   })
@@ -28,20 +31,13 @@ export default function BotConfigTab({ botId, botName, apiCall, onNameChange }) 
     e.preventDefault(); setSaving(true); setResult(null)
     const body = {}
     if (form.name.trim() && form.name !== botName) body.name = form.name.trim()
-    if (form.newPassword) {
-      if (form.newPassword !== form.confirmPassword) { setSaving(false); setResult('pwd-mismatch'); return }
-      body.password = form.newPassword
-    }
     body.farewell_message = form.farewell_message
     const ttl = parseInt(form.conversation_ttl_hours, 10)
     if (ttl > 0) body.conversation_ttl_hours = ttl
     const res = await apiCall('PUT', `/bot/${botId}/config`, body).catch(() => null)
     setSaving(false)
     setResult(res?.ok ? 'ok' : (res?.detail || 'error'))
-    if (res?.ok) {
-      if (body.name) onNameChange?.(body.name)
-      if (body.password) setForm(f => ({ ...f, newPassword: '', confirmPassword: '' }))
-    }
+    if (res?.ok && body.name) onNameChange?.(body.name)
     setTimeout(() => setResult(null), 3000)
   }
 
@@ -90,27 +86,12 @@ export default function BotConfigTab({ botId, botName, apiCall, onNameChange }) 
           <small style={{ color: 'var(--text-subtle)', fontSize: 11 }}>horas — default: 24</small>
         </div>
 
-        <div className="fg">
-          <label>
-            Nueva contraseña&nbsp;
-            <small style={{ fontWeight: 400, color: 'var(--text-subtle)' }}>(dejar vacío para no cambiar)</small>
-          </label>
-          <input type="password" value={form.newPassword} onChange={set('newPassword')} placeholder="Nueva contraseña" />
-        </div>
-        {form.newPassword && (
-          <div className="fg">
-            <label>Confirmar contraseña</label>
-            <input type="password" value={form.confirmPassword} onChange={set('confirmPassword')} placeholder="Repetir contraseña" />
-          </div>
-        )}
-
         <div className="portal-save-row">
           <button type="submit" className="btn-primary btn-sm" disabled={saving}>
             {saving ? 'Guardando...' : 'Guardar cambios'}
           </button>
           {result === 'ok' && <span className="portal-save-ok">✓ Guardado</span>}
-          {result === 'pwd-mismatch' && <span className="portal-save-err">Las contraseñas no coinciden</span>}
-          {result && result !== 'ok' && result !== 'pwd-mismatch' && <span className="portal-save-err">{result}</span>}
+          {result && result !== 'ok' && <span className="portal-save-err">{result}</span>}
         </div>
       </form>
     </div>

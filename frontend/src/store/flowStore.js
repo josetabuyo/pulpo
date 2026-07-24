@@ -16,6 +16,7 @@ export function useFlowStore(selector) {
 export const PALETTE_TYPES = [
   'whatsapp_trigger',
   'telegram_trigger',
+  'trigger_chat',
   'api_trigger',
   'message_join',
   'gate',
@@ -47,6 +48,7 @@ const DEFAULT_CONFIGS = {
   message_trigger:   { connection_id: '', contact_phone: '', message_pattern: '' },
   whatsapp_trigger:  { connection_id: '', contact_filter: { include_all_known: false, include_unknown: false, included: [], excluded: [] }, message_pattern: '', cooldown_hours: 4 },
   telegram_trigger:  { connection_id: '', contact_filter: { include_all_known: false, include_unknown: false, included: [], excluded: [] }, message_pattern: '', cooldown_hours: 4 },
+  trigger_chat:      { chat_id: '', paused: false },
   api_trigger:       {},
   message_join:      {},
   gate:              {},

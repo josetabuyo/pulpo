@@ -3,14 +3,16 @@ import { getChatConfig, hasChatAccess } from "@/lib/business/chats";
 import { listBotsForEmail } from "@/lib/business/bot-users";
 
 // Espejo de lib/auth/bot-access.ts pero para el runtime del chat (no la
-// gestión): resuelve quién puede chatear con este bot y bajo qué owner_key
-// va a guardar/leer sus conversaciones. Ver
-// management/HANDOFF_DASHBOARD_CHATS_VIEW.md §4.3 (gitignoreado) para el
-// diseño completo -- este comentario resume solo lo esencial.
+// gestión): resuelve quién puede chatear con este chat puntual y bajo qué
+// owner_key va a guardar/leer sus conversaciones. Ver
+// management/HANDOFF_DASHBOARD_CHATS_VIEW.md §4.3 (gitignoreado, diseño
+// original -- 2026-07-23: un bot puede tener N chats, cada uno con su propio
+// `chatId`, ver lib/business/chats.ts).
 //
 // Devuelve {ownerKey, config} si el caller puede chatear, o una Response
 // ({error}/{login_required}) que el handler debe devolver tal cual.
 export interface ChatConfigDto {
+  id: string;
   bot_id: string;
   flow_id: string;
   trigger_node_id: string;
@@ -24,10 +26,11 @@ export interface ChatConfigDto {
 
 export async function resolveChatCaller(
   botId: string,
+  chatId: string,
   request: Request,
 ): Promise<{ ownerKey: string; config: ChatConfigDto } | Response> {
-  const config = await getChatConfig(botId);
-  if (!config || !config.enabled) {
+  const config = await getChatConfig(chatId);
+  if (!config || config.bot_id !== botId || !config.enabled) {
     return Response.json({ error: "chat not found" }, { status: 404 });
   }
 
