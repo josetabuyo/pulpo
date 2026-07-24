@@ -20,6 +20,38 @@ function SimBadge() {
   )
 }
 
+const NODO_FLOW_RESERVED_PARAM_KEYS = new Set(['flow_id', 'output', 'routes'])
+
+// Los steps de un run corriendo dentro de un NodoFlow tienen node_id
+// namespaceado "${nodoFlowNodeId}::${idDentroDelSubflow}" (posiblemente
+// anidado varias veces -- ver lib/flow/expand-node-flows.ts::expandNodeFlows,
+// mismo esquema de namespacing). Sin esto, StepRow mostraba ese id crudo en
+// vez de la descripción/label del nodo real.
+export async function buildNodeLabelMap(nodes, botId, apiCall, prefix, visited) {
+  const map = {}
+  for (const n of nodes) {
+    const id = prefix + n.id
+    map[id] = n.label || humanizeId(n.id) || n.type
+
+    const flowId = n.type === 'nodo_flow' ? n.config?.flow_id : null
+    if (!flowId || visited.has(flowId)) continue
+
+    const sub = await apiCall('GET', `/flows/bots/${botId}/${flowId}`, null).catch(() => null)
+    const innerNodes = sub?.definition?.nodes ?? []
+    const subMap = await buildNodeLabelMap(innerNodes, botId, apiCall, `${id}::`, new Set([...visited, flowId]))
+    Object.assign(map, subMap)
+
+    // Nodos set_state sintéticos que expandNodeFlows inserta para inyectar
+    // los params del NodoFlow -- no existen en la definition, se generan acá
+    // con el mismo orden (cfg sin reservados, + "output" al final si hay).
+    const cfg = n.config ?? {}
+    const paramEntries = Object.keys(cfg).filter(k => !NODO_FLOW_RESERVED_PARAM_KEYS.has(k))
+    if (cfg.output) paramEntries.push('output')
+    paramEntries.forEach((key, i) => { map[`${id}::__params__${i}`] = `Parámetro: ${key}` })
+  }
+  return map
+}
+
 function duration(started, ended) {
   if (!ended) return '—'
   const ms = new Date(ended) - new Date(started)
@@ -148,12 +180,9 @@ function RunDetail({ run, onClose, botId, apiCall }) {
     apiCall('GET', `/flows/bots/${botId}/${run.flow_id}`, null)
       .then(flow => {
         if (cancelled || !flow?.definition?.nodes) return
-        const map = {}
-        for (const n of flow.definition.nodes) {
-          map[n.id] = n.label || humanizeId(n.id) || n.type
-        }
-        setNodeLabels(map)
+        return buildNodeLabelMap(flow.definition.nodes, botId, apiCall, '', new Set())
       })
+      .then(map => { if (!cancelled && map) setNodeLabels(map) })
       .catch(() => {})
     return () => { cancelled = true }
   }, [botId, run.flow_id, apiCall])
