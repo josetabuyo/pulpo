@@ -53,6 +53,31 @@ describe('buildExecutionTrace', () => {
     expect(edgeIds).toEqual(new Set(['e1', 'e2']))
   })
 
+  it('nodo_flow con salida nombrada (padre::sf_end_<ruta>): resalta la edge de esa ruta, no las otras', () => {
+    // Bug real (2026-07-27): un nodo_flow con rutas nombradas (ej. el
+    // clasificador de necesidad vía LLM: found/not_found) no setea
+    // `branch_taken` en ningún step propio -- la ruta queda en el id del
+    // último substep interno, "padre::sf_end_<ruta>". Sin extraerla, solo
+    // la edge de ENTRADA al nodo_flow quedaba resaltada, nunca la de salida.
+    const flowEdges = [
+      { id: 'e1', source: 'start', target: 'clasificador' },
+      { id: 'e2', source: 'clasificador', target: 'found_node', label: 'found' },
+      { id: 'e3', source: 'clasificador', target: 'not_found_node', label: 'not_found' },
+    ]
+    const steps = [
+      { node_id: 'start' },
+      { node_id: 'clasificador::__params__0' },
+      { node_id: 'clasificador::sf_start_1' },
+      { node_id: 'clasificador::node_llm' },
+      { node_id: 'clasificador::sf_end_found' },
+      { node_id: 'found_node' },
+    ]
+    const { nodeIds, edgeIds } = buildExecutionTrace(steps, flowEdges)
+    expect(nodeIds).toEqual(new Set(['start', 'clasificador', 'found_node']))
+    expect(edgeIds).toEqual(new Set(['e1', 'e2']))
+    expect(edgeIds.has('e3')).toBe(false) // not_found no se tomó
+  })
+
   it('un nodo router visitado dos veces (turnos distintos) con ramas distintas resalta ambas edges', () => {
     const steps = [
       { node_id: 'start' }, { node_id: 'router1', branch_taken: 'ruta_a' }, { node_id: 'a' },

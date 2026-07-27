@@ -7,8 +7,9 @@
  * mecanismo de resaltado que usa el editor real, no un dibujo aparte.
  *
  * Traza una edge por adyacencia consecutiva en la secuencia de steps -- y si
- * el nodo origen es un router/condition (`branch_taken` seteado), solo
- * cuenta como recorrida la edge cuyo label coincide con la rama tomada.
+ * el nodo origen es un router/condition (`branch_taken` seteado) O un
+ * nodo_flow que salió por una ruta con nombre (ver `subflowRoute()` abajo),
+ * solo cuenta como recorrida la edge cuyo label coincide con la rama tomada.
  */
 // Los steps de un nodo `nodo_flow` (sub-flow embebido) se loguean con id
 // compuesto "padre::interno" (uno por paso DENTRO del sub-flow, ver
@@ -18,6 +19,17 @@
 function topLevel(nodeId) {
   const i = nodeId.indexOf('::')
   return i === -1 ? nodeId : nodeId.slice(0, i)
+}
+
+// Un nodo_flow con salidas nombradas (ej. el clasificador de necesidad vía
+// LLM: found/not_found) NO setea `branch_taken` en ningún step propio -- la
+// ruta por la que salió queda codificada en el id del último substep interno
+// ("padre::sf_end_<ruta>", ver pulpo/graphs/compiler.py). Sin esto, la edge
+// con ese label nunca matcheaba y solo quedaba resaltada la primera edge
+// (la que entra al nodo_flow), no la que sale.
+function subflowRoute(nodeId) {
+  const m = nodeId.match(/::sf_end_(.+)$/)
+  return m ? m[1] : null
 }
 
 export function buildExecutionTrace(steps, edges) {
@@ -32,12 +44,13 @@ export function buildExecutionTrace(steps, edges) {
   const collapsed = []
   for (const s of list) {
     const id = topLevel(s.node_id)
+    const branch = s.branch_taken || subflowRoute(s.node_id)
     const last = collapsed[collapsed.length - 1]
     if (last && last.id === id) {
-      if (s.branch_taken) last.branch_taken = s.branch_taken
+      if (branch) last.branch_taken = branch
       continue
     }
-    collapsed.push({ id, branch_taken: s.branch_taken || null })
+    collapsed.push({ id, branch_taken: branch || null })
   }
 
   // Clave compuesta con la rama tomada (o '' si el nodo no es router/no la
