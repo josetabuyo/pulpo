@@ -4,10 +4,10 @@ E2E — smoke de conectividad Telegram / bot Luganense.
 Único test de todo `tests/e2e/luganense/` que sigue hablando con Telegram
 real (`@luganense_bot` vía `TeliConversation`, Telethon con la sesión
 `user_me`). Toda la lógica de negocio (rutas de comercio, producto, servicio,
-noticias, fuera de scope, agotamiento) se movió al simulador in-band — ver
-`scenarios_orquestador_vendedor_0019d8f2.py` (fuente única, también usada por
-`scripts/generate_e2e_report.py`) y `test_orquestador_vendedor_0019d8f2_sim.py`
-(marker `e2e_sim`).
+noticias, fuera de scope, agotamiento) se migró a la suite data-driven del
+tab "Test" en el bot card (`web/lib/business/test-cases.ts` +
+`test-runner.ts` + `test-checks.ts`, casos seedeados en `test_cases` para
+`bot_id="luganense"`) -- reemplaza el viejo simulador in-band en Python.
 
 `test_conectividad_hola_responde` solo confirma que el bot está vivo y
 responde por Telegram: "hola" → alguna respuesta.

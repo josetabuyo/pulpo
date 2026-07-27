@@ -7,6 +7,8 @@ import {
   serial,
   primaryKey,
   index,
+  integer,
+  unique,
 } from "drizzle-orm/pg-core";
 
 // Mirrors pulpo/core/db.py (SQLite, raw SQL) -- that file is the source of
@@ -316,11 +318,55 @@ export const pulpoEnvironments = pgTable("pulpo_environments", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
-export const testReports = pgTable("test_reports", {
-  id: text("id").primaryKey(),
-  botId: text("bot_id").notNull(),
-  slug: text("slug").notNull().unique(),
-  title: text("title").notNull(),
-  html: text("html").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-});
+// Suite de tests e2e configurable desde la UI (reemplaza scenarios_*.py +
+// pytest + test_reports HTML, ver management/HANDOFF_SIMULACION_V2.md para
+// el mecanismo de trigger_chat/chat_configs que esto reusa). `turns`/`checks`
+// van como JSONB (mismo patrón que chatConfigs.banners/themeVars) en vez de
+// tablas hijas -- siempre se editan juntos como un solo documento, no hace
+// falta CRUD granular por turno/check. Ver lib/business/test-checks.ts
+// (CheckSpec) y lib/business/test-runner.ts (motor de ejecución in-process).
+export const testCases = pgTable(
+  "test_cases",
+  {
+    id: text("id").primaryKey(),
+    botId: text("bot_id").notNull(),
+    chatConfigId: text("chat_config_id").notNull(),
+    slug: text("slug").notNull(),
+    title: text("title").notNull(),
+    description: text("description"),
+    turns: jsonb("turns").notNull(),
+    checks: jsonb("checks").notNull(),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    index("test_cases_bot_id_idx").on(table.botId),
+    unique("test_cases_bot_id_slug_unique").on(table.botId, table.slug),
+  ],
+);
+
+// Resultado de una corrida (un caso, o varios agrupados bajo el mismo
+// suite_run_id cuando se disparan juntos desde "Correr todos"). `testCaseTitle`
+// copiado a mano -- sobrevive si el caso se edita/borra después de correrlo.
+export const testRuns = pgTable(
+  "test_runs",
+  {
+    id: text("id").primaryKey(),
+    botId: text("bot_id").notNull(),
+    suiteRunId: text("suite_run_id").notNull(),
+    testCaseId: text("test_case_id").notNull(),
+    testCaseTitle: text("test_case_title").notNull(),
+    target: text("target").notNull(),
+    status: text("status").notNull(),
+    turns: jsonb("turns").notNull(),
+    checkResults: jsonb("check_results").notNull(),
+    errorMessage: text("error_message"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("test_runs_bot_id_idx").on(table.botId),
+    index("test_runs_suite_run_id_idx").on(table.suiteRunId),
+  ],
+);

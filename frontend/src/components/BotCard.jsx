@@ -22,7 +22,7 @@ import BotConfigTab from './bot/BotConfigTab.jsx'
 import RunsTab from './bot/RunsTab.jsx'
 import BotUsersTab from './bot/BotUsersTab.jsx'
 import ChatsTab from './bot/ChatsTab.jsx'
-import TestReportsTab from './bot/TestReportsTab.jsx'
+import TestCasesTab from './bot/TestCasesTab.jsx'
 
 // Normaliza un bot del formato admin (/bots) al formato canónico de BotCard
 export function normalizeBot(bot) {
@@ -103,7 +103,7 @@ export default function BotCard({
     // (ver proxy.ts::SCOPED_BOT_ROUTES), así que no tiene sentido mostrar
     // este tab en mode="bot" hasta que se porte ese filtro.
     ...(mode === 'admin' ? [{ id: 'runs', label: 'Ejecuciones', count: null }] : []),
-    // Reportes e2e -- mismo criterio que 'runs': GET /api/bots/{id}/test-reports
+    // Suite e2e data-driven -- mismo criterio que 'runs': GET /api/bots/{id}/test-cases
     // todavía no pasa por proxy.ts::SCOPED_BOT_ROUTES, admin-only por ahora.
     ...(mode === 'admin' ? [{ id: 'test', label: 'Test', count: null }] : []),
     { id: 'config', label: 'Configurar', count: null },
@@ -233,9 +233,9 @@ export default function BotCard({
           <BotUsersTab botId={botId} apiCall={apiCall} />
         )}
 
-        {/* ── Test (reportes e2e, admin-only) ── */}
+        {/* ── Test (suite e2e configurable desde la UI, admin-only) ── */}
         {activeTab === 'test' && mode === 'admin' && (
-          <TestReportsTab botId={botId} apiCall={apiCall} />
+          <TestCasesTab botId={botId} apiCall={apiCall} />
         )}
       </div>
 
