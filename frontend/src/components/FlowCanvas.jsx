@@ -128,6 +128,10 @@ function LabeledEdge({ id, source, sourceX, sourceY, targetX, targetY, sourcePos
   }, [id, deleteEdge])
 
   const showHandle = !deleteMode && !embed && (selected || hasBend || (!label && routes.length > 0))
+  // dimmed/highlighted: ver highlightNodeIds/highlightEdgeIds en FlowCanvas
+  // (resaltado de camino recorrido, tab "Test" > "Ver" -- FlowExecutionTwin.jsx).
+  const dimmed = data?.dimmed
+  const highlighted = !dimmed && data?.highlightActive
 
   return (
     <>
@@ -135,7 +139,12 @@ function LabeledEdge({ id, source, sourceX, sourceY, targetX, targetY, sourcePos
         path={edgePath}
         markerEnd={markerEnd}
         markerStart={markerStart}
-        style={{ stroke: deleteMode ? 'var(--danger)' : selected ? 'var(--text-subtle)' : 'var(--text-subtle)', strokeWidth: 2, cursor: deleteMode ? 'pointer' : 'default' }}
+        style={{
+          stroke: deleteMode ? 'var(--danger)' : dimmed ? 'var(--border-strong)' : highlighted ? 'var(--success)' : 'var(--text-subtle)',
+          strokeWidth: highlighted ? 3 : 2,
+          opacity: dimmed ? 0.35 : 1,
+          cursor: deleteMode ? 'pointer' : 'default',
+        }}
         onClick={deleteMode ? (e) => { e.stopPropagation(); deleteEdge?.(id) } : undefined}
       />
       <EdgeLabelRenderer>
@@ -149,14 +158,15 @@ function LabeledEdge({ id, source, sourceX, sourceY, targetX, targetY, sourcePos
               onPointerDown={!deleteMode ? startDrag : undefined}
               style={{
                 background: 'var(--surface-2)',
-                border: `1px solid ${hasBend && !deleteMode ? 'var(--brand)' : 'var(--border-strong)'}`,
+                border: `1px solid ${highlighted ? 'var(--success)' : hasBend && !deleteMode ? 'var(--brand)' : 'var(--border-strong)'}`,
                 borderRadius: 4,
-                color: 'var(--text-subtle)',
+                color: highlighted ? 'var(--success)' : 'var(--text-subtle)',
                 fontSize: 11,
                 padding: '1px 6px',
                 whiteSpace: 'nowrap',
                 cursor: !deleteMode ? 'grab' : 'default',
                 userSelect: 'none',
+                opacity: dimmed ? 0.5 : 1,
               }}
             >
               {label}
@@ -249,16 +259,18 @@ function FlowNode({ id, data, selected }) {
   const isDanger = data.deleteMode || data.pendingDelete
   // Borde base en todos los nodos (Dark Ocean §6 paso 6): separación figura-fondo
   // para los nodos más oscuros del catálogo (p.ej. #14532d) sin tocar node-types.json.
-  const borderColor = isDanger ? 'var(--danger)' : (selected ? 'var(--success)' : 'var(--border-strong)')
+  const borderColor = isDanger ? 'var(--danger)' : (selected || data.highlighted ? 'var(--success)' : data.dimmed ? 'transparent' : 'var(--border-strong)')
 
   return (
     <div
-      title={data.deleteMode ? 'Clic para eliminar' : data.description}
+      title={data.dimmed ? `${data.description || data.label} (no corrió en esta corrida)` : data.deleteMode ? 'Clic para eliminar' : data.description}
       onClick={data.deleteMode ? (e) => { e.stopPropagation(); data.onNodeClick?.(id) } : undefined}
       onDoubleClick={!data.deleteMode && data.onDoubleClick ? () => data.onDoubleClick(id) : undefined}
       style={{
-        background: data.color,
-        color: '#fff',
+        background: data.dimmed ? 'var(--surface-2)' : data.color,
+        color: data.dimmed ? 'var(--text-subtle)' : '#fff',
+        filter: data.dimmed ? 'grayscale(1)' : 'none',
+        opacity: data.dimmed ? 0.5 : 1,
         borderRadius: 8,
         border: `2px solid ${borderColor}`,
         boxShadow: isDanger ? '0 0 0 2px rgba(239,68,68,0.25)' : selected ? '0 0 0 2px rgba(34,197,94,0.25)' : 'none',
@@ -327,6 +339,13 @@ export default function FlowCanvas({
   // drag/zoom/selección. Reusa el mismo render — no es un dibujo aparte.
   embed = false,
   onInit,
+  // Resaltar un camino recorrido (ver FlowExecutionTwin.jsx, tab "Test" >
+  // "Ver"): Set<string> de ids de nodos/edges que SÍ corrieron. Si se pasa
+  // (no null), todo lo que no está en el set se grisa; lo que sí está se ve
+  // normal/resaltado. null (default) = sin grisado, comportamiento actual
+  // del editor sin cambios.
+  highlightNodeIds = null,
+  highlightEdgeIds = null,
 }) {
   const reactFlowWrapper = useRef(null)
   const { getNodes, getEdges } = useReactFlow()
@@ -415,6 +434,8 @@ export default function FlowCanvas({
       pendingDelete: pendingDeleteNodeIds.includes(n.id),
       onDoubleClick: onNodeDoubleClick,
       onNodeClick: (nodeId) => setPendingDeleteNodeId(nodeId),
+      dimmed: highlightNodeIds ? !highlightNodeIds.has(n.id) : false,
+      highlighted: highlightNodeIds ? highlightNodeIds.has(n.id) : false,
     },
   }))
 
@@ -426,11 +447,18 @@ export default function FlowCanvas({
     ? (editNodes || []).filter(n => pendingDeleteNodeIds.includes(n.id))
     : []
 
-  const enrichedEdges = (editEdges || []).map(e => ({
-    ...e,
-    type: 'labeled',
-    markerEnd: { type: MarkerType.ArrowClosed, color: deleteMode ? 'var(--danger)' : 'var(--text-subtle)' },
-  }))
+  const enrichedEdges = (editEdges || []).map(e => {
+    const dimmed = highlightEdgeIds ? !highlightEdgeIds.has(e.id) : false
+    return {
+      ...e,
+      type: 'labeled',
+      data: { ...e.data, dimmed, highlightActive: !!highlightEdgeIds },
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color: deleteMode ? 'var(--danger)' : dimmed ? 'var(--border-strong)' : highlightEdgeIds ? 'var(--success)' : 'var(--text-subtle)',
+      },
+    }
+  })
 
   const getNodeRoutes = useCallback((nodeId) => {
     const node = (editNodes || []).find(n => n.id === nodeId)

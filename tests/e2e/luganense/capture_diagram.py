@@ -23,9 +23,9 @@ y dejaría de fondo el margen vacío que sobra del `fitView` con `padding` —
 a `scale`x de densidad de píxeles para que el PNG quede nítido en el
 reporte.
 
-Requiere el frontend (Vite, default :5173) y el backend (default :8000, la
-API de flows detrás no pide auth) corriendo — ver `./start.sh` en la raíz
-del repo.
+Requiere `web/` corriendo (`npm run dev`, default :9010 -- sirve la API de
+flows Y la SPA en el mismo proceso, ver web/CLAUDE.md/scripts/build-spa.mjs;
+:5173 quedó deprecado, no usarlo).
 """
 from playwright.async_api import async_playwright
 
@@ -38,7 +38,7 @@ async def capture_flow_diagram(
     *,
     bot_id: str = "luganense",
     flow_id: str | None = None,
-    base_url: str = "http://localhost:5173",
+    base_url: str = "http://localhost:9010",
     scale: int = 3,
     timeout_ms: int = 15000,
 ) -> bytes:

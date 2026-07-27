@@ -4,9 +4,15 @@
 // sirva sin depender de leer archivos en runtime (el filesystem de
 // public/ no es confiable en funciones serverless de Vercel).
 //
-// Corre como paso previo a `next build` (ver package.json). NO se usa en
-// dev local -- frontend/ sigue sirviéndose con su propio Vite dev server
-// (./start.sh front), este script es solo para el build de producción.
+// Corre como paso previo a `next build` (ver package.json), PERO también es
+// el flujo correcto para probar cambios de frontend/ en dev local (2026-07-27,
+// corrección tras confusión real: NO hay Vite dev server separado en :5173
+// -- ese puerto está deprecado, un solo front + back en localhost, igual que
+// en Vercel). Para ver un cambio de frontend/ reflejado: correr
+// `node scripts/build-spa.mjs` desde acá (web/) y refrescar contra el único
+// puerto local, `npm run dev` de este paquete (:9010 por default, ver
+// package.json "dev"). NO levantar `frontend/` con su propio `npm run dev`
+// para probar contra web/ -- eso fue el error que generó esta nota.
 import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, cpSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import path from "node:path";

@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { bots, chatConfigs, testCases, testRuns } from "@/lib/db/schema";
 import { NotFoundError, ValidationError } from "@/lib/business/bots";
@@ -147,6 +147,12 @@ function toRunDto(row: TestRunRow) {
   };
 }
 
+// Detalle completo (incluye `steps` + `flow_snapshot`, pesados -- solo para
+// la vista "Ver" de UNA corrida puntual, nunca para el listado).
+function toRunDetailDto(row: TestRunRow) {
+  return { ...toRunDto(row), steps: row.steps, flow_snapshot: row.flowSnapshot, diagram_image: row.diagramImage };
+}
+
 export async function listTestRuns(botId: string) {
   const db = getDb();
   const rows = await db.select().from(testRuns).where(eq(testRuns.botId, botId)).orderBy(asc(testRuns.startedAt));
@@ -157,5 +163,18 @@ export async function getTestRun(botId: string, runId: string) {
   const db = getDb();
   const [row] = await db.select().from(testRuns).where(and(eq(testRuns.id, runId), eq(testRuns.botId, botId)));
   if (!row) throw new NotFoundError(`Corrida no encontrada: ${runId}`);
-  return toRunDto(row);
+  return toRunDetailDto(row);
+}
+
+// Corrida más reciente de un caso puntual -- usada por el ícono "Ver" en la
+// fila del caso (antes de tener ninguna corrida seleccionada explícitamente).
+export async function getLatestTestRunForCase(botId: string, testCaseId: string) {
+  const db = getDb();
+  const [row] = await db
+    .select()
+    .from(testRuns)
+    .where(and(eq(testRuns.botId, botId), eq(testRuns.testCaseId, testCaseId)))
+    .orderBy(desc(testRuns.startedAt))
+    .limit(1);
+  return row ? toRunDetailDto(row) : null;
 }

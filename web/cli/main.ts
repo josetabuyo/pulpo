@@ -27,6 +27,39 @@ import { createInterface } from "node:readline/promises";
 const PORT = process.env.WEB_BACKEND_PORT ?? "9010";
 const BASE_URL = process.env.PULPO_WEB_CLI_BASE_URL ?? `http://localhost:${PORT}`;
 
+// `pulpo help` / `pulpo --help` / `pulpo -h` / sin args -- lista de comandos
+// mantenida a mano junto al switch de abajo (agregar un comando ahí sin
+// agregarlo acá es un bug de doc, no un detalle menor: esta es la única
+// documentación de la CLI que un agente ve sin ir a leer el código fuente).
+const HELP_TEXT = `uso: pulpo <grupo> <subcomando> [args] [--flags]
+
+  bots list
+  flows list <botId>
+  flows get <botId> <flowId>
+  flows create <botId> --file flow.json
+  flows update <botId> <flowId> --file flow.json
+  flows delete <botId> <flowId>
+  flows trigger <flowId> <nodeId> --message "..." [--contact ...] [--data '{...}'] [--wait]
+  flows sync <botId> <flowId> --env <name> --direction pull|push [--yes]
+  runs list [--status ...] [--limit ...]
+  runs get <runId>
+  nodes types
+  environments list
+  environments add <name> <baseUrl> <adminToken>
+  environments remove <name>
+  test-cases list <botId>
+  test-cases get <botId> <caseId>
+  test-cases run <botId> <caseId>
+  test-cases latest-run <botId> <caseId>
+  test-runs list <botId>
+  test-runs run <botId> [--cases id1,id2,...]   (sin --cases: corre TODOS los casos del bot)
+  test-runs get <botId> <runId>       (incluye diagram_image: PNG base64 con el camino resaltado, el reporte de la corrida)
+
+Output siempre JSON en stdout. Requiere \`npm run dev\` corriendo en web/ (default :${PORT}
+-- ver WEB_BACKEND_PORT) y, salvo \`flows trigger\`, PULPO_LOCAL_NO_AUTH=1 en web/.env.local.
+Detalle extendido: management/HANDOFF_LOCAL_CLI_AND_NODES.md §4.2 y
+management/HANDOFF_PULPO_ENVIRONMENTS_REGISTRY.md.`;
+
 class CliError extends Error {}
 
 function fail(message: string): never {
@@ -158,6 +191,16 @@ function remoteFlowSide(baseUrl: string, token: string): FlowSide {
   };
 }
 
+// `test-runs run <botId> --cases a,b,c` -- lista de ids separada por coma,
+// undefined si no vino el flag (== "correr todos los casos del bot", ver
+// runSuite() en lib/business/test-runner.ts). Segmentos vacíos (coma de
+// más, espacios) se descartan en vez de mandar un case_id vacío a la API.
+export function parseCaseIds(value: string | boolean | undefined): string[] | undefined {
+  if (typeof value !== "string") return undefined;
+  const ids = value.split(",").map((s) => s.trim()).filter(Boolean);
+  return ids.length ? ids : undefined;
+}
+
 export function parseSyncDirection(value: string | boolean | undefined): "pull" | "push" {
   if (value !== "pull" && value !== "push") {
     throw new CliError(`--direction inválido: ${JSON.stringify(value)} (esperado "pull" o "push")`);
@@ -241,10 +284,10 @@ async function waitForRun(runId: string, { intervalMs = 1500, timeoutMs = 120_00
 
 async function main() {
   const [command, sub, ...rest] = process.argv.slice(2);
-  if (!command) {
-    fail(
-      "uso: pulpo <bots|flows|runs|nodes|environments> <subcomando> [args] -- ver management/HANDOFF_LOCAL_CLI_AND_NODES.md §4.2 y management/HANDOFF_PULPO_ENVIRONMENTS_REGISTRY.md",
-    );
+  if (!command || command === "help" || command === "--help" || command === "-h") {
+    console.log(HELP_TEXT);
+    if (!command) process.exit(1);
+    return;
   }
 
   const { positional, flags } = parseArgs(rest);
@@ -407,6 +450,63 @@ async function main() {
         ok: true,
         message: `Listo: ${direction} de ${botId}/${flowId} (${envName}) aplicado -- quedó INACTIVO en el destino a propósito.`,
       };
+      break;
+    }
+
+    // Suite de tests e2e configurable desde la UI (tab "Test", ver
+    // lib/business/test-cases.ts / test-runner.ts) -- paridad con
+    // bots/flows/runs de arriba, mismo patrón: un fetch por comando, sin
+    // lógica propia acá.
+    case "test-cases list": {
+      const [botId] = positional;
+      if (!botId) throw new CliError("uso: test-cases list <botId>");
+      result = await apiFetch(`/api/bots/${botId}/test-cases`);
+      break;
+    }
+
+    case "test-cases get": {
+      const [botId, caseId] = positional;
+      if (!botId || !caseId) throw new CliError("uso: test-cases get <botId> <caseId>");
+      result = await apiFetch(`/api/bots/${botId}/test-cases/${caseId}`);
+      break;
+    }
+
+    case "test-cases run": {
+      const [botId, caseId] = positional;
+      if (!botId || !caseId) throw new CliError("uso: test-cases run <botId> <caseId>");
+      result = await apiFetch(`/api/bots/${botId}/test-cases/${caseId}/run`, { method: "POST" });
+      break;
+    }
+
+    case "test-cases latest-run": {
+      const [botId, caseId] = positional;
+      if (!botId || !caseId) throw new CliError("uso: test-cases latest-run <botId> <caseId>");
+      result = await apiFetch(`/api/bots/${botId}/test-cases/${caseId}/latest-run`);
+      break;
+    }
+
+    case "test-runs list": {
+      const [botId] = positional;
+      if (!botId) throw new CliError("uso: test-runs list <botId>");
+      result = await apiFetch(`/api/bots/${botId}/test-runs`);
+      break;
+    }
+
+    case "test-runs run": {
+      const [botId] = positional;
+      if (!botId) throw new CliError("uso: test-runs run <botId> [--cases id1,id2,...]");
+      const caseIds = parseCaseIds(flags.cases);
+      result = await apiFetch(`/api/bots/${botId}/test-runs`, {
+        method: "POST",
+        body: JSON.stringify(caseIds ? { case_ids: caseIds } : {}),
+      });
+      break;
+    }
+
+    case "test-runs get": {
+      const [botId, runId] = positional;
+      if (!botId || !runId) throw new CliError("uso: test-runs get <botId> <runId>");
+      result = await apiFetch(`/api/bots/${botId}/test-runs/${runId}`);
       break;
     }
 

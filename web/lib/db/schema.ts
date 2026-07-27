@@ -361,6 +361,22 @@ export const testRuns = pgTable(
     status: text("status").notNull(),
     turns: jsonb("turns").notNull(),
     checkResults: jsonb("check_results").notNull(),
+    // Steps de flow_run_steps concatenados de todos los turnos (mismo shape
+    // que StepDto en lib/business/test-checks.ts) -- snapshot propio en vez
+    // de recalcular contra flow_run_steps en el momento de ver el resultado,
+    // así la vista "Ver" (mini gemelo del flow con la rama resaltada) sigue
+    // andando aunque ese journal se purgue con el tiempo.
+    steps: jsonb("steps").notNull().default([]),
+    // { nodes, edges } de flows.definition al momento de la corrida -- el
+    // flow puede seguir editándose después, este snapshot es lo que
+    // realmente se ejecutó.
+    flowSnapshot: jsonb("flow_snapshot"),
+    // PNG (data URL base64) del gemelo del flow con el camino resaltado --
+    // capturado headless (ver lib/business/flow-capture.ts) al final de
+    // CADA corrida, sin importar si la disparó la UI o el CLI. Nullable a
+    // propósito: la captura es best-effort (playwright no instalado, timeout,
+    // etc. no deben tirar la corrida).
+    diagramImage: text("diagram_image"),
     errorMessage: text("error_message"),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
     finishedAt: timestamp("finished_at", { withTimezone: true }),

@@ -1,3 +1,11 @@
+// NOTA (2026-07-27): este dev server (`npm run dev` acá, típicamente :5173)
+// es un remanente de la migración a web/ (Next.js) y NO es el flujo de
+// desarrollo local actual -- Pulpo corre en un solo puerto local (:9010,
+// `web/`, `npm run dev` desde ahí), igual que en Vercel. Para probar un
+// cambio hecho en este directorio, correr `node ../web/scripts/build-spa.mjs`
+// y refrescar contra :9010. Si en el futuro hace falta hot-reload real de
+// frontend/ otra vez, documentarlo explícitamente acá y en web/CLAUDE.md --
+// hasta entonces, no levantar este server para verificar cambios contra web/.
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'

@@ -15,6 +15,7 @@
  * persistido.
  */
 import { useEffect, useState, useCallback } from 'react'
+import CaseResultView from './CaseResultView.jsx'
 
 // Espejo de CHECK_TYPES en web/lib/business/test-checks.ts -- mismo orden,
 // mismos `type`, mismo criterio needsNode. Si se agrega un tipo de check
@@ -281,11 +282,12 @@ function CaseForm({ botId, apiCall, testCase, onClose, onSaved }) {
 
 // ─── Vista "Casos" ────────────────────────────────────────────────────────
 
-function CasesView({ botId, apiCall, onShowRun }) {
+function CasesView({ botId, apiCall, onShowRun, onViewRun }) {
   const [cases, setCases] = useState([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(null) // null=cerrado, {}=nuevo, case=editar
   const [running, setRunning] = useState(null) // caseId en curso, o 'ALL'
+  const [viewing, setViewing] = useState(null) // caseId cuya última corrida se está por abrir
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -329,6 +331,17 @@ function CasesView({ botId, apiCall, onShowRun }) {
     }
   }
 
+  async function handleView(c) {
+    setViewing(c.id)
+    try {
+      const run = await apiCall('GET', `/bots/${botId}/test-cases/${c.id}/latest-run`, null).catch(() => null)
+      if (run?.id) onViewRun(run)
+      else alert(`"${c.title}" todavía no tiene corridas -- probá "Correr" primero.`)
+    } finally {
+      setViewing(null)
+    }
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 8 }}>
@@ -361,12 +374,15 @@ function CasesView({ botId, apiCall, onShowRun }) {
                   {c.description ? ` · ${c.description}` : ''}
                 </div>
               </div>
-              <button className="btn-primary btn-sm" disabled={running === c.id} onClick={() => handleRun(c)}>
-                {running === c.id ? '...' : '▶ Correr'}
+              <button className="btn-primary btn-sm" title="Correr" disabled={running === c.id} onClick={() => handleRun(c)}>
+                {running === c.id ? '...' : '▶'}
               </button>
-              <button className="btn-ghost btn-sm" onClick={() => setEditing(c)}>Editar</button>
-              <button className="btn-ghost btn-sm" onClick={() => handleDuplicate(c)}>Duplicar</button>
-              <button className="btn-danger btn-sm" onClick={() => handleDelete(c)}>Borrar</button>
+              <button className="btn-ghost btn-sm" title="Ver última corrida" disabled={viewing === c.id} onClick={() => handleView(c)}>
+                {viewing === c.id ? '...' : '👁'}
+              </button>
+              <button className="btn-ghost btn-sm" title="Editar" onClick={() => setEditing(c)}>✎</button>
+              <button className="btn-ghost btn-sm" title="Duplicar" onClick={() => handleDuplicate(c)}>⧉</button>
+              <button className="btn-danger btn-sm" title="Borrar" onClick={() => handleDelete(c)}>🗑</button>
             </div>
           ))}
         </div>
@@ -400,9 +416,22 @@ function CheckResultRow({ check }) {
   )
 }
 
-function RunDetail({ run }) {
+function RunDetail({ run, botId, apiCall, onViewRun }) {
   const [open, setOpen] = useState(false)
+  const [viewing, setViewing] = useState(false)
   const failed = run.check_results.filter(c => c.kind === 'assert' && !c.passed).length
+
+  async function handleView(e) {
+    e.stopPropagation()
+    setViewing(true)
+    try {
+      const full = await apiCall('GET', `/bots/${botId}/test-runs/${run.id}`, null).catch(() => null)
+      if (full?.id) onViewRun(full)
+    } finally {
+      setViewing(false)
+    }
+  }
+
   return (
     <div style={{ border: '1px solid var(--surface-2)', borderRadius: 8, background: 'var(--bg)' }}>
       <div
@@ -417,6 +446,9 @@ function RunDetail({ run }) {
           {run.status === 'passed' ? 'OK' : run.status === 'error' ? 'ERROR' : `REVISAR (${failed})`}
         </span>
         <span style={{ flex: 1, fontSize: 13 }}>{run.test_case_title}</span>
+        <button className="btn-ghost btn-sm" title="Ver" disabled={viewing} onClick={handleView}>
+          {viewing ? '...' : '👁'}
+        </button>
         <span style={{ fontSize: 11, color: 'var(--text-subtle)' }}>{open ? '▲' : '▼'}</span>
       </div>
       {open && (
@@ -449,7 +481,7 @@ function RunDetail({ run }) {
   )
 }
 
-function ResultsView({ botId, apiCall, focusSuiteRunId }) {
+function ResultsView({ botId, apiCall, focusSuiteRunId, onViewRun }) {
   const [runs, setRuns] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -496,7 +528,7 @@ function ResultsView({ botId, apiCall, focusSuiteRunId }) {
                   {new Date(g.runs[0].started_at).toLocaleString('es-AR')} · {passed}/{g.runs.length} OK
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {g.runs.map(r => <RunDetail key={r.id} run={r} />)}
+                  {g.runs.map(r => <RunDetail key={r.id} run={r} botId={botId} apiCall={apiCall} onViewRun={onViewRun} />)}
                 </div>
               </div>
             )
@@ -512,6 +544,7 @@ function ResultsView({ botId, apiCall, focusSuiteRunId }) {
 export default function TestCasesTab({ botId, apiCall }) {
   const [view, setView] = useState('casos')
   const [focusSuiteRunId, setFocusSuiteRunId] = useState(null)
+  const [viewingRun, setViewingRun] = useState(null) // corrida completa (con steps + flow_snapshot) abierta en "Ver"
 
   function showRun(suiteRunId) {
     setFocusSuiteRunId(suiteRunId)
@@ -525,8 +558,12 @@ export default function TestCasesTab({ botId, apiCall }) {
         <button className={view === 'resultados' ? 'btn-primary btn-sm' : 'btn-ghost btn-sm'} onClick={() => setView('resultados')}>Resultados</button>
       </div>
       {view === 'casos'
-        ? <CasesView botId={botId} apiCall={apiCall} onShowRun={showRun} />
-        : <ResultsView botId={botId} apiCall={apiCall} focusSuiteRunId={focusSuiteRunId} />}
+        ? <CasesView botId={botId} apiCall={apiCall} onShowRun={showRun} onViewRun={setViewingRun} />
+        : <ResultsView botId={botId} apiCall={apiCall} focusSuiteRunId={focusSuiteRunId} onViewRun={setViewingRun} />}
+
+      {viewingRun && (
+        <CaseResultView run={viewingRun} apiCall={apiCall} onClose={() => setViewingRun(null)} />
+      )}
     </div>
   )
 }

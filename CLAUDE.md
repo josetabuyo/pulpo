@@ -33,7 +33,7 @@ pulpo/
   bots/           # driver de Telegram (telegram_bot.py, python-telegram-bot)
   tools/          # todo lo externo que un nodo puede usar: wavi_driver (WhatsApp),
                   #   transcription, browser
-frontend/         # React + Vite (dev: :5173, prod: dist/ compilado)
+frontend/         # React + Vite -- se compila e inlinea en web/ (:9010 es el único puerto local, ver "Producción" abajo; :5173 deprecado)
 tests/            # integration tests + e2e tests (ver ADR-004)
 scripts/          # scripts operacionales standalone (expirar conversaciones, migraciones ad-hoc)
 docs/adr/         # decisiones de arquitectura
@@ -113,11 +113,21 @@ confirmación antes de integrar (mismo criterio que ADR-008).
 
 ## Producción
 
-- **Backend:** `http://localhost:8000` — `pulpo server ui`, bots WA y TG activos
-- **Frontend dev:** `http://localhost:5173` — Vite, proxy `/api` → 8000
+- **Backend Python:** `http://localhost:8000` — `pulpo server ui`, bots WA y TG activos
 - **Proceso:** PID administrado por launchd (`com.josetabuyo.pulpo`)
 - **Venv:** `.venv-pulpo/` editable sobre `_/` — no requiere reinstalar al cambiar código
 - **Config:** `_/.env` (gitignoreado) — `ADMIN_PASSWORD`, `BACKEND_PORT`, `ENABLE_BOTS=true`
+
+### Dashboard / API — `web/` (Next.js, "un solo deploy", 2026-07-24)
+
+**`http://localhost:9010` es el ÚNICO puerto local para el dashboard** —
+`web/`, `npm run dev` desde ahí, sirve API + la SPA de `frontend/` ya
+compilada en un mismo proceso Next.js (igual que en Vercel). **`:5173`
+(Vite dev server suelto de `frontend/`) está deprecado — no usarlo.** Para
+ver un cambio hecho en `frontend/src` reflejado en `:9010`: correr
+`node scripts/build-spa.mjs` desde `web/` (rebuildea `frontend/` e inlinea
+el bundle) y refrescar. Ver `web/scripts/build-spa.mjs` y
+`frontend/vite.config.js` para el detalle.
 
 ---
 
