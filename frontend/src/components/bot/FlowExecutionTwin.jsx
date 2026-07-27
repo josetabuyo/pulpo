@@ -1,8 +1,10 @@
 /**
  * Gemelo read-only del flow para la vista "Ver" de una corrida de test (tab
  * "Test" > "Ver"). A propósito NO es un dibujo aparte: monta el mismo
- * FlowCanvas.jsx del editor real, en modo `embed` (mismo mecanismo que
- * EmbedFlowPage.jsx, usado para las capturas headless del diagrama), con
+ * FlowCanvas.jsx del editor real, en modo `readOnly` (sin drag/editar, pero
+ * CON zoom/pan/Controls -- a diferencia de `embed`, que usa la captura
+ * headless en EmbedTestRunPage.jsx y apaga zoom/pan a propósito para que el
+ * screenshot sea determinístico), con
  * `highlightNodeIds`/`highlightEdgeIds` para grisar todo menos el camino
  * que efectivamente se recorrió en esta corrida puntual (ver
  * utils/executionTrace.js). Mismos colores/posiciones/routing de edges que
@@ -45,7 +47,7 @@ function FlowExecutionTwinInner({ flowSnapshot, steps, apiCall }) {
 
   return (
     <FlowCanvas
-      embed
+      readOnly
       nodes={nodes}
       edges={edges}
       onNodesChange={() => {}}
@@ -56,7 +58,7 @@ function FlowExecutionTwinInner({ flowSnapshot, steps, apiCall }) {
   )
 }
 
-export default function FlowExecutionTwin({ flowSnapshot, steps, apiCall, height = 380 }) {
+export default function FlowExecutionTwin({ flowSnapshot, steps, apiCall, height = 640 }) {
   const store = useMemo(() => createFlowStore(), [])
 
   if (!flowSnapshot) {
@@ -64,7 +66,7 @@ export default function FlowExecutionTwin({ flowSnapshot, steps, apiCall, height
   }
 
   return (
-    <div style={{ height, border: '1px solid var(--surface-2)', borderRadius: 8, overflow: 'hidden', position: 'relative', display: 'flex' }}>
+    <div style={{ height, flexShrink: 0, border: '1px solid var(--surface-2)', borderRadius: 8, overflow: 'hidden', position: 'relative', display: 'flex' }}>
       <FlowStoreContext.Provider value={store}>
         <ReactFlowProvider>
           <FlowExecutionTwinInner flowSnapshot={flowSnapshot} steps={steps} apiCall={apiCall} />

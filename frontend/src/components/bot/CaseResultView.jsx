@@ -39,6 +39,19 @@ function ChatTurn({ turn }) {
   )
 }
 
+// data: URLs no siempre abren en pestaña nueva (Chrome bloquea navegación de
+// top-frame a data: en algunos contextos, target="_blank" incluido) --
+// convertir a blob: URL es lo que anda siempre.
+function openImageFullSize(dataUrl) {
+  const [meta, base64] = dataUrl.split(',')
+  const mime = meta.match(/data:(.*);base64/)?.[1] || 'image/png'
+  const bytes = atob(base64)
+  const arr = new Uint8Array(bytes.length)
+  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i)
+  const blob = new Blob([arr], { type: mime })
+  window.open(URL.createObjectURL(blob), '_blank')
+}
+
 function CheckResultRow({ check }) {
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12, padding: '4px 0' }}>
@@ -61,7 +74,7 @@ export default function CaseResultView({ run, apiCall, onClose }) {
     <div className="modal-overlay" onClick={onClose}>
       <div
         className="modal"
-        style={{ maxWidth: 900, width: '92vw', maxHeight: '90vh', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}
+        style={{ maxWidth: 1200, width: '95vw', maxHeight: '92vh', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}
         onClick={e => e.stopPropagation()}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, gap: 10 }}>
@@ -100,15 +113,27 @@ export default function CaseResultView({ run, apiCall, onClose }) {
               <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-subtle)' }}>
                 IMAGEN DEL REPORTE (camino recorrido en esta corrida)
               </span>
-              <a
-                href={run.diagram_image}
-                download={`test-run-${run.id}.png`}
-                style={{ fontSize: 11, color: 'var(--brand)' }}
-              >
-                ⭳ Descargar
-              </a>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <button
+                  type="button"
+                  onClick={() => openImageFullSize(run.diagram_image)}
+                  style={{ fontSize: 11, color: 'var(--brand)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+                >
+                  🔍 Ver tamaño completo
+                </button>
+                <a href={run.diagram_image} download={`test-run-${run.id}.png`} style={{ fontSize: 11, color: 'var(--brand)' }}>
+                  ⭳ Descargar
+                </a>
+              </div>
             </div>
-            <div style={{ marginBottom: 20, border: '1px solid var(--surface-2)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg)' }}>
+            <div
+              onClick={() => openImageFullSize(run.diagram_image)}
+              title="Clic para ver a tamaño completo"
+              style={{
+                display: 'block', flexShrink: 0, marginBottom: 20, border: '1px solid var(--surface-2)', borderRadius: 8,
+                overflow: 'auto', background: 'var(--bg)', height: 480, cursor: 'zoom-in',
+              }}
+            >
               <img src={run.diagram_image} alt={`Flow de "${run.test_case_title}" con el camino recorrido resaltado`} style={{ width: '100%', display: 'block' }} />
             </div>
           </>

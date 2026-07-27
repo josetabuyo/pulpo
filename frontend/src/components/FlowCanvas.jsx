@@ -18,12 +18,12 @@ import { GRID_SIZE, NODE_WIDTH, snapPoint } from '../utils/grid.js'
 
 // ─── Contexto de modo borrar ──────────────────────────────────────────────────
 
-const EdgeActionsCtx = createContext({ deleteMode: false, embed: false, deleteEdge: null, updateEdgeBend: null, updateEdgeLabel: null, getNodeRoutes: null })
+const EdgeActionsCtx = createContext({ deleteMode: false, embed: false, readOnly: false, deleteEdge: null, updateEdgeBend: null, updateEdgeLabel: null, getNodeRoutes: null })
 
 // ─── Edge custom ──────────────────────────────────────────────────────────────
 
 function LabeledEdge({ id, source, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, label, selected, markerEnd, markerStart, data }) {
-  const { deleteMode, embed, deleteEdge, updateEdgeBend, updateEdgeLabel, getNodeRoutes } = useContext(EdgeActionsCtx)
+  const { deleteMode, embed, readOnly, deleteEdge, updateEdgeBend, updateEdgeLabel, getNodeRoutes } = useContext(EdgeActionsCtx)
   const { screenToFlowPosition } = useReactFlow()
   const [localBend, setLocalBend] = useState(null)
   const [editing, setEditing] = useState(false)
@@ -127,7 +127,7 @@ function LabeledEdge({ id, source, sourceX, sourceY, targetX, targetY, sourcePos
     deleteEdge?.(id)
   }, [id, deleteEdge])
 
-  const showHandle = !deleteMode && !embed && (selected || hasBend || (!label && routes.length > 0))
+  const showHandle = !deleteMode && !embed && !readOnly && (selected || hasBend || (!label && routes.length > 0))
   // dimmed/highlighted: ver highlightNodeIds/highlightEdgeIds en FlowCanvas
   // (resaltado de camino recorrido, tab "Test" > "Ver" -- FlowExecutionTwin.jsx).
   const dimmed = data?.dimmed
@@ -155,7 +155,7 @@ function LabeledEdge({ id, source, sourceX, sourceY, targetX, targetY, sourcePos
           {/* Label — drag handle en modo normal */}
           {label && (
             <span
-              onPointerDown={!deleteMode ? startDrag : undefined}
+              onPointerDown={!deleteMode && !readOnly ? startDrag : undefined}
               style={{
                 background: 'var(--surface-2)',
                 border: `1px solid ${highlighted ? 'var(--success)' : hasBend && !deleteMode ? 'var(--brand)' : 'var(--border-strong)'}`,
@@ -334,10 +334,15 @@ export default function FlowCanvas({
   onDrop: externalOnDrop,
   onEdgeBendChange,
   onEdgeLabelChange,
-  // Modo solo-lectura para capturas del diagrama (ver EmbedFlowPage.jsx): sin
-  // Controls, sin handles interactivos de edge, sin overlays de borrado, sin
-  // drag/zoom/selección. Reusa el mismo render — no es un dibujo aparte.
+  // Modo captura headless (ver EmbedFlowPage.jsx/EmbedTestRunPage.jsx): sin
+  // Controls, sin zoom/pan, un solo fitView fijo para que el screenshot sea
+  // determinístico. Implica `readOnly`. NO usar para una vista interactiva
+  // -- para eso está `readOnly` solo (ver FlowExecutionTwin.jsx).
   embed = false,
+  // Solo-lectura interactivo: sin drag/conectar/borrar/overlays de borrado,
+  // pero CON zoom/pan/Controls -- a diferencia de `embed`, pensado para que
+  // un humano explore el diagrama (tab "Test" > "Ver"), no para capturarlo.
+  readOnly = false,
   onInit,
   // Resaltar un camino recorrido (ver FlowExecutionTwin.jsx, tab "Test" >
   // "Ver"): Set<string> de ids de nodos/edges que SÍ corrieron. Si se pasa
@@ -367,7 +372,7 @@ export default function FlowCanvas({
   // Delete/Backspace: si hay nodos seleccionados (box select o click), pedir
   // confirmación (se pintan de rojo). Si solo hay edges seleccionadas, borrar directo.
   useEffect(() => {
-    if (deleteMode || embed) return
+    if (deleteMode || embed || readOnly) return
     function handleKeyDown(e) {
       if (e.key !== 'Delete' && e.key !== 'Backspace') return
       const target = e.target
@@ -387,7 +392,7 @@ export default function FlowCanvas({
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [deleteMode, embed, getNodes, getEdges, onEdgesChange, setPendingDeleteNodeIds])
+  }, [deleteMode, embed, readOnly, getNodes, getEdges, onEdgesChange, setPendingDeleteNodeIds])
 
   function handleDragOver(e) {
     e.preventDefault()
@@ -424,6 +429,10 @@ export default function FlowCanvas({
 
   const panMode = tool === 'pan' || spaceHeld
   const canvasCursor = panMode ? (isPanning ? 'grabbing' : 'grab') : 'default'
+  // Bloquea edición (drag/conectar/seleccionar/borrar) en `embed` Y en
+  // `readOnly` -- lo que los diferencia es zoom/pan/Controls, ver props de
+  // FlowCanvas más arriba.
+  const noEdit = embed || readOnly
 
   const enrichedNodes = (editNodes || []).map(n => ({
     ...n,
@@ -477,7 +486,7 @@ export default function FlowCanvas({
   }, [editNodes])
 
   return (
-    <EdgeActionsCtx.Provider value={{ deleteMode, embed, deleteEdge, updateEdgeBend: onEdgeBendChange, updateEdgeLabel: onEdgeLabelChange, getNodeRoutes }}>
+    <EdgeActionsCtx.Provider value={{ deleteMode, embed, readOnly, deleteEdge, updateEdgeBend: onEdgeBendChange, updateEdgeLabel: onEdgeLabelChange, getNodeRoutes }}>
       <div
         ref={reactFlowWrapper}
         style={{ flex: 1, background: 'var(--bg)', overflow: 'hidden', position: 'relative', cursor: canvasCursor }}
@@ -502,11 +511,11 @@ export default function FlowCanvas({
           maxZoom={2}
           snapToGrid
           snapGrid={[GRID_SIZE, GRID_SIZE]}
-          nodesDraggable={!embed && !deleteMode && !panMode}
-          nodesConnectable={!embed && !deleteMode}
-          elementsSelectable={!embed && !panMode}
+          nodesDraggable={!noEdit && !deleteMode && !panMode}
+          nodesConnectable={!noEdit && !deleteMode}
+          elementsSelectable={!noEdit && !panMode}
           panOnDrag={embed ? false : (panMode ? true : [1, 2])}
-          selectionOnDrag={!embed && !panMode}
+          selectionOnDrag={!noEdit && !panMode}
           selectionKeyCode={null}
           multiSelectionKeyCode="Shift"
           zoomOnScroll={!embed}
