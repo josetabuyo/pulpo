@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { verifyAccessToken } from "@/lib/auth/jwt";
 import { isLocalNoAuth } from "@/lib/auth/local-bypass";
+import { isSyncTokenRequest } from "@/lib/auth/sync-token";
 
 // Fixes the root-cause auth bug found in pulpo/interfaces/ui/app.py: there,
 // `app.mount("/api", api)` creates a separate Starlette sub-app that the
@@ -27,6 +28,20 @@ import { isLocalNoAuth } from "@/lib/auth/local-bypass";
 // depending on per-bot DB config (chat_configs.is_public), which the proxy
 // can't evaluate for every request -- so this path is let through here too,
 // and each handler self-validates via lib/auth/chat-access.ts::resolveChatCaller.
+//
+// A FIFTH scheme (2026-07-26, registro de ambientes -- ver
+// management/HANDOFF_PULPO_ENVIRONMENTS_REGISTRY.md): otro ambiente Pulpo
+// (no un browser humano) llamando list/get/push de flows vía
+// lib/auth/sync-token.ts, header `X-Pulpo-Sync-Token` en vez de sesión/JWT.
+// A propósito NO se agrega a SCOPED_BOT_ROUTES/assertBotAccess -- ese
+// mecanismo es sobre bot_users (Pulpo PRO/Lite), esto es sobre ambientes
+// enteros, y ensanchar assertBotAccess lo filtraría a rutas no relacionadas
+// (chat-configs, google-connections, etc.) que no deben aceptar este token.
+const SYNC_TOKEN_ROUTES: { method: string; re: RegExp }[] = [
+  { method: "GET", re: /^\/api\/flows\/bots\/[^/]+$/ },
+  { method: "GET", re: /^\/api\/flows\/bots\/[^/]+\/[^/]+$/ },
+  { method: "PUT", re: /^\/api\/flows\/bots\/[^/]+\/[^/]+$/ },
+];
 const TRIGGER_PATH_RE = /^\/api\/flows\/[^/]+\/trigger\/[^/]+$/;
 const TELEGRAM_WEBHOOK_RE = /^\/api\/telegram\/webhook\/[^/]+$/;
 // Cuarto esquema (2026-07-23, PulpoChat -- ver
@@ -110,6 +125,13 @@ export default auth(async (request) => {
     pathname.startsWith("/api/auth/") ||
     TELEGRAM_WEBHOOK_RE.test(pathname) ||
     CHAT_RE.test(pathname)
+  ) {
+    return NextResponse.next();
+  }
+
+  if (
+    isSyncTokenRequest(request) &&
+    SYNC_TOKEN_ROUTES.some(({ method, re }) => request.method === method && re.test(pathname))
   ) {
     return NextResponse.next();
   }

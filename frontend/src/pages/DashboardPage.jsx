@@ -182,6 +182,49 @@ function TelegramModal({ open, onClose, botId, onSave }) {
   )
 }
 
+function EnvironmentModal({ open, onClose, onSave }) {
+  const [name, setName] = useState('')
+  const [baseUrl, setBaseUrl] = useState('')
+  const [adminToken, setAdminToken] = useState('')
+
+  useEffect(() => {
+    if (open) {
+      setName('')
+      setBaseUrl('')
+      setAdminToken('')
+    }
+  }, [open])
+
+  function handleSave() {
+    if (!name.trim()) return alert('Nombre requerido.')
+    if (!baseUrl.trim()) return alert('URL base requerida.')
+    if (!adminToken.trim()) return alert('Token requerido.')
+    onSave({ name: name.trim(), baseUrl: baseUrl.trim(), adminToken: adminToken.trim() })
+  }
+
+  return (
+    <Modal open={open} onClose={onClose}>
+      <h3>Nuevo ambiente</h3>
+      <div className="fg">
+        <label>Nombre (ej: prod, staging)</label>
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="prod" />
+      </div>
+      <div className="fg">
+        <label>URL base</label>
+        <input value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://pulpo-bot.vercel.app" />
+      </div>
+      <div className="fg">
+        <label>Token (PULPO_SYNC_TOKEN de ese ambiente)</label>
+        <input type="password" value={adminToken} onChange={e => setAdminToken(e.target.value)} placeholder="..." />
+      </div>
+      <div className="modal-actions">
+        <button className="btn-ghost" onClick={onClose}>Cancelar</button>
+        <button className="btn-primary" onClick={handleSave}>Guardar</button>
+      </div>
+    </Modal>
+  )
+}
+
 // ─── Dashboard principal ───────────────────────────────────────────────────────
 
 export default function DashboardPage() {
@@ -189,13 +232,16 @@ export default function DashboardPage() {
 
   const [bots, setBots] = useState([])
   const [loading, setLoading] = useState(true)
+  const [environments, setEnvironments] = useState([])
 
   // Modales
   const [botModal, setBotModal] = useState({ open: false, editBot: null })
   const [tgModal, setTgModal] = useState({ open: false, botId: null })
+  const [envModal, setEnvModal] = useState({ open: false })
   const [expandedBot, setExpandedBot] = useState(null)
   const [monitorCollapsed,  setMonitorCollapsed]  = useState(() => searchParams.get('monitor') !== '1')
   const [companiesCollapsed, setCompaniesCollapsed] = useState(false)
+  const [environmentsCollapsed, setEnvironmentsCollapsed] = useState(true)
   const [waviModal,         setWaviModal]          = useState({ open: false, session: null })
 
   useEffect(() => { document.title = 'Pulpo — Dashboard' }, [])
@@ -217,6 +263,13 @@ export default function DashboardPage() {
     const interval = setInterval(loadBots, 6000)
     return () => clearInterval(interval)
   }, [loadBots])
+
+  const loadEnvironments = useCallback(async () => {
+    const data = await call('GET', '/environments')
+    if (Array.isArray(data)) setEnvironments(data)
+  }, [call])
+
+  useEffect(() => { loadEnvironments() }, [loadEnvironments])
 
   useEffect(() => {
     const botId = searchParams.get('bot')
@@ -291,6 +344,21 @@ export default function DashboardPage() {
     const res = await call('POST', `/telegram/connect/${tokenId}`)
     if (res.error) return alert('Error: ' + res.error)
     setTimeout(loadBots, 2000)
+  }
+
+  // ── Ambientes CRUD (management/HANDOFF_PULPO_ENVIRONMENTS_REGISTRY.md) ──
+  async function handleSaveEnvironment({ name, baseUrl, adminToken }) {
+    const res = await call('POST', '/environments', { name, base_url: baseUrl, admin_token: adminToken })
+    if (res?.detail) return alert('Error: ' + res.detail)
+    setEnvModal({ open: false })
+    loadEnvironments()
+  }
+
+  async function handleDeleteEnvironment(name) {
+    if (!confirm(`¿Eliminar el ambiente "${name}"? Dejás de poder hacer pull/push contra él desde acá.`)) return
+    const res = await call('DELETE', `/environments/${encodeURIComponent(name)}`)
+    if (res?.detail) return alert('Error: ' + res.detail)
+    loadEnvironments()
   }
 
   // ── Drag & drop ──
@@ -392,6 +460,49 @@ export default function DashboardPage() {
           )}
         </div>
 
+        {/* ── Sección: Ambientes (management/HANDOFF_PULPO_ENVIRONMENTS_REGISTRY.md) ── */}
+        <div className="section-block">
+          <div className="section-block-header" onClick={() => setEnvironmentsCollapsed(c => !c)}>
+            <div className="section-block-title">🌐 Ambientes</div>
+            <div className="section-block-actions" onClick={e => e.stopPropagation()}>
+              <button className="btn-primary btn-sm" onClick={() => setEnvModal({ open: true })}>
+                + Nuevo ambiente
+              </button>
+              <button
+                className="btn-ghost btn-sm"
+                onClick={() => setEnvironmentsCollapsed(c => !c)}
+              >{environmentsCollapsed ? '▼ Expandir' : '▲ Colapsar'}</button>
+            </div>
+          </div>
+          {!environmentsCollapsed && (
+            <div className="section-body">
+              <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 0 }}>
+                Otros ambientes Pulpo conocidos (ej. prod desde local) -- usados por{' '}
+                <code>pulpo flows sync</code> para pull/push de un flow puntual. El token no se
+                vuelve a mostrar tras guardarlo.
+              </p>
+              {environments.length === 0 && (
+                <div className="empty">No hay ambientes registrados. Agregá uno con el botón de arriba.</div>
+              )}
+              {environments.map(env => (
+                <div
+                  key={env.id}
+                  className="card"
+                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 600 }}>{env.name}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{env.base_url}</div>
+                  </div>
+                  <button className="btn-ghost btn-sm" onClick={() => handleDeleteEnvironment(env.name)}>
+                    ✕ Eliminar
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
       </main>
 
       {/* Modales */}
@@ -407,6 +518,12 @@ export default function DashboardPage() {
         botId={tgModal.botId}
         onClose={() => setTgModal({ open: false, botId: null })}
         onSave={handleSaveTg}
+      />
+
+      <EnvironmentModal
+        open={envModal.open}
+        onClose={() => setEnvModal({ open: false })}
+        onSave={handleSaveEnvironment}
       />
 
       <WaviModal

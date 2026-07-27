@@ -1,13 +1,15 @@
 import { getFlow, updateFlow, deleteFlow } from "@/lib/business/flows";
 import { ValidationError } from "@/lib/business/bots";
 import { errorResponse } from "@/lib/api/errors";
-import { assertBotAccess } from "@/lib/auth/bot-access";
+import { assertBotAccess, assertBotAccessOrSyncToken } from "@/lib/auth/bot-access";
 
 // TS port of pulpo/interfaces/api/routers/flows.py (GET/PUT/DELETE "/bots/{bot_id}/{flow_id}").
-// Reachable by both admin and scoped (see proxy.ts::SCOPED_BOT_ROUTES).
+// Reachable by admin, scoped (see proxy.ts::SCOPED_BOT_ROUTES) y, GET/PUT,
+// por otro ambiente Pulpo vía sync-token (proxy.ts::SYNC_TOKEN_ROUTES) --
+// DELETE queda fuera a propósito, un ambiente remoto solo lista/lee/empuja.
 export async function GET(request: Request, { params }: { params: Promise<{ botId: string; flowId: string }> }) {
   const { botId, flowId } = await params;
-  const denied = await assertBotAccess(request, botId);
+  const denied = await assertBotAccessOrSyncToken(request, botId);
   if (denied) return denied;
   const flow = await getFlow(botId, flowId);
   if (!flow) return Response.json({ detail: "Flow no encontrado" }, { status: 404 });
@@ -16,7 +18,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ botI
 
 export async function PUT(request: Request, { params }: { params: Promise<{ botId: string; flowId: string }> }) {
   const { botId, flowId } = await params;
-  const denied = await assertBotAccess(request, botId);
+  const denied = await assertBotAccessOrSyncToken(request, botId);
   if (denied) return denied;
   const body = await request.json();
   const saveVersion = Boolean(body.save_version);

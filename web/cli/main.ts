@@ -18,7 +18,11 @@
 // that one talks to the SQLite/Python stack in-process and is untouched.
 // This one only knows about `web/`.
 
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createInterface } from "node:readline/promises";
 
 const PORT = process.env.WEB_BACKEND_PORT ?? "9010";
 const BASE_URL = process.env.PULPO_WEB_CLI_BASE_URL ?? `http://localhost:${PORT}`;
@@ -94,6 +98,96 @@ function readFileArg(flags: ParsedArgs["flags"]): unknown {
   return JSON.parse(raw);
 }
 
+// `flows sync` -- registro de ambientes (management/HANDOFF_PULPO_ENVIRONMENTS_REGISTRY.md).
+// Porta el diff/confirm de scripts/sync-flow.ts (DB directa, deprecado como
+// fallback de emergencia) a HTTP: en vez de leer/escribir Postgres de los
+// dos ambientes directo, habla con la API de cada uno (local vía apiFetch de
+// siempre, remoto vía remoteFetch con el sync-token del ambiente resuelto).
+async function resolveEnvironment(name: string): Promise<{ base_url: string; admin_token: string }> {
+  const env = (await apiFetch(`/api/environments/${encodeURIComponent(name)}`)) as {
+    base_url?: string;
+    admin_token?: string;
+  };
+  if (!env.base_url || !env.admin_token) throw new CliError(`ambiente desconocido: ${name}`);
+  return { base_url: env.base_url, admin_token: env.admin_token };
+}
+
+async function remoteFetch(baseUrl: string, token: string, path: string, init?: RequestInit): Promise<unknown> {
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}${path}`, {
+      ...init,
+      headers: { "Content-Type": "application/json", "X-Pulpo-Sync-Token": token, ...(init?.headers ?? {}) },
+    });
+  } catch (err) {
+    throw new CliError(`no se pudo conectar a ${baseUrl}${path}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  const text = await res.text();
+  let body: unknown = null;
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = text;
+    }
+  }
+  if (!res.ok) {
+    throw new CliError(`HTTP ${res.status} en ${baseUrl}${path}: ${typeof body === "string" ? body : JSON.stringify(body)}`);
+  }
+  return body;
+}
+
+interface FlowSide {
+  get(botId: string, flowId: string): Promise<{ name: string; definition: unknown }>;
+  put(botId: string, flowId: string, body: Record<string, unknown>): Promise<unknown>;
+}
+
+function localFlowSide(): FlowSide {
+  return {
+    get: (botId, flowId) => apiFetch(`/api/flows/bots/${botId}/${flowId}`) as Promise<{ name: string; definition: unknown }>,
+    put: (botId, flowId, body) => apiFetch(`/api/flows/bots/${botId}/${flowId}`, { method: "PUT", body: JSON.stringify(body) }),
+  };
+}
+
+function remoteFlowSide(baseUrl: string, token: string): FlowSide {
+  return {
+    get: (botId, flowId) =>
+      remoteFetch(baseUrl, token, `/api/flows/bots/${botId}/${flowId}`) as Promise<{ name: string; definition: unknown }>,
+    put: (botId, flowId, body) =>
+      remoteFetch(baseUrl, token, `/api/flows/bots/${botId}/${flowId}`, { method: "PUT", body: JSON.stringify(body) }),
+  };
+}
+
+export function parseSyncDirection(value: string | boolean | undefined): "pull" | "push" {
+  if (value !== "pull" && value !== "push") {
+    throw new CliError(`--direction inválido: ${JSON.stringify(value)} (esperado "pull" o "push")`);
+  }
+  return value;
+}
+
+function printFlowDiff(label: string, before: unknown, after: unknown) {
+  const dir = mkdtempSync(join(tmpdir(), "flows-sync-"));
+  const beforePath = join(dir, "before.json");
+  const afterPath = join(dir, "after.json");
+  writeFileSync(beforePath, JSON.stringify(before, null, 2) + "\n");
+  writeFileSync(afterPath, JSON.stringify(after, null, 2) + "\n");
+  console.log(`\n--- diff (destino actual vs lo que se va a escribir) — ${label} ---`);
+  try {
+    execFileSync("diff", ["-u", beforePath, afterPath], { stdio: "inherit" });
+    console.log("(sin diferencias)");
+  } catch (e) {
+    if ((e as { status?: number }).status !== 1) throw e;
+  }
+  console.log("");
+}
+
+async function confirmSync(question: string): Promise<boolean> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await rl.question(`${question} [y/N] `);
+  rl.close();
+  return answer.trim().toLowerCase() === "y";
+}
+
 // /api/flows/{flowId}/trigger/{nodeId} deliberately stays on the JWT bearer
 // scheme even for the local no-auth bypass -- see proxy.ts, TRIGGER_PATH_RE
 // is checked BEFORE isLocalNoAuth() runs, and the handoff doc (§4.3) is
@@ -149,7 +243,7 @@ async function main() {
   const [command, sub, ...rest] = process.argv.slice(2);
   if (!command) {
     fail(
-      "uso: pulpo <bots|flows|runs|nodes> <subcomando> [args] -- ver management/HANDOFF_LOCAL_CLI_AND_NODES.md §4.2 para la tabla completa",
+      "uso: pulpo <bots|flows|runs|nodes|environments> <subcomando> [args] -- ver management/HANDOFF_LOCAL_CLI_AND_NODES.md §4.2 y management/HANDOFF_PULPO_ENVIRONMENTS_REGISTRY.md",
     );
   }
 
@@ -247,6 +341,75 @@ async function main() {
       break;
     }
 
+    case "environments list": {
+      result = await apiFetch("/api/environments");
+      break;
+    }
+
+    case "environments add": {
+      const [name, baseUrl, adminToken] = positional;
+      if (!name || !baseUrl || !adminToken) throw new CliError("uso: environments add <name> <baseUrl> <adminToken>");
+      result = await apiFetch("/api/environments", {
+        method: "POST",
+        body: JSON.stringify({ name, base_url: baseUrl, admin_token: adminToken }),
+      });
+      break;
+    }
+
+    case "environments remove": {
+      const [name] = positional;
+      if (!name) throw new CliError("uso: environments remove <name>");
+      result = await apiFetch(`/api/environments/${encodeURIComponent(name)}`, { method: "DELETE" });
+      break;
+    }
+
+    case "flows sync": {
+      const [botId, flowId] = positional;
+      const envName = flags.env;
+      const direction = parseSyncDirection(flags.direction);
+      if (!botId || !flowId || typeof envName !== "string") {
+        throw new CliError("uso: flows sync <botId> <flowId> --env <name> --direction pull|push [--yes]");
+      }
+      const env = await resolveEnvironment(envName);
+      const remote = remoteFlowSide(env.base_url, env.admin_token);
+      const local = localFlowSide();
+      const [source, target] = direction === "pull" ? [remote, local] : [local, remote];
+
+      const sourceFlow = await source.get(botId, flowId);
+      const targetFlow = await target.get(botId, flowId);
+
+      printFlowDiff(`${direction} · ${botId}/${flowId} · ${envName}`, targetFlow.definition, sourceFlow.definition);
+
+      if (JSON.stringify(targetFlow.definition) === JSON.stringify(sourceFlow.definition)) {
+        result = { ok: true, message: "El destino ya tiene esta misma definición -- nada para sincronizar." };
+        break;
+      }
+
+      const skipConfirm = flags.yes === true;
+      if (!skipConfirm && !(await confirmSync(`¿Escribir esta definición en el destino (${direction}, ${envName})?`))) {
+        result = { ok: false, message: "Cancelado -- no se escribió nada." };
+        break;
+      }
+
+      // active:false SIEMPRE en el destino -- mismo motivo que
+      // scripts/sync-flow.ts: un flow traído de otro ambiente no debe arrancar
+      // a disparar solo porque comparte connection_id con lo que ya corría
+      // ahí. save_version:true hace que updateFlow() guarde la definición
+      // ANTERIOR del destino en flow_versions antes de pisarla (mismo
+      // mecanismo de "undo").
+      await target.put(botId, flowId, {
+        name: sourceFlow.name,
+        definition: sourceFlow.definition,
+        active: false,
+        save_version: true,
+      });
+      result = {
+        ok: true,
+        message: `Listo: ${direction} de ${botId}/${flowId} (${envName}) aplicado -- quedó INACTIVO en el destino a propósito.`,
+      };
+      break;
+    }
+
     default:
       throw new CliError(`comando desconocido: ${command} ${sub ?? ""}`.trim());
   }
@@ -254,7 +417,11 @@ async function main() {
   console.log(JSON.stringify(result, null, 2));
 }
 
-main().catch((err) => {
-  if (err instanceof CliError) fail(err.message);
-  fail(err instanceof Error ? err.message : String(err));
-});
+// Guardado igual que scripts/sync-flow.ts -- deja importar parseSyncDirection
+// (y las demás funciones puras exportadas) desde un test sin disparar main().
+if (process.argv[1]?.endsWith("main.ts")) {
+  main().catch((err) => {
+    if (err instanceof CliError) fail(err.message);
+    fail(err instanceof Error ? err.message : String(err));
+  });
+}

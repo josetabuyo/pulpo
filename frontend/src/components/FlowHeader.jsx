@@ -7,6 +7,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useOnSelectionChange } from '@xyflow/react'
 import { useFlowStore } from '../store/flowStore.js'
+import FlowSyncModal from './FlowSyncModal.jsx'
 
 export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }) {
   const [name, setName]   = useState(flow.name || '')
@@ -18,6 +19,7 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
   const [selectedNodeIds, setSelectedNodeIds] = useState([])
   const [extracting, setExtracting] = useState(false)
   const [extractMsg, setExtractMsg] = useState('')
+  const [syncModalOpen, setSyncModalOpen] = useState(false)
 
   useOnSelectionChange({
     onChange: useCallback(({ nodes }) => {
@@ -224,6 +226,19 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
     }
   }, [apiCall, flow.bot_id, flow.id, selectedNodeIds])
 
+  // Tras un pull, el flow local cambió de golpe en la DB por fuera de este
+  // editor -- hay que recargar el store (dirty:false) para que el
+  // auto-guardado no pise lo recién sincronizado con el estado viejo en
+  // memoria. Un push no toca el local, no hace falta recargar nada.
+  const handleSynced = useCallback(({ direction, result }) => {
+    if (direction !== 'pull') return
+    loadFlow(result.definition, undefined, { dirty: false })
+    setName(result.name || '')
+    setActive(!!result.active)
+    setVersions(null); setVersionIndex(-1)
+    onSaved?.()
+  }, [loadFlow, onSaved])
+
   const inputStyle = {
     background: 'var(--surface-2)',
     border: '1px solid var(--border-strong)',
@@ -377,7 +392,32 @@ export default function FlowHeader({ flow, apiCall, onSaved, onSavedAs, onBack }
         >
           {savingAs ? 'Guardando...' : 'Guardar como'}
         </button>
+        <button
+          onClick={() => setSyncModalOpen(true)}
+          title="Pull/push de este flow contra otro ambiente Pulpo conocido"
+          style={{
+            background: 'var(--surface-2)',
+            border: '1px solid var(--border-strong)',
+            borderRadius: 6,
+            color: 'var(--text)',
+            fontSize: 13,
+            padding: '5px 14px',
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          Sync
+        </button>
       </div>
+
+      <FlowSyncModal
+        open={syncModalOpen}
+        onClose={() => setSyncModalOpen(false)}
+        apiCall={apiCall}
+        botId={flow.bot_id}
+        flowId={flow.id}
+        onSynced={handleSynced}
+      />
     </div>
   )
 }

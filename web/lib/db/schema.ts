@@ -299,6 +299,23 @@ export const chatMessages = pgTable("chat_messages", {
 // renombre); subir un reporte con el mismo slug reemplaza al anterior --
 // solo importa el ÚLTIMO por flow, mismo criterio que ya usaba el archivo
 // sin fecha en reports/ (ver ese script).
+// Registro de ambientes Pulpo conocidos (local, prod, futuros) -- ver
+// management/HANDOFF_PULPO_ENVIRONMENTS_REGISTRY.md. `adminToken` es el
+// token que ESTA instancia usa para autenticarse cuando llama al `baseUrl`
+// de la fila (nunca al revés) -- verificado del otro lado contra la env var
+// PULPO_SYNC_TOKEN de esa instancia, no contra esta tabla. Se gestiona desde
+// la web (CRUD en /dashboard/environments); el CLI la lee vía API, nunca
+// archivo de config local. Mismo nivel de riesgo aceptado hoy para secretos
+// en texto plano que `telegramConnections.token` -- no cifrado.
+export const pulpoEnvironments = pgTable("pulpo_environments", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  baseUrl: text("base_url").notNull(),
+  adminToken: text("admin_token").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
 export const testReports = pgTable("test_reports", {
   id: text("id").primaryKey(),
   botId: text("bot_id").notNull(),

@@ -1,12 +1,13 @@
 import { listFlows, createFlow } from "@/lib/business/flows";
 import { errorResponse } from "@/lib/api/errors";
-import { assertBotAccess } from "@/lib/auth/bot-access";
+import { assertBotAccess, assertBotAccessOrSyncToken } from "@/lib/auth/bot-access";
 
 // TS port of pulpo/interfaces/api/routers/flows.py (GET/POST "/bots/{bot_id}").
-// Reachable by both admin and scoped (see proxy.ts::SCOPED_BOT_ROUTES).
+// Reachable by admin, scoped (see proxy.ts::SCOPED_BOT_ROUTES) y, solo el
+// GET, por otro ambiente Pulpo vía sync-token (proxy.ts::SYNC_TOKEN_ROUTES).
 export async function GET(request: Request, { params }: { params: Promise<{ botId: string }> }) {
   const { botId } = await params;
-  const denied = await assertBotAccess(request, botId);
+  const denied = await assertBotAccessOrSyncToken(request, botId);
   if (denied) return denied;
   try {
     return Response.json(await listFlows(botId));

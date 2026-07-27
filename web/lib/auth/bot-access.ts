@@ -1,5 +1,6 @@
 import { auth } from "@/auth";
 import { isLocalNoAuth } from "./local-bypass";
+import { isSyncTokenRequest } from "./sync-token";
 
 // Defense-in-depth for the scoped/"Pulpo Lite" role: proxy.ts is the real
 // gate (SCOPED_BOT_ROUTES allowlist), but every route handler a scoped user
@@ -26,4 +27,14 @@ export async function assertBotAccess(request: Request, botId: string): Promise<
   if (user.role === "admin") return null;
   if (user.role === "scoped" && user.botIds?.includes(botId)) return null;
   return Response.json({ error: "forbidden" }, { status: 403 });
+}
+
+// Compuesto usado SOLO por las rutas de flows que un ambiente remoto puede
+// llamar (list/get/push, ver proxy.ts::SYNC_TOKEN_ROUTES) -- deliberadamente
+// no es el default de assertBotAccess de arriba, para no filtrar el
+// sync-token a rutas no relacionadas (chat-configs, google-connections,
+// etc.) que también llaman assertBotAccess.
+export async function assertBotAccessOrSyncToken(request: Request, botId: string): Promise<Response | null> {
+  if (isSyncTokenRequest(request)) return null;
+  return assertBotAccess(request, botId);
 }
