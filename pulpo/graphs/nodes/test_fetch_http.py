@@ -227,6 +227,35 @@ async def test_extract_fields_escribe_campos_planos_desde_json_anidado():
 
 
 @pytest.mark.asyncio
+async def test_extract_fields_escribe_campos_planos_sin_anidar():
+    """Caso 'lookup por id' (ej. GET /comercios/{id}): la respuesta es el
+    objeto directo, sin wrapper tipo 'candidato' — extract_fields con paths
+    de un solo segmento debe resolver igual que con paths anidados."""
+    client = _fake_client(json.dumps({
+        "id": 42,
+        "nombre": "Ferretería Sur",
+        "contact_id": "6593910266",
+        "contact_channel": "telegram",
+    }))
+    with patch("httpx.AsyncClient", return_value=client):
+        node = FetchHttpNode({
+            "url": "https://api.test/comercios/42",
+            "extract": "json",
+            "output": "comercio_detalle",
+            "extract_fields": {
+                "comercio_nombre": "nombre",
+                "comercio_contact_id": "contact_id",
+                "comercio_contact_channel": "contact_channel",
+            },
+        })
+        state = await node.run(_state())
+
+    assert state.data["comercio_nombre"] == "Ferretería Sur"
+    assert state.data["comercio_contact_id"] == "6593910266"
+    assert state.data["comercio_contact_channel"] == "telegram"
+
+
+@pytest.mark.asyncio
 async def test_extract_fields_candidato_null_no_escribe_nada():
     client = _fake_client(json.dumps({"candidato": None}))
     with patch("httpx.AsyncClient", return_value=client):
