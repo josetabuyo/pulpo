@@ -11,6 +11,7 @@ import {
   getOwnRunSteps,
 } from "@/lib/business/chats";
 import { getFlow } from "@/lib/business/flows";
+import { getBot } from "@/lib/business/bots";
 import { captureTestRunDiagram } from "@/lib/business/flow-capture";
 import { ConversationSteps, evaluateCheck, type CheckSpec, type CheckResult, type StepDto, type TurnDto } from "@/lib/business/test-checks";
 import { NotFoundError, ValidationError } from "@/lib/business/bots";
@@ -103,6 +104,8 @@ async function runTurn(
   contactIdentifier: string,
   message: string,
   lastMessageId: number,
+  botName: string,
+  contactName: string,
   timeoutMs = 480_000,
   pollIntervalMs = 3_000,
 ): Promise<{ reply: string | null; steps: StepDto[]; lastMessageId: number }> {
@@ -114,6 +117,8 @@ async function runTurn(
     contactIdentifier,
     message,
     canal: "chat",
+    botName,
+    contactName,
   });
 
   const deadline = Date.now() + timeoutMs;
@@ -154,6 +159,9 @@ export async function runTestCaseDto(testCase: TestCaseDto, target: "local", sui
   const conv = await createConversation(testCase.bot_id, chatConfig.id, `test-case:${testCase.id}:${Date.now()}`);
   const conversationRow = await getConversation(testCase.bot_id, conv.id);
   const contactIdentifier = conversationRow!.contactIdentifier;
+  const bot = await getBot(testCase.bot_id);
+  const botName = bot?.name ?? "";
+  const contactName = "Vecino de prueba";
 
   const turns: TurnDto[] = [];
   const stepsAcc = new ConversationSteps();
@@ -173,6 +181,8 @@ export async function runTestCaseDto(testCase: TestCaseDto, target: "local", sui
         contactIdentifier,
         turn.message,
         lastMessageId,
+        botName,
+        contactName,
       );
       lastMessageId = result.lastMessageId;
       lastReply = result.reply;

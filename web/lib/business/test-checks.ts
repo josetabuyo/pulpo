@@ -315,7 +315,11 @@ export function evaluateCheck(spec: CheckSpec, ctx: CheckEvalContext): CheckResu
         if (!r) continue;
         try {
           const parsed = typeof r === "string" ? JSON.parse(r) : r;
-          total += (parsed?.results ?? []).length;
+          // La mayoría de los endpoints del directorio devuelven
+          // {results: [...]}, pero /api/directorio/rubros devuelve
+          // {rubros: [...]} -- mismo contrato de "lista de resultados",
+          // nombre de campo distinto.
+          total += (parsed?.results ?? parsed?.rubros ?? []).length;
         } catch {
           // no-op -- respuesta no era JSON parseable, no suma
         }
