@@ -169,6 +169,50 @@ async def test_migrate_fetch_node_types_a_fetch_http():
         await _cleanup(flow["id"])
 
 
+@pytest.mark.asyncio
+async def test_migrate_llm_node_type_a_llm_local():
+    definition = {
+        "nodes": [
+            {"id": "identificar", "type": "llm", "config": {"prompt": "hola"}},
+            {"id": "buscar_dir", "type": "fetch_http", "config": {}},
+        ],
+        "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1},
+    }
+    flow = await svc.create_flow(
+        bot_id=BOT_ID, name="Con nodo llm viejo", definition=definition,
+        connection_id="conn-1", contact_phone=None, contact_filter=None,
+    )
+    try:
+        await svc.migrate_llm_node_type()
+        migrated = await svc.get_flow(flow["id"], BOT_ID)
+        by_id = {n["id"]: n for n in migrated["definition"]["nodes"]}
+
+        assert by_id["identificar"]["type"] == "llm_local"
+        assert by_id["identificar"]["config"] == {"prompt": "hola"}  # config intacta
+        assert by_id["buscar_dir"]["type"] == "fetch_http"  # no tocado
+    finally:
+        await _cleanup(flow["id"])
+
+
+@pytest.mark.asyncio
+async def test_migrate_llm_node_type_es_idempotente():
+    definition = {
+        "nodes": [{"id": "identificar", "type": "llm", "config": {}}],
+        "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1},
+    }
+    flow = await svc.create_flow(
+        bot_id=BOT_ID, name="Idempotencia llm", definition=definition,
+        connection_id="conn-1", contact_phone=None, contact_filter=None,
+    )
+    try:
+        await svc.migrate_llm_node_type()
+        await svc.migrate_llm_node_type()  # segunda corrida no debe romper nada
+        migrated = await svc.get_flow(flow["id"], BOT_ID)
+        assert migrated["definition"]["nodes"][0]["type"] == "llm_local"
+    finally:
+        await _cleanup(flow["id"])
+
+
 BOT_ID_SIM = "__test_bot_simulate_message__"
 
 

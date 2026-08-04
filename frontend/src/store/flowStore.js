@@ -26,6 +26,7 @@ export const PALETTE_TYPES = [
   'router',
   'condition',
   'llm',
+  'llm_local',
   'send_message',
   'vector_search',
   'fetch_http',
@@ -55,6 +56,7 @@ const DEFAULT_CONFIGS = {
   router:          { prompt: '', routes: [], fallback: '', model: 'best:instruction|local-first' },
   condition:       { rules: [], routes: [], fallback: '' },
   llm:             { prompt: '', model: 'best:instruction|local-first', temperature: 0.3, output: 'reply' },
+  llm_local:       { prompt: '', model: 'best:instruction|local-first', temperature: 0.3, output: 'reply' },
   send_message:    { to: '', message: '' },
   vector_search:   { collection: '' },
   fetch_http:       { url: '', extract: 'text' },
@@ -175,11 +177,40 @@ function nodesToDefinition(rfNodes, rfEdges) {
 
 // Tipos de nodo que rutean por `state.data.route` comparado contra el label del edge
 // (ver pulpo/graphs/nodes/condition.py: "el engine sigue solo los edges con label == state.route, igual que RouterNode")
-const ROUTE_BASED_NODE_TYPES = new Set(['router', 'condition'])
+// fetch_http también rutea así cuando config.route_output está activo (ver
+// pulpo/graphs/nodes/fetch_http.py::_route_for) — a diferencia de router/condition/nodo_flow,
+// sus rutas no viven en `config.routes` sino en tres campos sueltos
+// (route_success/route_no_error/route_error), por eso necesita su propio caso en
+// getNodeRoutes() en vez de solo sumarse al Set.
+const ROUTE_BASED_NODE_TYPES = new Set(['router', 'condition', 'nodo_flow', 'fetch_http'])
 
 /**
- * Para cada nodo router/condition, asigna la primera ruta sin usar a las edges
- * salientes que no tienen label. No modifica edges que ya tienen label.
+ * Lista de rutas nombradas que puede emitir un nodo router-based, en el orden
+ * en que se deberían asignar a edges sin label. Única fuente de verdad para
+ * esto — usada tanto acá (auto-label al cargar/conectar) como en
+ * FlowCanvas.jsx (rutas disponibles en el selector de label de un edge).
+ */
+export function getNodeRoutes(node) {
+  const nodeType = node.data?.nodeType
+  const config = node.data?.config || {}
+  if (nodeType === 'fetch_http') {
+    // Igual que fetch_http.py::_route_for -- el backend siempre cae a estos
+    // defaults, así que un campo vacío no "elimina" esa ruta como opción.
+    if (!config.route_output) return []
+    return [
+      config.route_success || 'ok',
+      config.route_no_error || 'no_error',
+      config.route_error || 'error',
+    ]
+  }
+  if (!ROUTE_BASED_NODE_TYPES.has(nodeType)) return []
+  return config.routes || []
+}
+
+/**
+ * Para cada nodo router/condition/fetch_http(route_output), asigna la primera
+ * ruta sin usar a las edges salientes que no tienen label. No modifica edges
+ * que ya tienen label.
  */
 function autoAssignRouterLabels(rfNodes, rfEdges) {
   const routerNodes = rfNodes.filter(n => ROUTE_BASED_NODE_TYPES.has(n.data?.nodeType))
@@ -187,7 +218,7 @@ function autoAssignRouterLabels(rfNodes, rfEdges) {
 
   const edgeUpdates = new Map() // edgeId → label
   for (const router of routerNodes) {
-    const routes = router.data.config?.routes || []
+    const routes = getNodeRoutes(router)
     if (!routes.length) continue
     const outEdges = rfEdges.filter(e => e.source === router.id)
     const usedLabels = new Set(outEdges.filter(e => e.label).map(e => e.label))
@@ -336,8 +367,8 @@ export function createFlowStore() {
       set(state => {
         const sourceNode = state.nodes.find(n => n.id === connection.source)
         let label
-        if (ROUTE_BASED_NODE_TYPES.has(sourceNode?.data?.nodeType)) {
-          const routes = sourceNode.data.config?.routes || []
+        if (sourceNode && ROUTE_BASED_NODE_TYPES.has(sourceNode.data?.nodeType)) {
+          const routes = getNodeRoutes(sourceNode)
           const usedLabels = new Set(
             state.edges.filter(e => e.source === connection.source && e.label).map(e => e.label)
           )

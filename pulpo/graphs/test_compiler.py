@@ -370,6 +370,113 @@ async def test_execute_flow_expande_nodo_flow_end_to_end():
         await db.delete_flow(sub_flow["id"])
 
 
+@pytest.mark.asyncio
+async def test_route_no_gotea_a_steps_downstream_sin_edge_labeled():
+    """Bug real: `state.data["route"]` seteado por un condition/router quedaba
+    sin limpiar, y el step del PRÓXIMO nodo (uno sin ramas, edge sin label)
+    se logueaba con ese `branch_taken` heredado. El visor de flow runs
+    matchea edges por `source->target::label`, así que un edge sin label
+    (label='') nunca calzaba con un branch_taken pegado — el camino
+    resaltado se cortaba justo después de cualquier nodo router-based."""
+    from pulpo.core import db
+    bot_id = "__test_bot_route_leak__"
+    flow = {
+        "id": "flow_route_leak",
+        "bot_id": bot_id,
+        "definition": {
+            "nodes": [
+                {"id": "trigger1", "type": "api_trigger", "config": {}},
+                {"id": "cond1", "type": "condition",
+                 "config": {"rules": [], "fallback": "rama_a"}},
+                {"id": "plain1", "type": "set_state",
+                 "config": {"field": "reply", "value": "listo"}},
+            ],
+            "edges": [
+                {"source": "trigger1", "target": "cond1"},
+                {"source": "cond1", "target": "plain1", "label": "rama_a"},
+            ],
+        },
+    }
+    await db.init_db()
+    state = FlowState(message="hola", contact_phone="userRouteLeak")
+    result = await execute_flow(flow, state, entry_node_id="trigger1")
+
+    run_id = result.data.get("_run_id")
+    assert run_id
+    steps = await db.get_flow_run_steps(run_id)
+    steps_by_node = {s["node_id"]: s for s in steps}
+
+    assert steps_by_node["cond1"]["branch_taken"] == "rama_a"
+    # El nodo downstream no rutea — su step no debe heredar branch_taken de cond1.
+    assert not steps_by_node["plain1"]["branch_taken"]
+
+
+@pytest.mark.asyncio
+async def test_route_sobrevive_a_subflow_end_para_rutear_el_padre():
+    """Bug real de producción (2026-08-04): un primer intento de arreglar el
+    leak de branch_taken limpiaba `state.data["route"]` apenas se consumía
+    una vez (en _enqueue_neighbors) -- pero `subflow_end` es un passthrough
+    puro (ver subflow_end.py) que NO vuelve a setear route: depende de que
+    el route que dejó el `condition` de adentro del sub-flow siga vivo varios
+    hops después, para que el flow PADRE pueda seguir el edge externo del
+    `nodo_flow` con ese label (ver expand_node_flows). Limpiar route en cada
+    hop rompía ese passthrough: el flow se cortaba en seco justo después de
+    subflow_end, sin error visible -- exactamente el patrón real de
+    Luganense (condition → subflow_end("found") → nada)."""
+    from pulpo.core import db
+    from pulpo.business import flows as flows_svc
+
+    await db.init_db()
+    bot_id = "__test_bot_route_survives_subflow_end__"
+
+    sub_definition = {
+        "nodes": [
+            {"id": "start", "type": "subflow_start", "config": {}},
+            {"id": "cond", "type": "condition",
+             "config": {"rules": [], "fallback": "found"}},
+            {"id": "end_found", "type": "subflow_end", "config": {"route": "found"}},
+        ],
+        "edges": [
+            {"source": "start", "target": "cond"},
+            {"source": "cond", "target": "end_found", "label": "found"},
+        ],
+    }
+    sub_flow = await flows_svc.create_flow(
+        bot_id=bot_id, name="Sub con condition + subflow_end",
+        definition=sub_definition, connection_id=None,
+        contact_phone=None, contact_filter=None,
+    )
+    try:
+        main_definition = {
+            "nodes": [
+                {"id": "trigger1", "type": "api_trigger", "config": {}},
+                {"id": "nf1", "type": "nodo_flow", "config": {"flow_id": sub_flow["id"]}},
+                {"id": "after", "type": "set_state",
+                 "config": {"field": "reply", "value": "llegó al padre"}},
+            ],
+            "edges": [
+                {"source": "trigger1", "target": "nf1"},
+                {"source": "nf1", "target": "after", "label": "found"},
+            ],
+        }
+        main_flow = await flows_svc.create_flow(
+            bot_id=bot_id, name="Main flow con condition dentro de nodo_flow",
+            definition=main_definition, connection_id=None,
+            contact_phone=None, contact_filter=None,
+        )
+        try:
+            state = FlowState(message="hola", contact_phone="userSubflowEndRoute")
+            result = await execute_flow(main_flow, state, entry_node_id="trigger1")
+
+            # Si route se limpia antes de tiempo, el flow se corta en
+            # subflow_end y "after" nunca corre -- reply queda vacío.
+            assert result.data.get("reply") == "llegó al padre"
+        finally:
+            await db.delete_flow(main_flow["id"])
+    finally:
+        await db.delete_flow(sub_flow["id"])
+
+
 def _labels_from(edges, source):
     """target -> label de todos los edges que salen de `source`."""
     return {e["target"]: (e.get("label") or None) for e in edges if e["source"] == source}

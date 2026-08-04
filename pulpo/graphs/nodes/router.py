@@ -79,7 +79,7 @@ class RouterNode(BaseNode):
                     {"role": "user",   "content": f"Mensaje: {state.message}"},
                 ]
 
-                # Mismo reintento que LLMNode ante contenido vacío (bug real: la cascada
+                # Mismo reintento que LLMLocalNode ante contenido vacío (bug real: la cascada
                 # cloud-first a veces devuelve "" sin levantar excepción) — sin esto, un
                 # route="" nunca matchea `routes` y cae siempre al fallback en silencio,
                 # indistinguible de una clasificación genuina hacia esa rama.

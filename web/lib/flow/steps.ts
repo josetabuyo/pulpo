@@ -109,6 +109,7 @@ export async function logFlowStep(params: {
   nodeType: string;
   inputState: unknown;
   outputState: unknown;
+  branchTaken?: string | null;
   status: "ok" | "error" | "blocked";
   errorMessage?: string;
 }) {
@@ -121,6 +122,7 @@ export async function logFlowStep(params: {
       nodeType: params.nodeType,
       inputState: params.inputState,
       outputState: params.outputState,
+      branchTaken: params.branchTaken ?? null,
       status: params.status,
       errorMessage: params.errorMessage ?? null,
     });

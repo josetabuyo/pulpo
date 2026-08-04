@@ -11,7 +11,7 @@ clave se pasa tal cual como parámetro al sub-flow (sin anidar en un "params"
 separado; las claves esperadas las declara el sub-flow en su propio
 `definition.inputs`). `output`, si está seteado, también se reenvía como
 parámetro `output` — el sub-flow lo usa vía `{{output}}` (ej. en el campo
-`output` de un LLMNode interno) para saber en qué clave del estado del padre
+`output` de un LLMLocalNode interno) para saber en qué clave del estado del padre
 escribir su resultado, sin ningún paso de copia posterior.
 """
 from .base import BaseNode

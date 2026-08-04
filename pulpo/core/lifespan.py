@@ -155,9 +155,10 @@ async def pulpo_lifespan(app):
     from pulpo.core import sim_engine, wavi_poller
 
     # seed default flows (no-op)
-    from pulpo.business.flows import seed_default_flows, migrate_fetch_node_types
+    from pulpo.business.flows import seed_default_flows, migrate_fetch_node_types, migrate_llm_node_type
     seed_default_flows()
     await migrate_fetch_node_types()
+    await migrate_llm_node_type()
 
     # seed google connection
     await _seed_pulpo_google_connection()

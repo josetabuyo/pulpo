@@ -23,7 +23,6 @@ Claves con semántica reservada por el engine:
   data["route"]        → decisión del RouterNode (el engine sigue el edge con ese label)
   data["context"]      → clave default para contexto de LLM (configurable en cada nodo)
   data["query"]        → clave default para query expandida (configurable en cada nodo)
-  data["fb_posts"]     → posts de Facebook (FetchNode los deja acá)
   data["conversation"] → lista de turnos de esta ejecución de flow (ver abajo)
 
 ── Conversación ────────────────────────────────────────────────────────────

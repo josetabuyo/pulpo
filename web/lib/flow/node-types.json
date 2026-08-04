@@ -507,10 +507,211 @@
     ]
   },
   {
+    "id": "llm_local",
+    "label": "LLM (local, Python)",
+    "color": "#6b21a8",
+    "description": "Genera una respuesta usando un modelo de lenguaje vía el router local de Python (soporta modelos on-device, ollama, etc). Solo corre en el motor Python — no anda en flows que se ejecutan en Vercel. Pensado principalmente para uso desde la CLI. Para flows que corren en producción vía Vercel, usar el nodo 'llm' (TS).",
+    "help": "",
+    "schema": [
+      {
+        "key": "prompt",
+        "type": "textarea",
+        "label": "System prompt",
+        "default": "",
+        "rows": 8
+      },
+      {
+        "key": "model",
+        "type": "select",
+        "label": "Modelo",
+        "default": "best:instruction|local-first",
+        "options": [
+          {
+            "value": "best:instruction|local",
+            "label": "best:instruction — local"
+          },
+          {
+            "value": "best:instruction|local-first",
+            "label": "best:instruction — local → cloud"
+          },
+          {
+            "value": "best:instruction|cloud-first",
+            "label": "best:instruction — cloud → local"
+          },
+          {
+            "value": "best:instruction|cloud",
+            "label": "best:instruction — cloud"
+          },
+          {
+            "value": "best:reasoning|local",
+            "label": "best:reasoning — local"
+          },
+          {
+            "value": "best:reasoning|local-first",
+            "label": "best:reasoning — local → cloud"
+          },
+          {
+            "value": "best:reasoning|cloud-first",
+            "label": "best:reasoning — cloud → local"
+          },
+          {
+            "value": "best:reasoning|cloud",
+            "label": "best:reasoning — cloud"
+          },
+          {
+            "value": "best:coding|local",
+            "label": "best:coding — local"
+          },
+          {
+            "value": "best:coding|local-first",
+            "label": "best:coding — local → cloud"
+          },
+          {
+            "value": "best:coding|cloud-first",
+            "label": "best:coding — cloud → local"
+          },
+          {
+            "value": "best:coding|cloud",
+            "label": "best:coding — cloud"
+          },
+          {
+            "value": "best:code_debug|local",
+            "label": "best:code_debug — local"
+          },
+          {
+            "value": "best:code_debug|local-first",
+            "label": "best:code_debug — local → cloud"
+          },
+          {
+            "value": "best:code_debug|cloud-first",
+            "label": "best:code_debug — cloud → local"
+          },
+          {
+            "value": "best:code_debug|cloud",
+            "label": "best:code_debug — cloud"
+          },
+          {
+            "value": "best:math|local",
+            "label": "best:math — local"
+          },
+          {
+            "value": "best:math|local-first",
+            "label": "best:math — local → cloud"
+          },
+          {
+            "value": "best:math|cloud-first",
+            "label": "best:math — cloud → local"
+          },
+          {
+            "value": "best:math|cloud",
+            "label": "best:math — cloud"
+          },
+          {
+            "value": "best:summarization|local",
+            "label": "best:summarization — local"
+          },
+          {
+            "value": "best:summarization|local-first",
+            "label": "best:summarization — local → cloud"
+          },
+          {
+            "value": "best:summarization|cloud-first",
+            "label": "best:summarization — cloud → local"
+          },
+          {
+            "value": "best:summarization|cloud",
+            "label": "best:summarization — cloud"
+          },
+          {
+            "value": "best:multilingual|local",
+            "label": "best:multilingual — local"
+          },
+          {
+            "value": "best:multilingual|local-first",
+            "label": "best:multilingual — local → cloud"
+          },
+          {
+            "value": "best:multilingual|cloud-first",
+            "label": "best:multilingual — cloud → local"
+          },
+          {
+            "value": "best:multilingual|cloud",
+            "label": "best:multilingual — cloud"
+          },
+          {
+            "value": "best:context|local",
+            "label": "best:context — local"
+          },
+          {
+            "value": "best:context|local-first",
+            "label": "best:context — local → cloud"
+          },
+          {
+            "value": "best:context|cloud-first",
+            "label": "best:context — cloud → local"
+          },
+          {
+            "value": "best:context|cloud",
+            "label": "best:context — cloud"
+          }
+        ]
+      },
+      {
+        "key": "temperature",
+        "type": "float",
+        "label": "Temperatura",
+        "default": 0.3
+      },
+      {
+        "key": "output",
+        "type": "string",
+        "label": "Destino de la salida",
+        "default": "reply",
+        "hint": "Clave de state.data donde se guarda la respuesta. reply = responde al usuario · context = pasa al siguiente nodo · query = para búsqueda vectorial / fetch · o cualquier nombre custom (ej: necesidad, mensaje_pedido_necesidad)"
+      },
+      {
+        "key": "json_output",
+        "type": "bool",
+        "label": "Respuesta JSON",
+        "default": false
+      },
+      {
+        "key": "json_reply_key",
+        "type": "string",
+        "label": "Clave JSON del reply",
+        "default": "reply",
+        "hint": "Clave dentro del JSON que contiene el texto a responder",
+        "show_if": {
+          "json_output": true
+        }
+      },
+      {
+        "key": "output_as_list",
+        "type": "bool",
+        "label": "Salida como lista (una por línea)",
+        "default": false,
+        "hint": "Parte la respuesta por líneas y guarda [{\"text\": línea}, ...] en vez de texto plano. Para alimentar un FetchHttpNode con array_input, referenciando {{item.text}} en la URL."
+      },
+      {
+        "key": "max_tokens",
+        "type": "int",
+        "label": "Máximo de tokens (opcional)",
+        "default": null,
+        "hint": "Vacío = default del router de modelos. Subilo si las respuestas se cortan a mitad de frase (pasa seguido con prompts que piden citar URLs largas + una línea de cierre)."
+      },
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
+  },
+  {
     "id": "llm",
     "label": "Respuesta LLM",
     "color": "#6b21a8",
-    "description": "Genera una respuesta usando un modelo de lenguaje.",
+    "description": "Genera una respuesta usando un modelo de lenguaje (cascade cloud, default para flows en Vercel).",
     "help": "",
     "schema": [
       {

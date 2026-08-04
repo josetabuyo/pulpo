@@ -13,7 +13,7 @@ import {
   useReactFlow,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { useFlowStore } from '../store/flowStore.js'
+import { useFlowStore, getNodeRoutes as getNodeRoutesFor } from '../store/flowStore.js'
 import { GRID_SIZE, NODE_WIDTH, snapPoint } from '../utils/grid.js'
 
 // ─── Contexto de modo borrar ──────────────────────────────────────────────────
@@ -471,18 +471,7 @@ export default function FlowCanvas({
 
   const getNodeRoutes = useCallback((nodeId) => {
     const node = (editNodes || []).find(n => n.id === nodeId)
-    if (!node) return []
-    const { nodeType, config } = node.data || {}
-    // fetch_http no tiene un config.routes fijo — sus 3 salidas nombradas
-    // (route_success/route_no_error/route_error) solo existen cuando
-    // route_output está activo (ver pulpo/graphs/nodes/fetch_http.py).
-    if (nodeType === 'fetch_http') {
-      if (!config?.route_output) return []
-      return [config.route_success, config.route_no_error, config.route_error]
-        .filter(Boolean)
-    }
-    if (!['router', 'condition', 'nodo_flow'].includes(nodeType)) return []
-    return config?.routes || []
+    return node ? getNodeRoutesFor(node) : []
   }, [editNodes])
 
   return (

@@ -78,6 +78,32 @@ describe('buildExecutionTrace', () => {
     expect(edgeIds.has('e3')).toBe(false) // not_found no se tomó
   })
 
+  it('nodo_flow: el branch_taken real de un step interno pisa el guess del id del subflow_end si no coinciden', () => {
+    // Bug real (2026-08-04, Luganense): un subflow_end nombrado a mano
+    // "sf_end_notfound" (sin guion bajo) para la ruta real "not_found" (con
+    // guion bajo, la que efectivamente loguea el set_state interno como
+    // branch_taken y la que declara el label del edge). subflowRoute()
+    // adivinaba "notfound" desde el id y pisaba el branch_taken real
+    // -- la key resultante ("...::notfound") nunca matcheaba el label real
+    // del edge ("not_found"), y la edge de salida quedaba sin resaltar.
+    const flowEdges = [
+      { id: 'e1', source: 'start', target: 'clasificador' },
+      { id: 'e2', source: 'clasificador', target: 'found_node', label: 'found' },
+      { id: 'e3', source: 'clasificador', target: 'not_found_node', label: 'not_found' },
+    ]
+    const steps = [
+      { node_id: 'start' },
+      { node_id: 'clasificador::sf_start_1' },
+      { node_id: 'clasificador::node_condition' },
+      { node_id: 'clasificador::node_mark_route_notfound', branch_taken: 'not_found' },
+      { node_id: 'clasificador::sf_end_notfound' },
+      { node_id: 'not_found_node' },
+    ]
+    const { edgeIds } = buildExecutionTrace(steps, flowEdges)
+    expect(edgeIds).toEqual(new Set(['e1', 'e3']))
+    expect(edgeIds.has('e2')).toBe(false)
+  })
+
   it('un nodo router visitado dos veces (turnos distintos) con ramas distintas resalta ambas edges', () => {
     const steps = [
       { node_id: 'start' }, { node_id: 'router1', branch_taken: 'ruta_a' }, { node_id: 'a' },

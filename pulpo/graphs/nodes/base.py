@@ -75,7 +75,7 @@ def interpolate(template: str, state: FlowState) -> str:
     Cualquier clave en state.data también es un placeholder válido:
       {{reply}}, {{context}}, {{route}}, {{nombre}}, {{trabajador}}, etc.
       Listas y dicts (ej. salida de un FetchHttpNode con array_input, o de un
-      LLMNode con output_as_list) se insertan serializados como JSON.
+      LLMLocalNode con output_as_list) se insertan serializados como JSON.
     """
     meta = {
         "contact_name":  state.contact_name or "",

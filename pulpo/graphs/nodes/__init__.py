@@ -23,7 +23,7 @@ from .reply import SendMessageNode
 from .summarize import SummarizeNode
 from .router import RouterNode
 from .condition import ConditionNode
-from .llm import LLMNode
+from .llm import LLMLocalNode
 from .fetch_http import FetchHttpNode
 from .vector_search import VectorSearchNode
 from .set_state import SetStateNode
@@ -57,7 +57,7 @@ NODE_REGISTRY: dict[str, type] = {
     "wait_user":        WaitUserNode,
     "router":           RouterNode,
     "condition":        ConditionNode,
-    "llm":              LLMNode,
+    "llm_local":        LLMLocalNode,
     "send_message":     SendMessageNode,
     "fetch_http":       FetchHttpNode,
     "vector_search":    VectorSearchNode,
@@ -93,7 +93,7 @@ MESSAGE_TRIGGER_TYPES: frozenset[str] = frozenset(
 __all__ = [
     "NODE_REGISTRY", "TRIGGER_TYPES", "MESSAGE_TRIGGER_TYPES",
     "BaseTriggerNode", "BaseMessageTriggerNode",
-    "MessageTriggerNode", "RouterNode", "ConditionNode", "LLMNode", "SendMessageNode",
+    "MessageTriggerNode", "RouterNode", "ConditionNode", "LLMLocalNode", "SendMessageNode",
     "FetchHttpNode", "VectorSearchNode", "SummarizeNode",
     "SetStateNode", "SaveContactNode",
     "TranscribeAudioNode", "SaveAttachmentNode",

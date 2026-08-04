@@ -59,11 +59,11 @@ async def _log_step(
     state_after: FlowState | None,
     started_at: str,
     status: str,
+    branch: str | None = None,
 ) -> None:
     try:
         from pulpo.core import db as _db
         output_json = json.dumps(state_after.data, default=str) if state_after else None
-        branch = state_after.data.get("route") if state_after else None
         await _db.log_flow_step(
             run_id=run_id, node_id=node_id, node_type=node_type,
             input_state=input_json, output_state=output_json,
@@ -236,7 +236,7 @@ async def expand_node_flows(
         # es un parámetro para el sub-flow — sin anidar en un "params" separado.
         # `output`, si está seteado, también se reenvía como parámetro `output`
         # — así los nodos del sub-flow pueden usar {{output}} para saber en qué
-        # clave del estado escribir su resultado (ver LLMNode: output interpola).
+        # clave del estado escribir su resultado (ver LLMLocalNode: output interpola).
         _RESERVED_KEYS = {"flow_id", "output", "routes"}
         params = {k: v for k, v in cfg.items() if k not in _RESERVED_KEYS}
         if cfg.get("output"):
@@ -315,13 +315,22 @@ def _enqueue_neighbors(
     node_id: str,
     visited: set,
     queue: list,
-    current_route: str,
+    state: FlowState,
 ) -> None:
     """
     Agrega vecinos al queue respetando labels de edges.
     - Sin label → siempre seguir
-    - Con label → solo seguir si current_route == label
+    - Con label → solo seguir si state.data["route"] == label
+
+    Puramente de lectura — NO limpia `route` de state.data. Un `subflow_end`
+    (passthrough puro, no vuelve a setear route) depende de que el `route`
+    que dejó un condition/router de varios hops atrás siga vivo acá para
+    poder salir por el edge externo correcto del `nodo_flow` que lo contiene
+    (ver expand_node_flows). Limpiarlo acá rompe ese passthrough — bug real,
+    encontrado al arreglar el leak de `branch_taken` (ver _run_bfs, donde se
+    resuelve comparando route antes/después de CADA nodo en vez de tocar esto).
     """
+    current_route = state.data.get("route", "") or ""
     for target, label in graph.get(node_id, []):
         if target in visited:
             continue
@@ -366,18 +375,19 @@ async def _run_bfs(
 
         # Saltar marcadores visuales — pero seguir sus edges
         if node_id in ("__start__", "__end__") or node_type in ("start", "end"):
-            _enqueue_neighbors(graph, current_id, visited, queue, state.data.get("route", ""))
+            _enqueue_neighbors(graph, current_id, visited, queue, state)
             continue
 
         node_cls = NODE_REGISTRY.get(node_type)
         if not node_cls:
             logger.debug("[engine] tipo '%s' no tiene implementación — skip", node_type)
             # Seguir edges igual: no abandonar el árbol por un nodo no implementado
-            _enqueue_neighbors(graph, current_id, visited, queue, state.data.get("route", ""))
+            _enqueue_neighbors(graph, current_id, visited, queue, state)
             continue
 
         step_started = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
         input_json = json.dumps(state.data, default=str) if run_id else None
+        route_before = state.data.get("route")
         gate_blocked = False
         try:
             config = {**node_def.get("config", {}), "_node_id": current_id,
@@ -421,7 +431,17 @@ async def _run_bfs(
                          " [bloqueado]" if gate_blocked else "")
             if run_id:
                 status = "blocked" if gate_blocked else "ok"
-                await _log_step(run_id, node_id, node_type, input_json, state, step_started, status)
+                route_after = state.data.get("route")
+                # branch_taken solo si ESTE nodo cambió route -- no basta con
+                # que route tenga un valor: un passthrough (subflow_end,
+                # subflow_start) no rutea, solo hereda el route de un
+                # condition/router de hops atrás y lo deja pasar para que
+                # _enqueue_neighbors lo siga usando más adelante (ver esa
+                # función). Reportar el ambiente en vez del cambio real fue el
+                # bug original (branch_taken pegado en nodos downstream que no
+                # rutean, cortaba el camino resaltado en el visor de runs).
+                branch = route_after if route_after != route_before else None
+                await _log_step(run_id, node_id, node_type, input_json, state, step_started, status, branch)
         except Exception as e:
             logger.exception("[engine] Error en nodo '%s' (%s)", node_id, node_type)
             if run_id:
@@ -431,7 +451,7 @@ async def _run_bfs(
             )
 
         if not gate_blocked:
-            _enqueue_neighbors(graph, current_id, visited, queue, state.data.get("route", ""))
+            _enqueue_neighbors(graph, current_id, visited, queue, state)
 
     errors = state.data.get("_node_errors")
     if errors:

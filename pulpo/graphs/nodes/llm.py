@@ -1,5 +1,9 @@
 """
-LLMNode — llama a un LLM con prompt configurable.
+LLMLocalNode — llama a un LLM con prompt configurable, vía el router de
+modelos local de Python (soporta modelos locales/on-device). Tipo de nodo
+"llm_local" — distinto del nodo "llm" (TS, cascade de proveedores cloud),
+que es el default para flows que corren en Vercel. Este nodo Python-only
+existe para poder usar modelos locales, principalmente desde la CLI.
 
 El prompt (system) se interpola normalmente ({{conversation}}, {{conversation.last}}, {{context}},
 etc. — ver interpolate() en base.py). No se manda nada de más por default: si el nodo necesita
@@ -209,10 +213,15 @@ def _build_llm(model: str, temperature: float, json_out: bool, router_strategy: 
     return ChatGroq(model=model, api_key=api_key, temperature=temperature, **extra)
 
 
-class LLMNode(BaseNode):
-    label = "Respuesta LLM"
+class LLMLocalNode(BaseNode):
+    label = "LLM (local, Python)"
     color = "#6b21a8"
-    description = "Genera una respuesta usando un modelo de lenguaje."
+    description = (
+        "Genera una respuesta usando un modelo de lenguaje vía el router local de Python "
+        "(soporta modelos on-device, ollama, etc). Solo corre en el motor Python — no anda "
+        "en flows que se ejecutan en Vercel. Pensado principalmente para uso desde la CLI. "
+        "Para flows que corren en producción vía Vercel, usar el nodo 'llm' (TS)."
+    )
 
     async def run(self, state: FlowState) -> FlowState:
         if state.from_delta_sync:
@@ -273,10 +282,10 @@ class LLMNode(BaseNode):
                     break
                 if attempts > _MAX_EMPTY_RETRIES:
                     detail = f"LLM devolvió contenido vacío tras {attempts} intento(s)"
-                    logger.error("[LLMNode] %s (output=%s)", detail, output)
+                    logger.error("[LLMLocalNode] %s (output=%s)", detail, output)
                     _record_llm_error(state, output, detail)
                     break
-                logger.warning("[LLMNode] contenido vacío en intento %d, reintentando (output=%s)", attempts, output)
+                logger.warning("[LLMLocalNode] contenido vacío en intento %d, reintentando (output=%s)", attempts, output)
 
             # El nodo pidió cloud (cloud-first / cloud-best-with-local-fallback) pero el
             # router terminó sirviendo un modelo local — significa que TODOS los
@@ -286,7 +295,7 @@ class LLMNode(BaseNode):
             served_model = result.response_metadata.get("model_name", "")
             if router_strategy in ("cloud-first", "cloud-best-with-local-fallback") and served_model.startswith("ollama/"):
                 logger.warning(
-                    "[LLMNode] ROUTER_FALLBACK_LOCAL output=%s configured_model=%s router_strategy=%s served_model=%s",
+                    "[LLMLocalNode] ROUTER_FALLBACK_LOCAL output=%s configured_model=%s router_strategy=%s served_model=%s",
                     output, model, router_strategy, served_model,
                 )
 
@@ -297,13 +306,13 @@ class LLMNode(BaseNode):
                 # a que el prompt pide solo los términos (ver docstring del módulo).
                 items = [{"text": line} for line in cleaned_lines if line and not line.endswith(":")]
                 state.data[output] = items
-                logger.info("[LLMNode] output=%s items=%d", output, len(items))
+                logger.info("[LLMLocalNode] output=%s items=%d", output, len(items))
             else:
                 state.data[output] = text.strip()
-                logger.info("[LLMNode] output=%s len=%d", output, len(text))
+                logger.info("[LLMLocalNode] output=%s len=%d", output, len(text))
 
         except Exception as e:
-            logger.error("[LLMNode] Error: %s", e)
+            logger.error("[LLMLocalNode] Error: %s", e)
 
         return state
 

@@ -98,6 +98,18 @@ export async function runFlowWorkflow(
     if (!nodeDef) continue;
 
     const inputState = state;
+    // branchTaken solo si ESTE nodo cambió route -- no basta con que route
+    // tenga un valor: un passthrough (subflow_end, subflow_start, gate,
+    // wait_user) no rutea, solo hereda el route de un condition/router de
+    // hops atrás y lo deja pasar para que enqueueNeighbors lo siga usando
+    // más adelante (ver graph.ts). Reportar el ambiente en vez del cambio
+    // real fue el bug original (branchTaken pegado en nodos downstream que
+    // no rutean, cortaba el camino resaltado en el visor de runs) -- y
+    // limpiar route apenas se usa una vez (intento previo de fix) rompía el
+    // passthrough de subflow_end, que necesita ese route varios hops
+    // después para rutear el flow padre (ver test de compiler.py:
+    // test_route_sobrevive_a_subflow_end_para_rutear_el_padre).
+    const routeBefore = (state.data.route as string) || null;
 
     if (nodeDef.type === "gate") {
       const waitFor = inDegree[currentId] ?? 2;
@@ -127,16 +139,19 @@ export async function runFlowWorkflow(
       if (previousWaitingRunId && previousWaitingRunId !== runId) {
         await endFlowRun(previousWaitingRunId, "handed_off");
       }
-      await logFlowStep({
-        runId,
-        nodeId: currentId,
-        nodeType: "gate",
-        inputState,
-        outputState: state,
-        status: "ok",
-      });
-      const route = (state.data.route as string) || "";
-      enqueueNeighbors(graph, currentId, visited, queue, route);
+      {
+        const routeAfter = (state.data.route as string) || null;
+        await logFlowStep({
+          runId,
+          nodeId: currentId,
+          nodeType: "gate",
+          inputState,
+          outputState: state,
+          branchTaken: routeAfter !== routeBefore ? routeAfter : null,
+          status: "ok",
+        });
+      }
+      enqueueNeighbors(graph, currentId, visited, queue, state);
       continue;
     }
 
@@ -149,14 +164,18 @@ export async function runFlowWorkflow(
       } else {
         console.warn(`[flow] wait_user en nodo ${currentId} sin nodo siguiente -- no hay dónde reanudar, se ignora la pausa`);
       }
-      await logFlowStep({
-        runId,
-        nodeId: currentId,
-        nodeType: "wait_user",
-        inputState,
-        outputState: state,
-        status: "ok",
-      });
+      {
+        const routeAfter = (state.data.route as string) || null;
+        await logFlowStep({
+          runId,
+          nodeId: currentId,
+          nodeType: "wait_user",
+          inputState,
+          outputState: state,
+          branchTaken: routeAfter !== routeBefore ? routeAfter : null,
+          status: "ok",
+        });
+      }
       // Deliberadamente NO se llama enqueueNeighbors -- este run termina acá,
       // igual que gate_blocked en el compiler.py original.
       continue;
@@ -172,18 +191,19 @@ export async function runFlowWorkflow(
     state = nextState;
     if (error) hadError = true;
 
+    const routeAfter = (state.data.route as string) || null;
     await logFlowStep({
       runId,
       nodeId: currentId,
       nodeType: nodeDef.type,
       inputState,
       outputState: error ? null : state,
+      branchTaken: error || routeAfter === routeBefore ? null : routeAfter,
       status: error ? "error" : "ok",
       errorMessage: error ?? undefined,
     });
 
-    const route = (state.data.route as string) || "";
-    enqueueNeighbors(graph, currentId, visited, queue, route);
+    enqueueNeighbors(graph, currentId, visited, queue, state);
   }
 
   await endFlowRun(runId, hadError ? "error" : hadWaitingGate ? "waiting_gate" : "completed");

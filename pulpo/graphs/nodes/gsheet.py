@@ -23,7 +23,7 @@ from .state import FlowState
 
 logger = logging.getLogger(__name__)
 
-_RESERVED_KEYS = frozenset({"route", "reply", "context", "query", "fb_posts", "source_urls", "_node_errors"})
+_RESERVED_KEYS = frozenset({"route", "reply", "context", "query", "source_urls", "_node_errors"})
 
 _rows_cache: dict[str, tuple[list[dict], float]] = {}
 

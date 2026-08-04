@@ -598,6 +598,36 @@ async def migrate_fetch_node_types() -> None:
             await db.update_flow(flow_id, definition=definition)
 
 
+async def migrate_llm_node_type() -> None:
+    """
+    Migración one-shot (idempotente): el nodo "llm" (Python, router local de
+    modelos) pasa a "llm_local" — separado del nodo "llm" del motor TS
+    (Vercel, cascade de proveedores cloud), que pasa a ser el default para
+    flows en producción. Antes compartían nombre entre los dos motores con
+    dispatch totalmente distinto — ver auditoría 2026-08-04. Corre en cada
+    startup; si no encuentra nodos "llm" no hace nada.
+    """
+    flow_ids = await db.get_all_flow_ids()
+    for flow_id in flow_ids:
+        flow = await db.get_flow(flow_id)
+        if not flow:
+            continue
+        definition = flow.get("definition") or {}
+        nodes = definition.get("nodes", [])
+        changed = False
+        for node in nodes:
+            if node.get("type") != "llm":
+                continue
+            node["type"] = "llm_local"
+            changed = True
+            logger.info(
+                "[migrate_llm_node_type] flow=%s node=%s: llm → llm_local",
+                flow_id, node.get("id"),
+            )
+        if changed:
+            await db.update_flow(flow_id, definition=definition)
+
+
 async def list_bot_google_accounts(bot_id: str) -> list[dict]:
     """Returns Google accounts available to the bot (own + pulpo-default)."""
     conns = await db.get_google_connections(bot_id)

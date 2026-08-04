@@ -12,17 +12,19 @@ function cleanListLine(line: string): string {
   return m ? m[1].trim() : cleaned;
 }
 
-// TS port of LLMNode (pulpo/graphs/nodes/llm.py). See lib/nodes/llm-client.ts
-// for how the Python router (MODEL_ROUTER_URL, local-only) is replaced by a
-// direct NVIDIA NIM → Groq → OpenRouter HTTP cascade. json_output is
-// enforced via a prompt instruction instead of a provider-native
-// response_format (Python's model_kwargs approach) -- response_format
-// support isn't uniform across every provider in the cascade, so a soft
-// prompt contract is the portable choice here.
+// Nodo LLM default -- corre en Vercel vía un cascade propio de proveedores
+// cloud (NVIDIA NIM → Groq → OpenRouter, ver lib/nodes/llm-client.ts). Es el
+// que usan los flows en producción (ej. Luganense). Distinto y NO
+// intercambiable con "llm_local" (pulpo/graphs/nodes/llm.py), que corre
+// solo en el motor Python vía su router de modelos locales -- ver
+// management/HANDOFF_DOS_NODOS_LLM.md. json_output se hace acá con una
+// instrucción de prompt en vez de response_format nativo del proveedor
+// (Python usa model_kwargs) -- response_format no es uniforme en todo el
+// cascade, así que un contrato de prompt es la opción portable.
 export const llmNode: NodeDef = {
   label: "Respuesta LLM",
   color: "#6b21a8",
-  description: "Genera una respuesta usando un modelo de lenguaje.",
+  description: "Genera una respuesta usando un modelo de lenguaje (cascade cloud, default para flows en Vercel).",
   configSchema: {},
   async run(state, config) {
     if (state.fromDeltaSync) return state;

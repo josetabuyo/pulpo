@@ -24,7 +24,7 @@ Config:
                       esa variable (un LLM con json_output, o un template puntual),
                       no de este nodo.
   array_input: str — nombre de una variable de state.data que contiene una lista
-                      (ej. generada por un LLMNode con output_as_list). Si está
+                      (ej. generada por un LLMLocalNode con output_as_list). Si está
                       seteada y la variable existe y no está vacía, se hace un GET
                       por cada item de la lista en vez de uno solo, y state.data[output]
                       queda como una lista de respuestas (mismo orden que los items,

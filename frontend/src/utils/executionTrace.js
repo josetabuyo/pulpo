@@ -21,12 +21,17 @@ function topLevel(nodeId) {
   return i === -1 ? nodeId : nodeId.slice(0, i)
 }
 
-// Un nodo_flow con salidas nombradas (ej. el clasificador de necesidad vía
-// LLM: found/not_found) NO setea `branch_taken` en ningún step propio -- la
-// ruta por la que salió queda codificada en el id del último substep interno
-// ("padre::sf_end_<ruta>", ver pulpo/graphs/compiler.py). Sin esto, la edge
-// con ese label nunca matcheaba y solo quedaba resaltada la primera edge
-// (la que entra al nodo_flow), no la que sale.
+// Fallback para un nodo_flow con salidas nombradas cuyo subflow_end se
+// alcanza SIN que ningún step propio del sub-flow haya logueado
+// branch_taken (ej. ramificación puramente estructural, sin un
+// condition/router explícito de por medio) -- en ese caso la ruta de salida
+// queda codificada en el id del subflow_end ("padre::sf_end_<ruta>", ver
+// pulpo/graphs/compiler.py). SOLO se usa como último recurso: el id es un
+// nombre elegido a mano en el editor y puede no coincidir textualmente con
+// el label real del edge (ej. id "sf_end_notfound" para el label
+// "not_found", bug real 2026-08-04) -- el branch_taken real que haya
+// logueado un step anterior del mismo nodo_flow (ver buildExecutionTrace)
+// SIEMPRE tiene prioridad sobre esta adivinanza.
 function subflowRoute(nodeId) {
   const m = nodeId.match(/::sf_end_(.+)$/)
   return m ? m[1] : null
@@ -39,18 +44,23 @@ export function buildExecutionTrace(steps, edges) {
   // Colapsar corridas consecutivas del mismo nodo top-level (todos los
   // steps internos de un mismo nodo_flow) a una sola entrada -- así la
   // adyacencia se traza entre nodos TOP-LEVEL, que es lo único que
-  // `edges` conoce. Si algún step interno seteó branch_taken, se propaga
-  // a la entrada colapsada.
+  // `edges` conoce. El branch_taken real (columna de DB) de cualquier step
+  // interno siempre pisa un guess de subflowRoute() -- el guess solo llena
+  // el hueco si el grupo todavía no tiene ningún branch_taken real.
   const collapsed = []
   for (const s of list) {
     const id = topLevel(s.node_id)
-    const branch = s.branch_taken || subflowRoute(s.node_id)
     const last = collapsed[collapsed.length - 1]
     if (last && last.id === id) {
-      if (branch) last.branch_taken = branch
+      if (s.branch_taken) {
+        last.branch_taken = s.branch_taken
+      } else if (!last.branch_taken) {
+        const guessed = subflowRoute(s.node_id)
+        if (guessed) last.branch_taken = guessed
+      }
       continue
     }
-    collapsed.push({ id, branch_taken: branch || null })
+    collapsed.push({ id, branch_taken: s.branch_taken || subflowRoute(s.node_id) || null })
   }
 
   // Clave compuesta con la rama tomada (o '' si el nodo no es router/no la
