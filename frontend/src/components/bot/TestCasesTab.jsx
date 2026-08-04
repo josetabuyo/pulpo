@@ -17,6 +17,21 @@
 import { useEffect, useState, useCallback } from 'react'
 import CaseResultView from './CaseResultView.jsx'
 
+// Fetches usados tanto al abrir "Ver" por primera vez como al navegar entre
+// casos con las flechas ▲/▼ de CaseResultView -- un solo lugar para no
+// repetir la misma llamada en CasesView, RunDetail y el navegador de la raíz.
+const fetchFullRun = (apiCall, botId, runId) =>
+  apiCall('GET', `/bots/${botId}/test-runs/${runId}`, null).catch(() => null)
+const fetchLatestRunForCase = (apiCall, botId, caseId) =>
+  apiCall('GET', `/bots/${botId}/test-cases/${caseId}/latest-run`, null).catch(() => null)
+
+// Índice destino al navegar con ▲/▼ en CaseResultView, o null si el
+// movimiento se sale de la lista (flecha debe quedar deshabilitada ahí).
+export function computeNavIndex(index, idsLength, direction) {
+  const newIndex = direction === 'prev' ? index - 1 : index + 1
+  return newIndex < 0 || newIndex >= idsLength ? null : newIndex
+}
+
 // Espejo de CHECK_TYPES en web/lib/business/test-checks.ts -- mismo orden,
 // mismos `type`, mismo criterio needsNode. Si se agrega un tipo de check
 // ahí, agregarlo acá también.
@@ -334,8 +349,8 @@ function CasesView({ botId, apiCall, onShowRun, onViewRun }) {
   async function handleView(c) {
     setViewing(c.id)
     try {
-      const run = await apiCall('GET', `/bots/${botId}/test-cases/${c.id}/latest-run`, null).catch(() => null)
-      if (run?.id) onViewRun(run)
+      const run = await fetchLatestRunForCase(apiCall, botId, c.id)
+      if (run?.id) onViewRun({ run, kind: 'case', ids: cases.map(x => x.id), index: cases.findIndex(x => x.id === c.id) })
       else alert(`"${c.title}" todavía no tiene corridas -- probá "Correr" primero.`)
     } finally {
       setViewing(null)
@@ -416,7 +431,7 @@ function CheckResultRow({ check }) {
   )
 }
 
-function RunDetail({ run, botId, apiCall, onViewRun }) {
+function RunDetail({ run, botId, apiCall, onViewRun, siblingIds, index }) {
   const [open, setOpen] = useState(false)
   const [viewing, setViewing] = useState(false)
   const failed = run.check_results.filter(c => c.kind === 'assert' && !c.passed).length
@@ -425,8 +440,8 @@ function RunDetail({ run, botId, apiCall, onViewRun }) {
     e.stopPropagation()
     setViewing(true)
     try {
-      const full = await apiCall('GET', `/bots/${botId}/test-runs/${run.id}`, null).catch(() => null)
-      if (full?.id) onViewRun(full)
+      const full = await fetchFullRun(apiCall, botId, run.id)
+      if (full?.id) onViewRun({ run: full, kind: 'run', ids: siblingIds, index })
     } finally {
       setViewing(false)
     }
@@ -528,7 +543,12 @@ function ResultsView({ botId, apiCall, focusSuiteRunId, onViewRun }) {
                   {new Date(g.runs[0].started_at).toLocaleString('es-AR')} · {passed}/{g.runs.length} OK
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {g.runs.map(r => <RunDetail key={r.id} run={r} botId={botId} apiCall={apiCall} onViewRun={onViewRun} />)}
+                  {g.runs.map((r, i) => (
+                    <RunDetail
+                      key={r.id} run={r} botId={botId} apiCall={apiCall} onViewRun={onViewRun}
+                      siblingIds={g.runs.map(x => x.id)} index={i}
+                    />
+                  ))}
                 </div>
               </div>
             )
@@ -544,11 +564,31 @@ function ResultsView({ botId, apiCall, focusSuiteRunId, onViewRun }) {
 export default function TestCasesTab({ botId, apiCall }) {
   const [view, setView] = useState('casos')
   const [focusSuiteRunId, setFocusSuiteRunId] = useState(null)
-  const [viewingRun, setViewingRun] = useState(null) // corrida completa (con steps + flow_snapshot) abierta en "Ver"
+  // corrida completa (con steps + flow_snapshot) abierta en "Ver", más la
+  // lista de ids hermanos (runs de la misma corrida de suite, o casos) y el
+  // índice actual dentro de esa lista -- lo que habilita las flechas ▲/▼.
+  const [viewer, setViewer] = useState(null) // { run, kind: 'run'|'case', ids, index }
+  const [navigating, setNavigating] = useState(false)
 
   function showRun(suiteRunId) {
     setFocusSuiteRunId(suiteRunId)
     setView('resultados')
+  }
+
+  async function handleNavigate(direction) {
+    if (!viewer) return
+    const newIndex = computeNavIndex(viewer.index, viewer.ids.length, direction)
+    if (newIndex === null) return
+    setNavigating(true)
+    try {
+      const run = viewer.kind === 'run'
+        ? await fetchFullRun(apiCall, botId, viewer.ids[newIndex])
+        : await fetchLatestRunForCase(apiCall, botId, viewer.ids[newIndex])
+      if (run?.id) setViewer(v => ({ ...v, run, index: newIndex }))
+      else alert('Ese caso todavía no tiene corridas -- probá "Correr" primero.')
+    } finally {
+      setNavigating(false)
+    }
   }
 
   return (
@@ -558,11 +598,19 @@ export default function TestCasesTab({ botId, apiCall }) {
         <button className={view === 'resultados' ? 'btn-primary btn-sm' : 'btn-ghost btn-sm'} onClick={() => setView('resultados')}>Resultados</button>
       </div>
       {view === 'casos'
-        ? <CasesView botId={botId} apiCall={apiCall} onShowRun={showRun} onViewRun={setViewingRun} />
-        : <ResultsView botId={botId} apiCall={apiCall} focusSuiteRunId={focusSuiteRunId} onViewRun={setViewingRun} />}
+        ? <CasesView botId={botId} apiCall={apiCall} onShowRun={showRun} onViewRun={setViewer} />
+        : <ResultsView botId={botId} apiCall={apiCall} focusSuiteRunId={focusSuiteRunId} onViewRun={setViewer} />}
 
-      {viewingRun && (
-        <CaseResultView run={viewingRun} apiCall={apiCall} onClose={() => setViewingRun(null)} />
+      {viewer && (
+        <CaseResultView
+          run={viewer.run}
+          apiCall={apiCall}
+          onClose={() => setViewer(null)}
+          onNavigate={handleNavigate}
+          canPrev={viewer.index > 0}
+          canNext={viewer.index < viewer.ids.length - 1}
+          navigating={navigating}
+        />
       )}
     </div>
   )
