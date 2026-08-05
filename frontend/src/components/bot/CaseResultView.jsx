@@ -99,9 +99,11 @@ function NavButton({ dir, disabled, onClick }) {
 }
 
 // Botonera de acciones del caso (▶ Correr / ✎ Editar / ⧉ Duplicar / 🗑
-// Borrar) -- antes vivía en cada fila de la lista de "Casos", ahora que la
-// fila entera es el CTA para entrar acá, estos botones se mudaron adentro
-// (ver TestCasesTab.jsx: "toda la línea será el botón call to action").
+// Borrar) -- antes vivía en cada fila de la lista de "Casos", ahora vive acá
+// también (ver TestCasesTab.jsx, CaseRowActions) y en el header del detalle,
+// agrupada junto a la navegación ▲/▼ y el cierre -- un solo cluster de
+// controles arriba a la derecha en vez de dos filas separadas. Iconos con
+// tooltip nativo (title) en vez de texto, más compactos.
 function CaseActions({ testCase, actions, onClose }) {
   const [rerunning, setRerunning] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -121,14 +123,14 @@ function CaseActions({ testCase, actions, onClose }) {
   }
 
   return (
-    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-      <button className="btn-primary btn-sm" disabled={rerunning} onClick={handleRerun}>
-        {rerunning ? 'Corriendo...' : '▶ Correr'}
+    <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+      <button className="btn-primary btn-sm" title="Correr" disabled={rerunning} onClick={handleRerun}>
+        {rerunning ? '...' : '▶'}
       </button>
-      <button className="btn-ghost btn-sm" onClick={() => { actions.onEdit(testCase); onClose() }}>✎ Editar</button>
-      <button className="btn-ghost btn-sm" onClick={() => { actions.onDuplicate(testCase); onClose() }}>⧉ Duplicar</button>
-      <button className="btn-danger btn-sm" disabled={deleting} onClick={handleDelete}>
-        {deleting ? 'Borrando...' : '🗑 Borrar'}
+      <button className="btn-ghost btn-sm" title="Editar" onClick={() => { actions.onEdit(testCase); onClose() }}>✎</button>
+      <button className="btn-ghost btn-sm" title="Duplicar" onClick={() => { actions.onDuplicate(testCase); onClose() }}>⧉</button>
+      <button className="btn-danger btn-sm" title="Borrar" disabled={deleting} onClick={handleDelete}>
+        {deleting ? '...' : '🗑'}
       </button>
     </div>
   )
@@ -146,16 +148,18 @@ export default function CaseResultView({ run, testCase, actions, apiCall, onClos
         style={{ maxWidth: 1400, width: '95vw', height: '92vh', display: 'flex', flexDirection: 'column' }}
         onClick={e => e.stopPropagation()}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, gap: 10, flexShrink: 0 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
             {run ? <StatusBadge status={run.status} failedChecks={failed} /> : <NoRunBadge />}
             <strong style={{ fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {title}
             </strong>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {actions && <CaseActions testCase={testCase} actions={actions} onClose={onClose} />}
+            {actions && onNavigate && <div style={{ width: 1, height: 22, background: 'var(--surface-2)' }} />}
             {onNavigate && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginRight: 4 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 <NavButton dir="prev" disabled={!canPrev || navigating} onClick={() => onNavigate('prev')} />
                 <NavButton dir="next" disabled={!canNext || navigating} onClick={() => onNavigate('next')} />
               </div>
@@ -164,16 +168,10 @@ export default function CaseResultView({ run, testCase, actions, apiCall, onClos
           </div>
         </div>
 
-        {testCase && (
-          <div style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12,
-            marginBottom: 12, flexShrink: 0, paddingBottom: 10, borderBottom: '1px solid var(--surface-2)',
-          }}>
-            <div style={{ fontSize: 12, color: 'var(--text-subtle)', minWidth: 0 }}>
-              {testCase.turns.length} turno{testCase.turns.length !== 1 ? 's' : ''} · {testCase.checks.length} validación{testCase.checks.length !== 1 ? 'es' : ''}
-              {testCase.description ? ` · ${testCase.description}` : ''}
-            </div>
-            {actions && <CaseActions testCase={testCase} actions={actions} onClose={onClose} />}
+        {testCase && (testCase.description || testCase.turns) && (
+          <div style={{ fontSize: 12, color: 'var(--text-subtle)', margin: '8px 0 12px', flexShrink: 0, paddingBottom: 10, borderBottom: '1px solid var(--surface-2)' }}>
+            {testCase.turns.length} turno{testCase.turns.length !== 1 ? 's' : ''} · {testCase.checks.length} validación{testCase.checks.length !== 1 ? 'es' : ''}
+            {testCase.description ? ` · ${testCase.description}` : ''}
           </div>
         )}
 

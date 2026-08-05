@@ -297,6 +297,39 @@ function CaseForm({ botId, apiCall, testCase, onClose, onSaved }) {
 
 // ─── Vista "Casos" ────────────────────────────────────────────────────────
 
+// Botonera de una fila de la lista (▶ Correr / ✎ Editar / ⧉ Duplicar / 🗑
+// Borrar) -- mismos botones que en el header del detalle, ahora también acá
+// a la izquierda del badge de estado. Sin el ojo: el click en la fila entera
+// ya abre el reporte, no hace falta un botón dedicado a "ver".
+function CaseRowActions({ testCase, onRun, onEdit, onDuplicate, onDelete }) {
+  const [running, setRunning] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
+  async function handleRun(e) {
+    e.stopPropagation()
+    setRunning(true)
+    try { await onRun(testCase) } finally { setRunning(false) }
+  }
+  async function handleDelete(e) {
+    e.stopPropagation()
+    setDeleting(true)
+    try { await onDelete(testCase) } finally { setDeleting(false) }
+  }
+
+  return (
+    <div style={{ display: 'flex', gap: 4, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+      <button className="btn-primary btn-sm" title="Correr" disabled={running} onClick={handleRun}>
+        {running ? '...' : '▶'}
+      </button>
+      <button className="btn-ghost btn-sm" title="Editar" onClick={() => onEdit(testCase)}>✎</button>
+      <button className="btn-ghost btn-sm" title="Duplicar" onClick={() => onDuplicate(testCase)}>⧉</button>
+      <button className="btn-danger btn-sm" title="Borrar" disabled={deleting} onClick={handleDelete}>
+        {deleting ? '...' : '🗑'}
+      </button>
+    </div>
+  )
+}
+
 function CasesView({ botId, apiCall, onShowRun, onViewRun }) {
   const [cases, setCases] = useState([])
   const [loading, setLoading] = useState(true)
@@ -411,6 +444,10 @@ function CasesView({ botId, apiCall, onShowRun, onViewRun }) {
                   {c.description ? ` · ${c.description}` : ''}
                 </div>
               </div>
+              <CaseRowActions
+                testCase={c} onRun={handleRerun} onEdit={setEditing}
+                onDuplicate={handleDuplicate} onDelete={handleDelete}
+              />
               {c.latest_run
                 ? <StatusBadge status={c.latest_run.status} failedChecks={c.latest_run.failed_checks} />
                 : <NoRunBadge />}
