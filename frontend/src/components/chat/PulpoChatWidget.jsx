@@ -208,7 +208,6 @@ export default function PulpoChatWidget({
   }
 
   const disabled = !conversationId || runStatus === 'running'
-  const hasAds = (config.ads?.length > 0) || (config.banners?.length > 0)
 
   return (
     <div className={wrapperClass} style={themedStyle}>
@@ -221,11 +220,9 @@ export default function PulpoChatWidget({
             <span className="pc-header-title">{config.title}</span>
           </div>
           <div className="pc-header-actions">
-            {hasAds && (
-              <button className="pc-header-btn pc-header-btn--ads-only" onClick={() => setMobileBannersOpen(o => !o)} title="Publicidad">
-                🖼
-              </button>
-            )}
+            <button className="pc-header-btn pc-header-btn--ads-only" onClick={() => setMobileBannersOpen(o => !o)} title="Publicidad">
+              🖼
+            </button>
             <button className="pc-header-btn" onClick={() => setSidebarOpen(o => !o)} title="Historial de conversaciones">
               🕘 <span>Historial</span>
             </button>
@@ -248,7 +245,7 @@ export default function PulpoChatWidget({
             <ChatComposer disabled={disabled} onSend={handleSend} />
           </div>
 
-          {hasAds && <ChatBanners ads={config.ads} banners={config.banners} open={mobileBannersOpen} />}
+          <ChatBanners ads={config.ads} banners={config.banners} open={mobileBannersOpen} />
         </div>
       </div>
     </div>

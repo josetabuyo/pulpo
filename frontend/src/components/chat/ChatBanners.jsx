@@ -2,10 +2,36 @@ import { useEffect, useState } from 'react'
 
 const CELLS = 4 // mosaico Mondrian: 1 grande + 3 chicas
 
-// Default de PulpoChat cuando el bot no configuró publicidad propia --
-// simple, sin depender de ningún asset externo.
+// Default "de fábrica" de PulpoChat: un bot que todavía no cargó su propia
+// publicidad no debe mostrar un rail vacío -- muestra esto, que además
+// promociona Pulpo. El cliente pisa este set en cuanto publica su primera
+// publicidad propia (ver ChatBanners() más abajo: `usingAds`/`banners.length`
+// gana siempre que haya algo real cargado).
+const PULPO_REPO_URL = 'https://github.com/josetabuyo/pulpo'
 const DEFAULT_BANNERS = [
-  { html: "<div style='display:flex;align-items:center;justify-content:center;height:100%;font-size:28px'>🐙</div>" },
+  {
+    img: 'https://images.unsplash.com/photo-1561479639-747efc0d0bf2?fm=jpg&q=80&w=800&auto=format&fit=crop',
+    href: PULPO_REPO_URL,
+    alt: 'Pulpo',
+    title: 'Hecho con Pulpo',
+  },
+  {
+    img: '/pulpo.svg',
+    href: PULPO_REPO_URL,
+    alt: 'Pulpo',
+    title: 'github.com/josetabuyo/pulpo',
+  },
+  {
+    img: 'https://images.unsplash.com/photo-1558729924-714b0a8e0574?fm=jpg&q=80&w=800&auto=format&fit=crop',
+    href: PULPO_REPO_URL,
+    alt: 'Pulpo',
+  },
+  {
+    img: 'https://images.unsplash.com/photo-1548645933-c62d4468cbb9?fm=jpg&q=80&w=800&auto=format&fit=crop',
+    href: PULPO_REPO_URL,
+    alt: 'Pulpo',
+    title: 'Armá tu propio chat con Pulpo',
+  },
 ]
 
 function AdCell({ item }) {
