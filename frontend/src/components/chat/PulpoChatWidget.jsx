@@ -195,7 +195,9 @@ export default function PulpoChatWidget({
         {config.custom_css && <style>{config.custom_css}</style>}
         <div className="pc-login-screen">
           <div className="pc-login-box">
-            {branding.logoUrl && <img className="pc-login-logo" src={branding.logoUrl} alt="" />}
+            {branding.headerBannerUrl
+              ? <img className="pc-login-banner" src={branding.headerBannerUrl} alt="" />
+              : branding.logoUrl && <img className="pc-login-logo" src={branding.logoUrl} alt="" />}
             <h1>{config.title}</h1>
             <p>Necesitás iniciar sesión para chatear.</p>
             <button className="pc-login-btn" onClick={() => loginWithGoogle(callbackUrl)}>
@@ -208,15 +210,22 @@ export default function PulpoChatWidget({
   }
 
   const disabled = !conversationId || runStatus === 'running'
+  // El cliente elige UNA de las dos: banner ancho (como una portada de
+  // Facebook) o logo chico + título en texto -- ver ChatForm, "headerMode".
+  // Si carga banner, gana -- header sin texto, la identidad va en la imagen.
+  const hasHeaderBanner = Boolean(branding.headerBannerUrl)
 
   return (
     <div className={wrapperClass} style={themedStyle}>
       {config.custom_css && <style>{config.custom_css}</style>}
 
       <div className="pc-layout">
-        <div className="pc-header">
+        <div className={`pc-header ${hasHeaderBanner ? 'pc-header--banner' : ''}`}>
+          {hasHeaderBanner && (
+            <img className="pc-header-banner-img" src={branding.headerBannerUrl} alt={config.title || ''} />
+          )}
           <div className="pc-header-id">
-            {branding.logoUrl && <img className="pc-header-logo" src={branding.logoUrl} alt="" />}
+            {!hasHeaderBanner && branding.logoUrl && <img className="pc-header-logo" src={branding.logoUrl} alt="" />}
             <span className="pc-header-title">{config.title}</span>
           </div>
           <div className="pc-header-actions">

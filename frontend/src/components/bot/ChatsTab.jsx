@@ -40,7 +40,9 @@ function brandingFromChat(branding) {
   const known = FONT_OPTIONS.map(o => o.value).filter(Boolean)
   const isCustomFont = b.fontFamily && !known.includes(b.fontFamily)
   return {
+    headerMode: b.headerBannerUrl ? 'banner' : 'logo',
     logoUrl: b.logoUrl || '',
+    headerBannerUrl: b.headerBannerUrl || '',
     bgMode: b.bgImageUrl ? 'image' : 'color',
     bgColor: b.bgColor || '',
     bgImageUrl: b.bgImageUrl || '',
@@ -53,7 +55,8 @@ function brandingFromChat(branding) {
 
 function brandingToPayload(form) {
   const branding = {}
-  if (form.logoUrl.trim()) branding.logoUrl = form.logoUrl.trim()
+  if (form.headerMode === 'banner' && form.headerBannerUrl.trim()) branding.headerBannerUrl = form.headerBannerUrl.trim()
+  if (form.headerMode === 'logo' && form.logoUrl.trim()) branding.logoUrl = form.logoUrl.trim()
   if (form.bgMode === 'image' && form.bgImageUrl.trim()) branding.bgImageUrl = form.bgImageUrl.trim()
   if (form.bgMode === 'color' && form.bgColor.trim()) branding.bgColor = form.bgColor.trim()
   const font = form.fontFamily === '__custom__' ? form.fontCustom.trim() : form.fontFamily
@@ -182,14 +185,34 @@ function ChatForm({ botId, apiCall, chat, onClose, onSaved }) {
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
             <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Marca</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <label style={{ fontSize: 13 }}>
-                Logo (URL)
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4 }}>
-                  <input type="text" value={branding.logoUrl} onChange={e => updateBranding('logoUrl', e.target.value)}
-                    placeholder="https://..." style={{ flex: 1 }} />
-                  {branding.logoUrl && <img src={branding.logoUrl} alt="" style={{ width: 28, height: 28, borderRadius: 6, objectFit: 'cover' }} />}
+              <div style={{ fontSize: 13 }}>
+                Header
+                <div style={{ display: 'flex', gap: 14, marginTop: 4, marginBottom: 6 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 400 }}>
+                    <input type="radio" name="headerMode" checked={branding.headerMode === 'logo'} onChange={() => updateBranding('headerMode', 'logo')} />
+                    Solo logo
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 400 }}>
+                    <input type="radio" name="headerMode" checked={branding.headerMode === 'banner'} onChange={() => updateBranding('headerMode', 'banner')} />
+                    Banner ancho
+                  </label>
                 </div>
-              </label>
+                {branding.headerMode === 'logo' ? (
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input type="text" value={branding.logoUrl} onChange={e => updateBranding('logoUrl', e.target.value)}
+                      placeholder="https://..." style={{ flex: 1 }} />
+                    {branding.logoUrl && <img src={branding.logoUrl} alt="" style={{ width: 28, height: 28, borderRadius: 6, objectFit: 'cover' }} />}
+                  </div>
+                ) : (
+                  <div>
+                    <input type="text" value={branding.headerBannerUrl} onChange={e => updateBranding('headerBannerUrl', e.target.value)}
+                      placeholder="https://... (imagen ancha, tipo portada de Facebook)" style={{ width: '100%' }} />
+                    {branding.headerBannerUrl && (
+                      <img src={branding.headerBannerUrl} alt="" style={{ width: '100%', height: 60, objectFit: 'cover', borderRadius: 6, marginTop: 6 }} />
+                    )}
+                  </div>
+                )}
+              </div>
 
               <div style={{ fontSize: 13 }}>
                 Fondo
