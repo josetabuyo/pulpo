@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { bots, phoneConnections, telegramConnections } from "@/lib/db/schema";
@@ -19,6 +20,7 @@ export async function listBots() {
   return botRows.map((bot) => ({
     id: bot.id,
     name: bot.name,
+    has_api_key: Boolean(bot.apiKey),
     phones: phoneRows
       .filter((p) => p.botId === bot.id)
       .map((p) => ({
@@ -56,6 +58,7 @@ export async function getBot(botId: string) {
   return {
     id: bot.id,
     name: bot.name,
+    has_api_key: Boolean(bot.apiKey),
     phones: phoneRows.map((p) => ({
       number: p.number,
       alias: p.alias || "",
@@ -183,6 +186,26 @@ export async function patchTelegramSettings(botId: string, tokenId: string, allo
     .set({ allowMass })
     .where(eq(telegramConnections.tokenId, tokenId));
   return { ok: true, allow_mass: allowMass };
+}
+
+// Genera (o regenera) el secreto que un sistema externo al bot usa para
+// publicar publicidad -- ver bots.apiKey en lib/db/schema.ts y
+// lib/auth/bot-key.ts. Nunca autogenerado al vuelo (p.ej. en getBot): solo
+// esta acción explícita lo crea/rota, y la respuesta es la única vez que el
+// valor en claro se devuelve (mismo criterio que /api/auth/token con JWT).
+export async function regenerateBotApiKey(botId: string): Promise<string> {
+  const db = getDb();
+  const [bot] = await db.select().from(bots).where(eq(bots.id, botId));
+  if (!bot) throw new NotFoundError(`Bot no encontrada: ${botId}`);
+  const apiKey = crypto.randomBytes(24).toString("hex");
+  await db.update(bots).set({ apiKey, updatedAt: new Date() }).where(eq(bots.id, botId));
+  return apiKey;
+}
+
+export async function getBotApiKey(botId: string): Promise<string | null> {
+  const db = getDb();
+  const [bot] = await db.select({ apiKey: bots.apiKey }).from(bots).where(eq(bots.id, botId));
+  return bot?.apiKey ?? null;
 }
 
 export class ValidationError extends Error {}

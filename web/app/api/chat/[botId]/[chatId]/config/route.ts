@@ -14,5 +14,5 @@ export async function GET(
   const { botId, chatId } = await params;
   const row = await getChatConfigRow(chatId);
   if (!row || row.botId !== botId) return Response.json({ error: "not found" }, { status: 404 });
-  return Response.json(toPublicConfigDto(row));
+  return Response.json(await toPublicConfigDto(row));
 }

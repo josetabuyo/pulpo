@@ -36,6 +36,9 @@
   --pc-radius-bubble-tail: 4px;
   --pc-shadow: 0 8px 24px rgba(4, 8, 18, .5);
   --pc-gradient-hero: linear-gradient(165deg, #101C33 0%, #0A1220 60%, #140F2E 100%);
+  /* Overrideable por branding (ver ChatForm/chat_configs.branding) -- default
+     "none" así --pc-bg (color) se ve solo cuando el cliente no cargó imagen. */
+  --pc-bg-image: none;
 
   position: fixed;
   inset: 0;
@@ -70,37 +73,125 @@
 
 .pulpochat a { color: var(--pc-accent-bright); }
 
-/* ─── Layout: 3 columnas ─── */
+/* ─── Layout: header full-width arriba, cuerpo (main + rail de ads) abajo.
+   El historial de conversaciones (pc-sidebar) es SIEMPRE un overlay -- ya
+   no una columna fija -- pedido explícito: la UX de tenerlo siempre visible
+   era mala. Se abre con el botón "Historial" del header. ─── */
 .pc-layout {
-  display: grid;
-  grid-template-columns: 240px 1fr 220px;
+  display: flex;
+  flex-direction: column;
   width: 100%;
   height: 100%;
+  min-height: 0;
 }
 
-/* ─── Sidebar (izquierda) ─── */
+/* ─── Header (identidad del chat: logo + título + acciones) ─── */
+.pc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  background: var(--pc-gradient-hero);
+  border-bottom: 1px solid var(--pc-border-subtle);
+  flex-shrink: 0;
+}
+.pc-header-id {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.pc-header-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.pc-header-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--pc-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pc-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.pc-header-btn {
+  background: var(--pc-surface);
+  color: var(--pc-text-muted);
+  border: 1px solid var(--pc-border);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 12px;
+  white-space: nowrap;
+}
+.pc-header-btn:hover { background: var(--pc-surface-raised); opacity: 1; color: var(--pc-text); }
+.pc-header-btn--ads-only { display: none; }
+
+/* ─── Cuerpo: thread central + rail de ads (si hay) ─── */
+.pc-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+/* ─── Historial (drawer overlay, oculto por defecto) ─── */
+.pc-sidebar-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 8, 18, .55);
+  z-index: 19;
+}
 .pc-sidebar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 260px;
   background: var(--pc-surface);
   border-right: 1px solid var(--pc-border);
   display: flex;
   flex-direction: column;
   min-width: 0;
+  z-index: 20;
+  box-shadow: var(--pc-shadow);
+  transform: translateX(-105%);
+  transition: transform .2s ease;
 }
+.pc-sidebar--open { transform: translateX(0); }
 .pc-sidebar-header {
-  padding: 16px;
-  border-bottom: 1px solid var(--pc-border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 16px 10px;
 }
 .pc-sidebar-title {
   font-size: 14px;
   font-weight: 600;
   color: var(--pc-text);
-  margin-bottom: 10px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.pc-sidebar-close {
+  background: transparent;
+  color: var(--pc-text-muted);
+  font-size: 13px;
+  padding: 4px 8px;
+  flex-shrink: 0;
+}
+.pc-sidebar-close:hover { color: var(--pc-text); opacity: 1; }
 .pc-new-btn {
-  width: 100%;
+  margin: 0 16px 10px;
   padding: 9px 12px;
   background: var(--pc-accent);
   color: white;
@@ -112,7 +203,7 @@
 .pc-conv-list {
   flex: 1;
   overflow-y: auto;
-  padding: 8px;
+  padding: 0 8px 8px;
 }
 .pc-conv-item {
   width: 100%;
@@ -140,20 +231,11 @@
 
 /* ─── Centro: thread + composer ─── */
 .pc-main {
-  background: var(--pc-bg);
+  flex: 1;
+  min-width: 0;
+  background: var(--pc-bg-image) center/cover no-repeat, var(--pc-bg);
   display: flex;
   flex-direction: column;
-  min-width: 0;
-}
-.pc-main-header {
-  padding: 14px 20px;
-  border-bottom: 1px solid var(--pc-border-subtle);
-  background: var(--pc-gradient-hero);
-}
-.pc-main-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--pc-text);
 }
 
 .pc-thread {
@@ -248,43 +330,60 @@
 }
 .pc-send-btn:hover:not(:disabled) { background: var(--pc-accent-deep); opacity: 1; }
 
-/* ─── Banners (derecha) ─── */
-.pc-banners {
+/* ─── Rail de publicidad (derecha, full-height) ───
+   Mosaico tipo Mondrian: 1 celda grande arriba (ocupa las 2 columnas) + 2
+   celdas medianas + 1 celda ancha abajo -- asimétrico a propósito, evita el
+   look "grilla uniforme" del 2x2 viejo. Con `ads` (chat_ads) ya viene
+   recortado a 4 sin necesidad de rotar; con `banners` legacy (más de 4)
+   sigue rotando, ver ChatBanners.jsx. */
+.pc-ads {
+  width: 260px;
+  flex-shrink: 0;
   background: var(--pc-surface);
   border-left: 1px solid var(--pc-border);
   padding: 16px 12px;
   overflow-y: auto;
 }
-.pc-banners-title {
+.pc-ads-title {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: .04em;
   color: var(--pc-text-subtle);
   margin-bottom: 10px;
 }
-.pc-banner-grid {
+.pc-ad-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1.4fr 1fr 1fr;
   gap: 8px;
+  height: calc(100% - 26px);
 }
-.pc-banner-cell {
-  aspect-ratio: 1;
+.pc-ad-grid > .pc-ad-cell:nth-child(1) { grid-column: 1 / 3; grid-row: 1; }
+.pc-ad-grid > .pc-ad-cell:nth-child(2) { grid-column: 1; grid-row: 2; }
+.pc-ad-grid > .pc-ad-cell:nth-child(3) { grid-column: 2; grid-row: 2; }
+.pc-ad-grid > .pc-ad-cell:nth-child(4) { grid-column: 1 / 3; grid-row: 3; }
+.pc-ad-cell {
+  position: relative;
   border-radius: 10px;
   overflow: hidden;
   background: var(--pc-surface-raised);
   border: 1px solid var(--pc-border);
   transition: opacity .4s ease;
 }
-.pc-banner-cell img { width: 100%; height: 100%; object-fit: cover; }
-.pc-banner-cell iframe { width: 100%; height: 100%; border: 0; }
-.pc-banner-cell--fading { opacity: 0; }
-.pc-banner-default {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: var(--pc-accent-glow);
-  font-size: 22px;
+.pc-ad-cell a { display: block; height: 100%; }
+.pc-ad-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pc-ad-cell iframe { width: 100%; height: 100%; border: 0; }
+.pc-ad-title {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  padding: 6px 8px 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(to top, rgba(0,0,0,.75), transparent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ─── Estados (error/ok/warn) ─── */
@@ -319,6 +418,7 @@
   box-shadow: var(--pc-shadow);
   max-width: 320px;
 }
+.pc-login-logo { width: 40px; height: 40px; border-radius: 10px; object-fit: cover; margin: 0 auto 4px; }
 .pc-login-box h1 { font-size: 18px; margin-bottom: 8px; }
 .pc-login-box p { color: var(--pc-text-muted); font-size: 13px; margin-bottom: 18px; }
 .pc-login-btn {
@@ -342,36 +442,20 @@
   padding: 24px;
 }
 
-/* ─── Mobile: columna única, sidebar/banners como drawer ─── */
+/* ─── Mobile: el rail de ads también pasa a ser drawer (el historial ya es
+   overlay a cualquier ancho, ver arriba). El botón "🖼" del header, oculto
+   en desktop, aparece acá para abrirlo/cerrarlo. ─── */
 @media (max-width: 860px) {
-  .pc-layout { grid-template-columns: 1fr; }
-  .pc-sidebar, .pc-banners {
-    position: fixed;
-    top: 0; bottom: 0;
-    width: 260px;
+  .pc-header-btn--ads-only { display: inline-flex; }
+  .pc-header-btn span { display: none; }
+  .pc-ads {
+    position: absolute;
+    top: 0; bottom: 0; right: 0;
+    width: 220px;
     z-index: 20;
-    transform: translateX(-105%);
+    transform: translateX(105%);
     transition: transform .2s ease;
     box-shadow: var(--pc-shadow);
   }
-  .pc-sidebar { left: 0; }
-  .pc-banners { right: 0; transform: translateX(105%); width: 200px; }
-  .pc-sidebar--open { transform: translateX(0); }
-  .pc-banners--open { transform: translateX(0); }
-  .pc-mobile-bar {
-    display: flex;
-    gap: 8px;
-    padding: 8px 12px;
-    background: var(--pc-surface-raised);
-    border-bottom: 1px solid var(--pc-border);
-  }
-  .pc-mobile-bar button {
-    background: var(--pc-surface);
-    color: var(--pc-text-muted);
-    font-size: 12px;
-    padding: 6px 10px;
-  }
-}
-@media (min-width: 861px) {
-  .pc-mobile-bar { display: none; }
+  .pc-ads--open { transform: translateX(0); }
 }

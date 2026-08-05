@@ -115,6 +115,16 @@ const SCOPED_BOT_ROUTES: { method: string; re: RegExp }[] = [
   { method: "DELETE", re: /^\/api\/bots\/([^/]+)\/chat-access\/[^/]+$/ },
   { method: "GET", re: /^\/api\/bots\/([^/]+)\/chats$/ },
   { method: "GET", re: /^\/api\/bots\/([^/]+)\/chats\/[^/]+\/messages$/ },
+  // Publicidad de chat (2026-08-05, ver lib/business/chat-ads.ts) -- misma
+  // acción de PRO/admin dueño del bot que el resto de la gestión de chats.
+  // El secreto de bot-key para el camino EXTERNO (X-Pulpo-Bot-Key, ver
+  // lib/auth/bot-key.ts) vive bajo /api/chat/**, ya cubierto por CHAT_RE
+  // arriba -- no necesita entrar acá.
+  { method: "GET", re: /^\/api\/bots\/([^/]+)\/chat-configs\/[^/]+\/ads$/ },
+  { method: "POST", re: /^\/api\/bots\/([^/]+)\/chat-configs\/[^/]+\/ads$/ },
+  { method: "PATCH", re: /^\/api\/bots\/([^/]+)\/chat-configs\/[^/]+\/ads\/[^/]+$/ },
+  { method: "DELETE", re: /^\/api\/bots\/([^/]+)\/chat-configs\/[^/]+\/ads\/[^/]+$/ },
+  { method: "POST", re: /^\/api\/bots\/([^/]+)\/api-key$/ },
 ];
 
 export default auth(async (request) => {

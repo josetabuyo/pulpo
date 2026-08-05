@@ -2,6 +2,7 @@ import { and, asc, desc, eq, gt } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { bots, chatAccess, chatConfigs, chatConversations, chatMessages, flowRuns, flowRunSteps } from "@/lib/db/schema";
 import { NotFoundError, ValidationError } from "@/lib/business/bots";
+import { getPublishedAds } from "@/lib/business/chat-ads";
 
 // CRUD de las 4 tablas de "PulpoChat" (chat web sobre nodos trigger de
 // mensaje). Ver management/HANDOFF_DASHBOARD_CHATS_VIEW.md (gitignoreado)
@@ -30,6 +31,7 @@ function toConfigDto(row: ChatConfigRow) {
     banners: row.banners ?? [],
     theme_vars: row.themeVars ?? {},
     custom_css: row.customCss ?? "",
+    branding: row.branding ?? {},
     created_at: row.createdAt,
     updated_at: row.updatedAt,
   };
@@ -67,6 +69,7 @@ export interface ChatConfigInput {
   banners?: unknown;
   themeVars?: unknown;
   customCss?: string;
+  branding?: unknown;
 }
 
 function validateChatConfigInput(input: ChatConfigInput) {
@@ -96,6 +99,7 @@ export async function createChatConfig(botId: string, input: ChatConfigInput) {
     banners: input.banners ?? [],
     themeVars: input.themeVars ?? {},
     customCss: input.customCss ?? "",
+    branding: input.branding ?? {},
   });
 
   return getChatConfig(id);
@@ -119,6 +123,7 @@ export async function updateChatConfig(chatId: string, botId: string, input: Cha
       banners: input.banners ?? [],
       themeVars: input.themeVars ?? {},
       customCss: input.customCss ?? "",
+      branding: input.branding ?? {},
       updatedAt: new Date(),
     })
     .where(eq(chatConfigs.id, chatId));
@@ -138,12 +143,20 @@ export async function deleteChatConfig(chatId: string, botId: string): Promise<v
 
 // Subset seguro para el runtime público -- NUNCA flow_id/trigger_node_id
 // (identificarían internals del flow) ni allowlist (§4.2 del handoff).
-export function toPublicConfigDto(row: ChatConfigRow) {
+// `ads` (chat_ads publicadas, máx 4, nueva-primero) es el reemplazo de
+// `banners` -- pero `banners` se mantiene siempre en la respuesta como
+// fallback manual: si un chat viejo tiene `banners` cargado a mano y todavía
+// no tiene ninguna fila en chat_ads, el widget lo sigue usando (ver
+// ChatBanners.jsx) en vez de forzar una migración de datos existentes.
+export async function toPublicConfigDto(row: ChatConfigRow) {
+  const ads = await getPublishedAds(row.id);
   return {
     title: row.title,
     banners: row.banners ?? [],
+    ads,
     theme_vars: row.themeVars ?? {},
     custom_css: row.customCss ?? "",
+    branding: row.branding ?? {},
     is_public: row.isPublic,
     enabled: row.enabled,
   };

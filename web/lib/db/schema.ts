@@ -90,6 +90,13 @@ export const bots = pgTable("bots", {
   // paused, see app/api/telegram/webhook/[tokenId]/route.ts. Real but not
   // byte-for-byte the same semantics as Python.
   paused: boolean("paused").notNull().default(false),
+  // Secreto para que un sistema EXTERNO al bot (p.ej. el CMS propio de un
+  // cliente) publique/despublique publicidad en sus chats sin sesión de
+  // Google -- ver chatAds abajo. Nulo hasta que un admin/owner lo genera
+  // explícitamente (POST /api/bots/{botId}/api-key, nunca autogenerado al
+  // vuelo). Mismo nivel de riesgo aceptado hoy para secretos en texto plano
+  // que telegramConnections.token/pulpoEnvironments.adminToken -- no cifrado.
+  apiKey: text("api_key").unique(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
@@ -239,10 +246,47 @@ export const chatConfigs = pgTable(
     banners: jsonb("banners"),
     themeVars: jsonb("theme_vars"),
     customCss: text("custom_css"),
+    // Branding "fácil" (2026-08-05): subset chico y genérico de campos que
+    // cualquier cliente puede completar sin tocar CSS -- logo, color/imagen
+    // de fondo, tipografía, color de acento/texto. `theme_vars`/`custom_css`
+    // arriba siguen existiendo como escape hatch avanzado, sin cambios.
+    // Shape: { logoUrl?, bgColor?, bgImageUrl?, fontFamily?, accentColor?,
+    // textColor? } -- ver lib/business/chats.ts::toPublicConfigDto.
+    branding: jsonb("branding"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
   (table) => [index("chat_configs_bot_id_idx").on(table.botId)],
+);
+
+// Publicidad de un chat -- cola FILO de máximo 4 publicadas a la vez (ver
+// lib/business/chat-ads.ts). Dos formas de llegar acá: el admin/PRO dueño
+// del bot desde la UI (CRUD por `id`), o un sistema externo del cliente vía
+// `X-Pulpo-Bot-Key` (upsert idempotente por `externalRef`, que le permite a
+// ese sistema saber cuál de sus propias publicidades sigue viva sin guardar
+// el `id` interno). Ambos caminos comparten la misma lógica de publicación
+// (FIFO de 4) para que el resultado sea idéntico sin importar quién publica.
+export const chatAds = pgTable(
+  "chat_ads",
+  {
+    id: text("id").primaryKey(),
+    chatConfigId: text("chat_config_id")
+      .notNull()
+      .references(() => chatConfigs.id, { onDelete: "cascade" }),
+    externalRef: text("external_ref"),
+    title: text("title"),
+    description: text("description"),
+    imageUrl: text("image_url").notNull(),
+    linkUrl: text("link_url"),
+    published: boolean("published").notNull().default(false),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    index("chat_ads_chat_config_id_idx").on(table.chatConfigId, table.published, table.publishedAt),
+    unique("chat_ads_chat_config_id_external_ref_unique").on(table.chatConfigId, table.externalRef),
+  ],
 );
 
 // Allowlist de emails con derecho a CHATEAR (no a gestionar) cuando el chat

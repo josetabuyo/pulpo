@@ -35,3 +35,18 @@ export const chatApi = {
   sendMessage: (botId, chatId, conversationId, message) =>
     call('POST', `/chat/${botId}/${chatId}/conversations/${conversationId}/messages`, { message }),
 }
+
+// Gestión de publicidad de un chat (ChatsTab/ChatForm, sesión autenticada
+// vía apiCall del dashboard -- ver web/app/api/bots/[botId]/chat-configs/
+// [chatId]/ads/**). El camino público bot-key (publish/unpublish) es cosa
+// del sistema EXTERNO del cliente, no de este dashboard -- no tiene cliente
+// JS acá.
+export const chatAdsApi = {
+  list: (apiCall, botId, chatId) => apiCall('GET', `/bots/${botId}/chat-configs/${chatId}/ads`, null),
+  create: (apiCall, botId, chatId, body) => apiCall('POST', `/bots/${botId}/chat-configs/${chatId}/ads`, body),
+  update: (apiCall, botId, chatId, adId, body) =>
+    apiCall('PATCH', `/bots/${botId}/chat-configs/${chatId}/ads/${adId}`, body),
+  setPublished: (apiCall, botId, chatId, adId, published) =>
+    apiCall('PATCH', `/bots/${botId}/chat-configs/${chatId}/ads/${adId}`, { published }),
+  remove: (apiCall, botId, chatId, adId) => apiCall('DELETE', `/bots/${botId}/chat-configs/${chatId}/ads/${adId}`, null),
+}

@@ -51,7 +51,7 @@ export default function PulpoChatWidget({
   const [messages, setMessages] = useState([])
   const [runStatus, setRunStatus] = useState(null)
   const [sendError, setSendError] = useState('')
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [mobileBannersOpen, setMobileBannersOpen] = useState(false)
 
   const lastIdRef = useRef(0)
@@ -161,6 +161,21 @@ export default function PulpoChatWidget({
 
   const wrapperClass = fullscreen ? 'pulpochat pulpochat--fullscreen' : 'pulpochat pulpochat--embedded'
 
+  // Branding "fácil" (chat_configs.branding, ver ChatForm) mapeado a los
+  // mismos --pc-* que ya existen en chat.css -- theme_vars (el escape hatch
+  // avanzado) se aplica DESPUÉS, así siempre puede pisar un campo puntual.
+  const branding = config?.branding || {}
+  const brandingVars = {}
+  if (branding.bgColor) brandingVars['--pc-bg'] = branding.bgColor
+  if (branding.bgImageUrl) brandingVars['--pc-bg-image'] = `url(${branding.bgImageUrl})`
+  if (branding.textColor) brandingVars['--pc-text'] = branding.textColor
+  if (branding.accentColor) {
+    brandingVars['--pc-accent'] = branding.accentColor
+    brandingVars['--pc-accent-bright'] = branding.accentColor
+  }
+  if (branding.fontFamily) brandingVars['fontFamily'] = branding.fontFamily
+  const themedStyle = { ...brandingVars, ...(config?.theme_vars || {}) }
+
   if (configError) {
     return <div className={wrapperClass}><div className="pc-fullscreen-msg">{configError}</div></div>
   }
@@ -176,10 +191,11 @@ export default function PulpoChatWidget({
   if (needsLogin) {
     const callbackUrl = `/chat/${botId}/${chatId}${conversationId ? `/c/${conversationId}` : ''}`
     return (
-      <div className={wrapperClass} style={config.theme_vars || {}}>
+      <div className={wrapperClass} style={themedStyle}>
         {config.custom_css && <style>{config.custom_css}</style>}
         <div className="pc-login-screen">
           <div className="pc-login-box">
+            {branding.logoUrl && <img className="pc-login-logo" src={branding.logoUrl} alt="" />}
             <h1>{config.title}</h1>
             <p>Necesitás iniciar sesión para chatear.</p>
             <button className="pc-login-btn" onClick={() => loginWithGoogle(callbackUrl)}>
@@ -192,34 +208,48 @@ export default function PulpoChatWidget({
   }
 
   const disabled = !conversationId || runStatus === 'running'
+  const hasAds = (config.ads?.length > 0) || (config.banners?.length > 0)
 
   return (
-    <div className={wrapperClass} style={config.theme_vars || {}}>
+    <div className={wrapperClass} style={themedStyle}>
       {config.custom_css && <style>{config.custom_css}</style>}
 
       <div className="pc-layout">
-        <ChatSidebar
-          title={config.title}
-          conversations={conversations}
-          activeId={conversationId}
-          onSelect={id => { setConversationId(id); setMobileSidebarOpen(false) }}
-          onNew={() => { handleNewConversation(); setMobileSidebarOpen(false) }}
-          open={mobileSidebarOpen}
-        />
-
-        <div className="pc-main">
-          <div className="pc-mobile-bar">
-            <button onClick={() => setMobileSidebarOpen(o => !o)}>☰ Conversaciones</button>
-            <button onClick={() => setMobileBannersOpen(o => !o)}>🖼 Info</button>
+        <div className="pc-header">
+          <div className="pc-header-id">
+            {branding.logoUrl && <img className="pc-header-logo" src={branding.logoUrl} alt="" />}
+            <span className="pc-header-title">{config.title}</span>
           </div>
-          <div className="pc-main-header">
-            <div className="pc-main-title">{config.title}</div>
+          <div className="pc-header-actions">
+            {hasAds && (
+              <button className="pc-header-btn pc-header-btn--ads-only" onClick={() => setMobileBannersOpen(o => !o)} title="Publicidad">
+                🖼
+              </button>
+            )}
+            <button className="pc-header-btn" onClick={() => setSidebarOpen(o => !o)} title="Historial de conversaciones">
+              🕘 <span>Historial</span>
+            </button>
           </div>
-          <ChatThread messages={messages} runStatus={runStatus} error={sendError} />
-          <ChatComposer disabled={disabled} onSend={handleSend} />
         </div>
 
-        <ChatBanners banners={config.banners} open={mobileBannersOpen} />
+        <div className="pc-body">
+          <ChatSidebar
+            title={config.title}
+            conversations={conversations}
+            activeId={conversationId}
+            onSelect={id => { setConversationId(id); setSidebarOpen(false) }}
+            onNew={() => { handleNewConversation(); setSidebarOpen(false) }}
+            open={sidebarOpen}
+            onClose={() => setSidebarOpen(false)}
+          />
+
+          <div className="pc-main">
+            <ChatThread messages={messages} runStatus={runStatus} error={sendError} />
+            <ChatComposer disabled={disabled} onSend={handleSend} />
+          </div>
+
+          {hasAds && <ChatBanners ads={config.ads} banners={config.banners} open={mobileBannersOpen} />}
+        </div>
       </div>
     </div>
   )

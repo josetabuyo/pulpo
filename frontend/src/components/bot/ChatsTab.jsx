@@ -14,14 +14,53 @@
  */
 import { useEffect, useState } from 'react'
 import PulpoChatWidget from '../chat/PulpoChatWidget.jsx'
+import ChatAdsPanel from './ChatAdsPanel.jsx'
 
 const TRIGGER_SUFFIX = '_trigger'
+
+const FONT_OPTIONS = [
+  { value: '', label: 'Por defecto (DM Sans)' },
+  { value: 'system-ui, -apple-system, "Segoe UI", sans-serif', label: 'System UI' },
+  { value: 'Georgia, serif', label: 'Georgia (serif)' },
+  { value: '"Times New Roman", Times, serif', label: 'Times New Roman (serif)' },
+  { value: 'Verdana, Geneva, sans-serif', label: 'Verdana (sans)' },
+  { value: '"Courier New", monospace', label: 'Courier New (monospace)' },
+  { value: '__custom__', label: 'Personalizada...' },
+]
 
 function emptyForm() {
   return {
     flow_id: '', trigger_node_id: '', title: 'PulpoChat',
     is_public: false, enabled: false, custom_css: '',
   }
+}
+
+function brandingFromChat(branding) {
+  const b = branding || {}
+  const known = FONT_OPTIONS.map(o => o.value).filter(Boolean)
+  const isCustomFont = b.fontFamily && !known.includes(b.fontFamily)
+  return {
+    logoUrl: b.logoUrl || '',
+    bgMode: b.bgImageUrl ? 'image' : 'color',
+    bgColor: b.bgColor || '',
+    bgImageUrl: b.bgImageUrl || '',
+    fontFamily: isCustomFont ? '__custom__' : (b.fontFamily || ''),
+    fontCustom: isCustomFont ? b.fontFamily : '',
+    accentColor: b.accentColor || '',
+    textColor: b.textColor || '',
+  }
+}
+
+function brandingToPayload(form) {
+  const branding = {}
+  if (form.logoUrl.trim()) branding.logoUrl = form.logoUrl.trim()
+  if (form.bgMode === 'image' && form.bgImageUrl.trim()) branding.bgImageUrl = form.bgImageUrl.trim()
+  if (form.bgMode === 'color' && form.bgColor.trim()) branding.bgColor = form.bgColor.trim()
+  const font = form.fontFamily === '__custom__' ? form.fontCustom.trim() : form.fontFamily
+  if (font) branding.fontFamily = font
+  if (form.accentColor.trim()) branding.accentColor = form.accentColor.trim()
+  if (form.textColor.trim()) branding.textColor = form.textColor.trim()
+  return branding
 }
 
 // ─── Formulario de alta/edición (modal) ────────────────────────────────
@@ -34,11 +73,14 @@ function ChatForm({ botId, apiCall, chat, onClose, onSaved }) {
     flow_id: chat.flow_id, trigger_node_id: chat.trigger_node_id, title: chat.title,
     is_public: chat.is_public, enabled: chat.enabled, custom_css: chat.custom_css || '',
   } : emptyForm())
+  const [branding, setBranding] = useState(() => brandingFromChat(chat?.branding))
   const [bannersText, setBannersText] = useState(() => JSON.stringify(chat?.banners ?? [], null, 2))
   const [themeVarsRows, setThemeVarsRows] = useState(() =>
     Object.entries(chat?.theme_vars ?? {}).map(([k, v]) => ({ k, v })))
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
+
+  function updateBranding(key, value) { setBranding(b => ({ ...b, [key]: value })) }
 
   useEffect(() => {
     apiCall('GET', `/flows/bots/${botId}`, null).then(d => setFlows(Array.isArray(d) ? d : [])).catch(() => {})
@@ -75,6 +117,7 @@ function ChatForm({ botId, apiCall, chat, onClose, onSaved }) {
     const body = {
       flow_id: form.flow_id, trigger_node_id: form.trigger_node_id, title: form.title,
       is_public: form.is_public, enabled: form.enabled, banners, theme_vars, custom_css: form.custom_css || '',
+      branding: brandingToPayload(branding),
     }
 
     setSaving(true)
@@ -136,29 +179,101 @@ function ChatForm({ botId, apiCall, chat, onClose, onSaved }) {
             Chat público (sin login)
           </label>
 
-          <label style={{ fontSize: 13 }}>
-            Banners (JSON: [{'{'}&quot;img&quot;,&quot;href&quot;,&quot;alt&quot;{'}'} | {'{'}&quot;html&quot;{'}'}])
-            <textarea value={bannersText} onChange={e => setBannersText(e.target.value)}
-              rows={3} style={{ width: '100%', marginTop: 4, fontFamily: 'monospace', fontSize: 12 }} />
-          </label>
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Marca</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <label style={{ fontSize: 13 }}>
+                Logo (URL)
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4 }}>
+                  <input type="text" value={branding.logoUrl} onChange={e => updateBranding('logoUrl', e.target.value)}
+                    placeholder="https://..." style={{ flex: 1 }} />
+                  {branding.logoUrl && <img src={branding.logoUrl} alt="" style={{ width: 28, height: 28, borderRadius: 6, objectFit: 'cover' }} />}
+                </div>
+              </label>
 
-          <div style={{ fontSize: 13 }}>
-            Variables de tema (overrides de --pc-*)
-            {themeVarsRows.map((row, i) => (
-              <div key={i} style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-                <input placeholder="--pc-accent" value={row.k} onChange={e => updateThemeVar(i, 'k', e.target.value)} style={{ flex: 1 }} />
-                <input placeholder="#0ea5e9" value={row.v} onChange={e => updateThemeVar(i, 'v', e.target.value)} style={{ flex: 1 }} />
-                <button type="button" className="btn-danger btn-sm" onClick={() => removeThemeVar(i)}>✕</button>
+              <div style={{ fontSize: 13 }}>
+                Fondo
+                <div style={{ display: 'flex', gap: 14, marginTop: 4, marginBottom: 6 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 400 }}>
+                    <input type="radio" name="bgMode" checked={branding.bgMode === 'color'} onChange={() => updateBranding('bgMode', 'color')} />
+                    Color
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 400 }}>
+                    <input type="radio" name="bgMode" checked={branding.bgMode === 'image'} onChange={() => updateBranding('bgMode', 'image')} />
+                    Imagen
+                  </label>
+                </div>
+                {branding.bgMode === 'color' ? (
+                  <input type="color" value={branding.bgColor || '#0E1829'} onChange={e => updateBranding('bgColor', e.target.value)} />
+                ) : (
+                  <input type="text" value={branding.bgImageUrl} onChange={e => updateBranding('bgImageUrl', e.target.value)}
+                    placeholder="https://..." style={{ width: '100%' }} />
+                )}
               </div>
-            ))}
-            <button type="button" className="btn-sm" style={{ marginTop: 6 }} onClick={addThemeVar}>+ Variable</button>
+
+              <label style={{ fontSize: 13 }}>
+                Tipografía
+                <select value={branding.fontFamily} onChange={e => updateBranding('fontFamily', e.target.value)} style={{ width: '100%', marginTop: 4 }}>
+                  {FONT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+                {branding.fontFamily === '__custom__' && (
+                  <input type="text" value={branding.fontCustom} onChange={e => updateBranding('fontCustom', e.target.value)}
+                    placeholder='"Mi Fuente", sans-serif' style={{ width: '100%', marginTop: 6 }} />
+                )}
+              </label>
+
+              <div style={{ display: 'flex', gap: 16 }}>
+                <label style={{ fontSize: 13, flex: 1 }}>
+                  Color de acento
+                  <div style={{ marginTop: 4 }}>
+                    <input type="color" value={branding.accentColor || '#8B5CF6'} onChange={e => updateBranding('accentColor', e.target.value)} />
+                  </div>
+                </label>
+                <label style={{ fontSize: 13, flex: 1 }}>
+                  Color de texto
+                  <div style={{ marginTop: 4 }}>
+                    <input type="color" value={branding.textColor || '#E8EDF7'} onChange={e => updateBranding('textColor', e.target.value)} />
+                  </div>
+                </label>
+              </div>
+            </div>
           </div>
 
-          <label style={{ fontSize: 13 }}>
-            CSS avanzado <span style={{ color: '#b45309' }}>(bajo tu responsabilidad)</span>
-            <textarea value={form.custom_css} onChange={e => updateField('custom_css', e.target.value)}
-              rows={3} style={{ width: '100%', marginTop: 4, fontFamily: 'monospace', fontSize: 12 }} />
-          </label>
+          {!isNew && (
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+              <ChatAdsPanel botId={botId} chatId={chat.id} apiCall={apiCall} />
+            </div>
+          )}
+
+          <details style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+            <summary style={{ fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Avanzado</summary>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
+              <label style={{ fontSize: 13 }}>
+                Banners legacy (JSON: [{'{'}&quot;img&quot;,&quot;href&quot;,&quot;alt&quot;{'}'} | {'{'}&quot;html&quot;{'}'}])
+                <textarea value={bannersText} onChange={e => setBannersText(e.target.value)}
+                  rows={3} style={{ width: '100%', marginTop: 4, fontFamily: 'monospace', fontSize: 12 }} />
+                <small style={{ color: 'var(--text-subtle)' }}>Reemplazado por la sección Publicidad de arriba -- se mantiene como fallback manual.</small>
+              </label>
+
+              <div style={{ fontSize: 13 }}>
+                Variables de tema (overrides de --pc-*)
+                {themeVarsRows.map((row, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                    <input placeholder="--pc-accent" value={row.k} onChange={e => updateThemeVar(i, 'k', e.target.value)} style={{ flex: 1 }} />
+                    <input placeholder="#0ea5e9" value={row.v} onChange={e => updateThemeVar(i, 'v', e.target.value)} style={{ flex: 1 }} />
+                    <button type="button" className="btn-danger btn-sm" onClick={() => removeThemeVar(i)}>✕</button>
+                  </div>
+                ))}
+                <button type="button" className="btn-sm" style={{ marginTop: 6 }} onClick={addThemeVar}>+ Variable</button>
+              </div>
+
+              <label style={{ fontSize: 13 }}>
+                CSS avanzado <span style={{ color: '#b45309' }}>(bajo tu responsabilidad)</span>
+                <textarea value={form.custom_css} onChange={e => updateField('custom_css', e.target.value)}
+                  rows={3} style={{ width: '100%', marginTop: 4, fontFamily: 'monospace', fontSize: 12 }} />
+              </label>
+            </div>
+          </details>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <button type="submit" className="btn-primary btn-sm" disabled={saving}>
