@@ -222,7 +222,12 @@ export default function PulpoChatWidget({
       <div className="pc-layout">
         <div className={`pc-header ${hasHeaderBanner ? 'pc-header--banner' : ''}`}>
           {hasHeaderBanner && (
-            <img className="pc-header-banner-img" src={branding.headerBannerUrl} alt={config.title || ''} />
+            <img
+              className="pc-header-banner-img"
+              src={branding.headerBannerUrl}
+              alt={config.title || ''}
+              style={{ objectPosition: `center ${Number.isFinite(branding.headerBannerPosition) ? branding.headerBannerPosition : 50}%` }}
+            />
           )}
           <div className="pc-header-id">
             {!hasHeaderBanner && branding.logoUrl && <img className="pc-header-logo" src={branding.logoUrl} alt="" />}

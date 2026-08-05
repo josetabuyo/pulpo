@@ -43,6 +43,7 @@ function brandingFromChat(branding) {
     headerMode: b.headerBannerUrl ? 'banner' : 'logo',
     logoUrl: b.logoUrl || '',
     headerBannerUrl: b.headerBannerUrl || '',
+    headerBannerPosition: Number.isFinite(b.headerBannerPosition) ? b.headerBannerPosition : 50,
     bgMode: b.bgImageUrl ? 'image' : 'color',
     bgColor: b.bgColor || '',
     bgImageUrl: b.bgImageUrl || '',
@@ -55,7 +56,10 @@ function brandingFromChat(branding) {
 
 function brandingToPayload(form) {
   const branding = {}
-  if (form.headerMode === 'banner' && form.headerBannerUrl.trim()) branding.headerBannerUrl = form.headerBannerUrl.trim()
+  if (form.headerMode === 'banner' && form.headerBannerUrl.trim()) {
+    branding.headerBannerUrl = form.headerBannerUrl.trim()
+    if (form.headerBannerPosition !== 50) branding.headerBannerPosition = form.headerBannerPosition
+  }
   if (form.headerMode === 'logo' && form.logoUrl.trim()) branding.logoUrl = form.logoUrl.trim()
   if (form.bgMode === 'image' && form.bgImageUrl.trim()) branding.bgImageUrl = form.bgImageUrl.trim()
   if (form.bgMode === 'color' && form.bgColor.trim()) branding.bgColor = form.bgColor.trim()
@@ -208,7 +212,16 @@ function ChatForm({ botId, apiCall, chat, onClose, onSaved }) {
                     <input type="text" value={branding.headerBannerUrl} onChange={e => updateBranding('headerBannerUrl', e.target.value)}
                       placeholder="https://... (imagen ancha, tipo portada de Facebook)" style={{ width: '100%' }} />
                     {branding.headerBannerUrl && (
-                      <img src={branding.headerBannerUrl} alt="" style={{ width: '100%', height: 60, objectFit: 'cover', borderRadius: 6, marginTop: 6 }} />
+                      <>
+                        <img src={branding.headerBannerUrl} alt=""
+                          style={{ width: '100%', height: 60, objectFit: 'cover', objectPosition: `center ${branding.headerBannerPosition}%`, borderRadius: 6, marginTop: 6 }} />
+                        <label style={{ display: 'block', fontSize: 12, marginTop: 6, color: 'var(--text-subtle)' }}>
+                          Qué parte de la imagen mostrar al recortar (movelo si tu título queda arriba o abajo del recorte)
+                          <input type="range" min="0" max="100" value={branding.headerBannerPosition}
+                            onChange={e => updateBranding('headerBannerPosition', Number(e.target.value))}
+                            style={{ width: '100%', marginTop: 4 }} />
+                        </label>
+                      </>
                     )}
                   </div>
                 )}

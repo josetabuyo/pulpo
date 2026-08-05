@@ -143,7 +143,7 @@
 .pc-header--banner {
   position: relative;
   padding: 0;
-  height: 96px;
+  height: 192px;
   overflow: hidden;
 }
 .pc-header-banner-img {
@@ -486,6 +486,9 @@
 @media (max-width: 860px) {
   .pc-header-btn--ads-only { display: inline-flex; }
   .pc-header-btn span { display: none; }
+  /* En celular, un banner de 192px se come demasiado del alto disponible --
+     lo bajamos a algo más parecido a lo que usa Facebook mobile. */
+  .pc-header--banner { height: 120px; }
   .pc-ads {
     position: absolute;
     top: 0; bottom: 0; right: 0;
