@@ -226,7 +226,10 @@ export default function PulpoChatWidget({
               className="pc-header-banner-img"
               src={branding.headerBannerUrl}
               alt={config.title || ''}
-              style={{ objectPosition: `center ${Number.isFinite(branding.headerBannerPosition) ? branding.headerBannerPosition : 50}%` }}
+              style={{
+                objectPosition: `center ${Number.isFinite(branding.headerBannerPosition) ? branding.headerBannerPosition : 50}%`,
+                '--pc-header-zoom': Number.isFinite(branding.headerBannerZoom) ? branding.headerBannerZoom : 1,
+              }}
             />
           )}
           <div className="pc-header-id">
