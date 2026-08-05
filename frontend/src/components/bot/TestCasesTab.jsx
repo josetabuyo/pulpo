@@ -15,7 +15,7 @@
  * persistido.
  */
 import { useEffect, useState, useCallback } from 'react'
-import CaseResultView from './CaseResultView.jsx'
+import CaseResultView, { StatusBadge, NoRunBadge } from './CaseResultView.jsx'
 
 // Fetches usados tanto al abrir "Ver" por primera vez como al navegar entre
 // casos con las flechas ▲/▼ de CaseResultView -- un solo lugar para no
@@ -301,8 +301,8 @@ function CasesView({ botId, apiCall, onShowRun, onViewRun }) {
   const [cases, setCases] = useState([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(null) // null=cerrado, {}=nuevo, case=editar
-  const [running, setRunning] = useState(null) // caseId en curso, o 'ALL'
-  const [viewing, setViewing] = useState(null) // caseId cuya última corrida se está por abrir
+  const [running, setRunning] = useState(null) // 'ALL' mientras corre "Correr todos"
+  const [opening, setOpening] = useState(null) // caseId cuyo detalle se está por abrir
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -316,24 +316,28 @@ function CasesView({ botId, apiCall, onShowRun, onViewRun }) {
 
   useEffect(() => { load() }, [load])
 
+  // Retorna true si se borró de verdad -- CaseResultView usa el resultado
+  // para saber si tiene que cerrarse (si el usuario cancela el confirm,
+  // el detalle se queda abierto).
   async function handleDelete(c) {
-    if (!confirm(`¿Borrar el caso "${c.title}"?`)) return
+    if (!confirm(`¿Borrar el caso "${c.title}"?`)) return false
     await apiCall('DELETE', `/bots/${botId}/test-cases/${c.id}`, null).catch(() => {})
     load()
+    return true
   }
 
   function handleDuplicate(c) {
     setEditing({ ...c, id: undefined, slug: `${c.slug}-copia`, title: `${c.title} (copia)` })
   }
 
-  async function handleRun(c) {
-    setRunning(c.id)
-    try {
-      const result = await apiCall('POST', `/bots/${botId}/test-cases/${c.id}/run`, null).catch(() => null)
-      if (result) onShowRun(result.suite_run_id)
-    } finally {
-      setRunning(null)
-    }
+  // Re-ejecución disparada desde adentro del detalle (CaseResultView) --
+  // actualiza el reporte in place, sin cambiar de tab. La respuesta del POST
+  // ya trae el run completo (steps + flow_snapshot), no hace falta refetch.
+  async function handleRerun(c) {
+    const result = await apiCall('POST', `/bots/${botId}/test-cases/${c.id}/run`, null).catch(() => null)
+    if (result?.id) onViewRun(v => v ? { ...v, run: result } : v)
+    load() // refresca el badge de la lista con el nuevo estado
+    return result
   }
 
   async function handleRunAll() {
@@ -343,17 +347,28 @@ function CasesView({ botId, apiCall, onShowRun, onViewRun }) {
       if (result?.suite_run_id) onShowRun(result.suite_run_id)
     } finally {
       setRunning(null)
+      load()
     }
   }
 
-  async function handleView(c) {
-    setViewing(c.id)
+  // Abre el detalle directo desde el click en la fila -- toda la línea es
+  // el CTA (ver comentario de arriba del archivo). Si el caso todavía no
+  // tiene corridas, el detalle igual abre con un estado vacío.
+  async function handleOpen(c) {
+    setOpening(c.id)
     try {
       const run = await fetchLatestRunForCase(apiCall, botId, c.id)
-      if (run?.id) onViewRun({ run, kind: 'case', ids: cases.map(x => x.id), index: cases.findIndex(x => x.id === c.id) })
-      else alert(`"${c.title}" todavía no tiene corridas -- probá "Correr" primero.`)
+      onViewRun({
+        run: run?.id ? run : null,
+        testCase: c,
+        kind: 'case',
+        ids: cases.map(x => x.id),
+        cases,
+        index: cases.findIndex(x => x.id === c.id),
+        actions: { onRerun: handleRerun, onEdit: setEditing, onDuplicate: handleDuplicate, onDelete: handleDelete },
+      })
     } finally {
-      setViewing(null)
+      setOpening(null)
     }
   }
 
@@ -378,10 +393,17 @@ function CasesView({ botId, apiCall, onShowRun, onViewRun }) {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {cases.map(c => (
-            <div key={c.id} style={{
-              display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px',
-              background: 'var(--bg)', borderRadius: 8, border: '1px solid var(--surface-2)',
-            }}>
+            <div
+              key={c.id}
+              onClick={() => handleOpen(c)}
+              role="button"
+              tabIndex={0}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', cursor: 'pointer',
+                background: 'var(--bg)', borderRadius: 8, border: '1px solid var(--surface-2)',
+                opacity: opening === c.id ? 0.6 : 1,
+              }}
+            >
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500 }}>{c.title}</div>
                 <div style={{ fontSize: 11, color: 'var(--text-subtle)', marginTop: 2 }}>
@@ -389,15 +411,9 @@ function CasesView({ botId, apiCall, onShowRun, onViewRun }) {
                   {c.description ? ` · ${c.description}` : ''}
                 </div>
               </div>
-              <button className="btn-primary btn-sm" title="Correr" disabled={running === c.id} onClick={() => handleRun(c)}>
-                {running === c.id ? '...' : '▶'}
-              </button>
-              <button className="btn-ghost btn-sm" title="Ver última corrida" disabled={viewing === c.id} onClick={() => handleView(c)}>
-                {viewing === c.id ? '...' : '👁'}
-              </button>
-              <button className="btn-ghost btn-sm" title="Editar" onClick={() => setEditing(c)}>✎</button>
-              <button className="btn-ghost btn-sm" title="Duplicar" onClick={() => handleDuplicate(c)}>⧉</button>
-              <button className="btn-danger btn-sm" title="Borrar" onClick={() => handleDelete(c)}>🗑</button>
+              {c.latest_run
+                ? <StatusBadge status={c.latest_run.status} failedChecks={c.latest_run.failed_checks} />
+                : <NoRunBadge />}
             </div>
           ))}
         </div>
@@ -453,13 +469,7 @@ function RunDetail({ run, botId, apiCall, onViewRun, siblingIds, index }) {
         onClick={() => setOpen(o => !o)}
         style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', cursor: 'pointer' }}
       >
-        <span style={{
-          fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 10,
-          background: run.status === 'passed' ? 'var(--success-dim)' : 'var(--danger-dim, #fee2e2)',
-          color: run.status === 'passed' ? 'var(--success)' : 'var(--danger)',
-        }}>
-          {run.status === 'passed' ? 'OK' : run.status === 'error' ? 'ERROR' : `REVISAR (${failed})`}
-        </span>
+        <StatusBadge status={run.status} failedChecks={failed} />
         <span style={{ flex: 1, fontSize: 13 }}>{run.test_case_title}</span>
         <button className="btn-ghost btn-sm" title="Ver" disabled={viewing} onClick={handleView}>
           {viewing ? '...' : '👁'}
@@ -575,17 +585,24 @@ export default function TestCasesTab({ botId, apiCall }) {
     setView('resultados')
   }
 
+  // Para kind 'run' (navegando entre corridas de la misma suite en
+  // "Resultados") se refetchea el run completo. Para kind 'case' (navegando
+  // entre casos en el detalle abierto desde "Casos") no hay más alert si el
+  // caso vecino no tiene corridas -- CaseResultView ya sabe mostrar el
+  // estado vacío, así que solo se actualiza testCase + run (o null).
   async function handleNavigate(direction) {
     if (!viewer) return
     const newIndex = computeNavIndex(viewer.index, viewer.ids.length, direction)
     if (newIndex === null) return
     setNavigating(true)
     try {
-      const run = viewer.kind === 'run'
-        ? await fetchFullRun(apiCall, botId, viewer.ids[newIndex])
-        : await fetchLatestRunForCase(apiCall, botId, viewer.ids[newIndex])
-      if (run?.id) setViewer(v => ({ ...v, run, index: newIndex }))
-      else alert('Ese caso todavía no tiene corridas -- probá "Correr" primero.')
+      if (viewer.kind === 'run') {
+        const run = await fetchFullRun(apiCall, botId, viewer.ids[newIndex])
+        if (run?.id) setViewer(v => ({ ...v, run, index: newIndex }))
+      } else {
+        const run = await fetchLatestRunForCase(apiCall, botId, viewer.ids[newIndex])
+        setViewer(v => ({ ...v, run: run?.id ? run : null, testCase: v.cases[newIndex], index: newIndex }))
+      }
     } finally {
       setNavigating(false)
     }
@@ -604,6 +621,8 @@ export default function TestCasesTab({ botId, apiCall }) {
       {viewer && (
         <CaseResultView
           run={viewer.run}
+          testCase={viewer.testCase}
+          actions={viewer.actions}
           apiCall={apiCall}
           onClose={() => setViewer(null)}
           onNavigate={handleNavigate}

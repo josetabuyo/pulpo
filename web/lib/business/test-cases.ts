@@ -52,10 +52,49 @@ function validateInput(input: TestCaseInput) {
   if (!Array.isArray(input.checks)) throw new ValidationError("checks debe ser una lista");
 }
 
+// Estado de la corrida más reciente por caso -- alimenta el badge que la
+// lista de "Casos" muestra a primera vista (ver TestCasesTab.jsx), para ir
+// directo al caso con problemas sin tener que entrar a cada uno.
+interface LatestRunSummary {
+  id: string;
+  status: string;
+  started_at: Date | null;
+  failed_checks: number;
+}
+
+async function getLatestRunSummaries(botId: string): Promise<Map<string, LatestRunSummary>> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      id: testRuns.id,
+      testCaseId: testRuns.testCaseId,
+      status: testRuns.status,
+      startedAt: testRuns.startedAt,
+      checkResults: testRuns.checkResults,
+    })
+    .from(testRuns)
+    .where(eq(testRuns.botId, botId))
+    .orderBy(desc(testRuns.startedAt));
+
+  const latest = new Map<string, LatestRunSummary>();
+  for (const r of rows) {
+    if (latest.has(r.testCaseId)) continue;
+    const checks = (r.checkResults as { kind: string; passed: boolean }[]) ?? [];
+    latest.set(r.testCaseId, {
+      id: r.id,
+      status: r.status,
+      started_at: r.startedAt,
+      failed_checks: checks.filter((c) => c.kind === "assert" && !c.passed).length,
+    });
+  }
+  return latest;
+}
+
 export async function listTestCases(botId: string) {
   const db = getDb();
   const rows = await db.select().from(testCases).where(eq(testCases.botId, botId)).orderBy(asc(testCases.position));
-  return rows.map(toDto);
+  const latestRuns = await getLatestRunSummaries(botId);
+  return rows.map((row) => ({ ...toDto(row), latest_run: latestRuns.get(row.id) ?? null }));
 }
 
 export async function getTestCaseRow(botId: string, caseId: string): Promise<TestCaseRow> {
