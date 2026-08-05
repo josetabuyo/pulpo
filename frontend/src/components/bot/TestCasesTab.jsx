@@ -1,13 +1,15 @@
 /**
  * Tab "Test": suite de tests e2e configurable 100% desde la UI, sin código
  * ni pytest -- reemplaza TestReportsTab.jsx (reportes HTML estáticos
- * generados por scripts/generate_e2e_report.py). Dos vistas:
+ * generados por scripts/generate_e2e_report.py).
  *
- *  - "Casos": CRUD de test_cases (turnos de conversación + validaciones,
- *    ambos como builders estructurados -- ver web/lib/business/test-checks.ts
- *    para la definición canónica de CheckSpec, CHECK_TYPES acá abajo es un
- *    espejo en JS de ese mismo archivo, mantenerlos en sync a mano).
- *  - "Resultados": historial de test_runs, agrupado por suite_run_id.
+ * Una sola vista, "Casos": CRUD de test_cases (turnos de conversación +
+ * validaciones, ambos como builders estructurados -- ver
+ * web/lib/business/test-checks.ts para la definición canónica de CheckSpec,
+ * CHECK_TYPES acá abajo es un espejo en JS de ese mismo archivo, mantenerlos
+ * en sync a mano). Los resultados de la última corrida de cada caso viven
+ * integrados en esta misma lista (badge de estado) y en el detalle
+ * (CaseResultView) -- no hay una vista de "Resultados" separada.
  *
  * El motor de ejecución corre in-process dentro de `web/` (sin pytest, sin
  * gastar cuota de Vercel Workflow -- ver web/lib/business/test-runner.ts) --
@@ -17,11 +19,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import CaseResultView, { StatusBadge, NoRunBadge } from './CaseResultView.jsx'
 
-// Fetches usados tanto al abrir "Ver" por primera vez como al navegar entre
-// casos con las flechas ▲/▼ de CaseResultView -- un solo lugar para no
-// repetir la misma llamada en CasesView, RunDetail y el navegador de la raíz.
-const fetchFullRun = (apiCall, botId, runId) =>
-  apiCall('GET', `/bots/${botId}/test-runs/${runId}`, null).catch(() => null)
+// Fetch usado tanto al abrir "Ver" por primera vez como al navegar entre
+// casos con las flechas ▲/▼ de CaseResultView.
 const fetchLatestRunForCase = (apiCall, botId, caseId) =>
   apiCall('GET', `/bots/${botId}/test-cases/${caseId}/latest-run`, null).catch(() => null)
 
@@ -330,7 +329,7 @@ function CaseRowActions({ testCase, onRun, onEdit, onDuplicate, onDelete }) {
   )
 }
 
-function CasesView({ botId, apiCall, onShowRun, onViewRun }) {
+function CasesView({ botId, apiCall, onViewRun }) {
   const [cases, setCases] = useState([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(null) // null=cerrado, {}=nuevo, case=editar
@@ -376,8 +375,7 @@ function CasesView({ botId, apiCall, onShowRun, onViewRun }) {
   async function handleRunAll() {
     setRunning('ALL')
     try {
-      const result = await apiCall('POST', `/bots/${botId}/test-runs`, {}).catch(() => null)
-      if (result?.suite_run_id) onShowRun(result.suite_run_id)
+      await apiCall('POST', `/bots/${botId}/test-runs`, {}).catch(() => null)
     } finally {
       setRunning(null)
       load()
@@ -468,192 +466,34 @@ function CasesView({ botId, apiCall, onShowRun, onViewRun }) {
   )
 }
 
-// ─── Vista "Resultados" ───────────────────────────────────────────────────
-
-function CheckResultRow({ check }) {
-  return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12, padding: '3px 0' }}>
-      <span style={{ color: check.passed ? 'var(--success)' : 'var(--danger)' }}>
-        {check.kind === 'log' ? '·' : check.passed ? '✓' : '✗'}
-      </span>
-      <div>
-        <span style={{ color: 'var(--text)' }}>{check.label}</span>
-        {check.detail && <div style={{ color: 'var(--text-subtle)', fontFamily: 'monospace', fontSize: 11 }}>{check.detail}</div>}
-      </div>
-    </div>
-  )
-}
-
-function RunDetail({ run, botId, apiCall, onViewRun, siblingIds, index }) {
-  const [open, setOpen] = useState(false)
-  const [viewing, setViewing] = useState(false)
-  const failed = run.check_results.filter(c => c.kind === 'assert' && !c.passed).length
-
-  async function handleView(e) {
-    e.stopPropagation()
-    setViewing(true)
-    try {
-      const full = await fetchFullRun(apiCall, botId, run.id)
-      if (full?.id) onViewRun({ run: full, kind: 'run', ids: siblingIds, index })
-    } finally {
-      setViewing(false)
-    }
-  }
-
-  return (
-    <div style={{ border: '1px solid var(--surface-2)', borderRadius: 8, background: 'var(--bg)' }}>
-      <div
-        onClick={() => setOpen(o => !o)}
-        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', cursor: 'pointer' }}
-      >
-        <StatusBadge status={run.status} failedChecks={failed} />
-        <span style={{ flex: 1, fontSize: 13 }}>{run.test_case_title}</span>
-        <button className="btn-ghost btn-sm" title="Ver" disabled={viewing} onClick={handleView}>
-          {viewing ? '...' : '👁'}
-        </button>
-        <span style={{ fontSize: 11, color: 'var(--text-subtle)' }}>{open ? '▲' : '▼'}</span>
-      </div>
-      {open && (
-        <div style={{ padding: '0 12px 12px' }}>
-          {run.error_message && (
-            <div style={{ color: 'var(--danger)', fontSize: 12, marginBottom: 8 }}>{run.error_message}</div>
-          )}
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            <div style={{ flex: '1 1 260px', minWidth: 220 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-subtle)', marginBottom: 4 }}>CONVERSACIÓN</div>
-              {run.turns.map((t, i) => (
-                <div key={i} style={{
-                  fontSize: 12, marginBottom: 4, padding: '5px 8px', borderRadius: 6,
-                  background: t.role === 'user' ? 'var(--surface-2)' : 'var(--surface)',
-                  marginLeft: t.role === 'bot' ? 12 : 0, marginRight: t.role === 'user' ? 12 : 0,
-                }}>
-                  <strong style={{ fontSize: 10, color: 'var(--text-subtle)' }}>{t.role === 'user' ? 'Vecino' : 'Bot'}</strong>
-                  <div>{t.text || '(sin respuesta)'}</div>
-                </div>
-              ))}
-            </div>
-            <div style={{ flex: '1 1 260px', minWidth: 220 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-subtle)', marginBottom: 4 }}>VALIDACIONES</div>
-              {run.check_results.map((c, i) => <CheckResultRow key={i} check={c} />)}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function ResultsView({ botId, apiCall, focusSuiteRunId, onViewRun }) {
-  const [runs, setRuns] = useState([])
-  const [loading, setLoading] = useState(true)
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const data = await apiCall('GET', `/bots/${botId}/test-runs`, null).catch(() => null)
-      if (Array.isArray(data)) setRuns(data)
-    } finally {
-      setLoading(false)
-    }
-  }, [botId, apiCall])
-
-  useEffect(() => { load() }, [load, focusSuiteRunId])
-
-  const groups = []
-  const seen = new Set()
-  for (const r of runs) {
-    if (seen.has(r.suite_run_id)) continue
-    seen.add(r.suite_run_id)
-    groups.push({ suite_run_id: r.suite_run_id, runs: runs.filter(x => x.suite_run_id === r.suite_run_id) })
-  }
-
-  return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <span style={{ fontSize: 12, color: 'var(--text-subtle)' }}>
-          {groups.length === 0 ? 'Sin corridas todavía' : `${groups.length} corrida${groups.length !== 1 ? 's' : ''}`}
-        </span>
-        <button className="btn-ghost btn-sm" onClick={load}>↺ Actualizar</button>
-      </div>
-
-      {loading ? (
-        <div className="empty" style={{ padding: '24px 0' }}>Cargando resultados...</div>
-      ) : groups.length === 0 ? (
-        <div className="empty" style={{ padding: '24px 0' }}>Sin corridas todavía. Andá a &quot;Casos&quot; y correlos.</div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {groups.map(g => {
-            const passed = g.runs.filter(r => r.status === 'passed').length
-            return (
-              <div key={g.suite_run_id}>
-                <div style={{ fontSize: 11, color: 'var(--text-subtle)', marginBottom: 6 }}>
-                  {new Date(g.runs[0].started_at).toLocaleString('es-AR')} · {passed}/{g.runs.length} OK
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {g.runs.map((r, i) => (
-                    <RunDetail
-                      key={r.id} run={r} botId={botId} apiCall={apiCall} onViewRun={onViewRun}
-                      siblingIds={g.runs.map(x => x.id)} index={i}
-                    />
-                  ))}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ─── Componente raíz de la tab ────────────────────────────────────────────
 
 export default function TestCasesTab({ botId, apiCall }) {
-  const [view, setView] = useState('casos')
-  const [focusSuiteRunId, setFocusSuiteRunId] = useState(null)
   // corrida completa (con steps + flow_snapshot) abierta en "Ver", más la
-  // lista de ids hermanos (runs de la misma corrida de suite, o casos) y el
-  // índice actual dentro de esa lista -- lo que habilita las flechas ▲/▼.
-  const [viewer, setViewer] = useState(null) // { run, kind: 'run'|'case', ids, index }
+  // lista de ids hermanos (casos) y el índice actual dentro de esa lista --
+  // lo que habilita las flechas ▲/▼.
+  const [viewer, setViewer] = useState(null) // { run, kind: 'case', ids, index }
   const [navigating, setNavigating] = useState(false)
 
-  function showRun(suiteRunId) {
-    setFocusSuiteRunId(suiteRunId)
-    setView('resultados')
-  }
-
-  // Para kind 'run' (navegando entre corridas de la misma suite en
-  // "Resultados") se refetchea el run completo. Para kind 'case' (navegando
-  // entre casos en el detalle abierto desde "Casos") no hay más alert si el
-  // caso vecino no tiene corridas -- CaseResultView ya sabe mostrar el
-  // estado vacío, así que solo se actualiza testCase + run (o null).
+  // Navega entre casos vecinos en el detalle abierto desde "Casos" -- si el
+  // caso vecino no tiene corridas, CaseResultView ya sabe mostrar el estado
+  // vacío, así que solo se actualiza testCase + run (o null).
   async function handleNavigate(direction) {
     if (!viewer) return
     const newIndex = computeNavIndex(viewer.index, viewer.ids.length, direction)
     if (newIndex === null) return
     setNavigating(true)
     try {
-      if (viewer.kind === 'run') {
-        const run = await fetchFullRun(apiCall, botId, viewer.ids[newIndex])
-        if (run?.id) setViewer(v => ({ ...v, run, index: newIndex }))
-      } else {
-        const run = await fetchLatestRunForCase(apiCall, botId, viewer.ids[newIndex])
-        setViewer(v => ({ ...v, run: run?.id ? run : null, testCase: v.cases[newIndex], index: newIndex }))
-      }
+      const run = await fetchLatestRunForCase(apiCall, botId, viewer.ids[newIndex])
+      setViewer(v => ({ ...v, run: run?.id ? run : null, testCase: v.cases[newIndex], index: newIndex }))
     } finally {
       setNavigating(false)
     }
   }
 
   return (
-    <div>
-      <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-        <button className={view === 'casos' ? 'btn-primary btn-sm' : 'btn-ghost btn-sm'} onClick={() => setView('casos')}>Casos</button>
-        <button className={view === 'resultados' ? 'btn-primary btn-sm' : 'btn-ghost btn-sm'} onClick={() => setView('resultados')}>Resultados</button>
-      </div>
-      {view === 'casos'
-        ? <CasesView botId={botId} apiCall={apiCall} onShowRun={showRun} onViewRun={setViewer} />
-        : <ResultsView botId={botId} apiCall={apiCall} focusSuiteRunId={focusSuiteRunId} onViewRun={setViewer} />}
+    <div className="ec-config-tab">
+      <CasesView botId={botId} apiCall={apiCall} onViewRun={setViewer} />
 
       {viewer && (
         <CaseResultView

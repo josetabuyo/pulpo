@@ -192,12 +192,6 @@ function toRunDetailDto(row: TestRunRow) {
   return { ...toRunDto(row), steps: row.steps, flow_snapshot: row.flowSnapshot, diagram_image: row.diagramImage };
 }
 
-export async function listTestRuns(botId: string) {
-  const db = getDb();
-  const rows = await db.select().from(testRuns).where(eq(testRuns.botId, botId)).orderBy(asc(testRuns.startedAt));
-  return rows.map(toRunDto).reverse();
-}
-
 export async function getTestRun(botId: string, runId: string) {
   const db = getDb();
   const [row] = await db.select().from(testRuns).where(and(eq(testRuns.id, runId), eq(testRuns.botId, botId)));
