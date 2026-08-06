@@ -58,15 +58,21 @@ function FlowExecutionTwinInner({ flowSnapshot, steps, apiCall }) {
   )
 }
 
-export default function FlowExecutionTwin({ flowSnapshot, steps, apiCall, height = 640 }) {
+export default function FlowExecutionTwin({ flowSnapshot, steps, apiCall, height }) {
   const store = useMemo(() => createFlowStore(), [])
 
   if (!flowSnapshot) {
     return <div className="empty" style={{ padding: '16px 0' }}>Sin snapshot del flow guardado para esta corrida</div>
   }
 
+  // Sin `height` explícito, llena el contenedor flex del padre (caso de uso
+  // principal, CaseResultView.jsx) en vez de una altura fija -- así fitView
+  // calcula el zoom contra el espacio real disponible y no deja hueco vacío
+  // debajo del diagrama.
+  const sizeStyle = height ? { height, flexShrink: 0 } : { flex: 1, minHeight: 0, width: '100%' }
+
   return (
-    <div style={{ height, flexShrink: 0, border: '1px solid var(--surface-2)', borderRadius: 8, overflow: 'hidden', position: 'relative', display: 'flex' }}>
+    <div style={{ ...sizeStyle, border: '1px solid var(--surface-2)', borderRadius: 8, overflow: 'hidden', position: 'relative', display: 'flex' }}>
       <FlowStoreContext.Provider value={store}>
         <ReactFlowProvider>
           <FlowExecutionTwinInner flowSnapshot={flowSnapshot} steps={steps} apiCall={apiCall} />

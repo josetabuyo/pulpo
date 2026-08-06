@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from . import llm as llm_module
 from .llm import LLMLocalNode
 from .state import FlowState, append_conversation_entry
 
@@ -126,7 +127,7 @@ async def test_sin_conversation_usa_state_message():
         await node.run(_state(message="hola"))
     messages = llm.ainvoke.call_args.args[0]
     assert messages == [
-        {"role": "system", "content": "system"},
+        {"role": "system", "content": llm_module._ANTI_INJECTION_PREFIX + "system" + llm_module._ANTI_INJECTION_SUFFIX},
         {"role": "user", "content": "hola"},
     ]
 
@@ -146,8 +147,13 @@ async def test_con_conversation_no_duplica_el_historial_como_turnos():
         await node.run(state)
 
     messages = llm.ainvoke.call_args.args[0]
+    expected_system = (
+        llm_module._ANTI_INJECTION_PREFIX
+        + "Conversación:\nUsuario: hola\nBot: ¿en qué te ayudo?\nUsuario: quiero reservar"
+        + llm_module._ANTI_INJECTION_SUFFIX
+    )
     assert messages == [
-        {"role": "system", "content": "Conversación:\nUsuario: hola\nBot: ¿en qué te ayudo?\nUsuario: quiero reservar"},
+        {"role": "system", "content": expected_system},
         {"role": "user", "content": "quiero reservar"},
     ]
 
@@ -164,7 +170,7 @@ async def test_context_no_se_agrega_si_el_prompt_no_lo_pide():
         await node.run(state)
 
     messages = llm.ainvoke.call_args.args[0]
-    assert messages[0]["content"] == "system"
+    assert messages[0]["content"] == llm_module._ANTI_INJECTION_PREFIX + "system" + llm_module._ANTI_INJECTION_SUFFIX
 
 
 @pytest.mark.asyncio

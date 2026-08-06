@@ -207,19 +207,19 @@ export default function CaseResultView({ run, testCase, actions, apiCall, onClos
             )}
 
             <div style={{ display: 'flex', gap: 16, flex: 1, minHeight: 0, opacity: navigating ? 0.5 : 1 }}>
-              <div style={{ flex: '1 1 40%', minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <div style={{ flex: '1 1 50%', minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-subtle)', marginBottom: 8, flexShrink: 0 }}>CONVERSACIÓN</div>
                 <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
                   {(run.turns || []).map((t, i) => <ChatTurn key={i} turn={t} />)}
                 </div>
               </div>
 
-              <div style={{ flex: '1 1 60%', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
+              <div style={{ flex: '1 1 50%', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
                 <div style={{ flex: '1 1 55%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-subtle)', marginBottom: 8, flexShrink: 0 }}>
                     FLOW (solo lectura — camino recorrido resaltado, explorable con zoom/pan)
                   </div>
-                  <div style={{ flex: 1, minHeight: 0, border: '1px solid var(--surface-2)', borderRadius: 8, overflow: 'hidden' }}>
+                  <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
                     <FlowExecutionTwin flowSnapshot={run.flow_snapshot} steps={run.steps} apiCall={apiCall} />
                   </div>
                 </div>
