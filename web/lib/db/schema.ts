@@ -430,3 +430,28 @@ export const testRuns = pgTable(
     index("test_runs_suite_run_id_idx").on(table.suiteRunId),
   ],
 );
+
+// Reporte de test publicado hacia un ambiente (botón "Publicar" en la tab
+// "Test", mismo patrón que el sync de flows -- ver
+// lib/business/environment-sync.ts / test-report-publish.ts). A diferencia
+// de `testRuns` (sujeto a la política de retención de enforceRunRetention,
+// pensada para debug de corto plazo), esta tabla es la vista pública de
+// resultados que se le comparte al cliente -- vive independiente hasta que
+// se borre a mano, y guarda una copia self-contained de cada test_run de la
+// corrida (no una referencia) porque puede recibirse desde OTRO ambiente
+// Pulpo, donde esos test_runs.id ni siquiera existen.
+export const publishedTestReports = pgTable(
+  "published_test_reports",
+  {
+    id: text("id").primaryKey(),
+    botId: text("bot_id").notNull(),
+    suiteRunId: text("suite_run_id").notNull(),
+    summary: jsonb("summary").notNull(), // { total, passed, failed }
+    // Snapshot self-contained de cada test_run de la corrida -- mismo shape
+    // que toRunDetailDto() en lib/business/test-cases.ts (incluye steps,
+    // flow_snapshot, diagram_image).
+    runs: jsonb("runs").notNull(),
+    publishedAt: timestamp("published_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [index("published_test_reports_bot_id_idx").on(table.botId)],
+);

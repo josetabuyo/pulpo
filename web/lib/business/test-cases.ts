@@ -199,6 +199,32 @@ export async function getTestRun(botId: string, runId: string) {
   return toRunDetailDto(row);
 }
 
+// Todos los test_runs de UNA corrida ("Correr todos" o "Correr" suelto,
+// agrupados por suite_run_id) -- usado por lib/business/test-report-publish.ts
+// para armar el snapshot self-contained que se publica hacia un ambiente.
+export async function getTestRunsBySuiteRunId(botId: string, suiteRunId: string) {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(testRuns)
+    .where(and(eq(testRuns.botId, botId), eq(testRuns.suiteRunId, suiteRunId)))
+    .orderBy(asc(testRuns.startedAt));
+  return rows.map(toRunDetailDto);
+}
+
+// suite_run_id de la corrida más reciente del bot -- "Publicar" sin elegir
+// una corrida puntual publica esta por default (la que se ve en pantalla).
+export async function getLatestSuiteRunId(botId: string): Promise<string | null> {
+  const db = getDb();
+  const [row] = await db
+    .select({ suiteRunId: testRuns.suiteRunId })
+    .from(testRuns)
+    .where(eq(testRuns.botId, botId))
+    .orderBy(desc(testRuns.startedAt))
+    .limit(1);
+  return row?.suiteRunId ?? null;
+}
+
 // Corrida más reciente de un caso puntual -- usada por el ícono "Ver" en la
 // fila del caso (antes de tener ninguna corrida seleccionada explícitamente).
 export async function getLatestTestRunForCase(botId: string, testCaseId: string) {

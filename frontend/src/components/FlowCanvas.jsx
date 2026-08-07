@@ -13,21 +13,23 @@ import {
   useReactFlow,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { useFlowStore, getNodeRoutes as getNodeRoutesFor } from '../store/flowStore.js'
+import { useFlowStore, getNodeRoutes as getNodeRoutesFor, getDisabledRoutes as getDisabledRoutesFor } from '../store/flowStore.js'
 import { GRID_SIZE, NODE_WIDTH, snapPoint } from '../utils/grid.js'
 
 // ─── Contexto de modo borrar ──────────────────────────────────────────────────
 
-const EdgeActionsCtx = createContext({ deleteMode: false, embed: false, readOnly: false, deleteEdge: null, updateEdgeBend: null, updateEdgeLabel: null, getNodeRoutes: null })
+const EdgeActionsCtx = createContext({ deleteMode: false, embed: false, readOnly: false, deleteEdge: null, updateEdgeBend: null, updateEdgeLabel: null, getNodeRoutes: null, getDisabledRoutes: null })
 
 // ─── Edge custom ──────────────────────────────────────────────────────────────
 
 function LabeledEdge({ id, source, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, label, selected, markerEnd, markerStart, data }) {
-  const { deleteMode, embed, readOnly, deleteEdge, updateEdgeBend, updateEdgeLabel, getNodeRoutes } = useContext(EdgeActionsCtx)
+  const { deleteMode, embed, readOnly, deleteEdge, updateEdgeBend, updateEdgeLabel, getNodeRoutes, getDisabledRoutes } = useContext(EdgeActionsCtx)
   const { screenToFlowPosition } = useReactFlow()
   const [localBend, setLocalBend] = useState(null)
   const [editing, setEditing] = useState(false)
   const routes = getNodeRoutes?.(source) || []
+  const disabledRoutes = getDisabledRoutes?.(source) || []
+  const isLabelDisabled = label && disabledRoutes.includes(label)
 
   const bendX = localBend?.x ?? data?.bendX
   const bendY = localBend?.y ?? data?.bendY
@@ -142,7 +144,8 @@ function LabeledEdge({ id, source, sourceX, sourceY, targetX, targetY, sourcePos
         style={{
           stroke: deleteMode ? 'var(--danger)' : dimmed ? 'var(--border-strong)' : highlighted ? 'var(--success)' : 'var(--text-subtle)',
           strokeWidth: highlighted ? 3 : 2,
-          opacity: dimmed ? 0.35 : 1,
+          strokeDasharray: isLabelDisabled ? '4 3' : undefined,
+          opacity: dimmed ? 0.35 : isLabelDisabled ? 0.4 : 1,
           cursor: deleteMode ? 'pointer' : 'default',
         }}
         onClick={deleteMode ? (e) => { e.stopPropagation(); deleteEdge?.(id) } : undefined}
@@ -156,16 +159,18 @@ function LabeledEdge({ id, source, sourceX, sourceY, targetX, targetY, sourcePos
           {label && (
             <span
               onPointerDown={!deleteMode && !readOnly ? startDrag : undefined}
+              title={isLabelDisabled ? 'Rama deshabilitada -- nunca se toma en tiempo de ejecución' : undefined}
               style={{
                 background: 'var(--surface-2)',
-                border: `1px solid ${highlighted ? 'var(--success)' : hasBend && !deleteMode ? 'var(--brand)' : 'var(--border-strong)'}`,
+                border: `1px solid ${isLabelDisabled ? 'var(--warning)' : highlighted ? 'var(--success)' : hasBend && !deleteMode ? 'var(--brand)' : 'var(--border-strong)'}`,
                 borderRadius: 4,
-                color: highlighted ? 'var(--success)' : 'var(--text-subtle)',
+                color: isLabelDisabled ? 'var(--warning)' : highlighted ? 'var(--success)' : 'var(--text-subtle)',
                 fontSize: 11,
                 padding: '1px 6px',
                 whiteSpace: 'nowrap',
                 cursor: !deleteMode ? 'grab' : 'default',
                 userSelect: 'none',
+                textDecoration: isLabelDisabled ? 'line-through' : 'none',
                 opacity: dimmed ? 0.5 : 1,
               }}
             >
@@ -215,7 +220,7 @@ function LabeledEdge({ id, source, sourceX, sourceY, targetX, targetY, sourcePos
                   style={{ fontSize: 11, background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border-strong)', borderRadius: 4, padding: '2px 4px' }}
                 >
                   <option value="">(sin label)</option>
-                  {routes.map(r => <option key={r} value={r}>{r}</option>)}
+                  {routes.map(r => <option key={r} value={r}>{r}{disabledRoutes.includes(r) ? ' (deshabilitada)' : ''}</option>)}
                 </select>
               ) : (
                 <input
@@ -474,8 +479,13 @@ export default function FlowCanvas({
     return node ? getNodeRoutesFor(node) : []
   }, [editNodes])
 
+  const getDisabledRoutes = useCallback((nodeId) => {
+    const node = (editNodes || []).find(n => n.id === nodeId)
+    return node ? getDisabledRoutesFor(node) : []
+  }, [editNodes])
+
   return (
-    <EdgeActionsCtx.Provider value={{ deleteMode, embed, readOnly, deleteEdge, updateEdgeBend: onEdgeBendChange, updateEdgeLabel: onEdgeLabelChange, getNodeRoutes }}>
+    <EdgeActionsCtx.Provider value={{ deleteMode, embed, readOnly, deleteEdge, updateEdgeBend: onEdgeBendChange, updateEdgeLabel: onEdgeLabelChange, getNodeRoutes, getDisabledRoutes }}>
       <div
         ref={reactFlowWrapper}
         style={{ flex: 1, background: 'var(--bg)', overflow: 'hidden', position: 'relative', cursor: canvasCursor }}

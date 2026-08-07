@@ -5,6 +5,7 @@ import BotPage from './pages/BotPage.jsx'
 import NewBotPage from './pages/NewBotPage.jsx'
 import EmbedFlowPage from './pages/EmbedFlowPage.jsx'
 import EmbedTestRunPage from './pages/EmbedTestRunPage.jsx'
+import EmbedTestReportsPage from './pages/EmbedTestReportsPage.jsx'
 import ChatPage from './pages/ChatPage.jsx'
 import RequireAuth from './components/RequireAuth.jsx'
 
@@ -24,6 +25,12 @@ export default function App() {
       {/* Idem, para UNA corrida de test (tab "Test" > "Ver") -- captura
           headless del reporte, ver web/lib/business/flow-capture.ts. */}
       <Route path="/embed/test-run/:botId/:runId" element={<EmbedTestRunPage />} />
+      {/* Vista pública de TODOS los reportes de test publicados de un bot,
+          uno debajo del otro, sin botones -- link aparte para compartir con
+          el cliente (botón "Publicar" en la tab "Test", ver
+          lib/business/test-report-publish.ts). No es headless: la abre una
+          persona, no un capturador. */}
+      <Route path="/embed/test-reports/:botId" element={<EmbedTestReportsPage />} />
       {/* Chat público/allowlist standalone, UN chat puntual de un bot
           (2026-07-23: un bot puede tener N chats) -- ChatPage/PulpoChatWidget
           deciden solos si hace falta login (GET

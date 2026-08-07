@@ -130,6 +130,31 @@ async def test_max_visits_no_pisa_un_acierto_en_la_ultima_visita():
 
 
 @pytest.mark.asyncio
+async def test_disabled_routes_ignora_la_regla_y_sigue_a_la_siguiente():
+    node = ConditionNode({
+        "rules": [
+            {"var": "necesidad", "op": "not_empty", "then": "oficio"},
+            {"var": "necesidad", "op": "not_empty", "then": "generico"},
+        ],
+        "fallback": "pedir_mas_info",
+        "disabled_routes": ["oficio"],
+    })
+    state = await node.run(_state(data={"necesidad": "plomero"}))
+    assert state.data["route"] == "generico"
+
+
+@pytest.mark.asyncio
+async def test_disabled_routes_como_fallback_final_cae_al_fallback():
+    node = ConditionNode({
+        "rules": [{"var": "necesidad", "op": "not_empty", "then": "oficio"}],
+        "fallback": "pedir_mas_info",
+        "disabled_routes": ["oficio"],
+    })
+    state = await node.run(_state(data={"necesidad": "plomero"}))
+    assert state.data["route"] == "pedir_mas_info"
+
+
+@pytest.mark.asyncio
 async def test_sin_max_visits_route_no_cuenta_visitas():
     node = ConditionNode({
         "rules": [{"var": "necesidad", "op": "not_empty", "then": "necesidad_identificada"}],

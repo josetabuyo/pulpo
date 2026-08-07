@@ -57,12 +57,16 @@ class RouterNode(BaseNode):
         pre_route_rules  = self.config.get("pre_route_rules", [])
         max_visits       = self.config.get("max_visits")
         max_visits_route = self.config.get("max_visits_route", "")
+        disabled_routes  = set(self.config.get("disabled_routes") or [])
+        active_routes    = [r for r in routes if r not in disabled_routes]
         model, router_strategy = parse_model_strategy(raw_model)
 
         # Reglas deterministas: se evalúan antes del LLM
         if pre_route_rules:
             route = _eval_pre_route_rules(pre_route_rules, state)
-            if route:
+            # Rama deshabilitada desde el editor -- se ignora como si la regla
+            # no existiera, sigue al flujo normal de clasificación.
+            if route and route not in disabled_routes:
                 logger.info("[RouterNode] pre_route_rule → '%s'", route)
                 state.data["route"] = route
                 return state
@@ -98,7 +102,7 @@ class RouterNode(BaseNode):
                         break
                     logger.warning("[RouterNode] contenido vacío en intento %d, reintentando", attempts)
 
-                if routes and route not in routes:
+                if active_routes and route not in active_routes:
                     logger.info("[RouterNode] respuesta '%s' no válida — usando fallback '%s'", route, fallback)
                     route = fallback
                 logger.info("[RouterNode] route → '%s' | msg: %.60s", route, state.message)
@@ -112,7 +116,7 @@ class RouterNode(BaseNode):
         # ANTES de evaluar la respuesta, forzando fatiga aunque ESA visita
         # resolviera bien — ej. el 3er intento identifica algo válido pero
         # igual se fuerza a "agotado" solo por ser la 3ra visita.)
-        if max_visits and max_visits_route and route == fallback:
+        if max_visits and max_visits_route and max_visits_route not in disabled_routes and route == fallback:
             visit_key = f"_visits_{self.config.get('_node_id', 'router')}"
             visits = int(state.data.get(visit_key, 0) or 0) + 1
             state.data[visit_key] = visits
@@ -121,6 +125,8 @@ class RouterNode(BaseNode):
                 logger.info("[RouterNode] max_visits=%s alcanzado → '%s'", max_visits, max_visits_route)
                 route = max_visits_route
 
+        if route in disabled_routes:
+            route = fallback
         state.data["route"] = route
         return state
 
@@ -143,5 +149,11 @@ class RouterNode(BaseNode):
                 "label":   "Ruta cuando se agota el límite",
                 "default": "",
                 "hint":    "Debe existir como edge de este nodo. Ej: agotado",
+            },
+            "disabled_routes": {
+                "type":    "list",
+                "label":   "Ramas deshabilitadas",
+                "default": [],
+                "hint":    "Nombres de rutas a ignorar como si no existieran (editable desde el toggle \"Ramas\" del panel de config)",
             },
         }

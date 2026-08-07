@@ -208,6 +208,13 @@ export default function ConfigForm({ node, schema, botId, flowId, apiCall, onGoT
         </div>
       )}
 
+      {/* Toggle de ramas -- router/condition: deshabilitar una rama la deja
+          fuera de la ejecución (se ignora como si no existiera, ver
+          web/lib/nodes/router.ts y condition.ts) sin borrar la regla/edge. */}
+      {(nodeType === 'router' || nodeType === 'condition') && (
+        <RouteTogglePanel node={node} config={config} onChange={handleChange} />
+      )}
+
       {/* JSON config editor */}
       <JsonNodeEditor
         config={config}
@@ -296,6 +303,66 @@ export default function ConfigForm({ node, schema, botId, flowId, apiCall, onGoT
         </div>
       )}
 
+    </div>
+  )
+}
+
+// ─── Toggle de ramas (router/condition) ────────────────────────────────────
+//
+// Deshabilitar una rama la deja fuera de la ejecución del flow (se ignora
+// como si la regla/clasificación hacia ella no existiera -- ver
+// web/lib/nodes/router.ts y condition.ts) sin borrar el edge ni la regla del
+// JSON, así se puede reactivar después sin reconstruir nada. Escribe en
+// config.disabled_routes (list[str]).
+function RouteTogglePanel({ node, config, onChange }) {
+  const nodeType = node.data?.nodeType
+  const disabled = new Set(config.disabled_routes || [])
+
+  let routeNames = []
+  if (nodeType === 'router') {
+    routeNames = config.routes || []
+  } else if (nodeType === 'condition') {
+    routeNames = (config.rules || []).map(r => r.then).filter(Boolean)
+  }
+  if (config.max_visits_route) routeNames = [...routeNames, config.max_visits_route]
+  routeNames = [...new Set(routeNames)]
+
+  if (!routeNames.length) return null
+
+  function toggle(name) {
+    const next = new Set(disabled)
+    if (next.has(name)) next.delete(name)
+    else next.add(name)
+    onChange({ ...config, disabled_routes: [...next] })
+  }
+
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', gap: 6,
+      background: 'var(--bg)', border: '1px solid var(--surface-2)',
+      borderRadius: 6, padding: '8px 10px',
+    }}>
+      <span style={{ fontSize: 9, color: 'var(--border-strong)', fontWeight: 700, letterSpacing: '0.12em' }}>
+        RAMAS
+      </span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {routeNames.map(name => {
+          const isDisabled = disabled.has(name)
+          return (
+            <label key={name} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
+              <input type="checkbox" checked={!isDisabled} onChange={() => toggle(name)} />
+              <span style={{
+                fontFamily: 'monospace',
+                color: isDisabled ? 'var(--text-subtle)' : 'var(--text)',
+                textDecoration: isDisabled ? 'line-through' : 'none',
+              }}>
+                {name}
+              </span>
+              {isDisabled && <span style={{ fontSize: 10, color: 'var(--warning)' }}>deshabilitada</span>}
+            </label>
+          )
+        })}
+      </div>
     </div>
   )
 }

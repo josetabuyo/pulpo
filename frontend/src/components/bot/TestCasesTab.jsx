@@ -18,6 +18,7 @@
  */
 import { useEffect, useState, useCallback } from 'react'
 import CaseResultView, { StatusBadge, NoRunBadge } from './CaseResultView.jsx'
+import TestReportPublishModal from '../TestReportPublishModal.jsx'
 
 // Fetch usado tanto al abrir "Ver" por primera vez como al navegar entre
 // casos con las flechas ▲/▼ de CaseResultView.
@@ -335,6 +336,7 @@ function CasesView({ botId, apiCall, onViewRun }) {
   const [editing, setEditing] = useState(null) // null=cerrado, {}=nuevo, case=editar
   const [running, setRunning] = useState(null) // 'ALL' mientras corre "Correr todos"
   const [opening, setOpening] = useState(null) // caseId cuyo detalle se está por abrir
+  const [publishOpen, setPublishOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -409,13 +411,32 @@ function CasesView({ botId, apiCall, onViewRun }) {
         <span style={{ fontSize: 12, color: 'var(--text-subtle)' }}>
           {cases.length === 0 ? 'Sin casos de test' : `${cases.length} caso${cases.length !== 1 ? 's' : ''}`}
         </span>
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <a
+            href={`/embed/test-reports/${botId}`}
+            target="_blank"
+            rel="noreferrer"
+            className="btn-ghost btn-sm"
+            title="Vista pública de todos los reportes publicados, sin botones -- para compartir con el cliente"
+          >
+            Ver reportes públicos ↗
+          </a>
+          <button className="btn-ghost btn-sm" disabled={!cases.some(c => c.latest_run)} onClick={() => setPublishOpen(true)}>
+            Publicar
+          </button>
           <button className="btn-ghost btn-sm" onClick={() => setEditing({})}>+ Nuevo caso</button>
           <button className="btn-primary btn-sm" disabled={!cases.length || running === 'ALL'} onClick={handleRunAll}>
             {running === 'ALL' ? 'Corriendo...' : '▶ Correr todos'}
           </button>
         </div>
       </div>
+
+      <TestReportPublishModal
+        open={publishOpen}
+        onClose={() => setPublishOpen(false)}
+        apiCall={apiCall}
+        botId={botId}
+      />
 
       {loading ? (
         <div className="empty" style={{ padding: '24px 0' }}>Cargando casos...</div>

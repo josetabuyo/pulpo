@@ -36,10 +36,14 @@ export const routerNode: NodeDef = {
     const preRouteRules = (config.pre_route_rules as PreRouteRule[]) ?? [];
     const maxVisits = config.max_visits as number | undefined;
     const maxVisitsRoute = (config.max_visits_route as string) ?? "";
+    const disabledRoutes = new Set((config.disabled_routes as string[]) ?? []);
+    const activeRoutes = routes.filter((r) => !disabledRoutes.has(r));
 
     if (preRouteRules.length) {
       const preRoute = evalPreRouteRules(preRouteRules, state);
-      if (preRoute) {
+      // Rama deshabilitada desde el editor (toggle "Ramas") -- se ignora
+      // como si la regla no existiera, sigue al flujo normal de clasificación.
+      if (preRoute && !disabledRoutes.has(preRoute)) {
         state.data.route = preRoute;
         return state;
       }
@@ -61,16 +65,17 @@ export const routerNode: NodeDef = {
         state.data._llm_errors = [...((state.data._llm_errors as unknown[]) ?? []), { output: "route", error }];
       }
       route = text.trim().toLowerCase();
-      if (routes.length && !routes.includes(route)) route = fallback;
+      if (activeRoutes.length && !activeRoutes.includes(route)) route = fallback;
     }
 
-    if (maxVisits && maxVisitsRoute && route === fallback) {
+    if (maxVisits && maxVisitsRoute && !disabledRoutes.has(maxVisitsRoute) && route === fallback) {
       const visitKey = `_visits_${(config._node_id as string) ?? "router"}`;
       const visits = Number(state.data[visitKey] ?? 0) + 1;
       state.data[visitKey] = visits;
       if (visits >= Number(maxVisits)) route = maxVisitsRoute;
     }
 
+    if (disabledRoutes.has(route)) route = fallback;
     state.data.route = route;
     return state;
   },

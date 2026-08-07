@@ -41,6 +41,11 @@ const SYNC_TOKEN_ROUTES: { method: string; re: RegExp }[] = [
   { method: "GET", re: /^\/api\/flows\/bots\/[^/]+$/ },
   { method: "GET", re: /^\/api\/flows\/bots\/[^/]+\/[^/]+$/ },
   { method: "PUT", re: /^\/api\/flows\/bots\/[^/]+\/[^/]+$/ },
+  // Botón "Publicar" de la tab "Test" (2026-08-06, ver
+  // lib/business/test-report-publish.ts): el ambiente que publica hace PUT
+  // acá desde SU backend, nunca un browser -- mismo esquema que el PUT de
+  // flows arriba.
+  { method: "PUT", re: /^\/api\/test-reports\/bots\/[^/]+\/[^/]+$/ },
 ];
 const TRIGGER_PATH_RE = /^\/api\/flows\/[^/]+\/trigger\/[^/]+$/;
 const TELEGRAM_WEBHOOK_RE = /^\/api\/telegram\/webhook\/[^/]+$/;
@@ -54,6 +59,13 @@ const TELEGRAM_WEBHOOK_RE = /^\/api\/telegram\/webhook\/[^/]+$/;
 // lib/auth/chat-access.ts::resolveChatCaller(botId), que carga la config y
 // devuelve 401/403/404 según corresponda antes de tocar ningún dato.
 const CHAT_RE = /^\/api\/chat\/.+/;
+// Sexto esquema (2026-08-06, "Publicar" reportes de test -- ver
+// lib/business/test-report-publish.ts): el GET de /api/test-reports/bots/**
+// es la vista pública de solo-lectura que se comparte con el cliente final
+// (link aparte, sin login, ver frontend/src/pages/EmbedTestReportsPage.jsx)
+// -- no hay nada sensible en un reporte de test ya pensado para mostrarse.
+// El PUT (que sí escribe) NO entra acá, sigue solo por SYNC_TOKEN_ROUTES.
+const TEST_REPORTS_PUBLIC_GET_RE = /^\/api\/test-reports\/bots\/[^/]+(?:\/[^/]+)?$/;
 const PUBLIC_PATHS = ["/api/auth/token"];
 
 // Paso 1 hacia Pulpo PRO/Lite (2026-07-22, ver auth.ts): allowlist explícita
@@ -134,7 +146,8 @@ export default auth(async (request) => {
     PUBLIC_PATHS.includes(pathname) ||
     pathname.startsWith("/api/auth/") ||
     TELEGRAM_WEBHOOK_RE.test(pathname) ||
-    CHAT_RE.test(pathname)
+    CHAT_RE.test(pathname) ||
+    (request.method === "GET" && TEST_REPORTS_PUBLIC_GET_RE.test(pathname))
   ) {
     return NextResponse.next();
   }

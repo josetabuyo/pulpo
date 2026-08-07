@@ -47,9 +47,13 @@ export const conditionNode: NodeDef = {
     const fallback = (config.fallback as string) ?? "";
     const maxVisits = config.max_visits as number | undefined;
     const maxVisitsRoute = (config.max_visits_route as string) ?? "";
+    const disabledRoutes = new Set((config.disabled_routes as string[]) ?? []);
 
     let route = fallback;
     for (const rule of rules) {
+      // Rama deshabilitada desde el editor (toggle "Ramas") -- se trata como
+      // si la regla no existiera, sigue probando las siguientes.
+      if (rule.then && disabledRoutes.has(rule.then)) continue;
       if (evalRule(rule, state)) {
         if (rule.then) {
           route = rule.then;
@@ -58,13 +62,14 @@ export const conditionNode: NodeDef = {
       }
     }
 
-    if (maxVisits && maxVisitsRoute && route === fallback) {
+    if (maxVisits && maxVisitsRoute && !disabledRoutes.has(maxVisitsRoute) && route === fallback) {
       const visitKey = `_visits_${(config._node_id as string) ?? "condition"}`;
       const visits = Number(state.data[visitKey] ?? 0) + 1;
       state.data[visitKey] = visits;
       if (visits >= Number(maxVisits)) route = maxVisitsRoute;
     }
 
+    if (disabledRoutes.has(route)) route = fallback;
     state.data.route = route;
     return state;
   },

@@ -208,6 +208,17 @@ export function getNodeRoutes(node) {
 }
 
 /**
+ * Nombres de ruta deshabilitados desde el toggle "Ramas" del panel de config
+ * (router/condition) -- ver lib/nodes/router.ts y condition.ts (web/), que
+ * tratan estas rutas como si no existieran al ejecutar el flow.
+ */
+export function getDisabledRoutes(node) {
+  const nodeType = node.data?.nodeType
+  if (nodeType !== 'router' && nodeType !== 'condition') return []
+  return node.data?.config?.disabled_routes || []
+}
+
+/**
  * Para cada nodo router/condition/fetch_http(route_output), asigna la primera
  * ruta sin usar a las edges salientes que no tienen label. No modifica edges
  * que ya tienen label.

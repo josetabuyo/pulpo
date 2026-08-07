@@ -103,6 +103,20 @@ async def test_router_contenido_vacio_persistente_cae_a_fallback_y_queda_registr
 
 
 @pytest.mark.asyncio
+async def test_router_disabled_routes_fuerza_fallback_aunque_el_llm_la_elija():
+    node = RouterNode({
+        "prompt": "clasificá",
+        "routes": ["comercio", "producto", "servicio", "noticias"],
+        "fallback": "noticias",
+        "disabled_routes": ["producto"],
+    })
+    with patch("pulpo.graphs.nodes.router._build_llm", return_value=_fake_llm("producto")):
+        state = await node.run(_state(message="necesito comprar focos LED"))
+
+    assert state.data["route"] == "noticias"
+
+
+@pytest.mark.asyncio
 async def test_router_max_visits_redirige_tras_n_fallbacks_seguidos():
     """max_visits solo cuenta/aplica cuando la clasificación de ESA visita cae
     en fallback — hace falta llamar al LLM en cada visita para saberlo (no se

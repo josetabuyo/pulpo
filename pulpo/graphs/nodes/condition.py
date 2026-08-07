@@ -14,6 +14,8 @@ Config:
   routes:   list — valores válidos (documentación de los edges disponibles)
   max_visits: int — si el nodo se visita ≥ N veces en la misma conversación, redirige a max_visits_route
   max_visits_route: str — route a la que redirige al agotar max_visits
+  disabled_routes: list[str] — ramas deshabilitadas desde el editor (toggle
+    "Ramas"); se tratan como si la regla que las produce no existiera.
 """
 import logging
 from .base import BaseNode, interpolate
@@ -58,11 +60,14 @@ class ConditionNode(BaseNode):
         fallback = self.config.get("fallback", "")
         max_visits = self.config.get("max_visits")
         max_visits_route = self.config.get("max_visits_route", "")
+        disabled_routes = set(self.config.get("disabled_routes") or [])
 
         route = fallback
         for rule in rules:
+            then = rule.get("then", "")
+            if then and then in disabled_routes:
+                continue
             if _eval_rule(rule, state):
-                then = rule.get("then", "")
                 if then:
                     logger.info("[ConditionNode] var=%s op=%s → '%s'", rule.get("var"), rule.get("op"), then)
                     route = then
@@ -76,7 +81,7 @@ class ConditionNode(BaseNode):
         # ANTES de evaluar las reglas, forzando fatiga aunque ESA visita
         # resolviera bien — ej. el 3er intento matchea una regla válida pero
         # igual se fuerza a max_visits_route solo por ser la 3ra visita.)
-        if max_visits and max_visits_route and route == fallback:
+        if max_visits and max_visits_route and max_visits_route not in disabled_routes and route == fallback:
             visit_key = f"_visits_{self.config.get('_node_id', 'condition')}"
             visits = int(state.data.get(visit_key, 0) or 0) + 1
             state.data[visit_key] = visits
@@ -85,6 +90,8 @@ class ConditionNode(BaseNode):
                 logger.info("[ConditionNode] max_visits=%s alcanzado → '%s'", max_visits, max_visits_route)
                 route = max_visits_route
 
+        if route in disabled_routes:
+            route = fallback
         state.data["route"] = route
         return state
 
@@ -121,5 +128,11 @@ class ConditionNode(BaseNode):
                 "label":   "Ruta cuando se agota el límite",
                 "default": "",
                 "hint":    "Debe existir como edge de este nodo. Ej: agotado",
+            },
+            "disabled_routes": {
+                "type":    "list",
+                "label":   "Ramas deshabilitadas",
+                "default": [],
+                "hint":    "Nombres de rutas a ignorar como si no existieran (editable desde el toggle \"Ramas\" del panel de config)",
             },
         }
