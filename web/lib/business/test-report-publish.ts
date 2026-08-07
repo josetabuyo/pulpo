@@ -97,12 +97,38 @@ export async function getPublishedReport(botId: string, reportId: string) {
 
 // ─── Lado que PUBLICA (local, botón "Publicar") ───────────────────────────
 
+// La vista pública (EmbedTestReportsPage.jsx) solo muestra turnos +
+// resultados de checks -- `steps`/`flow_snapshot` son el journal completo
+// del compiler (cientos de KB por corrida, pensado para el gemelo
+// interactivo de la tab "Test", que acá no existe) y `diagram_image` es un
+// PNG base64 (~500KB). Publicar el detalle completo de una suite de 10
+// casos supera fácil los ~4.5MB de body que Vercel acepta por request (413
+// real, visto en pruebas) sin agregar nada que la vista pública use --
+// recortar acá, no en el storage local de test_runs.
+function toPublicRunPayload(run: Awaited<ReturnType<typeof getTestRunsBySuiteRunId>>[number]) {
+  return {
+    id: run.id,
+    bot_id: run.bot_id,
+    suite_run_id: run.suite_run_id,
+    test_case_id: run.test_case_id,
+    test_case_title: run.test_case_title,
+    target: run.target,
+    status: run.status,
+    turns: run.turns,
+    check_results: run.check_results,
+    error_message: run.error_message,
+    started_at: run.started_at,
+    finished_at: run.finished_at,
+  };
+}
+
 export async function publishSuiteRunToEnvironment(envName: string, botId: string, suiteRunId?: string) {
   const resolvedSuiteRunId = suiteRunId || (await getLatestSuiteRunId(botId));
   if (!resolvedSuiteRunId) throw new NotFoundError(`El bot ${botId} todavía no tiene corridas de test`);
 
-  const runs = await getTestRunsBySuiteRunId(botId, resolvedSuiteRunId);
-  if (!runs.length) throw new NotFoundError(`No hay resultados para la corrida ${resolvedSuiteRunId}`);
+  const fullRuns = await getTestRunsBySuiteRunId(botId, resolvedSuiteRunId);
+  if (!fullRuns.length) throw new NotFoundError(`No hay resultados para la corrida ${resolvedSuiteRunId}`);
+  const runs = fullRuns.map(toPublicRunPayload);
 
   const env = await getEnvironment(envName);
   const reportId = crypto.randomUUID();
