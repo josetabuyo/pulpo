@@ -1,19 +1,28 @@
 /**
- * Vista pública de reportes de test publicados -- link aparte (sin login,
- * sin botones) que se le comparte al cliente para que vea qué se testea y
- * los resultados, uno debajo del otro, del más reciente al más viejo. Mismo
- * espíritu "solo view" que EmbedFlowPage/EmbedTestRunPage, pero acá NO es
- * headless (no señaliza window.__flowReady) -- esta la abre una persona.
+ * Vista de reportes de test publicados -- link aparte (sin botones) que se
+ * le comparte al cliente para que vea qué se testea y los resultados, uno
+ * debajo del otro, del más reciente al más viejo. Mismo espíritu "solo view"
+ * que EmbedFlowPage/EmbedTestRunPage, pero acá NO es headless (no señaliza
+ * window.__flowReady) -- esta la abre una persona.
  *
  * Ruta: /embed/test-reports/:botId
  *
- * Fuente: GET /api/test-reports/bots/:botId (público, ver proxy.ts ->
- * TEST_REPORTS_PUBLIC_GET_RE) -- cada fila viene de
+ * Ya NO es público sin auth (2026-08-07, ver web/proxy.ts::BOT_KEY_ROUTES):
+ * entra quien tiene sesión con permiso sobre el bot (`credentials:
+ * 'include'` de abajo alcanza) o quien manda `?key=<bots.apiKey>` en la URL
+ * (se reenvía como header `X-Pulpo-Bot-Key` -- ver
+ * bot/TestCasesTab.jsx::"Copiar link con clave").
+ *
+ * Fuente: GET /api/test-reports/bots/:botId -- cada fila viene de
  * lib/business/test-report-publish.ts, un snapshot self-contained (no
- * depende de que test_runs siga existiendo).
+ * depende de que test_runs siga existiendo), incluido un `flow_snapshot` +
+ * `steps` recortados por corrida para pintar el camino resaltado (mismo
+ * componente que la vista "Ver" del admin, ver components/flow/FlowExecutionTwin.jsx).
  */
 import { useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
+import { api } from '../api.js'
+import FlowExecutionTwin from '../components/flow/FlowExecutionTwin.jsx'
 
 function StatusPill({ status, failedChecks }) {
   const label = status === 'passed' ? 'OK'
@@ -83,10 +92,10 @@ function TestRunCard({ run }) {
             ? run.check_results.map((c, i) => <CheckResultRow key={i} check={c} />)
             : <div style={{ fontSize: 12, color: 'var(--text-subtle)' }}>Sin validaciones configuradas.</div>}
         </div>
-        {run.diagram_image && (
-          <div style={{ flex: '0 0 auto' }}>
+        {run.flow_snapshot && (
+          <div style={{ flex: '1 1 320px', minWidth: 280 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-subtle)', marginBottom: 6 }}>FLOW</div>
-            <img src={run.diagram_image} alt="Camino recorrido" style={{ maxWidth: 260, borderRadius: 6, border: '1px solid var(--surface-2)' }} />
+            <FlowExecutionTwin flowSnapshot={run.flow_snapshot} steps={run.steps} apiCall={api} height={280} />
           </div>
         )}
       </div>
@@ -118,17 +127,25 @@ function ReportCard({ report }) {
 
 export default function EmbedTestReportsPage() {
   const { botId } = useParams()
+  const [searchParams] = useSearchParams()
+  const key = searchParams.get('key')
   const [reports, setReports] = useState(null)
   const [error, setError] = useState(null)
+  const [forbidden, setForbidden] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
-    fetch(`/api/test-reports/bots/${botId}`, { signal: controller.signal })
-      .then(res => { if (!res.ok) throw new Error(`GET /test-reports/bots/${botId} → ${res.status}`); return res.json() })
+    const headers = key ? { 'X-Pulpo-Bot-Key': key } : undefined
+    fetch(`/api/test-reports/bots/${botId}`, { signal: controller.signal, credentials: 'include', headers })
+      .then(res => {
+        if (res.status === 401 || res.status === 403) { setForbidden(true); return [] }
+        if (!res.ok) throw new Error(`GET /test-reports/bots/${botId} → ${res.status}`)
+        return res.json()
+      })
       .then(data => setReports(Array.isArray(data) ? data : []))
       .catch(e => { if (e.name !== 'AbortError') setError(e.message) })
     return () => controller.abort()
-  }, [botId])
+  }, [botId, key])
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '32px 16px' }}>
@@ -140,13 +157,18 @@ export default function EmbedTestReportsPage() {
           </p>
         </div>
 
-        {error && <div style={{ color: 'var(--danger)', fontSize: 13 }}>Error cargando los reportes: {error}</div>}
-        {!error && reports === null && <div style={{ color: 'var(--text-subtle)', fontSize: 13 }}>Cargando...</div>}
-        {!error && reports?.length === 0 && (
+        {forbidden && (
+          <div style={{ color: 'var(--danger)', fontSize: 13 }}>
+            No tenés acceso a los reportes de este bot -- pedí el link con la clave correcta, o iniciá sesión con una cuenta que tenga permiso.
+          </div>
+        )}
+        {!forbidden && error && <div style={{ color: 'var(--danger)', fontSize: 13 }}>Error cargando los reportes: {error}</div>}
+        {!forbidden && !error && reports === null && <div style={{ color: 'var(--text-subtle)', fontSize: 13 }}>Cargando...</div>}
+        {!forbidden && !error && reports?.length === 0 && (
           <div style={{ color: 'var(--text-subtle)', fontSize: 13 }}>Todavía no hay reportes publicados para este bot.</div>
         )}
 
-        {reports?.map(report => <ReportCard key={report.id} report={report} />)}
+        {!forbidden && reports?.map(report => <ReportCard key={report.id} report={report} />)}
       </div>
     </div>
   )

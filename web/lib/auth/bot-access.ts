@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import { isLocalNoAuth } from "./local-bypass";
 import { isSyncTokenRequest } from "./sync-token";
+import { isBotKeyRequest } from "./bot-key";
 
 // Defense-in-depth for the scoped/"Pulpo Lite" role: proxy.ts is the real
 // gate (SCOPED_BOT_ROUTES allowlist), but every route handler a scoped user
@@ -36,5 +37,16 @@ export async function assertBotAccess(request: Request, botId: string): Promise<
 // etc.) que también llaman assertBotAccess.
 export async function assertBotAccessOrSyncToken(request: Request, botId: string): Promise<Response | null> {
   if (isSyncTokenRequest(request)) return null;
+  return assertBotAccess(request, botId);
+}
+
+// Compuesto usado por el reporte público de test (2026-08-07, ver
+// lib/business/test-report-publish.ts / proxy.ts::BOT_KEY_ROUTES): a
+// diferencia del sync-token (un secreto global de instancia, para OTRO
+// ambiente Pulpo), acá el caller externo es un tercero (ej. el sitio del
+// cliente) leyendo SOLO los reportes de SU bot -- por eso usa el secreto
+// por-bot (lib/auth/bot-key.ts) en vez de ensanchar assertBotAccessOrSyncToken.
+export async function assertBotAccessOrBotKey(request: Request, botId: string): Promise<Response | null> {
+  if (await isBotKeyRequest(request, botId)) return null;
   return assertBotAccess(request, botId);
 }

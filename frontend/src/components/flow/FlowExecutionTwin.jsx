@@ -1,18 +1,25 @@
 /**
- * Gemelo read-only del flow para la vista "Ver" de una corrida de test (tab
- * "Test" > "Ver"). A propósito NO es un dibujo aparte: monta el mismo
- * FlowCanvas.jsx del editor real, en modo `readOnly` (sin drag/editar, pero
- * CON zoom/pan/Controls -- a diferencia de `embed`, que usa la captura
- * headless en EmbedTestRunPage.jsx y apaga zoom/pan a propósito para que el
- * screenshot sea determinístico), con
- * `highlightNodeIds`/`highlightEdgeIds` para grisar todo menos el camino
- * que efectivamente se recorrió en esta corrida puntual (ver
- * utils/executionTrace.js). Mismos colores/posiciones/routing de edges que
- * el editor -- si el editor cambia de estilo, esto lo hereda gratis.
+ * Gemelo read-only de un flow, con el camino recorrido resaltado -- dado un
+ * `flow_snapshot` ({nodes, edges}) y una secuencia de `steps` (StepDto:
+ * node_id/branch_taken), pinta el mismo FlowCanvas.jsx del editor real en
+ * modo `readOnly` (sin drag/editar, pero CON zoom/pan/Controls -- a
+ * diferencia de `embed`, que usa la captura headless en
+ * EmbedTestRunPage.jsx y apaga zoom/pan a propósito para que el screenshot
+ * sea determinístico), con `highlightNodeIds`/`highlightEdgeIds` para grisar
+ * todo menos el camino tomado (ver utils/executionTrace.js). Mismos
+ * colores/posiciones/routing de edges que el editor -- si el editor cambia
+ * de estilo, esto lo hereda gratis.
+ *
+ * Deliberadamente genérico y sin conocimiento de "test" ni de bots -- solo
+ * pide `flowSnapshot` + `steps` + un `apiCall(method, path, body)` para
+ * resolver `/flows/node-types` (íconos/labels de nodo). Dos consumidores
+ * hoy: la vista "Ver" de un caso de test (tab "Test", vía
+ * bot/CaseResultView.jsx) y el reporte público de test
+ * (pages/EmbedTestReportsPage.jsx) -- pensado para sumar más sin cambios acá.
  *
  * Usa su propio store aislado (createFlowStore) cargado con el
- * `flow_snapshot` de la corrida -- NO el flow en vivo del bot, que puede
- * haber cambiado desde que se corrió el caso.
+ * `flowSnapshot` recibido -- NO el flow en vivo del bot, que puede haber
+ * cambiado desde que se generó ese snapshot.
  */
 import { useEffect, useMemo } from 'react'
 import { ReactFlowProvider } from '@xyflow/react'

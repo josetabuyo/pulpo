@@ -97,14 +97,17 @@ export async function getPublishedReport(botId: string, reportId: string) {
 
 // ─── Lado que PUBLICA (local, botón "Publicar") ───────────────────────────
 
-// La vista pública (EmbedTestReportsPage.jsx) solo muestra turnos +
-// resultados de checks -- `steps`/`flow_snapshot` son el journal completo
-// del compiler (cientos de KB por corrida, pensado para el gemelo
-// interactivo de la tab "Test", que acá no existe) y `diagram_image` es un
-// PNG base64 (~500KB). Publicar el detalle completo de una suite de 10
-// casos supera fácil los ~4.5MB de body que Vercel acepta por request (413
-// real, visto en pruebas) sin agregar nada que la vista pública use --
-// recortar acá, no en el storage local de test_runs.
+// La vista pública (EmbedTestReportsPage.jsx) ahora SÍ pinta el gemelo del
+// flow con el camino resaltado (components/flow/FlowExecutionTwin.jsx, igual
+// que la vista "Ver" del admin) -- necesita `flow_snapshot` completo (liviano,
+// es solo la definición del flow) y `steps`, pero
+// utils/executionTrace.js::buildExecutionTrace() solo lee `node_id` +
+// `branch_taken` de cada step, nunca `input_state`/`output_state` (el
+// FlowState completo por paso -- eso es lo que pesaba "cientos de KB por
+// corrida" y causó el 413 real de Vercel visto en pruebas, no el snapshot).
+// Recortar CADA step a esos dos campos alcanza para el highlight sin
+// reintroducir el problema. `diagram_image` (PNG base64, ~500KB) sigue sin
+// publicarse -- el diagrama interactivo lo reemplaza.
 function toPublicRunPayload(run: Awaited<ReturnType<typeof getTestRunsBySuiteRunId>>[number]) {
   return {
     id: run.id,
@@ -119,6 +122,11 @@ function toPublicRunPayload(run: Awaited<ReturnType<typeof getTestRunsBySuiteRun
     error_message: run.error_message,
     started_at: run.started_at,
     finished_at: run.finished_at,
+    flow_snapshot: run.flow_snapshot,
+    steps: ((run.steps as { node_id: string; branch_taken?: string | null }[] | null) || []).map((s) => ({
+      node_id: s.node_id,
+      branch_taken: s.branch_taken ?? null,
+    })),
   };
 }
 

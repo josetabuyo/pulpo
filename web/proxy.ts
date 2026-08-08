@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { verifyAccessToken } from "@/lib/auth/jwt";
 import { isLocalNoAuth } from "@/lib/auth/local-bypass";
 import { isSyncTokenRequest } from "@/lib/auth/sync-token";
+import { isBotKeyRequest } from "@/lib/auth/bot-key";
 
 // Fixes the root-cause auth bug found in pulpo/interfaces/ui/app.py: there,
 // `app.mount("/api", api)` creates a separate Starlette sub-app that the
@@ -59,14 +60,24 @@ const TELEGRAM_WEBHOOK_RE = /^\/api\/telegram\/webhook\/[^/]+$/;
 // lib/auth/chat-access.ts::resolveChatCaller(botId), que carga la config y
 // devuelve 401/403/404 según corresponda antes de tocar ningún dato.
 const CHAT_RE = /^\/api\/chat\/.+/;
-// Sexto esquema (2026-08-06, "Publicar" reportes de test -- ver
-// lib/business/test-report-publish.ts): el GET de /api/test-reports/bots/**
-// es la vista pública de solo-lectura que se comparte con el cliente final
-// (link aparte, sin login, ver frontend/src/pages/EmbedTestReportsPage.jsx)
-// -- no hay nada sensible en un reporte de test ya pensado para mostrarse.
-// El PUT (que sí escribe) NO entra acá, sigue solo por SYNC_TOKEN_ROUTES.
-const TEST_REPORTS_PUBLIC_GET_RE = /^\/api\/test-reports\/bots\/[^/]+(?:\/[^/]+)?$/;
-const PUBLIC_PATHS = ["/api/auth/token"];
+// Séptimo esquema (2026-08-07, reporte público de test con diagrama -- ver
+// lib/business/test-report-publish.ts / lib/auth/bot-key.ts): el GET de
+// /api/test-reports/bots/** (link compartido con el cliente final, ver
+// frontend/src/pages/EmbedTestReportsPage.jsx) dejó de ser público sin auth
+// -- ahora requiere sesión con permiso sobre ESE bot (SCOPED_BOT_ROUTES más
+// abajo, admin pasa siempre) O el secreto por-bot `bots.apiKey` vía header
+// `X-Pulpo-Bot-Key` (mismo mecanismo que ya existe para publish/unpublish de
+// ads de chat, ver CHAT_RE arriba) -- así un tercero externo solo puede leer
+// los reportes de SU bot, nunca de otro. El PUT (que sí escribe) sigue solo
+// por SYNC_TOKEN_ROUTES, sin cambios.
+const BOT_KEY_ROUTES: { method: string; re: RegExp }[] = [
+  { method: "GET", re: /^\/api\/test-reports\/bots\/([^/]+)$/ },
+  { method: "GET", re: /^\/api\/test-reports\/bots\/([^/]+)\/[^/]+$/ },
+];
+// `/flows/node-types` es un catálogo estático (web/lib/flow/node-types.json,
+// sin botId ni datos de usuario) que el diagrama del reporte público necesita
+// para íconos/labels de nodo -- no hay nada que gatear.
+const PUBLIC_PATHS = ["/api/auth/token", "/api/flows/node-types"];
 
 // Paso 1 hacia Pulpo PRO/Lite (2026-07-22, ver auth.ts): allowlist explícita
 // y method-aware de qué puede pegar un usuario "scoped" (bot_users), UNA vez
@@ -137,6 +148,11 @@ const SCOPED_BOT_ROUTES: { method: string; re: RegExp }[] = [
   { method: "PATCH", re: /^\/api\/bots\/([^/]+)\/chat-configs\/[^/]+\/ads\/[^/]+$/ },
   { method: "DELETE", re: /^\/api\/bots\/([^/]+)\/chat-configs\/[^/]+\/ads\/[^/]+$/ },
   { method: "POST", re: /^\/api\/bots\/([^/]+)\/api-key$/ },
+  // Reporte público de test (2026-08-07, ver BOT_KEY_ROUTES arriba) -- un
+  // scoped con este bot en su allowlist lo ve por sesión, igual que
+  // cualquier otra pantalla del bot (el admin ya pasa siempre, más arriba).
+  { method: "GET", re: /^\/api\/test-reports\/bots\/([^/]+)$/ },
+  { method: "GET", re: /^\/api\/test-reports\/bots\/([^/]+)\/[^/]+$/ },
 ];
 
 export default auth(async (request) => {
@@ -146,8 +162,7 @@ export default auth(async (request) => {
     PUBLIC_PATHS.includes(pathname) ||
     pathname.startsWith("/api/auth/") ||
     TELEGRAM_WEBHOOK_RE.test(pathname) ||
-    CHAT_RE.test(pathname) ||
-    (request.method === "GET" && TEST_REPORTS_PUBLIC_GET_RE.test(pathname))
+    CHAT_RE.test(pathname)
   ) {
     return NextResponse.next();
   }
@@ -157,6 +172,14 @@ export default auth(async (request) => {
     SYNC_TOKEN_ROUTES.some(({ method, re }) => request.method === method && re.test(pathname))
   ) {
     return NextResponse.next();
+  }
+
+  for (const { method, re } of BOT_KEY_ROUTES) {
+    if (request.method !== method) continue;
+    const match = re.exec(pathname);
+    if (!match) continue;
+    if (await isBotKeyRequest(request, match[1])) return NextResponse.next();
+    break; // método+path matcheó pero el key es inválido/ausente -- sigue como sesión normal
   }
 
   if (TRIGGER_PATH_RE.test(pathname)) {

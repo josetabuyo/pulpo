@@ -337,6 +337,8 @@ function CasesView({ botId, apiCall, onViewRun }) {
   const [running, setRunning] = useState(null) // 'ALL' mientras corre "Correr todos"
   const [opening, setOpening] = useState(null) // caseId cuyo detalle se está por abrir
   const [publishOpen, setPublishOpen] = useState(false)
+  const [keyBusy, setKeyBusy] = useState(false)
+  const [keyCopied, setKeyCopied] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -384,6 +386,35 @@ function CasesView({ botId, apiCall, onViewRun }) {
     }
   }
 
+  // Arma y copia el link del reporte público con la clave del bot (mismo
+  // secreto `bots.apiKey`/`X-Pulpo-Bot-Key` que ya usa la integración de
+  // publicidad de chat, ver ChatAdsPanel.jsx::IntegrationsSection) -- si
+  // todavía no existe, la genera. La clave solo se puede leer en el momento
+  // en que se genera (no se vuelve a mostrar), así que regenerarla acá
+  // invalida la que ya tenga configurada esa otra integración, si la hay.
+  async function handleCopyKeyLink() {
+    setKeyBusy(true)
+    setKeyCopied(false)
+    try {
+      const bot = await apiCall('GET', `/bots/${botId}`, null).catch(() => null)
+      let key = null
+      if (!bot?.has_api_key) {
+        const res = await apiCall('POST', `/bots/${botId}/api-key`, {}).catch(() => null)
+        key = res?.api_key || null
+      }
+      if (!key) {
+        alert('La clave de este bot ya fue generada antes y no se puede volver a leer -- regenerala desde "Chats" > "Integraciones" para conseguir un link nuevo.')
+        return
+      }
+      const link = `${window.location.origin}/embed/test-reports/${botId}?key=${key}`
+      await navigator.clipboard.writeText(link)
+      setKeyCopied(true)
+      setTimeout(() => setKeyCopied(false), 2000)
+    } finally {
+      setKeyBusy(false)
+    }
+  }
+
   // Abre el detalle directo desde el click en la fila -- toda la línea es
   // el CTA (ver comentario de arriba del archivo). Si el caso todavía no
   // tiene corridas, el detalle igual abre con un estado vacío.
@@ -423,6 +454,14 @@ function CasesView({ botId, apiCall, onViewRun }) {
           </a>
           <button className="btn-ghost btn-sm" disabled={!cases.some(c => c.latest_run)} onClick={() => setPublishOpen(true)}>
             Publicar
+          </button>
+          <button
+            className="btn-ghost btn-sm"
+            disabled={keyBusy}
+            title="Copia el link de reportes públicos con la clave del bot -- para compartir con un tercero (ej. el sitio del cliente) sin darle acceso al dashboard"
+            onClick={handleCopyKeyLink}
+          >
+            {keyCopied ? '✓ Copiado' : keyBusy ? 'Generando...' : '🔑 Copiar link con clave'}
           </button>
           <button className="btn-ghost btn-sm" onClick={() => setEditing({})}>+ Nuevo caso</button>
           <button className="btn-primary btn-sm" disabled={!cases.length || running === 'ALL'} onClick={handleRunAll}>

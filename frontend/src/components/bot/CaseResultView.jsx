@@ -9,7 +9,7 @@
  * índice viven en TestCasesTab.jsx, acá solo se consumen via onNavigate).
  */
 import { useState } from 'react'
-import FlowExecutionTwin from './FlowExecutionTwin.jsx'
+import FlowExecutionTwin from '../flow/FlowExecutionTwin.jsx'
 
 // Badge de estado de una corrida -- usado tanto acá (header del detalle)
 // como en la fila de la lista de "Casos" y en RunDetail (TestCasesTab.jsx),
