@@ -408,3 +408,19 @@ test("validateDirectoryConfig rechaza section.id 'conversaciones' (reservado)", 
     ValidationError,
   );
 });
+
+// ─── icon (opcional, prefijo del tab) ───────────────────────────────────────
+
+test("validateDirectoryConfig acepta icon opcional y lo propaga a public dto", () => {
+  const cfg = validateDirectoryConfig({ version: 1, enabled: true, sections: [{ ...detailSectionRaw(), icon: "📰" }] });
+  assert.equal(cfg.sections[0].icon, "📰");
+  const dto = toPublicDirectoryDto(cfg);
+  assert.equal(dto.sections[0].icon, "📰");
+});
+
+test("validateDirectoryConfig rechaza icon demasiado largo", () => {
+  assert.throws(
+    () => validateDirectoryConfig({ version: 1, enabled: true, sections: [{ ...detailSectionRaw(), icon: "no-es-un-emoji-corto" }] }),
+    ValidationError,
+  );
+});

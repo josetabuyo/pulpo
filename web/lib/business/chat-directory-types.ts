@@ -72,6 +72,7 @@ export type DirectoryMode = "connect" | "detail";
 export interface DirectorySection {
   id: string;
   label: string;
+  icon?: string; // emoji corto opcional, se antepone al label del tab (ej. "📰")
   mode?: DirectoryMode;
   search_placeholder?: string;
   min_query_len?: number;
@@ -106,6 +107,7 @@ export interface DirectoryItem {
 export interface PublicDirectorySection {
   id: string;
   label: string;
+  icon?: string;
   mode: DirectoryMode;
   search_placeholder?: string;
   min_query_len: number;
@@ -250,6 +252,7 @@ function validateSection(s: unknown): DirectorySection {
   // vía admin -- ver ChatDirectory.jsx CONVERSATIONS_TAB_ID.
   assert(s.id !== "conversaciones", `section.id "conversaciones" está reservado`);
   assert(typeof s.label === "string" && s.label.trim(), `sección ${String(s.id)}: label requerido`);
+  assert(s.icon === undefined || (typeof s.icon === "string" && s.icon.length <= 8), `sección ${s.id}: icon debe ser un string corto (<=8 chars)`);
   assert(s.mode === undefined || s.mode === "connect" || s.mode === "detail", `sección ${s.id}: mode inválido (${String(s.mode)})`);
   const mode: DirectoryMode = s.mode === "detail" ? "detail" : "connect";
   const section: DirectorySection = {
@@ -258,6 +261,7 @@ function validateSection(s: unknown): DirectorySection {
     mode,
     source: validateSource(s.source, s.id),
   };
+  if (typeof s.icon === "string") section.icon = s.icon;
   // mode "detail": item.click abre solo lectura, no hay form ni lead --
   // connect ni se valida ni se guarda, aunque venga en el raw.
   if (mode === "connect") section.connect = validateConnect(s.connect, s.id);

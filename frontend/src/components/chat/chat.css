@@ -472,18 +472,22 @@
   flex-direction: column;
   gap: 10px;
 }
-.pc-dir-title {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: .04em;
-  color: var(--pc-text-subtle);
-}
+/* flex-wrap + min-width:0 -- sin esto, con 3+ tabs (ej. Noticias/Comercios/
+   Servicios/Conversaciones) el texto de cada tab fuerza su flex-item más
+   ancho que el espacio disponible, y la fila entera se corta/desborda en
+   vez de acomodarse en 2 filas. */
 .pc-dir-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 .pc-dir-tab {
-  flex: 1;
+  flex: 1 1 calc(50% - 6px);
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   background: var(--pc-surface-raised);
   color: var(--pc-text-muted);
   border: 1px solid var(--pc-border);
@@ -491,6 +495,13 @@
   padding: 6px 8px;
   font-size: 12px;
   cursor: pointer;
+}
+.pc-dir-tab-icon { flex-shrink: 0; line-height: 1; }
+.pc-dir-tab-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .pc-dir-tab--active {
   background: var(--pc-accent-glow);

@@ -82,7 +82,7 @@ export default function ChatDirectory({
   onNewConversation,
 }) {
   const catalogSections = directory?.enabled ? directory.sections || [] : []
-  const sections = [...catalogSections, { id: CONVERSATIONS_TAB_ID, label: 'Conversaciones', builtin: true }]
+  const sections = [...catalogSections, { id: CONVERSATIONS_TAB_ID, label: 'Conversaciones', icon: '🕘', builtin: true }]
 
   const [activeId, setActiveId] = useState(sections[0]?.id || null)
   const [query, setQuery] = useState('')
@@ -152,8 +152,6 @@ export default function ChatDirectory({
 
   return (
     <div className={`pc-dir ${open ? 'pc-dir--open' : ''}`}>
-      <div className="pc-dir-title">{directory?.title || 'Directorio'}</div>
-
       {sections.length > 1 && (
         <div className="pc-dir-tabs">
           {sections.map(s => (
@@ -162,7 +160,8 @@ export default function ChatDirectory({
               className={`pc-dir-tab ${s.id === activeId ? 'pc-dir-tab--active' : ''}`}
               onClick={() => setActiveId(s.id)}
             >
-              {s.label}
+              {s.icon && <span className="pc-dir-tab-icon">{s.icon}</span>}
+              <span className="pc-dir-tab-label">{s.label}</span>
             </button>
           ))}
         </div>

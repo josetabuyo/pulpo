@@ -188,6 +188,7 @@ export function toPublicDirectoryDto(config: DirectoryConfig | null): PublicDire
     sections: config.sections.map((s) => ({
       id: s.id,
       label: s.label,
+      icon: s.icon,
       mode: s.mode ?? "connect",
       search_placeholder: s.search_placeholder,
       min_query_len: s.min_query_len ?? 0,
