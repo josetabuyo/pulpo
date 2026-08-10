@@ -688,7 +688,11 @@
 }
 .pc-dir-detail-meta { font-size: 12px; color: var(--pc-text-subtle); margin: 0; }
 .pc-dir-detail-desc { font-size: 13px; color: var(--pc-text-muted); margin: 0; white-space: pre-wrap; }
-.pc-dir-detail-link { text-align: center; text-decoration: none; }
+/* .pulpochat a (color: --pc-accent-bright) tiene más especificidad que
+   .pc-dir-connect-btn solo -- si un chat configura accent == accent-bright
+   (ej. Luganense, mismo azul para ambos) el texto queda invisible sobre el
+   fondo del botón. Forzamos blanco acá con selector igual de específico. */
+.pulpochat a.pc-dir-detail-link { text-align: center; text-decoration: none; color: #fff; }
 .pc-dir-connect-btn {
   background: var(--pc-accent);
   color: #fff;
