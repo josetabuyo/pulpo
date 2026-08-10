@@ -34,6 +34,10 @@ export const chatApi = {
     call('GET', `/chat/${botId}/${chatId}/conversations/${conversationId}/messages${afterId ? `?after=${afterId}` : ''}`),
   sendMessage: (botId, chatId, conversationId, message) =>
     call('POST', `/chat/${botId}/${chatId}/conversations/${conversationId}/messages`, { message }),
+  directorySearch: (botId, chatId, sectionId, q) =>
+    call('GET', `/chat/${botId}/${chatId}/directory/${sectionId}/search?q=${encodeURIComponent(q ?? '')}`),
+  directoryConnect: (botId, chatId, sectionId, body) =>
+    call('POST', `/chat/${botId}/${chatId}/directory/${sectionId}/connect`, body),
 }
 
 // Gestión de publicidad de un chat (ChatsTab/ChatForm, sesión autenticada
@@ -49,4 +53,12 @@ export const chatAdsApi = {
   setPublished: (apiCall, botId, chatId, adId, published) =>
     apiCall('PATCH', `/bots/${botId}/chat-configs/${chatId}/ads/${adId}`, { published }),
   remove: (apiCall, botId, chatId, adId) => apiCall('DELETE', `/bots/${botId}/chat-configs/${chatId}/ads/${adId}`, null),
+}
+
+// Gestión del directorio "conectar directo" de un chat (comercios/servicios,
+// ver web/lib/business/chat-directory.ts) -- config completa sin sanitizar,
+// mismo molde de auth que chatAdsApi.
+export const chatDirectoryApi = {
+  get: (apiCall, botId, chatId) => apiCall('GET', `/bots/${botId}/chat-configs/${chatId}/directory`, null),
+  save: (apiCall, botId, chatId, body) => apiCall('PUT', `/bots/${botId}/chat-configs/${chatId}/directory`, body),
 }

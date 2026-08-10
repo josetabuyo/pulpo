@@ -253,6 +253,16 @@ export const chatConfigs = pgTable(
     // Shape: { logoUrl?, bgColor?, bgImageUrl?, fontFamily?, accentColor?,
     // textColor? } -- ver lib/business/chats.ts::toPublicConfigDto.
     branding: jsonb("branding"),
+    // Directorio "conectar directo" (2026-08-09): camino paralelo al chat
+    // conversacional -- rail izquierdo con secciones configurables (comercios,
+    // servicios, a futuro productos), cada una alimentada por un endpoint de
+    // catálogo del cliente y con un llamado de "lead" propio al conectar.
+    // Genérico por diseño para poder reusarse con otros clientes además de
+    // Luganense. Shape: DirectoryConfig -- ver
+    // lib/business/chat-directory-types.ts. Sanitizado antes de llegar al
+    // browser por toPublicDirectoryDto (source/lead nunca se exponen, solo
+    // viven server-side).
+    directory: jsonb("directory"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },

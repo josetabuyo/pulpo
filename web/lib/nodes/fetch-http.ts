@@ -1,6 +1,7 @@
 import type { NodeDef } from "./base";
 import type { ConversationEntry, FlowState } from "./state";
 import { interpolate } from "./interpolate";
+import { resolveJsonPath, SENTINEL } from "./json-path";
 
 // TS port of FetchHttpNode (pulpo/graphs/nodes/fetch_http.py) -- full port,
 // not the scoped-down spike version: array_input (per-item fan-out),
@@ -12,32 +13,11 @@ const MAX_ARRAY_ITEMS = 10;
 const ITEM_FIELD_RE = /\{\{item\.([a-zA-Z0-9_]+)\}\}/g;
 const ITEM_RE = /\{\{item\}\}/g;
 const UNRESOLVED_TEMPLATE_RE = /\{\{.*?\}\}/;
-const SENTINEL = Symbol("not-found");
 
 function recordFetchError(state: FlowState, url: string, error: string, statusCode?: number | null) {
   const errors = (state.data._fetch_errors as unknown[]) ?? [];
   errors.push({ url, status_code: statusCode ?? null, error });
   state.data._fetch_errors = errors;
-}
-
-function resolveJsonPath(parsed: unknown, path: string): unknown {
-  let current: unknown = parsed;
-  for (const part of path.split(".")) {
-    if (current !== null && typeof current === "object" && !Array.isArray(current)) {
-      const obj = current as Record<string, unknown>;
-      if (!(part in obj)) return SENTINEL;
-      current = obj[part];
-    } else if (Array.isArray(current)) {
-      if (!/^-?\d+$/.test(part)) return SENTINEL;
-      const idx = Number(part);
-      const realIdx = idx < 0 ? current.length + idx : idx;
-      if (realIdx < 0 || realIdx >= current.length) return SENTINEL;
-      current = current[realIdx];
-    } else {
-      return SENTINEL;
-    }
-  }
-  return current;
 }
 
 function applyExtractFields(state: FlowState, raw: string | null, extractFields: Record<string, string>) {

@@ -15,6 +15,7 @@
 import { useEffect, useState } from 'react'
 import PulpoChatWidget from '../chat/PulpoChatWidget.jsx'
 import ChatAdsPanel from './ChatAdsPanel.jsx'
+import ChatDirectoryPanel from './ChatDirectoryPanel.jsx'
 
 const TRIGGER_SUFFIX = '_trigger'
 
@@ -290,6 +291,12 @@ function ChatForm({ botId, apiCall, chat, onClose, onSaved }) {
           {!isNew && (
             <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
               <ChatAdsPanel botId={botId} chatId={chat.id} apiCall={apiCall} />
+            </div>
+          )}
+
+          {!isNew && (
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+              <ChatDirectoryPanel botId={botId} chatId={chat.id} apiCall={apiCall} />
             </div>
           )}
 

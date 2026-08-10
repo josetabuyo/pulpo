@@ -147,6 +147,12 @@ const SCOPED_BOT_ROUTES: { method: string; re: RegExp }[] = [
   { method: "POST", re: /^\/api\/bots\/([^/]+)\/chat-configs\/[^/]+\/ads$/ },
   { method: "PATCH", re: /^\/api\/bots\/([^/]+)\/chat-configs\/[^/]+\/ads\/[^/]+$/ },
   { method: "DELETE", re: /^\/api\/bots\/([^/]+)\/chat-configs\/[^/]+\/ads\/[^/]+$/ },
+  // Directorio "conectar directo" (2026-08-09, ver lib/business/chat-directory.ts)
+  // -- gestión de la config completa (sin sanitizar) del rail de
+  // comercios/servicios. El runtime público (search/connect) vive bajo
+  // /api/chat/**, ya cubierto por CHAT_RE, no necesita entrar acá.
+  { method: "GET", re: /^\/api\/bots\/([^/]+)\/chat-configs\/[^/]+\/directory$/ },
+  { method: "PUT", re: /^\/api\/bots\/([^/]+)\/chat-configs\/[^/]+\/directory$/ },
   { method: "POST", re: /^\/api\/bots\/([^/]+)\/api-key$/ },
   // Reporte público de test (2026-08-07, ver BOT_KEY_ROUTES arriba) -- un
   // scoped con este bot en su allowlist lo ve por sesión, igual que

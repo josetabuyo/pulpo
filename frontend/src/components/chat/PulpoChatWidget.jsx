@@ -16,6 +16,7 @@ import ChatSidebar from './ChatSidebar.jsx'
 import ChatThread from './ChatThread.jsx'
 import ChatComposer from './ChatComposer.jsx'
 import ChatBanners from './ChatBanners.jsx'
+import ChatDirectory from './ChatDirectory.jsx'
 import './chat.css'
 
 const POLL_MS = 2000
@@ -53,6 +54,7 @@ export default function PulpoChatWidget({
   const [sendError, setSendError] = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [mobileBannersOpen, setMobileBannersOpen] = useState(false)
+  const [mobileDirOpen, setMobileDirOpen] = useState(false)
 
   const lastIdRef = useRef(0)
   const pollRef = useRef(null)
@@ -237,6 +239,11 @@ export default function PulpoChatWidget({
             <span className="pc-header-title">{config.title}</span>
           </div>
           <div className="pc-header-actions">
+            {config.directory?.enabled && (
+              <button className="pc-header-btn pc-header-btn--dir-only" onClick={() => setMobileDirOpen(o => !o)} title="Directorio">
+                📇
+              </button>
+            )}
             <button className="pc-header-btn pc-header-btn--ads-only" onClick={() => setMobileBannersOpen(o => !o)} title="Publicidad">
               🖼
             </button>
@@ -247,6 +254,16 @@ export default function PulpoChatWidget({
         </div>
 
         <div className="pc-body">
+          {config.directory?.enabled && (
+            <ChatDirectory
+              botId={botId}
+              chatId={chatId}
+              directory={config.directory}
+              open={mobileDirOpen}
+              onClose={() => setMobileDirOpen(false)}
+            />
+          )}
+
           <ChatSidebar
             title={config.title}
             conversations={conversations}

@@ -3,6 +3,8 @@ import { getDb } from "@/lib/db/client";
 import { bots, chatAccess, chatConfigs, chatConversations, chatMessages, flowRuns, flowRunSteps } from "@/lib/db/schema";
 import { NotFoundError, ValidationError } from "@/lib/business/bots";
 import { getPublishedAds } from "@/lib/business/chat-ads";
+import { toPublicDirectoryDto } from "@/lib/business/chat-directory";
+import { validateDirectoryConfig } from "@/lib/business/chat-directory-types";
 
 // CRUD de las 4 tablas de "PulpoChat" (chat web sobre nodos trigger de
 // mensaje). Ver management/HANDOFF_DASHBOARD_CHATS_VIEW.md (gitignoreado)
@@ -32,6 +34,7 @@ function toConfigDto(row: ChatConfigRow) {
     theme_vars: row.themeVars ?? {},
     custom_css: row.customCss ?? "",
     branding: row.branding ?? {},
+    directory: row.directory ?? null,
     created_at: row.createdAt,
     updated_at: row.updatedAt,
   };
@@ -150,6 +153,14 @@ export async function deleteChatConfig(chatId: string, botId: string): Promise<v
 // ChatBanners.jsx) en vez de forzar una migración de datos existentes.
 export async function toPublicConfigDto(row: ChatConfigRow) {
   const ads = await getPublishedAds(row.id);
+  let directoryConfig = null;
+  if (row.directory) {
+    try {
+      directoryConfig = validateDirectoryConfig(row.directory);
+    } catch (err) {
+      console.error(`[chats] directory config inválida en chat ${row.id}:`, err);
+    }
+  }
   return {
     title: row.title,
     banners: row.banners ?? [],
@@ -157,6 +168,7 @@ export async function toPublicConfigDto(row: ChatConfigRow) {
     theme_vars: row.themeVars ?? {},
     custom_css: row.customCss ?? "",
     branding: row.branding ?? {},
+    directory: toPublicDirectoryDto(directoryConfig),
     is_public: row.isPublic,
     enabled: row.enabled,
   };
