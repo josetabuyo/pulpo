@@ -10,7 +10,12 @@ import {
   validateFields,
   UnresolvedTemplateError,
 } from "../lib/business/chat-directory";
-import { validateDirectoryConfig, type DirectoryConfig, type DirectorySection } from "../lib/business/chat-directory-types";
+import {
+  validateDirectoryConfig,
+  isPaginatedSource,
+  type DirectoryConfig,
+  type DirectorySection,
+} from "../lib/business/chat-directory-types";
 import { ValidationError } from "../lib/business/bots";
 
 process.env.JWT_SECRET_KEY ||= "test-secret-for-chat-directory";
@@ -357,4 +362,49 @@ test("toPublicDirectoryDto propaga mode: detail sin connect", () => {
 test("validateFields rechaza sección sin connect (mode: detail)", () => {
   const cfg = validateDirectoryConfig({ version: 1, enabled: true, sections: [detailSectionRaw()] });
   assert.throws(() => validateFields(cfg.sections[0], {}), ValidationError);
+});
+
+// ─── Paginación (scroll infinito): {{offset}}/{{limit}}, isPaginatedSource ──
+
+test("isPaginatedSource detecta {{offset}} en la url, con o sin espacios", () => {
+  assert.equal(isPaginatedSource("https://x.com/a?offset={{offset}}"), true);
+  assert.equal(isPaginatedSource("https://x.com/a?offset={{ offset }}"), true);
+  assert.equal(isPaginatedSource("https://x.com/a?q={{q}}"), false);
+});
+
+test("renderTemplate resuelve {{offset}}/{{limit}} como escalares top-level", () => {
+  const ctx = { q: "", offset: 20, limit: 10 };
+  assert.equal(renderTemplate("?offset={{offset}}&limit={{limit}}", ctx), "?offset=20&limit=10");
+});
+
+test("toPublicDirectoryDto marca paginated: true solo si source.url usa {{offset}}", () => {
+  const cfg = validateDirectoryConfig({
+    version: 1,
+    enabled: true,
+    sections: [
+      { ...detailSectionRaw(), id: "noticias" },
+      {
+        ...detailSectionRaw(),
+        id: "noticias-paginadas",
+        source: { ...detailSectionRaw().source, url: "https://cliente.example.com/api/noticias?q={{q}}&offset={{offset}}&limit={{limit}}" },
+      },
+    ],
+  });
+  const dto = toPublicDirectoryDto(cfg);
+  assert.equal(dto.sections.find((s) => s.id === "noticias")!.paginated, false);
+  assert.equal(dto.sections.find((s) => s.id === "noticias-paginadas")!.paginated, true);
+});
+
+// ─── "conversaciones" reservado (tab incorporado, no configurable) ──────────
+
+test("validateDirectoryConfig rechaza section.id 'conversaciones' (reservado)", () => {
+  assert.throws(
+    () =>
+      validateDirectoryConfig({
+        version: 1,
+        enabled: true,
+        sections: [{ ...detailSectionRaw(), id: "conversaciones" }],
+      }),
+    ValidationError,
+  );
 });

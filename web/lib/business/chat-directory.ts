@@ -6,6 +6,7 @@ import { ValidationError } from "@/lib/business/bots";
 import { resolveJsonPath, SENTINEL } from "@/lib/nodes/json-path";
 import {
   validateDirectoryConfig,
+  isPaginatedSource,
   type DirectoryConfig,
   type DirectoryItem,
   type DirectorySection,
@@ -69,6 +70,8 @@ export function verifyItemToken(token: string, chatConfigId: string, sectionId: 
 
 export interface TemplateCtx {
   q?: string;
+  offset?: number;
+  limit?: number;
   item?: Record<string, unknown>;
   fields?: Record<string, unknown>;
   contact?: Record<string, unknown>;
@@ -77,12 +80,14 @@ export interface TemplateCtx {
 }
 
 const TEMPLATE_RE = /\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g;
+const SCALAR_TOKENS = new Set(["q", "offset", "limit"]);
 
 function lookupTemplate(ctx: TemplateCtx, path: string): { found: boolean; value?: unknown } {
   const [ns, ...rest] = path.split(".");
-  if (ns === "q") {
+  if (SCALAR_TOKENS.has(ns)) {
     if (rest.length) return { found: false };
-    return { found: ctx.q !== undefined, value: ctx.q };
+    const value = ctx[ns as "q" | "offset" | "limit"];
+    return { found: value !== undefined, value };
   }
   const namespaces: Record<string, Record<string, unknown> | undefined> = {
     item: ctx.item,
@@ -187,6 +192,7 @@ export function toPublicDirectoryDto(config: DirectoryConfig | null): PublicDire
       search_placeholder: s.search_placeholder,
       min_query_len: s.min_query_len ?? 0,
       empty_query: s.empty_query ?? "search",
+      paginated: isPaginatedSource(s.source.url),
       connect: s.connect
         ? {
             label: s.connect.label,
@@ -257,7 +263,8 @@ export async function searchSection(
   chatConfigId: string,
   sectionId: string,
   q: string,
-): Promise<{ items: DirectoryItem[]; error?: string }> {
+  offset = 0,
+): Promise<{ items: DirectoryItem[]; error?: string; has_more?: boolean }> {
   const config = await getDirectoryConfig(chatConfigId);
   if (!config || !config.enabled) return { items: [], error: "directory no configurado" };
 
@@ -268,7 +275,8 @@ export async function searchSection(
     return { items: [], error: err instanceof Error ? err.message : String(err) };
   }
 
-  const url = renderTemplate(section.source.url, { q: q ?? "" }, { urlEncode: true });
+  const limit = section.source.limit ?? 30;
+  const url = renderTemplate(section.source.url, { q: q ?? "", offset, limit }, { urlEncode: true });
   const headers = section.source.headers
     ? Object.fromEntries(Object.entries(section.source.headers).map(([k, v]) => [k, renderTemplate(v, { env: resolveEnvNamespace() })]))
     : undefined;
@@ -306,13 +314,17 @@ export async function searchSection(
     return { items: [], error: "respuesta upstream inesperada" };
   }
 
-  const limit = section.source.limit ?? 30;
   const items = list
     .slice(0, limit)
     .map((it) => normalizeItem(it, section, chatConfigId))
     .filter((it): it is DirectoryItem => it !== null);
 
-  return { items };
+  // "Hay más" es una inferencia, no un dato del contrato: si el upstream
+  // devolvió una página completa (>= limit), asumimos que puede haber más --
+  // evita exigir un total_path nuevo en item_map. Solo importa si la sección
+  // es "paginated" (source.url usa {{offset}}); el cliente ignora este campo
+  // en secciones no paginadas.
+  return { items, has_more: items.length >= limit };
 }
 
 // ─── Connect (dispara el lead) ─────────────────────────────────────────

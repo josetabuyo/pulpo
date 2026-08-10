@@ -6,11 +6,21 @@ import { ValidationError } from "@/lib/business/bots";
 // namespaces de template soportados en `source.url`/`connect.lead.body` son
 // EXACTAMENTE estos, ningún otro se resuelve:
 //   {{q}}            -- solo en source.url, siempre URL-encoded
+//   {{offset}}        -- solo en source.url, paginación -- ver "paginated" abajo
+//   {{limit}}          -- solo en source.url, tamaño de página (= source.limit)
 //   {{item.*}}       -- item ya normalizado por item_map (item.raw.* = crudo)
 //   {{fields.*}}     -- lo que completó el usuario en el mini-form de connect
 //   {{contact.id}} / {{contact.channel}} / {{contact.email}}
 //   {{chat.bot_id}} / {{chat.id}} / {{chat.title}}
 //   {{env.NOMBRE}}   -- resuelto server-side contra process.env, nunca literal
+//
+// Paginación (scroll infinito): opt-in por sección, sin campo de config
+// nuevo -- si source.url incluye {{offset}}, la sección queda "paginated"
+// (ver toPublicDirectoryDto) y el cliente pide la siguiente página al
+// llegar al final de la lista. Si el upstream no soporta offset, simplemente
+// no se incluye {{offset}} en la url y la sección se comporta como siempre
+// (un solo fetch, sin scroll infinito). "Hay más" se infiere: si la página
+// devuelve exactamente `limit` items, asumimos que puede haber más.
 
 export interface DirectoryFieldDef {
   name: string;
@@ -100,6 +110,7 @@ export interface PublicDirectorySection {
   search_placeholder?: string;
   min_query_len: number;
   empty_query: "search" | "hide";
+  paginated: boolean; // true si source.url usa {{offset}} -- habilita scroll infinito client-side
   connect?: {
     label: string;
     fields: DirectoryFieldDef[];
@@ -111,6 +122,10 @@ export interface PublicDirectoryConfig {
   enabled: boolean;
   title: string;
   sections: PublicDirectorySection[];
+}
+
+export function isPaginatedSource(url: string): boolean {
+  return /\{\{\s*offset\s*\}\}/.test(url);
 }
 
 const FIELD_TYPES = new Set(["text", "tel", "email", "textarea", "select"]);
@@ -231,6 +246,9 @@ function validateConnect(c: unknown, sectionId: string): DirectoryConnect {
 function validateSection(s: unknown): DirectorySection {
   assert(isRecord(s), "sección inválida");
   assert(typeof s.id === "string" && /^[a-z0-9_-]+$/.test(s.id), `section.id inválido: ${String(s.id)}`);
+  // Reservado: tab incorporado (historial de conversaciones), no configurable
+  // vía admin -- ver ChatDirectory.jsx CONVERSATIONS_TAB_ID.
+  assert(s.id !== "conversaciones", `section.id "conversaciones" está reservado`);
   assert(typeof s.label === "string" && s.label.trim(), `sección ${String(s.id)}: label requerido`);
   assert(s.mode === undefined || s.mode === "connect" || s.mode === "detail", `sección ${s.id}: mode inválido (${String(s.mode)})`);
   const mode: DirectoryMode = s.mode === "detail" ? "detail" : "connect";

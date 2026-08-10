@@ -13,7 +13,9 @@ export async function GET(
   const resolved = await resolveChatCaller(botId, chatId, request);
   if (resolved instanceof Response) return resolved;
 
-  const q = new URL(request.url).searchParams.get("q") ?? "";
-  const result = await searchSection(chatId, sectionId, q);
+  const query = new URL(request.url).searchParams;
+  const q = query.get("q") ?? "";
+  const offset = Math.max(0, Number.parseInt(query.get("offset") ?? "0", 10) || 0);
+  const result = await searchSection(chatId, sectionId, q, offset);
   return Response.json(result);
 }

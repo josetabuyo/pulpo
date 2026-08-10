@@ -34,8 +34,8 @@ export const chatApi = {
     call('GET', `/chat/${botId}/${chatId}/conversations/${conversationId}/messages${afterId ? `?after=${afterId}` : ''}`),
   sendMessage: (botId, chatId, conversationId, message) =>
     call('POST', `/chat/${botId}/${chatId}/conversations/${conversationId}/messages`, { message }),
-  directorySearch: (botId, chatId, sectionId, q) =>
-    call('GET', `/chat/${botId}/${chatId}/directory/${sectionId}/search?q=${encodeURIComponent(q ?? '')}`),
+  directorySearch: (botId, chatId, sectionId, q, offset = 0) =>
+    call('GET', `/chat/${botId}/${chatId}/directory/${sectionId}/search?q=${encodeURIComponent(q ?? '')}&offset=${offset}`),
   directoryConnect: (botId, chatId, sectionId, body) =>
     call('POST', `/chat/${botId}/${chatId}/directory/${sectionId}/connect`, body),
 }

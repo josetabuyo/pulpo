@@ -1,6 +1,6 @@
 /**
- * PulpoChatWidget — el chat en sí (config pública, sidebar, thread,
- * composer, banners, polling). Compartido entre:
+ * PulpoChatWidget — el chat en sí (config pública, directorio + historial,
+ * thread, composer, banners, polling). Compartido entre:
  *   - ChatPage.jsx     (standalone, fullscreen, URL sincroniza conversationId)
  *   - ChatsTab.jsx      (embebido dentro de la card del bot, sin tocar la URL)
  *
@@ -12,7 +12,6 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { chatApi } from '../../lib/chatApi.js'
-import ChatSidebar from './ChatSidebar.jsx'
 import ChatThread from './ChatThread.jsx'
 import ChatComposer from './ChatComposer.jsx'
 import ChatBanners from './ChatBanners.jsx'
@@ -52,7 +51,6 @@ export default function PulpoChatWidget({
   const [messages, setMessages] = useState([])
   const [runStatus, setRunStatus] = useState(null)
   const [sendError, setSendError] = useState('')
-  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [mobileBannersOpen, setMobileBannersOpen] = useState(false)
   const [mobileDirOpen, setMobileDirOpen] = useState(false)
 
@@ -239,39 +237,26 @@ export default function PulpoChatWidget({
             <span className="pc-header-title">{config.title}</span>
           </div>
           <div className="pc-header-actions">
-            {config.directory?.enabled && (
-              <button className="pc-header-btn pc-header-btn--dir-only" onClick={() => setMobileDirOpen(o => !o)} title="Directorio">
-                📇
-              </button>
-            )}
+            <button className="pc-header-btn pc-header-btn--dir-only" onClick={() => setMobileDirOpen(o => !o)} title="Directorio">
+              📇
+            </button>
             <button className="pc-header-btn pc-header-btn--ads-only" onClick={() => setMobileBannersOpen(o => !o)} title="Publicidad">
               🖼
-            </button>
-            <button className="pc-header-btn" onClick={() => setSidebarOpen(o => !o)} title="Historial de conversaciones">
-              🕘 <span>Historial</span>
             </button>
           </div>
         </div>
 
         <div className="pc-body">
-          {config.directory?.enabled && (
-            <ChatDirectory
-              botId={botId}
-              chatId={chatId}
-              directory={config.directory}
-              open={mobileDirOpen}
-              onClose={() => setMobileDirOpen(false)}
-            />
-          )}
-
-          <ChatSidebar
-            title={config.title}
+          <ChatDirectory
+            botId={botId}
+            chatId={chatId}
+            directory={config.directory}
+            open={mobileDirOpen}
+            onClose={() => setMobileDirOpen(false)}
             conversations={conversations}
-            activeId={conversationId}
-            onSelect={id => { setConversationId(id); setSidebarOpen(false) }}
-            onNew={() => { handleNewConversation(); setSidebarOpen(false) }}
-            open={sidebarOpen}
-            onClose={() => setSidebarOpen(false)}
+            activeConversationId={conversationId}
+            onSelectConversation={id => { setConversationId(id); setMobileDirOpen(false) }}
+            onNewConversation={() => { handleNewConversation(); setMobileDirOpen(false) }}
           />
 
           <div className="pc-main">
