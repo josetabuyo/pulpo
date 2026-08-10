@@ -17,6 +17,7 @@ const PLACEHOLDER_EXAMPLE = `{
     {
       "id": "comercios",
       "label": "Comercios",
+      "mode": "connect",
       "search_placeholder": "Buscar comercio…",
       "empty_query": "search",
       "source": {
@@ -42,6 +43,20 @@ const PLACEHOLDER_EXAMPLE = `{
             "contact_channel": "{{contact.channel}}"
           }
         }
+      }
+    },
+    {
+      "id": "noticias",
+      "label": "Noticias",
+      "mode": "detail",
+      "search_placeholder": "Buscar noticia…",
+      "empty_query": "search",
+      "source": {
+        "method": "GET",
+        "url": "https://cliente.example.com/api/noticias?q={{q}}",
+        "items_path": "items",
+        "item_map": { "id": "id", "title": "titulo", "description": "resumen", "meta": "fecha", "link": "url" },
+        "limit": 30
       }
     }
   ]
@@ -133,11 +148,14 @@ export default function ChatDirectoryPanel({ botId, chatId, apiCall }) {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <span style={{ fontSize: 13, fontWeight: 600 }}>Directorio (conectar directo)</span>
+        <span style={{ fontSize: 13, fontWeight: 600 }}>Directorio</span>
       </div>
       <p style={{ fontSize: 12, color: 'var(--text-subtle)', marginTop: 0 }}>
-        Camino paralelo al chat: rail izquierdo con secciones configurables (comercios, servicios, ...),
-        cada una con su endpoint de catálogo y su llamado de lead al conectar. Config genérica, sirve para cualquier cliente.
+        Camino paralelo al chat: rail izquierdo con secciones configurables (comercios, servicios, noticias, ...),
+        cada una con su endpoint de catálogo. Dos modos por sección: <code>mode: &quot;connect&quot;</code> (default) pide un
+        mini-form y dispara un lead al tocar un item; <code>mode: &quot;detail&quot;</code> abre una vista de solo lectura con
+        link a la fuente (<code>item_map.link</code>), sin form ni lead -- pensado para listas tipo noticias.
+        Config genérica, sirve para cualquier bot/cliente.
       </p>
 
       {loading ? (

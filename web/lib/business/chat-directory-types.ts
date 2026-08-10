@@ -33,6 +33,7 @@ export interface DirectorySource {
     description?: string;
     image_url?: string;
     meta?: string;
+    link?: string; // URL externa del item (ej. nota original) -- solo mode: "detail"
   };
   limit?: number;
 }
@@ -53,14 +54,20 @@ export interface DirectoryConnect {
   lead: DirectoryLead;
 }
 
+// "connect" (default): item.click abre el mini-form y dispara un lead (comercios/servicios).
+// "detail": item.click abre una vista de solo lectura (título/descripción/meta) + link externo
+// (item_map.link) -- sin form ni lead, pensado para listas de solo-lectura tipo noticias.
+export type DirectoryMode = "connect" | "detail";
+
 export interface DirectorySection {
   id: string;
   label: string;
+  mode?: DirectoryMode;
   search_placeholder?: string;
   min_query_len?: number;
   empty_query?: "search" | "hide"; // "search": q="" igual se manda (listar todo); "hide": pedir texto primero
   source: DirectorySource;
-  connect: DirectoryConnect;
+  connect?: DirectoryConnect; // requerido si mode === "connect" (default), ignorado si mode === "detail"
 }
 
 export interface DirectoryConfig {
@@ -70,7 +77,7 @@ export interface DirectoryConfig {
   sections: DirectorySection[];
 }
 
-// Item normalizado devuelto al cliente por searchSection -- image_url/meta
+// Item normalizado devuelto al cliente por searchSection -- image_url/meta/link
 // pueden faltar si item_map no los mapea (p.ej. Luganense hoy no tiene foto).
 export interface DirectoryItem {
   id: string;
@@ -79,6 +86,7 @@ export interface DirectoryItem {
   description?: string;
   image_url?: string;
   meta?: string;
+  link?: string;
   raw: Record<string, unknown>;
   item_token: string;
 }
@@ -88,10 +96,11 @@ export interface DirectoryItem {
 export interface PublicDirectorySection {
   id: string;
   label: string;
+  mode: DirectoryMode;
   search_placeholder?: string;
   min_query_len: number;
   empty_query: "search" | "hide";
-  connect: {
+  connect?: {
     label: string;
     fields: DirectoryFieldDef[];
     confirm_text?: string;
@@ -177,6 +186,7 @@ function validateSource(s: unknown, sectionId: string): DirectorySource {
       description: typeof im.description === "string" ? im.description : undefined,
       image_url: typeof im.image_url === "string" ? im.image_url : undefined,
       meta: typeof im.meta === "string" ? im.meta : undefined,
+      link: typeof im.link === "string" ? im.link : undefined,
     },
   };
   if (isRecord(s.headers)) source.headers = s.headers as Record<string, string>;
@@ -222,12 +232,17 @@ function validateSection(s: unknown): DirectorySection {
   assert(isRecord(s), "sección inválida");
   assert(typeof s.id === "string" && /^[a-z0-9_-]+$/.test(s.id), `section.id inválido: ${String(s.id)}`);
   assert(typeof s.label === "string" && s.label.trim(), `sección ${String(s.id)}: label requerido`);
+  assert(s.mode === undefined || s.mode === "connect" || s.mode === "detail", `sección ${s.id}: mode inválido (${String(s.mode)})`);
+  const mode: DirectoryMode = s.mode === "detail" ? "detail" : "connect";
   const section: DirectorySection = {
     id: s.id,
     label: s.label,
+    mode,
     source: validateSource(s.source, s.id),
-    connect: validateConnect(s.connect, s.id),
   };
+  // mode "detail": item.click abre solo lectura, no hay form ni lead --
+  // connect ni se valida ni se guarda, aunque venga en el raw.
+  if (mode === "connect") section.connect = validateConnect(s.connect, s.id);
   if (typeof s.search_placeholder === "string") section.search_placeholder = s.search_placeholder;
   if (typeof s.min_query_len === "number") section.min_query_len = s.min_query_len;
   if (s.empty_query === "search" || s.empty_query === "hide") section.empty_query = s.empty_query;

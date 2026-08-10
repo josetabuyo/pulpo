@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { chatApi } from '../../lib/chatApi.js'
 import ChatDirectoryConnect from './ChatDirectoryConnect.jsx'
+import ChatDirectoryDetail from './ChatDirectoryDetail.jsx'
 
 const DEBOUNCE_MS = 300
 
-function ItemCard({ item, onConnect }) {
+function ItemCard({ item, onOpen }) {
   return (
-    <button className="pc-dir-item" onClick={() => onConnect(item)}>
+    <button className="pc-dir-item" onClick={() => onOpen(item)}>
       {item.image_url && <img className="pc-dir-item-img" src={item.image_url} alt="" />}
       <div className="pc-dir-item-body">
         <div className="pc-dir-item-title">{item.title}</div>
@@ -20,10 +21,13 @@ function ItemCard({ item, onConnect }) {
 
 /**
  * Rail izquierdo, camino paralelo al chat conversacional: buscador +
- * lista por sección configurable (comercios/servicios hoy, ver
- * web/lib/business/chat-directory-types.ts), con "Conectar" disparando el
- * mismo tipo de lead que hoy arma el nodo HTTP del flow -- sin pasar por la
- * conversación.
+ * lista por sección configurable (comercios/servicios/noticias, ver
+ * web/lib/business/chat-directory-types.ts). Cada sección define su propio
+ * `mode`: "connect" (default) dispara el mismo tipo de lead que hoy arma el
+ * nodo HTTP del flow al tocar un item; "detail" abre una vista de solo
+ * lectura con link a la fuente original, sin form ni lead -- pensado para
+ * listas tipo noticias. Genérico: nada acá conoce a Luganense ni a ningún
+ * bot en particular, todo sale de la config guardada en `chat_configs.directory`.
  */
 export default function ChatDirectory({ botId, chatId, directory, open, onClose }) {
   const sections = directory?.sections || []
@@ -33,6 +37,7 @@ export default function ChatDirectory({ botId, chatId, directory, open, onClose 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [connectItem, setConnectItem] = useState(null)
+  const [detailItem, setDetailItem] = useState(null)
 
   const debounceRef = useRef(null)
   const active = sections.find(s => s.id === activeId) || sections[0] || null
@@ -110,7 +115,7 @@ export default function ChatDirectory({ botId, chatId, directory, open, onClose 
               <div className="pc-dir-status">Sin resultados.</div>
             )}
             {!loading && items.map(item => (
-              <ItemCard key={item.id} item={item} onConnect={setConnectItem} />
+              <ItemCard key={item.id} item={item} onOpen={active.mode === 'detail' ? setDetailItem : setConnectItem} />
             ))}
           </div>
         </>
@@ -127,6 +132,10 @@ export default function ChatDirectory({ botId, chatId, directory, open, onClose 
           connectConfig={active.connect}
           onClose={() => setConnectItem(null)}
         />
+      )}
+
+      {detailItem && (
+        <ChatDirectoryDetail item={detailItem} onClose={() => setDetailItem(null)} />
       )}
     </div>
   )

@@ -183,14 +183,17 @@ export function toPublicDirectoryDto(config: DirectoryConfig | null): PublicDire
     sections: config.sections.map((s) => ({
       id: s.id,
       label: s.label,
+      mode: s.mode ?? "connect",
       search_placeholder: s.search_placeholder,
       min_query_len: s.min_query_len ?? 0,
       empty_query: s.empty_query ?? "search",
-      connect: {
-        label: s.connect.label,
-        fields: s.connect.fields,
-        confirm_text: s.connect.confirm_text,
-      },
+      connect: s.connect
+        ? {
+            label: s.connect.label,
+            fields: s.connect.fields,
+            confirm_text: s.connect.confirm_text,
+          }
+        : undefined,
     })),
   };
 }
@@ -208,6 +211,7 @@ interface MappedItemFields {
   description?: string;
   image_url?: string;
   meta?: string;
+  link?: string;
 }
 
 // Compartido entre searchSection (arma el DirectoryItem que ve el cliente) y
@@ -233,6 +237,7 @@ function mapItemFields(raw: unknown, section: DirectorySection): MappedItemField
     description: get(map.description),
     image_url: get(map.image_url),
     meta: get(map.meta),
+    link: get(map.link),
   };
 }
 
@@ -327,6 +332,7 @@ export interface ConnectInput {
 }
 
 export function validateFields(section: DirectorySection, input: Record<string, unknown>): Record<string, string> {
+  if (!section.connect) throw new ValidationError(`sección ${section.id} es de solo lectura, no admite conectar`);
   const out: Record<string, string> = {};
   for (const field of section.connect.fields) {
     const raw = input[field.name];
@@ -350,6 +356,8 @@ export async function connectSection(
   const config = await getDirectoryConfig(chatConfigId);
   if (!config || !config.enabled) throw new ValidationError("directory no configurado");
   const section = getSectionOrThrow(config, sectionId);
+  const connectConfig = section.connect;
+  if (!connectConfig) throw new ValidationError(`sección ${sectionId} es de solo lectura, no admite conectar`);
 
   if (!verifyItemToken(input.itemToken, chatConfigId, sectionId, input.itemId)) {
     throw new ValidationError("item_token inválido o expirado -- volvé a buscar");
@@ -373,7 +381,7 @@ export async function connectSection(
     env: resolveEnvNamespace(),
   };
 
-  const lead = section.connect.lead;
+  const lead = connectConfig.lead;
   const url = renderTemplate(lead.url, ctx, { strict: false });
   const body = renderDeep(lead.body, ctx, { strict: true });
   const headers: Record<string, string> = { "Content-Type": "application/json", ...(lead.headers ?? {}) };
@@ -398,7 +406,7 @@ export async function connectSection(
     throw new ValidationError(`no se pudo conectar (upstream ${res.status})`);
   }
 
-  const message = renderTemplate(section.connect.success_text ?? "Listo, ya avisamos.", ctx, { strict: false });
+  const message = renderTemplate(connectConfig.success_text ?? "Listo, ya avisamos.", ctx, { strict: false });
   return { ok: true, message };
 }
 

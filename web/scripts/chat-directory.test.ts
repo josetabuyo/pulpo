@@ -140,10 +140,10 @@ test("toPublicDirectoryDto nunca expone source.*/lead.*/headers/body/env", () =>
   assert.equal(dto.sections.length, 2);
   const comercios = dto.sections.find((s) => s.id === "comercios")!;
   assert.equal(comercios.label, "Comercios");
-  assert.equal(comercios.connect.label, "Conectar");
-  assert.deepEqual(comercios.connect.fields, []);
+  assert.equal(comercios.connect!.label, "Conectar");
+  assert.deepEqual(comercios.connect!.fields, []);
   const servicios = dto.sections.find((s) => s.id === "servicios")!;
-  assert.equal(servicios.connect.fields[0].name, "direccion");
+  assert.equal(servicios.connect!.fields[0].name, "direccion");
 });
 
 test("toPublicDirectoryDto con config null devuelve disabled sin secciones", () => {
@@ -286,4 +286,75 @@ test("validateDirectoryConfig rechaza section ids duplicados", () => {
 test("validateDirectoryConfig acepta una config válida completa", () => {
   const cfg = sampleConfig();
   assert.equal(cfg.sections.length, 2);
+});
+
+// ─── mode: "detail" (ej. noticias) -- sin connect, con item_map.link ─────
+
+function detailSectionRaw() {
+  return {
+    id: "noticias",
+    label: "Noticias",
+    mode: "detail",
+    empty_query: "search",
+    source: {
+      method: "GET",
+      url: "https://cliente.example.com/api/noticias?q={{q}}",
+      items_path: "items",
+      item_map: { id: "id", title: "titulo", description: "resumen", meta: "fecha", link: "url" },
+    },
+  };
+}
+
+test("validateDirectoryConfig acepta mode: detail sin connect", () => {
+  const cfg = validateDirectoryConfig({
+    version: 1,
+    enabled: true,
+    sections: [detailSectionRaw()],
+  });
+  const section = cfg.sections[0];
+  assert.equal(section.mode, "detail");
+  assert.equal(section.connect, undefined);
+});
+
+test("validateDirectoryConfig default mode es connect y exige connect", () => {
+  assert.throws(
+    () =>
+      validateDirectoryConfig({
+        version: 1,
+        enabled: true,
+        sections: [
+          {
+            id: "x",
+            label: "X",
+            source: { method: "GET", url: "https://x.com/a", items_path: "", item_map: { id: "id", title: "title" } },
+          },
+        ],
+      }),
+    ValidationError,
+  );
+});
+
+test("validateDirectoryConfig rechaza mode inválido", () => {
+  assert.throws(
+    () =>
+      validateDirectoryConfig({
+        version: 1,
+        enabled: true,
+        sections: [{ ...detailSectionRaw(), mode: "borrar-todo" }],
+      }),
+    ValidationError,
+  );
+});
+
+test("toPublicDirectoryDto propaga mode: detail sin connect", () => {
+  const cfg = validateDirectoryConfig({ version: 1, enabled: true, sections: [detailSectionRaw()] });
+  const dto = toPublicDirectoryDto(cfg);
+  const noticias = dto.sections.find((s) => s.id === "noticias")!;
+  assert.equal(noticias.mode, "detail");
+  assert.equal(noticias.connect, undefined);
+});
+
+test("validateFields rechaza sección sin connect (mode: detail)", () => {
+  const cfg = validateDirectoryConfig({ version: 1, enabled: true, sections: [detailSectionRaw()] });
+  assert.throws(() => validateFields(cfg.sections[0], {}), ValidationError);
 });

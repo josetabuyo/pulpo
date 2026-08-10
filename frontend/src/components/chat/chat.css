@@ -682,6 +682,17 @@
   box-shadow: 0 0 0 3px var(--pc-accent-glow);
 }
 .pc-dir-modal-error { color: var(--pc-error); font-size: 12px; }
+
+/* ─── Vista de detalle solo lectura (ChatDirectoryDetail.jsx, mode: "detail") ─── */
+.pc-dir-detail-img {
+  width: 100%;
+  max-height: 160px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+.pc-dir-detail-meta { font-size: 12px; color: var(--pc-text-subtle); margin: 0; }
+.pc-dir-detail-desc { font-size: 13px; color: var(--pc-text-muted); margin: 0; white-space: pre-wrap; }
+.pc-dir-detail-link { text-align: center; text-decoration: none; }
 .pc-dir-connect-btn {
   background: var(--pc-accent);
   color: #fff;
