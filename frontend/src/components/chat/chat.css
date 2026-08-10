@@ -19,10 +19,6 @@
   --pc-accent-deep: #6D28D9;
   --pc-accent-glow: rgba(139, 92, 246, .16);
 
-  --pc-wine-deep: #4A1A2E;
-  --pc-wine: #A83A5C;
-  --pc-wine-bright: #E0708F;
-
   --pc-text: #E8EDF7;
   --pc-text-muted: #9AAAC8;
   --pc-text-subtle: #5E6E8F;
@@ -307,7 +303,7 @@
   border-bottom-left-radius: var(--pc-radius-bubble-tail);
 }
 .pc-bubble--user {
-  background: var(--pc-wine-deep);
+  background: var(--pc-accent);
   color: var(--pc-text);
   border-bottom-right-radius: var(--pc-radius-bubble-tail);
 }

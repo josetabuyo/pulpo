@@ -7,8 +7,10 @@ function formatTime(iso) {
 
 /**
  * Burbujas user/bot + autoscroll + indicador "···" mientras el run está
- * `running`. bot = superficie fría (--pc-surface), usuario = superficie
- * cálida (--pc-wine-deep) -- ver §6 del handoff para el porqué.
+ * `running`. bot = superficie neutra (--pc-surface), usuario = color de
+ * acento del chat (--pc-accent, configurable por Marca) -- mismo patrón que
+ * Facebook Messenger, donde el "theme color" de la conversación pinta la
+ * burbuja propia.
  */
 export default function ChatThread({ messages, runStatus, error }) {
   const endRef = useRef(null)
