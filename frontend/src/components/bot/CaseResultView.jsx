@@ -41,7 +41,9 @@ export function NoRunBadge() {
   )
 }
 
-function ChatTurn({ turn }) {
+// Exportado para reuso fuera de Tests -- RunsTab.jsx lo usa para el replay
+// de conversación de una corrida real (mismo shape {role, text}).
+export function ChatTurn({ turn }) {
   return (
     <div style={{
       fontSize: 13, marginBottom: 6, padding: '7px 10px', borderRadius: 8,

@@ -45,20 +45,22 @@ function formatBucketLabel(iso, bucketMinutes) {
 }
 
 // ── Polling hook ───────────────────────────────────────────────────────────
-function useRunStats(since, active) {
+function useRunStats(since, active, botId) {
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
 
   const fetchStats = useCallback(async () => {
     try {
-      const res = await fetch(`/api/runs/stats?since=${since}`, { credentials: 'include' })
+      const qs = new URLSearchParams({ since })
+      if (botId) qs.set('botId', botId)
+      const res = await fetch(`/api/runs/stats?${qs}`, { credentials: 'include' })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       setData(await res.json())
       setError(null)
     } catch (e) {
       setError(e.message || 'fetch falló')
     }
-  }, [since])
+  }, [since, botId])
 
   useEffect(() => { setData(null); fetchStats() }, [since, fetchStats])
 
@@ -72,8 +74,14 @@ function useRunStats(since, active) {
 }
 
 // ── Chart: áreas solapadas éxito/error, un solo eje ─────────────────────────
-function OverlapChart({ buckets, bucketMinutes }) {
+// Selección por drag (mousedown+move+up), ADEMÁS del hover que ya existía --
+// al soltar, emite el rango de timestamps bajo la selección vía
+// `onRangeSelect(fromIso, toIso)`. Consumido por BotCard.jsx para saltar a
+// la tab "Ejecuciones" con ese rango como filtro (ver RunsTab.jsx).
+function OverlapChart({ buckets, bucketMinutes, onRangeSelect }) {
   const [hoverIdx, setHoverIdx] = useState(null)
+  const [dragStartIdx, setDragStartIdx] = useState(null)
+  const [dragIdx, setDragIdx] = useState(null)
   const svgRef = useRef(null)
 
   const W = 1000, H = 220
@@ -96,14 +104,47 @@ function OverlapChart({ buckets, bucketMinutes }) {
   const yTicks = [0, Math.round(maxVal / 2), maxVal]
   const xStep = n <= 12 ? 1 : n <= 30 ? Math.ceil(n / 12) : Math.ceil(n / 8)
 
-  function handleMove(e) {
+  function idxAt(e) {
     const rect = svgRef.current.getBoundingClientRect()
     const relX = ((e.clientX - rect.left) / rect.width) * W
     const idx = Math.round(((relX - PAD.left) / iW) * (n - 1))
-    setHoverIdx(idx >= 0 && idx < n ? idx : null)
+    return idx >= 0 && idx < n ? idx : null
+  }
+
+  function handleMove(e) {
+    const idx = idxAt(e)
+    setHoverIdx(idx)
+    if (dragStartIdx != null) setDragIdx(idx)
+  }
+
+  function handleDown(e) {
+    const idx = idxAt(e)
+    if (idx == null) return
+    setDragStartIdx(idx)
+    setDragIdx(idx)
+  }
+
+  function handleUp() {
+    if (dragStartIdx == null || dragIdx == null || !onRangeSelect) {
+      setDragStartIdx(null)
+      setDragIdx(null)
+      return
+    }
+    const lo = Math.min(dragStartIdx, dragIdx)
+    const hi = Math.max(dragStartIdx, dragIdx)
+    if (hi > lo) {
+      const fromIso = buckets[lo].startedAt
+      const toIso = new Date(new Date(buckets[hi].startedAt).getTime() + bucketMinutes * 60 * 1000).toISOString()
+      onRangeSelect(fromIso, toIso)
+    }
+    setDragStartIdx(null)
+    setDragIdx(null)
   }
 
   const hover = hoverIdx != null ? buckets[hoverIdx] : null
+  const selecting = dragStartIdx != null && dragIdx != null && dragIdx !== dragStartIdx
+  const selLo = selecting ? Math.min(dragStartIdx, dragIdx) : null
+  const selHi = selecting ? Math.max(dragStartIdx, dragIdx) : null
 
   return (
     <div style={{ position: 'relative' }}>
@@ -113,6 +154,8 @@ function OverlapChart({ buckets, bucketMinutes }) {
         style={{ width: '100%', height: 'auto', display: 'block', cursor: 'crosshair' }}
         onMouseMove={handleMove}
         onMouseLeave={() => setHoverIdx(null)}
+        onMouseDown={handleDown}
+        onMouseUp={handleUp}
       >
         {yTicks.map((v, i) => {
           const y = toY(v)
@@ -138,12 +181,19 @@ function OverlapChart({ buckets, bucketMinutes }) {
         <path d={areaPath('error')} fill={STATUS.error.color} fillOpacity="0.30" />
         <path d={linePath('error')} fill="none" stroke={STATUS.error.color} strokeWidth="2" strokeLinejoin="round" />
 
-        {hover && (
+        {hover && !selecting && (
           <g>
             <line x1={toX(hoverIdx)} y1={PAD.top} x2={toX(hoverIdx)} y2={H - PAD.bottom} stroke="#33436a" strokeWidth="1" strokeDasharray="3,3" />
             <circle cx={toX(hoverIdx)} cy={toY(hover.success)} r="4" fill={STATUS.success.color} stroke="#111c30" strokeWidth="2" />
             <circle cx={toX(hoverIdx)} cy={toY(hover.error)} r="4" fill={STATUS.error.color} stroke="#111c30" strokeWidth="2" />
           </g>
+        )}
+
+        {selecting && (
+          <rect
+            x={toX(selLo)} y={PAD.top} width={toX(selHi) - toX(selLo)} height={iH}
+            fill="#7c8dc9" fillOpacity="0.18" stroke="#7c8dc9" strokeWidth="1"
+          />
         )}
       </svg>
 
@@ -173,12 +223,12 @@ function StatCard({ label, value, color }) {
 }
 
 // ── Main component ───────────────────────────────────────────────────────
-export default function MonitorPanel({ active = true }) {
+export default function MonitorPanel({ active = true, botId, onRangeSelect }) {
   const [windowIdx, setWindowIdx] = useState(1) // default 1h
   const [paused, setPaused] = useState(false)
   const win = TIME_WINDOWS[windowIdx]
 
-  const { data, error } = useRunStats(win.since, active && !paused)
+  const { data, error } = useRunStats(win.since, active && !paused, botId)
 
   const buckets = data?.buckets ?? []
   const bucketMinutes = data?.bucketMinutes ?? 1
@@ -232,7 +282,14 @@ export default function MonitorPanel({ active = true }) {
         {error && <div className="mon-empty">Error consultando métricas: {error}</div>}
         {!error && !data && <div className="mon-empty">Cargando…</div>}
         {!error && data && buckets.length > 0 && (
-          <OverlapChart buckets={buckets} bucketMinutes={bucketMinutes} />
+          <>
+            <OverlapChart buckets={buckets} bucketMinutes={bucketMinutes} onRangeSelect={onRangeSelect} />
+            {onRangeSelect && (
+              <div style={{ fontSize: 11, color: '#5e6e8f', marginTop: 4 }}>
+                Arrastrá sobre el gráfico para filtrar Ejecuciones por ese rango.
+              </div>
+            )}
+          </>
         )}
         {!error && data && buckets.length === 0 && (
           <div className="mon-empty">Sin actividad de flows en esta ventana.</div>

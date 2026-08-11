@@ -208,7 +208,7 @@ export default function BotCard({
           />
         )}
 
-        {/* ── Ejecuciones ── */}
+        {/* ── Ejecuciones (Monitor colapsable arriba + lista abajo, ver RunsTab.jsx) ── */}
         {activeTab === 'runs' && (
           <RunsTab botId={botId} apiCall={apiCall} />
         )}

@@ -28,8 +28,9 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const windowMinutes = parseDurationMinutes(searchParams.get("since"), 60);
   const bucketMinutes = Number(searchParams.get("bucket")) || defaultBucketMinutes(windowMinutes);
+  const botId = searchParams.get("botId") ?? undefined;
 
   const since = new Date(Date.now() - windowMinutes * 60 * 1000);
-  const stats = await getRunStats({ since, bucketMinutes });
+  const stats = await getRunStats({ since, bucketMinutes, botId });
   return Response.json(stats);
 }

@@ -1,4 +1,4 @@
-import { and, desc, eq, gte } from "drizzle-orm";
+import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { flowRuns, flows } from "@/lib/db/schema";
 
@@ -21,12 +21,15 @@ export interface RunStatsBucket {
 export async function getRunStats(params: {
   since: Date;
   bucketMinutes: number;
+  botId?: string;
 }): Promise<{ bucketMinutes: number; buckets: RunStatsBucket[] }> {
   const db = getDb();
+  const conditions = [gte(flowRuns.startedAt, params.since)];
+  if (params.botId) conditions.push(eq(flowRuns.botId, params.botId));
   const rows = await db
     .select({ startedAt: flowRuns.startedAt, status: flowRuns.status })
     .from(flowRuns)
-    .where(gte(flowRuns.startedAt, params.since));
+    .where(and(...conditions));
 
   const bucketMs = params.bucketMinutes * 60 * 1000;
   const sinceMs = params.since.getTime();
@@ -80,12 +83,20 @@ function toRunDto(row: typeof flowRuns.$inferSelect, flowName: string | null) {
 // Recent flow_runs, most recent first -- para el drill-down de la tab
 // Ejecuciones. `botId` filtra a los runs de un bot puntual (RunsTab.jsx
 // pega a /api/runs/bots/{botId}); sin botId es el listado global (Monitor).
-export async function listRuns(params: { botId?: string; status?: string; limit?: number }) {
+export async function listRuns(params: {
+  botId?: string;
+  status?: string;
+  limit?: number;
+  since?: Date;
+  until?: Date;
+}) {
   const db = getDb();
   const limit = params.limit ?? 20;
   const conditions = [];
   if (params.botId) conditions.push(eq(flowRuns.botId, params.botId));
   if (params.status) conditions.push(eq(flowRuns.status, params.status));
+  if (params.since) conditions.push(gte(flowRuns.startedAt, params.since));
+  if (params.until) conditions.push(lte(flowRuns.startedAt, params.until));
 
   const rows = await db
     .select({ run: flowRuns, flowName: flows.name })
