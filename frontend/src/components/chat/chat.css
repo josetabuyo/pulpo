@@ -113,28 +113,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.pc-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-.pc-header-btn {
-  background: var(--pc-surface);
-  color: var(--pc-text-muted);
-  border: 1px solid var(--pc-border);
-  font-size: 12px;
-  font-weight: 600;
-  padding: 7px 12px;
-  white-space: nowrap;
-}
-.pc-header-btn:hover { background: var(--pc-surface-raised); opacity: 1; color: var(--pc-text); border-color: var(--pc-accent); }
-
 /* ─── Header en modo "banner" (cliente cargó headerBannerUrl en vez de
    logoUrl) -- como una portada de Facebook: imagen ancha, título accesible
-   pero visualmente oculto (la imagen ya dice la identidad), acciones
-   flotando arriba a la derecha con scrim para que se lean sobre cualquier
-   foto. Ver PulpoChatWidget.jsx, `hasHeaderBanner`. ─── */
+   pero visualmente oculto (la imagen ya dice la identidad). El toggle de
+   directorio ya no vive acá -- ver .pc-dir-handle, pegado al propio panel
+   que abre. ─── */
 .pc-header--banner {
   position: relative;
   padding: 0;
@@ -159,25 +142,6 @@
   height: 1px; width: 1px;
   overflow: hidden;
 }
-/* El botón de Directorio despliega un panel que sale del borde IZQUIERDO
-   (ver .pc-dir más abajo) -- tenerlo flotando en la esquina derecha confunde
-   ("¿por qué este botón abre algo del otro lado?"). Lo mandamos a la misma
-   esquina que el panel (izquierda), pedido explícito 2026-08-10. Único
-   botón que queda en el header en modo banner -- si en el futuro se agrega
-   otro, separar en su propio contenedor en vez de mover pc-header-actions
-   entero. */
-.pc-header--banner .pc-header-actions {
-  position: absolute;
-  top: 10px; left: 14px;
-  z-index: 1;
-}
-.pc-header--banner .pc-header-btn {
-  background: rgba(10, 18, 32, .55);
-  backdrop-filter: blur(4px);
-  color: #fff;
-  border-color: rgba(255, 255, 255, .25);
-}
-.pc-header--banner .pc-header-btn:hover { background: rgba(10, 18, 32, .75); }
 
 /* ─── Cuerpo: thread central + rail de ads (si hay) ─── */
 .pc-body {
@@ -442,6 +406,7 @@
    configurable, "Conectar" abre ChatDirectoryConnect. Espejo de .pc-ads
    (mismo ancho, mismas variables --pc-*) pero del otro lado. ─── */
 .pc-dir {
+  position: relative;
   width: 260px;
   flex-shrink: 0;
   background: var(--pc-surface);
@@ -561,7 +526,44 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.pc-dir-close-mobile { display: none; }
+/* ─── Handle del directorio -- pestaña pegada al borde del propio panel
+   que abre/cierra, así viaja CON él en vez de flotar suelta en el header
+   (pedido explícito 2026-08-11: "conectado a la sidebar que se desplaza").
+   Mismo --pc-surface que el panel -- coherente con el tema del chat sin
+   agregar una variable nueva. Oculto en desktop (>1180px, .pc-dir siempre
+   expandido); en compacto (ver @media abajo) se ve pegada al borde derecho
+   del panel, con una flecha que rota 180° según esté abierto o cerrado.
+   Prefijo .pulpochat: ".pulpochat button" (reset genérico, arriba del
+   archivo) fija border:none/border-radius:8px con especificidad
+   (clase+tipo) MAYOR que un solo ".pc-dir-handle" (una clase) -- sin el
+   prefijo el reset gana pase lo que pase el orden, y pisa el border y el
+   border-radius de acá (mismo patrón que ".pulpochat a.pc-dir-detail-link"
+   más abajo). */
+.pulpochat .pc-dir-handle {
+  display: none;
+  position: absolute;
+  top: 14px;
+  right: -32px;
+  width: 32px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: var(--pc-surface);
+  color: var(--pc-text-muted);
+  border: 1px solid var(--pc-border);
+  border-left: none;
+  border-radius: 0 var(--pc-radius-surface) var(--pc-radius-surface) 0;
+  box-shadow: var(--pc-shadow);
+  z-index: 1;
+}
+.pulpochat .pc-dir-handle:hover { background: var(--pc-surface-raised); opacity: 1; color: var(--pc-text); }
+.pc-dir-handle-arrow {
+  font-size: 16px;
+  line-height: 1;
+  transition: transform .2s ease;
+}
+.pc-dir-handle-arrow--open { transform: rotate(180deg); }
 
 /* ─── Modal de conexión (ChatDirectoryConnect.jsx) ─── */
 .pc-dir-modal-overlay {
@@ -674,36 +676,16 @@
   font-size: 18px;
 }
 
-/* Botón de ícono real (círculo, emoji grande) en vez del padding/font-size
-   genérico de .pc-header-btn -- pensado para texto, quedaba minúsculo
-   siendo el único contenido de un botón flotante. Pedido explícito
-   2026-08-10 ("se ve tan chico"). Prefijo .pulpochat: ".pulpochat button"
-   (reset genérico, ver arriba del archivo) tiene la MISMA especificidad que
-   un solo ".pc-header-btn--dir-only" y gana por orden de aparición -- sin
-   el prefijo, el border-radius:8px del reset pisa el 50% de acá. */
-.pulpochat .pc-header-btn--dir-only {
-  display: none;
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  border-radius: 50%;
-  font-size: 20px;
-  align-items: center;
-  justify-content: center;
-}
-
-/* ─── Un solo breakpoint (1180px) para todo lo "compacto" -- pedido
-   explícito 2026-08-10: antes había DOS breakpoints (1180 y 860) con un
-   rango intermedio (861-1180px) donde ads se angostaba pero el directorio
-   seguía siendo una columna fija de 260px sin botón para ocultarla. En ese
-   rango, dir(260) + ads(168) le dejaban muy poco espacio real al thread
-   central -- se veía apretado/roto y el usuario no encontraba forma de
-   sacar el directorio del medio ("no se ve el botón para desplegar la
-   barra en este tamaño"). Unificado: por debajo de 1180px, TODO pasa al
-   modo compacto de una (directorio a drawer + botón, ads al 40%) -- ya no
-   hay un estado intermedio raro. ─── */
+/* ─── Compacto (≤1180px, tablet) -- directorio a drawer con handle propio +
+   ads angosto. Pedido explícito 2026-08-11: mientras se opera el drawer del
+   directorio, ads se corre fuera de pantalla (antes, 2026-08-10, se pedía
+   que ads NUNCA se ocultara -- ese criterio queda superado acá, el drawer
+   necesita el espacio). Tanto .pc-dir como .pc-ads pasan a overlay absoluto
+   (fuera del flujo) para que .pc-main -- el chat -- nunca cambie de ancho
+   durante la transición: sea cual sea el estado del drawer o de ads, el
+   thread central mide siempre el 100% de .pc-body. Ver <1180px, ≤640px
+   (smartphone, bloque siguiente) para el modo aún más compacto. ─── */
 @media (max-width: 1180px) {
-  .pc-header-btn span { display: none; }
   /* En pantallas chicas, un banner de 192px se come demasiado del alto
      disponible -- lo bajamos a algo más parecido a lo que usa Facebook
      mobile. */
@@ -713,14 +695,7 @@
      compensemos -- aplica a cualquier cliente, no solo a los que suben un
      zoom manual. */
   .pc-header-banner-img { transform: scale(calc(var(--pc-header-zoom, 1) * 1.2)); }
-  /* Pedido explícito: la publicidad ocupa ~40% del ancho -- sigue visible
-     siempre (nunca se esconde), con espacio real para el mosaico. */
-  .pc-ads { width: 40%; padding: 12px 8px; }
-  .pc-ad-title { font-size: 10px; }
-  /* .pulpochat prefijo: tiene que empatar o superar la especificidad de
-     ".pulpochat .pc-header-btn--dir-only" (arriba, display:none por
-     defecto) para poder pisarlo -- mismo bug de especificidad de siempre. */
-  .pulpochat .pc-header-btn--dir-only { display: inline-flex; }
+
   .pc-dir {
     position: absolute;
     top: 0; bottom: 0; left: 0;
@@ -731,14 +706,86 @@
     box-shadow: var(--pc-shadow);
   }
   .pc-dir--open { transform: translateX(0); }
-  .pc-dir-close-mobile {
-    display: block;
-    background: var(--pc-surface-raised);
-    color: var(--pc-text-muted);
-    border: 1px solid var(--pc-border);
-    border-radius: 8px;
-    padding: 8px;
-    font-size: 12px;
-    cursor: pointer;
+  .pc-dir-handle { display: flex; }
+
+  /* Ads: mismo trato de overlay que .pc-dir (absoluto, fuera del flujo) --
+     así ocultarlo con un transform no le saca ancho a .pc-main. Sale por la
+     derecha en vez de la izquierda (espejo del drawer). */
+  .pc-ads {
+    position: absolute;
+    top: 0; bottom: 0; right: 0;
+    width: 40%;
+    padding: 12px 8px;
+    z-index: 20;
+    transform: translateX(0);
+    transition: transform .2s ease;
   }
+  .pc-ad-title { font-size: 10px; }
+  .pc-ads--hidden { transform: translateX(105%); }
+}
+
+/* ─── Smartphone (≤640px) -- pedido explícito 2026-08-11: el drawer lateral
+   de 220px del breakpoint anterior no alcanza en un teléfono (tapa casi
+   toda la pantalla igual, mejor asumirlo). Layout pasa de fila a columna:
+   header, después una barra horizontal con los tabs del directorio
+   (siempre visible, sin abrir nada), después el chat. El resto del
+   directorio (buscador + lista/conversaciones/forms) se pliega dentro de
+   esa barra y solo se despliega -- a pantalla completa, tapando el chat
+   entero -- al tocar el handle. Sin rail de ads: no hay ancho real para un
+   mosaico de publicidad en este tamaño. ─── */
+@media (max-width: 640px) {
+  .pc-body { flex-direction: column; }
+
+  .pc-dir {
+    position: relative;
+    top: auto; left: auto; bottom: auto;
+    width: 100%;
+    flex: 0 0 auto;
+    z-index: auto;
+    transform: none;
+    transition: none;
+    box-shadow: none;
+    border-right: none;
+    border-bottom: 1px solid var(--pc-border);
+    padding: 8px 10px;
+  }
+  /* Espacio a la derecha para el handle (absoluto, top:8/right:8, 28px) --
+     sin esto el último tab de la fila queda tapado por el botón. */
+  .pc-dir-tabs { padding-right: 34px; }
+  /* Colapsado: solo la barra de tabs queda visible -- buscador/lista se
+     ocultan hasta que se despliega el panel entero. */
+  .pc-dir-search,
+  .pc-dir-list { display: none; }
+  .pc-dir--open {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding-bottom: 12px;
+  }
+  .pc-dir--open .pc-dir-search { display: block; }
+  .pc-dir--open .pc-dir-list { display: flex; }
+
+  /* El chat entero se esconde mientras el directorio está desplegado --
+     .pc-body--dir-open lo pone PulpoChatWidget.jsx según mobileDirOpen. */
+  .pc-body--dir-open .pc-main { display: none; }
+
+  /* Handle: ya no hace falta que sobresalga de un borde (el panel ocupa
+     todo el ancho) -- vive adentro, a la derecha de la barra de tabs, con
+     una flecha que apunta hacia abajo (desplegar) o arriba (colapsar) en
+     vez de izquierda/derecha (ese sentido era para el drawer lateral).
+     Prefijo .pulpochat -- ver comentario en la definición base de
+     .pc-dir-handle, mismo motivo (border/border-radius del reset). */
+  .pulpochat .pc-dir-handle {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 1px solid var(--pc-border);
+    box-shadow: none;
+  }
+  .pc-dir-handle-arrow { transform: rotate(90deg); }
+  .pc-dir-handle-arrow--open { transform: rotate(-90deg); }
+
+  .pc-ads { display: none; }
 }

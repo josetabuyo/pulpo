@@ -235,20 +235,15 @@ export default function PulpoChatWidget({
             {!hasHeaderBanner && branding.logoUrl && <img className="pc-header-logo" src={branding.logoUrl} alt="" />}
             <span className="pc-header-title">{config.title}</span>
           </div>
-          <div className="pc-header-actions">
-            <button className="pc-header-btn pc-header-btn--dir-only" onClick={() => setMobileDirOpen(o => !o)} title="Directorio">
-              📇
-            </button>
-          </div>
         </div>
 
-        <div className="pc-body">
+        <div className={`pc-body ${mobileDirOpen ? 'pc-body--dir-open' : ''}`}>
           <ChatDirectory
             botId={botId}
             chatId={chatId}
             directory={config.directory}
             open={mobileDirOpen}
-            onClose={() => setMobileDirOpen(false)}
+            onToggle={() => setMobileDirOpen(o => !o)}
             conversations={conversations}
             activeConversationId={conversationId}
             onSelectConversation={id => { setConversationId(id); setMobileDirOpen(false) }}
@@ -260,7 +255,7 @@ export default function PulpoChatWidget({
             <ChatComposer disabled={disabled} onSend={handleSend} />
           </div>
 
-          <ChatBanners ads={config.ads} banners={config.banners} />
+          <ChatBanners ads={config.ads} banners={config.banners} hidden={mobileDirOpen} />
         </div>
       </div>
     </div>

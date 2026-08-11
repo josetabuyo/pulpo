@@ -75,7 +75,7 @@ export default function ChatDirectory({
   chatId,
   directory,
   open,
-  onClose,
+  onToggle,
   conversations = [],
   activeConversationId,
   onSelectConversation,
@@ -152,6 +152,16 @@ export default function ChatDirectory({
 
   return (
     <div className={`pc-dir ${open ? 'pc-dir--open' : ''}`}>
+      <button
+        type="button"
+        className="pc-dir-handle"
+        onClick={onToggle}
+        title={open ? 'Cerrar directorio' : 'Abrir directorio'}
+        aria-label={open ? 'Cerrar directorio' : 'Abrir directorio'}
+      >
+        <span className={`pc-dir-handle-arrow ${open ? 'pc-dir-handle-arrow--open' : ''}`}>›</span>
+      </button>
+
       {sections.length > 1 && (
         <div className="pc-dir-tabs">
           {sections.map(s => (
@@ -202,8 +212,6 @@ export default function ChatDirectory({
           </div>
         </>
       )}
-
-      {open && <button className="pc-dir-close-mobile" onClick={onClose}>Cerrar</button>}
 
       {connectItem && active && (
         <ChatDirectoryConnect
