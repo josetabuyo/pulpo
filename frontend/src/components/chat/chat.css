@@ -159,9 +159,16 @@
   height: 1px; width: 1px;
   overflow: hidden;
 }
+/* El botón de Directorio despliega un panel que sale del borde IZQUIERDO
+   (ver .pc-dir más abajo) -- tenerlo flotando en la esquina derecha confunde
+   ("¿por qué este botón abre algo del otro lado?"). Lo mandamos a la misma
+   esquina que el panel (izquierda), pedido explícito 2026-08-10. Único
+   botón que queda en el header en modo banner -- si en el futuro se agrega
+   otro, separar en su propio contenedor en vez de mover pc-header-actions
+   entero. */
 .pc-header--banner .pc-header-actions {
   position: absolute;
-  top: 10px; right: 14px;
+  top: 10px; left: 14px;
   z-index: 1;
 }
 .pc-header--banner .pc-header-btn {
@@ -445,9 +452,11 @@
      compensemos -- aplica a cualquier cliente, no solo a los que suben un
      zoom manual. */
   .pc-header-banner-img { transform: scale(calc(var(--pc-header-zoom, 1) * 1.2)); }
-  .pc-ads { width: 108px; padding: 10px 6px; }
-  .pc-ads-title { display: none; }
-  .pc-ad-title { font-size: 9px; padding: 4px 5px 3px; }
+  /* Pedido explícito 2026-08-10: en celular la publicidad ocupa ~40% del
+     ancho (antes se angostaba a 108px, muy chica para leerse) -- sigue
+     visible siempre, ahora con espacio real para el mosaico. */
+  .pc-ads { width: 40%; padding: 12px 8px; }
+  .pc-ad-title { font-size: 10px; }
 }
 
 /* ─── Directorio "conectar directo" (rail izquierdo, ver ChatDirectory.jsx)
@@ -687,7 +696,23 @@
   font-size: 18px;
 }
 
-.pc-header-btn--dir-only { display: none; }
+/* Botón de ícono real (círculo, emoji grande) en vez del padding/font-size
+   genérico de .pc-header-btn -- pensado para texto, quedaba minúsculo
+   siendo el único contenido de un botón flotante. Pedido explícito
+   2026-08-10 ("se ve tan chico"). Prefijo .pulpochat: ".pulpochat button"
+   (reset genérico, ver arriba del archivo) tiene la MISMA especificidad que
+   un solo ".pc-header-btn--dir-only" y gana por orden de aparición -- sin
+   el prefijo, el border-radius:8px del reset pisa el 50% de acá. */
+.pulpochat .pc-header-btn--dir-only {
+  display: none;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 20px;
+  align-items: center;
+  justify-content: center;
+}
 
 /* ─── Breakpoint intermedio: con directorio (260px) + ads (260px) a la vez,
    1180px es el punto en el que empiezan a apretar el thread central --
