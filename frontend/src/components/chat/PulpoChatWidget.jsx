@@ -52,6 +52,11 @@ export default function PulpoChatWidget({
   const [runStatus, setRunStatus] = useState(null)
   const [sendError, setSendError] = useState('')
   const [mobileDirOpen, setMobileDirOpen] = useState(false)
+  // En compacto (≤1180px, ver chat.css) ambos rails arrancan colapsados
+  // salvo ads -- pedido explícito 2026-08-11, ads sigue visible por default
+  // (comportamiento previo) y el usuario lo colapsa a mano si quiere más
+  // lugar para el directorio o el chat.
+  const [adsOpen, setAdsOpen] = useState(true)
 
   const lastIdRef = useRef(0)
   const pollRef = useRef(null)
@@ -255,7 +260,7 @@ export default function PulpoChatWidget({
             <ChatComposer disabled={disabled} onSend={handleSend} />
           </div>
 
-          <ChatBanners ads={config.ads} banners={config.banners} hidden={mobileDirOpen} />
+          <ChatBanners ads={config.ads} banners={config.banners} open={adsOpen} onToggle={() => setAdsOpen(o => !o)} />
         </div>
       </div>
     </div>
