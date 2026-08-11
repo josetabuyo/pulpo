@@ -527,15 +527,17 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* ─── Handle del directorio -- pestaña pegada al borde del propio panel
-   que abre/cierra, así viaja CON él en vez de flotar suelta en el header
-   (pedido explícito 2026-08-11: "conectado a la sidebar que se desplaza").
-   Mismo --pc-surface que el panel -- coherente con el tema del chat sin
-   agregar una variable nueva. Oculto en desktop (>1180px, .pc-dir siempre
-   expandido); en compacto (ver @media abajo) se ve pegada al borde derecho
-   del panel, con una flecha que rota 180° según esté abierto o cerrado.
-   Prefijo .pulpochat: ".pulpochat button" (reset genérico, arriba del
-   archivo) fija border:none/border-radius:8px con especificidad
+/* ─── Handle del directorio -- círculo pegado al borde del propio panel que
+   abre/cierra (pedido explícito 2026-08-11: "conectado a la sidebar que se
+   desplaza"). Mismo --pc-surface que el panel -- coherente con el tema del
+   chat sin agregar una variable nueva. Oculto en desktop (>1180px, .pc-dir
+   siempre expandido); en compacto (ver @media abajo) vive DENTRO de la
+   franja angosta de .pc-dir. Mismo tamaño/forma EXACTOS que .pc-ads-handle
+   (abajo) -- pedido explícito 2026-08-11 "sincronizados": antes este era
+   una media píldora 32×40 (resabio del viejo drawer que sobresalía del
+   borde) mientras que el de ads ya era un círculo 28×28: se notaba la
+   asimetría. Prefijo .pulpochat: ".pulpochat button" (reset genérico,
+   arriba del archivo) fija border:none/border-radius:8px con especificidad
    (clase+tipo) MAYOR que un solo ".pc-dir-handle" (una clase) -- sin el
    prefijo el reset gana pase lo que pase el orden, y pisa el border y el
    border-radius de acá (mismo patrón que ".pulpochat a.pc-dir-detail-link"
@@ -544,18 +546,16 @@
   display: none;
   position: absolute;
   top: 14px;
-  right: -32px;
-  width: 32px;
-  height: 40px;
+  right: 4px;
+  width: 28px;
+  height: 28px;
   align-items: center;
   justify-content: center;
   padding: 0;
   background: var(--pc-surface);
   color: var(--pc-text-muted);
   border: 1px solid var(--pc-border);
-  border-left: none;
-  border-radius: 0 var(--pc-radius-surface) var(--pc-radius-surface) 0;
-  box-shadow: var(--pc-shadow);
+  border-radius: 50%;
   z-index: 1;
 }
 .pulpochat .pc-dir-handle:hover { background: var(--pc-surface-raised); opacity: 1; color: var(--pc-text); }
@@ -717,10 +717,16 @@
    (angosto, solo el handle) o abierto (ancho completo) -- .pc-main es
    flex:1 y ocupa lo que sobra, así que al expandir/colapsar un lado el
    "mosaico" entero se reacomoda en flujo normal (transition en width), sin
-   tocar z-index ni tapar nada. Arrancan colapsados los dos (mobileDirOpen/
-   adsOpen en false, ver PulpoChatWidget.jsx) para dejarle el máximo espacio
-   al chat por default. Ver ≤640px (smartphone, bloque siguiente) para el
-   modo aún más chico, donde ads se muda debajo del header. ─── */
+   tocar z-index ni tapar nada.
+
+   Directorio y publicidad son mutuamente excluyentes -- `openPanel` en
+   PulpoChatWidget.jsx ('dir' | 'ads', un solo estado para los dos, default
+   'ads') así que abrir uno cierra el otro solo, nunca los dos abiertos a
+   la vez. Terminar una acción del directorio (elegir conversación, etc.)
+   vuelve a 'ads'. Los dos handles comparten mismo top (14px) y mismo inset
+   (8px, espejado) para que se vean sincronizados. Ver ≤640px (smartphone,
+   bloque siguiente) para el modo aún más chico, donde ads se muda debajo
+   del header. ─── */
 @media (max-width: 1180px) {
   /* En pantallas chicas, un banner de 192px se come demasiado del alto
      disponible -- lo bajamos a algo más parecido a lo que usa Facebook
@@ -750,7 +756,7 @@
      suelto (1 clase) de acá adentro. Sin el prefijo, display:none de la base
      le gana a este display:flex SIEMPRE, sin importar el ancho de pantalla
      -- bug real 2026-08-11, el handle no aparecía en ningún breakpoint. */
-  .pulpochat .pc-dir-handle { display: flex; right: 8px; }
+  .pulpochat .pc-dir-handle { display: flex; }
 
   /* Ads: mismo mecanismo que .pc-dir pero espejado (angosto pegado a la
      derecha, handle en el borde izquierdo -- el que mira hacia el chat). */

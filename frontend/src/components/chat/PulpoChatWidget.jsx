@@ -51,12 +51,16 @@ export default function PulpoChatWidget({
   const [messages, setMessages] = useState([])
   const [runStatus, setRunStatus] = useState(null)
   const [sendError, setSendError] = useState('')
-  const [mobileDirOpen, setMobileDirOpen] = useState(false)
-  // En compacto (≤1180px, ver chat.css) ambos rails arrancan colapsados
-  // salvo ads -- pedido explícito 2026-08-11, ads sigue visible por default
-  // (comportamiento previo) y el usuario lo colapsa a mano si quiere más
-  // lugar para el directorio o el chat.
-  const [adsOpen, setAdsOpen] = useState(true)
+  // En compacto (≤1180px, ver chat.css) directorio y publicidad son
+  // mutuamente excluyentes -- pedido explícito 2026-08-11 ("si se muestra
+  // la der, se esconde la izq, y al revés"): un solo panel lateral abierto
+  // a la vez, nunca los dos. Default 'ads' (publicidad, como antes de hoy);
+  // terminar una acción del directorio (elegir conversación, etc.) vuelve
+  // a 'ads' en vez de simplemente cerrar. En desktop (>1180px) este estado
+  // no importa -- ahí ambos rails siempre se ven completos sin importar
+  // openPanel (ver chat.css).
+  const [openPanel, setOpenPanel] = useState('ads')
+  const mobileDirOpen = openPanel === 'dir'
 
   const lastIdRef = useRef(0)
   const pollRef = useRef(null)
@@ -248,11 +252,11 @@ export default function PulpoChatWidget({
             chatId={chatId}
             directory={config.directory}
             open={mobileDirOpen}
-            onToggle={() => setMobileDirOpen(o => !o)}
+            onToggle={() => setOpenPanel(p => p === 'dir' ? 'ads' : 'dir')}
             conversations={conversations}
             activeConversationId={conversationId}
-            onSelectConversation={id => { setConversationId(id); setMobileDirOpen(false) }}
-            onNewConversation={() => { handleNewConversation(); setMobileDirOpen(false) }}
+            onSelectConversation={id => { setConversationId(id); setOpenPanel('ads') }}
+            onNewConversation={() => { handleNewConversation(); setOpenPanel('ads') }}
           />
 
           <div className="pc-main">
@@ -260,7 +264,12 @@ export default function PulpoChatWidget({
             <ChatComposer disabled={disabled} onSend={handleSend} />
           </div>
 
-          <ChatBanners ads={config.ads} banners={config.banners} open={adsOpen} onToggle={() => setAdsOpen(o => !o)} />
+          <ChatBanners
+            ads={config.ads}
+            banners={config.banners}
+            open={openPanel === 'ads'}
+            onToggle={() => setOpenPanel(p => p === 'ads' ? 'dir' : 'ads')}
+          />
         </div>
       </div>
     </div>
