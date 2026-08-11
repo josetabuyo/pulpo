@@ -725,8 +725,9 @@
    la vez. Terminar una acción del directorio (elegir conversación, etc.)
    vuelve a 'ads'. Los dos handles comparten mismo top (14px) y mismo inset
    (8px, espejado) para que se vean sincronizados. Ver ≤640px (smartphone,
-   bloque siguiente) para el modo aún más chico, donde ads se muda debajo
-   del header. ─── */
+   bloque siguiente) para el modo aún más chico, que reusa este mismo
+   mecanismo de .pc-dir (barra angosta + handle) pero fuerza a ads a su
+   propia franja arriba, siempre visible, nunca colapsada. ─── */
 @media (max-width: 1180px) {
   /* En pantallas chicas, un banner de 192px se come demasiado del alto
      disponible -- lo bajamos a algo más parecido a lo que usa Facebook
@@ -777,108 +778,87 @@
   .pc-ad-title { font-size: 10px; }
 }
 
-/* ─── Smartphone (≤640px) -- pedido explícito 2026-08-11: el drawer lateral
-   de 220px del breakpoint anterior no alcanza en un teléfono (tapa casi
-   toda la pantalla igual, mejor asumirlo). Layout pasa de fila a columna:
-   header, después la publicidad como franja horizontal (era la columna
-   derecha -- acá se muda debajo del header, siempre visible, sin colapsar,
-   pedido explícito), después una barra horizontal con los tabs del
-   directorio (siempre visible, sin abrir nada), después el chat. El resto
-   del directorio (buscador + lista/conversaciones/forms) se pliega dentro
-   de esa barra y solo se despliega -- a pantalla completa, tapando el chat
-   entero, nunca superpuesto -- al tocar el handle. */
+/* ─── Smartphone (≤640px) -- v2, pedido explícito 2026-08-11 (reemplaza el
+   diseño anterior "franja + tabs siempre visibles"): ahora reusa EXACTO el
+   mecanismo de .pc-dir de tablet (≤1180px, barra angosta 44px + handle
+   circular que abre a ancho completo) en vez de una barra horizontal de
+   tabs siempre visible. Layout pasa a flex-wrap (no flex-direction:column)
+   así dir + main se acomodan en fila lado a lado como en tablet, mientras
+   ads se fuerza a su propia línea arriba con flex-basis:100% (order:-1,
+   ver comentario de ese selector) -- siempre visible, nunca colapsa, nunca
+   tapado por nada de esto. Al abrir el directorio: ocupa 100% del ancho
+   (override del 220px de tablet, no alcanza en un teléfono) y el chat
+   entero desaparece (mismo mecanismo .pc-body--dir-open .pc-main de antes)
+   -- da la sensación de que el panel empuja al chat afuera hacia la
+   derecha. Al terminar la acción (elegir conversación, nueva conversación)
+   o volver a tocar el handle, PulpoChatWidget.jsx vuelve `openPanel` a
+   'ads' y el panel se contrae solo a la barra angosta de nuevo. */
 @media (max-width: 640px) {
-  .pc-body { flex-direction: column; }
+  .pc-body { flex-wrap: wrap; }
 
   /* order:-1 -- .pc-ads es el último hijo en el DOM (dir, main, ads) pero
-     acá tiene que aparecer PRIMERO, pegado al header. Más simple que
-     reordenar el JSX solo para este breakpoint. */
+     acá tiene que aparecer PRIMERO, pegado al header. flex-basis:100%
+     fuerza su propia línea (flex-wrap de .pc-body de arriba) sin necesidad
+     de flex-direction:column para el resto. */
   .pc-ads {
     order: -1;
+    flex: 0 0 100%;
     width: 100%;
-    flex: 0 0 auto;
     border-left: none;
     border-bottom: 1px solid var(--pc-border);
     padding: 10px 12px;
   }
-  /* Sin handle acá -- ads siempre expandida, no colapsa en este tamaño (la
-     franja horizontal ya es angosta de por sí). Mismo selector EXACTO que
-     ".pc-ads:not(.pc-ads--open) .pc-ad-grid" del bloque de 1180px (arriba,
-     misma especificidad) para poder pisar su display:none por orden de
-     aparición -- fuerza visibles título y mosaico aunque .pc-ads no tenga
-     la clase --open. */
+  .pulpochat .pc-ads-handle { display: none; }
+  /* El bloque de 1180px de arriba colapsa ads a 44px vía
+     ".pc-ads:not(.pc-ads--open)" (mayor especificidad que un ".pc-ads"
+     suelto) cada vez que el directorio está abierto (mutuamente excluyentes,
+     ver openPanel en PulpoChatWidget.jsx -- abrir "dir" pone `open=false` en
+     ChatBanners). Acá la publicidad tiene que quedar SIEMPRE visible, pedido
+     explícito -- mismo selector exacto para pisar por especificidad y orden
+     de aparición. */
   .pc-ads:not(.pc-ads--open) {
     width: 100%;
+    flex: 0 0 100%;
+    padding: 10px 12px;
     overflow: visible;
   }
   .pc-ads:not(.pc-ads--open) .pc-ads-title { display: block; }
-  .pc-ads:not(.pc-ads--open) .pc-ad-grid { display: flex; }
-  .pulpochat .pc-ads-handle { display: none; }
-  .pc-ad-grid {
-    display: flex;
-    height: 84px;
-    overflow-x: auto;
-    gap: 8px;
-  }
-  .pc-ad-grid > .pc-ad-cell {
-    flex: 0 0 110px;
-    grid-column: unset;
-    grid-row: unset;
-  }
+  .pc-ads:not(.pc-ads--open) .pc-ad-grid { display: grid; }
 
-  .pc-dir {
+  /* Mosaico de publicidad rotado 90° respecto del de desktop/tablet (ver
+     .pc-ad-grid base, arriba): 3 columnas en vez de 3 filas -- izquierda
+     grande, centro partido, derecha grande. El "partido" de las celdas
+     2/3 pasa de línea vertical (desktop, lado a lado) a línea horizontal
+     (acá, una arriba/una abajo) -- misma lógica, mismos 4 items de
+     ChatBanners.jsx (CELLS=4), solo cambia la orientación de la grilla. */
+  .pc-ad-grid {
+    grid-template-columns: 1.3fr 1fr 1.3fr;
+    grid-template-rows: 1fr 1fr;
+    height: 104px;
+    gap: 6px;
+  }
+  .pc-ad-grid > .pc-ad-cell:nth-child(1) { grid-column: 1; grid-row: 1 / 3; }
+  .pc-ad-grid > .pc-ad-cell:nth-child(2) { grid-column: 2; grid-row: 1; }
+  .pc-ad-grid > .pc-ad-cell:nth-child(3) { grid-column: 2; grid-row: 2; }
+  .pc-ad-grid > .pc-ad-cell:nth-child(4) { grid-column: 3; grid-row: 1 / 3; }
+  .pc-ad-title { font-size: 10px; }
+
+  /* Directorio: barra angosta 44px + handle circular ya vienen del bloque
+     de 1180px de arriba (mismo mecanismo, reusado tal cual -- pedido
+     explícito "el mismo botón que se ve en tamaño tablet"). Acá solo
+     sobreescribimos el ancho ABIERTO: 220px (tablet) no alcanza en un
+     teléfono, pasa a 100% y empuja al chat afuera (ver
+     .pc-body--dir-open .pc-main abajo). Selector compuesto
+     ".pc-dir.pc-dir--open" para no perder contra ".pc-dir:not(.pc-dir--open)"
+     del bloque de 1180px cuando está colapsado (misma especificidad, este
+     bloque va después en el archivo así que solo pisa cuando --open
+     coincide). */
+  .pc-dir.pc-dir--open {
     width: 100%;
-    flex: 0 0 auto;
-    border-right: none;
-    border-bottom: 1px solid var(--pc-border);
-    padding: 8px 10px;
+    flex: 1 1 100%;
   }
-  /* El bloque de 1180px de arriba angosta a 44px cuando está colapsado
-     (".pc-dir:not(.pc-dir--open){width:44px}") con más especificidad que un
-     ".pc-dir{width:100%}" suelto de acá -- mismo selector exacto para pisar
-     por orden de aparición, igual que con .pc-dir-tabs unas líneas abajo. */
-  .pc-dir:not(.pc-dir--open) { width: 100%; overflow: visible; }
-  /* Espacio a la derecha para el handle (absoluto, top:8/right:8, 28px) --
-     sin esto el último tab de la fila queda tapado por el botón. */
-  .pc-dir-tabs { padding-right: 34px; }
-  /* El bloque de 1180px de arriba esconde .pc-dir-tabs cuando el panel está
-     colapsado (drawer angosto, sin espacio ni para los tabs) -- acá en
-     cambio la barra de tabs tiene que quedar SIEMPRE visible, es la franja
-     horizontal permanente del modo smartphone. Mismo selector exacto para
-     pisar por orden de aparición. */
-  .pc-dir:not(.pc-dir--open) .pc-dir-tabs { display: flex; }
-  /* Colapsado: solo la barra de tabs queda visible -- buscador/lista se
-     ocultan hasta que se despliega el panel entero. */
-  .pc-dir-search,
-  .pc-dir-list { display: none; }
-  .pc-dir--open {
-    flex: 1 1 auto;
-    min-height: 0;
-    padding-bottom: 12px;
-  }
-  .pc-dir--open .pc-dir-search { display: block; }
-  .pc-dir--open .pc-dir-list { display: flex; }
 
   /* El chat entero se esconde mientras el directorio está desplegado --
      .pc-body--dir-open lo pone PulpoChatWidget.jsx según mobileDirOpen. */
   .pc-body--dir-open .pc-main { display: none; }
-
-  /* Handle: ya no hace falta que sobresalga de un borde (el panel ocupa
-     todo el ancho) -- vive adentro, a la derecha de la barra de tabs, con
-     una flecha que apunta hacia abajo (desplegar) o arriba (colapsar) en
-     vez de izquierda/derecha (ese sentido era para el drawer lateral).
-     Prefijo .pulpochat -- ver comentario en la definición base de
-     .pc-dir-handle, mismo motivo (border/border-radius del reset). */
-  .pulpochat .pc-dir-handle {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    border: 1px solid var(--pc-border);
-    box-shadow: none;
-  }
-  .pc-dir-handle-arrow { transform: rotate(90deg); }
-  .pc-dir-handle-arrow--open { transform: rotate(-90deg); }
 }
