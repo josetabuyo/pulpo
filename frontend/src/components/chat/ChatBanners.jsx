@@ -77,7 +77,7 @@ function AdCell({ item }) {
  * mantiene la rotación vieja si hay más de 4 -- así un chat configurado
  * antes de esta feature sigue funcionando sin migrar datos.
  */
-export default function ChatBanners({ ads, banners, open }) {
+export default function ChatBanners({ ads, banners }) {
   const usingAds = Array.isArray(ads) && ads.length > 0
   const list = usingAds ? ads : (banners && banners.length > 0 ? banners : DEFAULT_BANNERS)
   const rotates = !usingAds && list.length > CELLS
@@ -100,7 +100,7 @@ export default function ChatBanners({ ads, banners, open }) {
   const visible = Array.from({ length: CELLS }, (_, i) => list[(offset + i) % list.length])
 
   return (
-    <div className={`pc-ads ${open ? 'pc-ads--open' : ''}`}>
+    <div className="pc-ads">
       <div className="pc-ads-title">Publicidad</div>
       <div className="pc-ad-grid" style={{ opacity: fading ? 0 : 1, transition: 'opacity .4s ease' }}>
         {visible.map((item, i) => <AdCell key={item?.id ?? i} item={item} />)}

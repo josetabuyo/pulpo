@@ -129,7 +129,6 @@
   white-space: nowrap;
 }
 .pc-header-btn:hover { background: var(--pc-surface-raised); opacity: 1; color: var(--pc-text); border-color: var(--pc-accent); }
-.pc-header-btn--ads-only { display: none; }
 
 /* ─── Header en modo "banner" (cliente cargó headerBannerUrl en vez de
    logoUrl) -- como una portada de Facebook: imagen ancha, título accesible
@@ -431,11 +430,12 @@
   padding: 24px;
 }
 
-/* ─── Mobile: el rail de ads también pasa a ser drawer (el historial ya es
-   overlay a cualquier ancho, ver arriba). El botón "🖼" del header, oculto
-   en desktop, aparece acá para abrirlo/cerrarlo. ─── */
+/* ─── Mobile: la publicidad se mantiene SIEMPRE visible (pedido explícito
+   2026-08-10 -- antes se ocultaba detrás de un botón "🖼", mala UX en
+   celular: nadie la abría). Achica en vez de esconderse; el directorio sí
+   sigue siendo drawer acá porque tiene contenido interactivo (buscador +
+   lista) que necesita ancho real, la publicidad es solo estática. ─── */
 @media (max-width: 860px) {
-  .pc-header-btn--ads-only { display: inline-flex; }
   .pc-header-btn span { display: none; }
   /* En celular, un banner de 192px se come demasiado del alto disponible --
      lo bajamos a algo más parecido a lo que usa Facebook mobile. */
@@ -445,16 +445,9 @@
      compensemos -- aplica a cualquier cliente, no solo a los que suben un
      zoom manual. */
   .pc-header-banner-img { transform: scale(calc(var(--pc-header-zoom, 1) * 1.2)); }
-  .pc-ads {
-    position: absolute;
-    top: 0; bottom: 0; right: 0;
-    width: 220px;
-    z-index: 20;
-    transform: translateX(105%);
-    transition: transform .2s ease;
-    box-shadow: var(--pc-shadow);
-  }
-  .pc-ads--open { transform: translateX(0); }
+  .pc-ads { width: 108px; padding: 10px 6px; }
+  .pc-ads-title { display: none; }
+  .pc-ad-title { font-size: 9px; padding: 4px 5px 3px; }
 }
 
 /* ─── Directorio "conectar directo" (rail izquierdo, ver ChatDirectory.jsx)
@@ -476,27 +469,36 @@
    Servicios/Conversaciones) el texto de cada tab fuerza su flex-item más
    ancho que el espacio disponible, y la fila entera se corta/desborda en
    vez de acomodarse en 2 filas. */
+/* Segmented control tipo Messenger/FB: "well" oscuro de fondo, cada tab una
+   píldora que flota (fondo + sombra) solo cuando está activa -- en vez de
+   cada tab con su propio borde suelto (look "grilla de botones" viejo). */
 .pc-dir-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
+  background: var(--pc-bg-deep);
+  padding: 4px;
+  border-radius: 14px;
 }
 .pc-dir-tab {
-  flex: 1 1 calc(50% - 6px);
+  flex: 1 1 calc(50% - 4px);
   min-width: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  background: var(--pc-surface-raised);
+  gap: 6px;
+  background: transparent;
   color: var(--pc-text-muted);
-  border: 1px solid var(--pc-border);
-  border-radius: 8px;
-  padding: 6px 8px;
-  font-size: 12px;
+  border: none;
+  border-radius: 10px;
+  padding: 9px 10px;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
+  transition: background .15s ease, color .15s ease, box-shadow .15s ease;
 }
-.pc-dir-tab-icon { flex-shrink: 0; line-height: 1; }
+.pc-dir-tab:hover:not(.pc-dir-tab--active) { background: var(--pc-surface); color: var(--pc-text); }
+.pc-dir-tab-icon { flex-shrink: 0; line-height: 1; font-size: 14px; }
 .pc-dir-tab-label {
   min-width: 0;
   overflow: hidden;
@@ -504,9 +506,9 @@
   white-space: nowrap;
 }
 .pc-dir-tab--active {
-  background: var(--pc-accent-glow);
+  background: var(--pc-surface-raised);
   color: var(--pc-accent-bright);
-  border-color: var(--pc-accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .35);
 }
 .pc-dir-search {
   background: var(--pc-bg-deep);
@@ -687,22 +689,13 @@
 
 .pc-header-btn--dir-only { display: none; }
 
-/* ─── Breakpoint intermedio: con directorio (260px) + ads (260px) abiertos
-   a la vez, 1180px es el punto en el que empiezan a apretar el thread
-   central -- colapsamos ads a drawer primero (igual criterio que mobile),
-   el directorio se mantiene como columna hasta el breakpoint de abajo. ─── */
+/* ─── Breakpoint intermedio: con directorio (260px) + ads (260px) a la vez,
+   1180px es el punto en el que empiezan a apretar el thread central --
+   angostamos ads primero (sigue siempre visible, ver pedido arriba), el
+   directorio se mantiene como columna hasta el breakpoint de abajo. ─── */
 @media (max-width: 1180px) {
-  .pc-header-btn--ads-only { display: inline-flex; }
-  .pc-ads {
-    position: absolute;
-    top: 0; bottom: 0; right: 0;
-    width: 220px;
-    z-index: 20;
-    transform: translateX(105%);
-    transition: transform .2s ease;
-    box-shadow: var(--pc-shadow);
-  }
-  .pc-ads--open { transform: translateX(0); }
+  .pc-ads { width: 168px; }
+  .pc-ad-title { font-size: 10px; }
 }
 
 @media (max-width: 860px) {

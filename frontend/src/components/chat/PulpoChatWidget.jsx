@@ -51,7 +51,6 @@ export default function PulpoChatWidget({
   const [messages, setMessages] = useState([])
   const [runStatus, setRunStatus] = useState(null)
   const [sendError, setSendError] = useState('')
-  const [mobileBannersOpen, setMobileBannersOpen] = useState(false)
   const [mobileDirOpen, setMobileDirOpen] = useState(false)
 
   const lastIdRef = useRef(0)
@@ -240,9 +239,6 @@ export default function PulpoChatWidget({
             <button className="pc-header-btn pc-header-btn--dir-only" onClick={() => setMobileDirOpen(o => !o)} title="Directorio">
               📇
             </button>
-            <button className="pc-header-btn pc-header-btn--ads-only" onClick={() => setMobileBannersOpen(o => !o)} title="Publicidad">
-              🖼
-            </button>
           </div>
         </div>
 
@@ -264,7 +260,7 @@ export default function PulpoChatWidget({
             <ChatComposer disabled={disabled} onSend={handleSend} />
           </div>
 
-          <ChatBanners ads={config.ads} banners={config.banners} open={mobileBannersOpen} />
+          <ChatBanners ads={config.ads} banners={config.banners} />
         </div>
       </div>
     </div>
