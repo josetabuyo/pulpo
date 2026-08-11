@@ -861,4 +861,19 @@
   /* El chat entero se esconde mientras el directorio está desplegado --
      .pc-body--dir-open lo pone PulpoChatWidget.jsx según mobileDirOpen. */
   .pc-body--dir-open .pc-main { display: none; }
+
+  /* Estado vacío ("Sin conversaciones todavía", "Sin resultados", etc, ver
+     ChatDirectory.jsx -- .pc-dir-status, siempre presente cuando no hay
+     .pc-conv-item ni .pc-dir-item) -- acá .pc-dir-list ocupa TODA la altura
+     sobrante del panel full-screen (pedido explícito, ver .pc-dir.pc-dir--open
+     arriba), así que el mensaje (+ "Nueva conversación" en la tab de
+     Conversaciones, por eso NO alcanza con :only-child) pegado arriba deja
+     un espacio en blanco enorme abajo, lee como layout roto. Centrado
+     vertical solo cuando no hay ítems reales -- una lista CON items sigue
+     alineada arriba/scrolleable como siempre. */
+  .pc-dir-list:not(:has(.pc-conv-item)):not(:has(.pc-dir-item)) {
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+  }
 }
