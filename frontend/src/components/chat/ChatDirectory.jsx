@@ -93,9 +93,32 @@ export default function ChatDirectory({
   const [error, setError] = useState('')
   const [connectItem, setConnectItem] = useState(null)
   const [detailItem, setDetailItem] = useState(null)
+  const [pressedTab, setPressedTab] = useState(null) // {id, left, top} | null
 
   const debounceRef = useRef(null)
   const listRef = useRef(null)
+  const pressTimerRef = useRef(null)
+
+  // Long-press sobre un tab (solo iconos en smartphone, ver @media 640px en
+  // chat.css) muestra el label en un tooltip -- patrón estándar de barra de
+  // iconos tipo app nativa. 450ms es el umbral típico de "long press" en
+  // iOS/Android. onClick sigue disparando en el tap normal, sin relación
+  // con este timer. Guardamos left/top (centro-arriba del botón) en vez de
+  // anclar por CSS -- .pc-dir y .pc-dir-tabs son ambos overflow-y:auto
+  // (ver comentario de .pc-dir-tab-tooltip en chat.css), así que un tooltip
+  // position:absolute quedaría clipeado; con estas coordenadas el tooltip
+  // usa position:fixed y escapa a cualquier contenedor con scroll.
+  function startTabPress(id, e) {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const left = rect.left + rect.width / 2
+    const top = rect.top - 6
+    clearTimeout(pressTimerRef.current)
+    pressTimerRef.current = setTimeout(() => setPressedTab({ id, left, top }), 450)
+  }
+  function endTabPress() {
+    clearTimeout(pressTimerRef.current)
+    setPressedTab(null)
+  }
   const active = sections.find(s => s.id === activeId) || sections[0] || null
   const isConversations = active?.id === CONVERSATIONS_TAB_ID
 
@@ -169,9 +192,22 @@ export default function ChatDirectory({
               key={s.id}
               className={`pc-dir-tab ${s.id === activeId ? 'pc-dir-tab--active' : ''}`}
               onClick={() => setActiveId(s.id)}
+              onPointerDown={e => startTabPress(s.id, e)}
+              onPointerUp={endTabPress}
+              onPointerLeave={endTabPress}
+              onPointerCancel={endTabPress}
+              title={s.label}
             >
               {s.icon && <span className="pc-dir-tab-icon">{s.icon}</span>}
               <span className="pc-dir-tab-label">{s.label}</span>
+              {pressedTab?.id === s.id && (
+                <span
+                  className="pc-dir-tab-tooltip"
+                  style={{ left: pressedTab.left, top: pressedTab.top }}
+                >
+                  {s.label}
+                </span>
+              )}
             </button>
           ))}
         </div>

@@ -436,6 +436,7 @@
   border-radius: 14px;
 }
 .pc-dir-tab {
+  position: relative;
   flex: 1 1 calc(50% - 4px);
   min-width: 0;
   display: flex;
@@ -459,6 +460,39 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* Tooltip de long-press (ver startTabPress/endTabPress en ChatDirectory.jsx)
+   -- burbuja oscura arriba del ícono presionado, patrón estándar de barra
+   de iconos tipo app nativa (iOS/Android). position:fixed con left/top
+   calculados en JS (getBoundingClientRect del botón al momento del press)
+   a propósito -- NO position:absolute anclado por el padre: tanto .pc-dir
+   como .pc-dir-tabs tienen overflow-y:auto (ver overflow-x:auto de
+   .pc-dir-tabs en @media 640px -- el spec de CSS fuerza el otro eje a
+   "auto" también apenas uno de los dos no es "visible"), así que cualquier
+   tooltip que sobresalga hacia arriba del ícono quedaría clipeado por el
+   contenedor scrolleable. Fixed escapa a eso por completo. Vive fuera del
+   @media 640px porque el mecanismo de long-press en sí no depende del
+   tamaño de pantalla -- en desktop/tablet, con el label ya visible al lado
+   del ícono, no aporta nada nuevo (mismo texto duplicado) pero no molesta. */
+.pc-dir-tab-tooltip {
+  position: fixed;
+  transform: translate(-50%, -100%);
+  background: var(--pc-surface-raised);
+  color: var(--pc-text);
+  border: 1px solid var(--pc-border);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: var(--pc-shadow);
+  pointer-events: none;
+  z-index: 20;
+  animation: pc-tab-tooltip-in .12s ease;
+}
+@keyframes pc-tab-tooltip-in {
+  from { opacity: 0; transform: translate(-50%, -100%) translateY(3px); }
+  to { opacity: 1; transform: translate(-50%, -100%) translateY(0); }
 }
 .pc-dir-tab--active {
   background: var(--pc-surface-raised);
@@ -865,6 +899,34 @@
      explícito en px no se estira solo para llenar la celda. Selector
      compuesto para pisar por especificidad igual que antes. */
   .pc-dir.pc-dir--open { width: 100%; }
+
+  /* Tabs del directorio -- pedido explícito 2026-08-12: en smartphone,
+     iconos solos en una única fila (nada de "grilla 2x2" de píldoras con
+     texto, eso es el layout de tablet/desktop) -- diseño estándar de barra
+     de iconos tipo app nativa. flex-wrap:nowrap + overflow-x:auto en vez
+     de wrap: si en el futuro entran más tabs de las que caben, se
+     esconden detrás del borde y se accede deslizando, nunca se apilan en
+     una segunda fila. Sin scrollbar visible (mismo criterio "app nativa"
+     que el resto de los rails, ver .pc-dir/.pc-ads con su propio
+     overflow-y:auto sin scrollbar custom). El label de texto se oculta --
+     la aclaración de qué es cada ícono llega vía el tooltip de long-press
+     (.pc-dir-tab-tooltip, ver arriba) o el tab activo (highlight ya
+     existente, .pc-dir-tab--active). */
+  .pc-dir-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .pc-dir-tabs::-webkit-scrollbar { display: none; }
+  .pc-dir-tab {
+    flex: 0 0 auto;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+  }
+  .pc-dir-tab-icon { font-size: 19px; }
+  .pc-dir-tab-label { display: none; }
 
   /* main: grid-area lo ubica en la celda "main" (mismo motivo que dir). El
      chat entero se esconde mientras el directorio está desplegado --
