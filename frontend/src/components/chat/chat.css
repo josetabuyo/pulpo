@@ -461,6 +461,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Título del tab activo (ver .pc-dir-active-title en ChatDirectory.jsx) --
+   oculto por default: en tablet/desktop el label ya está al lado del
+   ícono en la propia píldora, mostrarlo de nuevo acá sería redundante.
+   Se muestra únicamente en smartphone (ver @media 640px), donde los tabs
+   pasan a ser solo iconos. */
+.pc-dir-active-title { display: none; }
 /* Tooltip de long-press (ver startTabPress/endTabPress en ChatDirectory.jsx)
    -- burbuja oscura arriba del ícono presionado, patrón estándar de barra
    de iconos tipo app nativa (iOS/Android). position:fixed con left/top
@@ -787,7 +793,8 @@
   }
   .pc-dir:not(.pc-dir--open) .pc-dir-tabs,
   .pc-dir:not(.pc-dir--open) .pc-dir-search,
-  .pc-dir:not(.pc-dir--open) .pc-dir-list { display: none; }
+  .pc-dir:not(.pc-dir--open) .pc-dir-list,
+  .pc-dir:not(.pc-dir--open) .pc-dir-active-title { display: none; }
   /* Prefijo .pulpochat obligatorio -- la base ".pulpochat .pc-dir-handle"
      (display:none) tiene MÁS especificidad (2 clases) que un ".pc-dir-handle"
      suelto (1 clase) de acá adentro. Sin el prefijo, display:none de la base
@@ -908,10 +915,11 @@
      esconden detrás del borde y se accede deslizando, nunca se apilan en
      una segunda fila. Sin scrollbar visible (mismo criterio "app nativa"
      que el resto de los rails, ver .pc-dir/.pc-ads con su propio
-     overflow-y:auto sin scrollbar custom). El label de texto se oculta --
-     la aclaración de qué es cada ícono llega vía el tooltip de long-press
-     (.pc-dir-tab-tooltip, ver arriba) o el tab activo (highlight ya
-     existente, .pc-dir-tab--active). */
+     overflow-y:auto sin scrollbar custom). El label de texto de CADA
+     ícono se oculta -- la aclaración de qué es cada uno llega vía el
+     tooltip de long-press (.pc-dir-tab-tooltip, ver arriba); el nombre
+     del tab SELECCIONADO además queda escrito de forma permanente debajo
+     de la barra (.pc-dir-active-title, pedido explícito 2026-08-12). */
   .pc-dir-tabs {
     flex-wrap: nowrap;
     overflow-x: auto;
@@ -927,6 +935,14 @@
   }
   .pc-dir-tab-icon { font-size: 19px; }
   .pc-dir-tab-label { display: none; }
+  .pc-dir-active-title {
+    display: block;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--pc-text-muted);
+    text-align: center;
+    padding: 2px 0 0;
+  }
 
   /* main: grid-area lo ubica en la celda "main" (mismo motivo que dir). El
      chat entero se esconde mientras el directorio está desplegado --

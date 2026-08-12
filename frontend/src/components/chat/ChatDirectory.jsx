@@ -213,6 +213,16 @@ export default function ChatDirectory({
         </div>
       )}
 
+      {/* Título del tab activo -- pedido explícito 2026-08-12: en
+          smartphone los tabs son solo iconos (ver @media 640px en
+          chat.css), así que el nombre de la sección seleccionada ya no se
+          ve en la propia píldora -- esto lo repone debajo de la barra.
+          Oculto en tablet/desktop vía CSS (el label ya está al lado del
+          ícono ahí, sería redundante). */}
+      {active && sections.length > 1 && (
+        <div className="pc-dir-active-title">{active.label}</div>
+      )}
+
       {active && isConversations && (
         <ConversationsPanel
           conversations={conversations}
