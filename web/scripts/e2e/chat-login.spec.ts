@@ -18,8 +18,14 @@
  *   - web/ corriendo en :9010 (ver CLAUDE.md, único puerto local)
  *   - AUTH_SECRET y DATABASE_URL de .env.local (misma DB que usa el dev server)
  *
- * Correr:
+ * Correr contra local:
  *   npx tsx scripts/e2e/chat-login.spec.ts
+ * Correr contra otro ambiente (ej. prod), con su propio AUTH_SECRET:
+ *   E2E_BASE_URL=https://pulpo-bot.vercel.app E2E_CHAT_ID=<chat_config.id de prod> \
+ *   E2E_ENV_FILE=/ruta/a/.env.prod npx tsx scripts/e2e/chat-login.spec.ts
+ *   (E2E_ENV_FILE pisa AUTH_SECRET -- tsx auto-inyecta .env.local ANTES de
+ *   correr este archivo y con override:true, así que un AUTH_SECRET puesto
+ *   a mano en el shell no alcanza para apuntar a otro ambiente)
  */
 import { chromium } from "playwright";
 import { encode } from "next-auth/jwt";
@@ -27,10 +33,13 @@ import { config as loadEnv } from "dotenv";
 import path from "node:path";
 
 loadEnv({ path: path.resolve(__dirname, "../../.env.local") });
+if (process.env.E2E_ENV_FILE) loadEnv({ path: process.env.E2E_ENV_FILE, override: true });
 
 const BASE_URL = process.env.E2E_BASE_URL || "http://localhost:9010";
 const BOT_ID = "luganense";
-const CHAT_ID = "80f14777-c459-4d7f-a237-8599e0213628";
+// chat_config.id difiere entre DB local (:9011) y prod (Neon) -- overridable
+// para poder correr este mismo spec contra prod con E2E_CHAT_ID.
+const CHAT_ID = process.env.E2E_CHAT_ID || "80f14777-c459-4d7f-a237-8599e0213628";
 // Bot owner real (bot_users), NO admin -- ejercita el camino de
 // resolveChatCaller que realmente le importa al cliente (ownsBot), no el
 // atajo de admin que ya bypassea todo.
