@@ -17,7 +17,14 @@ import PulpoChatWidget from '../chat/PulpoChatWidget.jsx'
 import ChatAdsPanel from './ChatAdsPanel.jsx'
 import ChatDirectoryPanel from './ChatDirectoryPanel.jsx'
 
-const TRIGGER_SUFFIX = '_trigger'
+// Nodos que pueden ser trigger de entrada de un chat -- no todos siguen el
+// sufijo `_trigger` (api_trigger, telegram_trigger, message_trigger,
+// whatsapp_trigger sí; `trigger_chat` no, ver lib/nodes/registry.ts en
+// web/). Bug real encontrado 2026-08-17: el filtro por sufijo dejaba
+// trigger_chat afuera del dropdown, mostrando "-- elegir nodo --" para un
+// chat_config que en realidad ya apuntaba a un nodo trigger_chat válido --
+// guardar el form así habría pisado trigger_node_id con vacío.
+const TRIGGER_TYPES_REGEX = /_trigger$|^trigger_/
 
 const FONT_OPTIONS = [
   { value: '', label: 'Por defecto (DM Sans)' },
@@ -101,7 +108,7 @@ function ChatForm({ botId, apiCall, chat, onClose, onSaved }) {
     let cancelled = false
     apiCall('GET', `/flows/bots/${botId}/${form.flow_id}`, null).then(full => {
       if (cancelled) return
-      const nodes = (full?.definition?.nodes ?? []).filter(n => (n.type || '').endsWith(TRIGGER_SUFFIX))
+      const nodes = (full?.definition?.nodes ?? []).filter(n => TRIGGER_TYPES_REGEX.test(n.type || ''))
       setTriggerNodes(nodes)
     }).catch(() => {})
     return () => { cancelled = true }

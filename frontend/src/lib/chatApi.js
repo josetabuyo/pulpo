@@ -23,6 +23,14 @@ async function call(method, path, body) {
     body: body ? JSON.stringify(body) : undefined,
   })
   const data = await res.json().catch(() => ({}))
+  // listConversations devuelve un array crudo (ver GET /conversations) --
+  // spreadearlo en un objeto ({...data}) pierde Array.isArray/.length
+  // (los índices numéricos quedan como claves de objeto). Bug real
+  // encontrado 2026-08-17: esto hacía que el widget nunca detectara
+  // conversaciones previas (list.length siempre undefined) y creara una
+  // conversación nueva vacía en CADA carga de página -- la causa real de
+  // "no recordamos conversaciones anteriores", independiente del login.
+  if (Array.isArray(data)) return Object.assign(data, { _status: res.status, _ok: res.ok })
   return { ...data, _status: res.status, _ok: res.ok }
 }
 
