@@ -87,16 +87,30 @@ const CATEGORY_CASCADE: Record<string, CascadeEntry[]> = {
     { provider: "groq", model: "openai/gpt-oss-120b" },
     { provider: "openrouter", model: "google/gemma-4-31b-it:free" },
   ],
+  // 2026-08-22 re-sync with local-models/rankings/cloud.yaml: the old trio
+  // (nvidia qwen3.5-397b-a17b, groq llama-3.1-8b-instant, openrouter
+  // gemma-4-31b-it:free) was breaking the Luganense flow in prod -- nvidia
+  // model hit its EOL 2026-07-27 (410), groq's was decommissioned 2026-08-16
+  // (404), and openrouter's free-tier quota was getting exhausted with no
+  // fallback below it. Groq target is llama-4-scout-17b-16e-instruct, NOT
+  // gpt-oss-20b, deliberately -- gpt-oss-20b is reasoning-family (same as
+  // gpt-oss-120b) and this category excludes <think>-block models to avoid
+  // burning the whole token budget on low-max_tokens calls (see cloud.yaml).
   instruction: [
-    { provider: "nvidia", model: "qwen/qwen3.5-397b-a17b" },
-    { provider: "groq", model: "llama-3.1-8b-instant" },
+    { provider: "nvidia", model: "thinkingmachines/inkling" },
+    { provider: "nvidia", model: "meta/muse-glimmer-30b" },
+    { provider: "groq", model: "llama/llama-4-scout-17b-16e-instruct" },
     { provider: "openrouter", model: "google/gemma-4-31b-it:free" },
+    { provider: "openrouter", model: "openai/gpt-oss-20b:free" },
   ],
   // Speed-first, same override as cloud.yaml: Groq LPU latency (2-8s) beats
-  // NVIDIA's 397B model (40-60s) for conversational multilingual replies.
+  // NVIDIA's 397B model (40-60s) for conversational multilingual replies --
+  // this is the category Luganense's chat flow actually uses. Re-synced
+  // 2026-08-22 alongside `instruction` (same EOL/decommission causes).
   multilingual: [
-    { provider: "groq", model: "llama-3.1-8b-instant" },
-    { provider: "nvidia", model: "qwen/qwen3.5-397b-a17b" },
+    { provider: "groq", model: "openai/gpt-oss-20b" },
+    { provider: "groq", model: "qwen/qwen3.6-27b" },
+    { provider: "nvidia", model: "moonshotai/kimi-k2.6" },
     { provider: "openrouter", model: "google/gemma-4-31b-it:free" },
   ],
   context: [
