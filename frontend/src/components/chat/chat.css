@@ -208,8 +208,10 @@
   .pc-infobanner-ticker-track { animation: none; }
 }
 @media (max-width: 640px) {
-  .pc-infobanner { gap: 10px; padding: 5px 12px; }
-  .pc-infobanner-stat { display: none; }
+  .pc-infobanner { gap: 6px; padding: 5px 10px; }
+  .pc-infobanner-live-label { display: none; }
+  .pc-infobanner-stat { font-size: 11px; }
+  .pc-infobanner-ticker-track { font-size: 12px; }
 }
 
 /* ─── Cuerpo: thread central + rail de ads (si hay) ─── */

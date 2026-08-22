@@ -26,16 +26,38 @@ type ChatConfigRow = typeof chatConfigs.$inferSelect;
 // que DEFAULT_BANNERS en ChatBanners.jsx).
 export const DEFAULT_BANNER_MESSAGE = "Escribí lo que quieras, estamos para ayudarte 👋";
 
+// Ubicación de fábrica (Lugano, primer cliente) -- SOLO un default para
+// precargar el form de un chat nuevo. Nada del feature está hardcodeado a
+// Lugano: cada chat guarda su propia location en info_banner, así mañana un
+// cliente de otra ciudad configura la suya sin tocar código (ver
+// InfoBanner.jsx/app/api/weather/route.ts, ambos genéricos por lat/lon/tz).
+export const DEFAULT_BANNER_LOCATION = { label: "Lugano", timezone: "Europe/Zurich", lat: 46.0037, lon: 8.9511 };
+
+interface InfoBannerLocation {
+  label: string;
+  timezone: string;
+  lat: number;
+  lon: number;
+}
+
 interface InfoBannerShape {
   enabled: boolean;
   message: string;
+  location: InfoBannerLocation;
 }
 
 function toInfoBannerDto(raw: unknown): InfoBannerShape {
   const b = (raw ?? {}) as Partial<InfoBannerShape>;
+  const loc = (b.location ?? {}) as Partial<InfoBannerLocation>;
   return {
     enabled: b.enabled !== false,
     message: b.message?.trim() || DEFAULT_BANNER_MESSAGE,
+    location: {
+      label: loc.label?.trim() || DEFAULT_BANNER_LOCATION.label,
+      timezone: loc.timezone?.trim() || DEFAULT_BANNER_LOCATION.timezone,
+      lat: typeof loc.lat === "number" ? loc.lat : DEFAULT_BANNER_LOCATION.lat,
+      lon: typeof loc.lon === "number" ? loc.lon : DEFAULT_BANNER_LOCATION.lon,
+    },
   };
 }
 
@@ -205,11 +227,13 @@ export async function toPublicConfigDto(row: ChatConfigRow) {
 // Actualiza SOLO el mensaje del banner info -- llamado desde el endpoint
 // autenticado por X-Pulpo-Bot-Key (POST info-banner) para que Luganense
 // pueda reportar algo sin tocar el resto de la config del chat.
+// Solo pisa el mensaje (y enabled) -- preserva la location que el admin ya
+// configuró para ESTE chat (mensaje y ubicación son cosas independientes).
 export async function updateInfoBannerMessage(chatId: string, message: string, enabled = true) {
   const db = getDb();
   const existing = await getChatConfigRow(chatId);
   if (!existing) throw new NotFoundError(`Chat no encontrado: ${chatId}`);
-  const infoBanner: InfoBannerShape = { enabled, message: message.trim() };
+  const infoBanner = { ...toInfoBannerDto(existing.infoBanner), enabled, message: message.trim() };
   await db.update(chatConfigs).set({ infoBanner, updatedAt: new Date() }).where(eq(chatConfigs.id, chatId));
   return infoBanner;
 }

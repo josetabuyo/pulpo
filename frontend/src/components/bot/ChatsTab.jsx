@@ -69,6 +69,12 @@ function DEFAULT_BANNER_MESSAGE_HINT() {
   return 'Escribí lo que quieras, estamos para ayudarte 👋'
 }
 
+// Default de fábrica -- solo precarga el form de un chat NUEVO (Lugano, el
+// primer cliente). Nada queda hardcodeado: cada chat guarda su propia
+// location en info_banner y mañana un cliente de otra ciudad carga la suya
+// desde acá mismo, sin tocar código (ver InfoBanner.jsx / api/weather).
+const DEFAULT_BANNER_LOCATION = { label: 'Lugano', timezone: 'Europe/Zurich', lat: 46.0037, lon: 8.9511 }
+
 // ── Toggle chico (check separado del label + hint debajo) ──────────────
 function FieldToggle({ checked, onChange, label, hint }) {
   return (
@@ -136,7 +142,11 @@ function ChatForm({ botId, apiCall, chat, onClose, onSaved }) {
     enabled: chat?.info_banner?.enabled ?? true,
     message: (chat?.info_banner?.message && chat.info_banner.message !== DEFAULT_BANNER_MESSAGE_HINT())
       ? chat.info_banner.message : '',
+    location: { ...DEFAULT_BANNER_LOCATION, ...(chat?.info_banner?.location || {}) },
   }))
+  function updateInfoBannerLocation(key, value) {
+    setInfoBanner(b => ({ ...b, location: { ...b.location, [key]: value } }))
+  }
   const [bannersText, setBannersText] = useState(() => JSON.stringify(chat?.banners ?? [], null, 2))
   const [themeVarsRows, setThemeVarsRows] = useState(() =>
     Object.entries(chat?.theme_vars ?? {}).map(([k, v]) => ({ k, v })))
@@ -183,7 +193,16 @@ function ChatForm({ botId, apiCall, chat, onClose, onSaved }) {
       open_login: form.access_mode === 'open_login',
       enabled: form.enabled, banners, theme_vars, custom_css: form.custom_css || '',
       branding: brandingToPayload(branding),
-      info_banner: { enabled: infoBanner.enabled, message: infoBanner.message.trim() || DEFAULT_BANNER_MESSAGE_HINT() },
+      info_banner: {
+        enabled: infoBanner.enabled,
+        message: infoBanner.message.trim() || DEFAULT_BANNER_MESSAGE_HINT(),
+        location: {
+          label: infoBanner.location.label.trim() || DEFAULT_BANNER_LOCATION.label,
+          timezone: infoBanner.location.timezone.trim() || DEFAULT_BANNER_LOCATION.timezone,
+          lat: Number(infoBanner.location.lat),
+          lon: Number(infoBanner.location.lon),
+        },
+      },
     }
 
     setSaving(true)
@@ -385,8 +404,40 @@ function ChatForm({ botId, apiCall, chat, onClose, onSaved }) {
               checked={infoBanner.enabled}
               onChange={v => setInfoBanner(b => ({ ...b, enabled: v }))}
               label="Mostrar banner"
-              hint="Franja debajo del header con hora + temperatura de Lugano (automáticas) y este mensaje."
+              hint="Franja debajo del header con fecha + hora + temperatura del lugar que elijas abajo, y este mensaje."
             />
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <label style={{ fontSize: 13, flex: 1 }}>
+                Lugar (para mostrar)
+                <input type="text" value={infoBanner.location.label}
+                  onChange={e => updateInfoBannerLocation('label', e.target.value)}
+                  disabled={!infoBanner.enabled} placeholder="Lugano" style={{ width: '100%', marginTop: 4 }} />
+              </label>
+              <label style={{ fontSize: 13, flex: 1 }}>
+                Zona horaria (IANA)
+                <input type="text" value={infoBanner.location.timezone}
+                  onChange={e => updateInfoBannerLocation('timezone', e.target.value)}
+                  disabled={!infoBanner.enabled} placeholder="Europe/Zurich" style={{ width: '100%', marginTop: 4 }} />
+              </label>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <label style={{ fontSize: 13, flex: 1 }}>
+                Latitud
+                <input type="number" step="any" value={infoBanner.location.lat}
+                  onChange={e => updateInfoBannerLocation('lat', e.target.value)}
+                  disabled={!infoBanner.enabled} style={{ width: '100%', marginTop: 4 }} />
+              </label>
+              <label style={{ fontSize: 13, flex: 1 }}>
+                Longitud
+                <input type="number" step="any" value={infoBanner.location.lon}
+                  onChange={e => updateInfoBannerLocation('lon', e.target.value)}
+                  disabled={!infoBanner.enabled} style={{ width: '100%', marginTop: 4 }} />
+              </label>
+            </div>
+            <small style={{ color: 'var(--text-subtle)', display: 'block', marginTop: 4 }}>
+              Definen de dónde sale la hora/fecha (zona horaria) y la temperatura (coordenadas) que se muestran --
+              buscá las coordenadas de tu ciudad en Google Maps (click derecho → copiar).
+            </small>
             <label style={{ fontSize: 13, display: 'block', marginTop: 10 }}>
               Mensaje
               <textarea
@@ -398,14 +449,16 @@ function ChatForm({ botId, apiCall, chat, onClose, onSaved }) {
                 style={{ width: '100%', marginTop: 4 }}
               />
               <small style={{ color: 'var(--text-subtle)' }}>
-                Vacío = se usa el mensaje por defecto. Actualizable también desde Luganense sin entrar acá.
+                Vacío = se usa el mensaje por defecto. Actualizable también desde el sistema del cliente (Luganense
+                en este caso) sin entrar acá.
               </small>
             </label>
             {infoBanner.enabled && (
               <div className="field-preview">
                 <div className="field-preview-caption">Vista previa</div>
                 <div className="field-preview-ticker">
-                  <span className="field-preview-ticker-live"><span className="field-preview-ticker-dot" />Lugano</span>
+                  <span className="field-preview-ticker-live"><span className="field-preview-ticker-dot" />{infoBanner.location.label || 'En vivo'}</span>
+                  <span className="field-preview-ticker-stat">📅 22-ago</span>
                   <span className="field-preview-ticker-stat">🕒 12:34</span>
                   <span className="field-preview-ticker-stat">🌡️ 18°C</span>
                   <span className="field-preview-ticker-msg">{infoBanner.message.trim() || DEFAULT_BANNER_MESSAGE_HINT()}</span>
