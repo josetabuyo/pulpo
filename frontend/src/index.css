@@ -1846,3 +1846,101 @@ main { max-width: 900px; margin: 28px auto; padding: 0 16px; }
     linear-gradient(135deg, transparent 55%, var(--text-muted) 55%, var(--text-muted) 62%, transparent 62%),
     linear-gradient(135deg, transparent 77%, var(--text-muted) 77%, var(--text-muted) 84%, transparent 84%);
 }
+
+/* ── Field toggle (2026-08-22): check separado del label, con hint debajo.
+   Reemplaza `<label><input type=checkbox/> texto</label>` pegados -- usado
+   en paneles de config de chat (ChatsTab). ── */
+.field-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.field-toggle-text { min-width: 0; }
+.field-toggle-label { font-size: 13px; font-weight: 600; color: var(--text); }
+.field-toggle-hint { font-size: 12px; color: var(--text-subtle); margin-top: 2px; line-height: 1.4; }
+.field-switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 38px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  border: 1px solid var(--border-strong);
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease;
+}
+.field-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: var(--text-subtle);
+  transition: transform .15s ease, background .15s ease;
+}
+.field-switch--on { background: var(--brand-dim); border-color: var(--brand); }
+.field-switch--on::after { transform: translateX(16px); background: var(--brand); }
+.field-switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+
+/* Filas de opciones tipo "card" (radio) -- reemplaza <input type=radio/>
+   sueltos cuando hay más de dos opciones y cada una necesita explicación. */
+.field-cards { display: flex; flex-direction: column; gap: 8px; }
+.field-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease;
+}
+.field-card:hover { border-color: var(--border-strong); }
+.field-card--active { border-color: var(--brand); background: var(--brand-dim); }
+.field-card input[type="radio"] {
+  width: 15px; height: 15px; margin-top: 3px; padding: 0; border: none; border-radius: 0;
+  background: none; flex-shrink: 0; accent-color: var(--brand); cursor: pointer;
+}
+.field-card-icon { font-size: 16px; line-height: 1; flex-shrink: 0; }
+.field-card-label { font-size: 13px; font-weight: 600; color: var(--text); }
+.field-card-hint { font-size: 12px; color: var(--text-subtle); margin-top: 2px; line-height: 1.4; }
+
+/* Mini-preview: recuadros chicos que muestran cómo va a quedar visualmente
+   una sección de la config (header, fondo, banner info) sin abrir el chat. */
+.field-preview {
+  margin-top: 8px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--bg);
+}
+.field-preview-caption { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-subtle); margin-bottom: 6px; }
+
+/* Preview del ticker "info trans" -- copia visual chica del pc-infobanner
+   real (ver chat/chat.css), estática (sin animar) para no distraer en el form. */
+.field-preview-ticker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #0A1220;
+  overflow: hidden;
+}
+.field-preview-ticker-live {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 9px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--brand-light); flex-shrink: 0;
+}
+.field-preview-ticker-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--danger); flex-shrink: 0; }
+.field-preview-ticker-stat { font-size: 11px; font-weight: 600; color: var(--text-muted); flex-shrink: 0; white-space: nowrap; }
+.field-preview-ticker-msg {
+  font-size: 12px; font-weight: 600; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0;
+}

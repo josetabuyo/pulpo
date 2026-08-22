@@ -21,6 +21,24 @@ import { validateDirectoryConfig } from "@/lib/business/chat-directory-types";
 
 type ChatConfigRow = typeof chatConfigs.$inferSelect;
 
+// Mensaje de fábrica del banner "info trans" -- cualquier chat sin mensaje
+// propio cargado usa este, así el rail nunca aparece vacío (mismo criterio
+// que DEFAULT_BANNERS en ChatBanners.jsx).
+export const DEFAULT_BANNER_MESSAGE = "Escribí lo que quieras, estamos para ayudarte 👋";
+
+interface InfoBannerShape {
+  enabled: boolean;
+  message: string;
+}
+
+function toInfoBannerDto(raw: unknown): InfoBannerShape {
+  const b = (raw ?? {}) as Partial<InfoBannerShape>;
+  return {
+    enabled: b.enabled !== false,
+    message: b.message?.trim() || DEFAULT_BANNER_MESSAGE,
+  };
+}
+
 function toConfigDto(row: ChatConfigRow) {
   return {
     id: row.id,
@@ -29,12 +47,14 @@ function toConfigDto(row: ChatConfigRow) {
     trigger_node_id: row.triggerNodeId,
     title: row.title,
     is_public: row.isPublic,
+    open_login: row.openLogin,
     enabled: row.enabled,
     banners: row.banners ?? [],
     theme_vars: row.themeVars ?? {},
     custom_css: row.customCss ?? "",
     branding: row.branding ?? {},
     directory: row.directory ?? null,
+    info_banner: toInfoBannerDto(row.infoBanner),
     created_at: row.createdAt,
     updated_at: row.updatedAt,
   };
@@ -68,11 +88,13 @@ export interface ChatConfigInput {
   triggerNodeId: string;
   title?: string;
   isPublic: boolean;
+  openLogin?: boolean;
   enabled: boolean;
   banners?: unknown;
   themeVars?: unknown;
   customCss?: string;
   branding?: unknown;
+  infoBanner?: unknown;
 }
 
 function validateChatConfigInput(input: ChatConfigInput) {
@@ -98,11 +120,13 @@ export async function createChatConfig(botId: string, input: ChatConfigInput) {
     triggerNodeId: input.triggerNodeId,
     title: input.title?.trim() || "PulpoChat",
     isPublic: input.isPublic,
+    openLogin: input.openLogin ?? false,
     enabled: input.enabled,
     banners: input.banners ?? [],
     themeVars: input.themeVars ?? {},
     customCss: input.customCss ?? "",
     branding: input.branding ?? {},
+    infoBanner: input.infoBanner ?? null,
   });
 
   return getChatConfig(id);
@@ -122,11 +146,13 @@ export async function updateChatConfig(chatId: string, botId: string, input: Cha
       triggerNodeId: input.triggerNodeId,
       title: input.title?.trim() || "PulpoChat",
       isPublic: input.isPublic,
+      openLogin: input.openLogin ?? false,
       enabled: input.enabled,
       banners: input.banners ?? [],
       themeVars: input.themeVars ?? {},
       customCss: input.customCss ?? "",
       branding: input.branding ?? {},
+      infoBanner: input.infoBanner ?? null,
       updatedAt: new Date(),
     })
     .where(eq(chatConfigs.id, chatId));
@@ -170,8 +196,22 @@ export async function toPublicConfigDto(row: ChatConfigRow) {
     branding: row.branding ?? {},
     directory: toPublicDirectoryDto(directoryConfig),
     is_public: row.isPublic,
+    open_login: row.openLogin,
     enabled: row.enabled,
+    info_banner: toInfoBannerDto(row.infoBanner),
   };
+}
+
+// Actualiza SOLO el mensaje del banner info -- llamado desde el endpoint
+// autenticado por X-Pulpo-Bot-Key (POST info-banner) para que Luganense
+// pueda reportar algo sin tocar el resto de la config del chat.
+export async function updateInfoBannerMessage(chatId: string, message: string, enabled = true) {
+  const db = getDb();
+  const existing = await getChatConfigRow(chatId);
+  if (!existing) throw new NotFoundError(`Chat no encontrado: ${chatId}`);
+  const infoBanner: InfoBannerShape = { enabled, message: message.trim() };
+  await db.update(chatConfigs).set({ infoBanner, updatedAt: new Date() }).where(eq(chatConfigs.id, chatId));
+  return infoBanner;
 }
 
 // ─── Allowlist de acceso al chat (chat_access, distinta de bot_users) ───

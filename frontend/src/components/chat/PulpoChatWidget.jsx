@@ -16,6 +16,7 @@ import ChatThread from './ChatThread.jsx'
 import ChatComposer from './ChatComposer.jsx'
 import ChatBanners from './ChatBanners.jsx'
 import ChatDirectory from './ChatDirectory.jsx'
+import InfoBanner from './InfoBanner.jsx'
 import './chat.css'
 
 const POLL_MS = 2000
@@ -245,6 +246,8 @@ export default function PulpoChatWidget({
             <span className="pc-header-title">{config.title}</span>
           </div>
         </div>
+
+        <InfoBanner infoBanner={config.info_banner} />
 
         <div className={`pc-body ${mobileDirOpen ? 'pc-body--dir-open' : ''}`}>
           <ChatDirectory

@@ -39,8 +39,49 @@ const FONT_OPTIONS = [
 function emptyForm() {
   return {
     flow_id: '', trigger_node_id: '', title: 'PulpoChat',
-    is_public: false, enabled: false, custom_css: '',
+    access_mode: 'private', enabled: false, custom_css: '',
   }
+}
+
+const ACCESS_MODES = [
+  {
+    value: 'public', icon: '🌐', label: 'Público (sin login)',
+    hint: 'Cualquiera entra directo, sin cuenta -- ideal para landing pages o demos.',
+  },
+  {
+    value: 'open_login', icon: '🔓', label: 'Cualquiera con login',
+    hint: 'Necesita loguearse con Google, pero no hace falta autorizar a nadie a mano -- se registra solo al entrar por primera vez.',
+  },
+  {
+    value: 'private', icon: '🔒', label: 'Solo emails autorizados',
+    hint: 'Necesita loguearse Y estar en la lista "Quién puede chatear" de abajo.',
+  },
+]
+
+function accessModeFromChat(chat) {
+  if (!chat) return 'private'
+  if (chat.is_public) return 'public'
+  if (chat.open_login) return 'open_login'
+  return 'private'
+}
+
+function DEFAULT_BANNER_MESSAGE_HINT() {
+  return 'Escribí lo que quieras, estamos para ayudarte 👋'
+}
+
+// ── Toggle chico (check separado del label + hint debajo) ──────────────
+function FieldToggle({ checked, onChange, label, hint }) {
+  return (
+    <div className="field-toggle">
+      <div className="field-toggle-text">
+        <div className="field-toggle-label">{label}</div>
+        {hint && <div className="field-toggle-hint">{hint}</div>}
+      </div>
+      <label className={`field-switch ${checked ? 'field-switch--on' : ''}`}>
+        <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} />
+      </label>
+    </div>
+  )
 }
 
 function brandingFromChat(branding) {
@@ -88,9 +129,14 @@ function ChatForm({ botId, apiCall, chat, onClose, onSaved }) {
   const [triggerNodes, setTriggerNodes] = useState([])
   const [form, setForm] = useState(() => chat ? {
     flow_id: chat.flow_id, trigger_node_id: chat.trigger_node_id, title: chat.title,
-    is_public: chat.is_public, enabled: chat.enabled, custom_css: chat.custom_css || '',
+    access_mode: accessModeFromChat(chat), enabled: chat.enabled, custom_css: chat.custom_css || '',
   } : emptyForm())
   const [branding, setBranding] = useState(() => brandingFromChat(chat?.branding))
+  const [infoBanner, setInfoBanner] = useState(() => ({
+    enabled: chat?.info_banner?.enabled ?? true,
+    message: (chat?.info_banner?.message && chat.info_banner.message !== DEFAULT_BANNER_MESSAGE_HINT())
+      ? chat.info_banner.message : '',
+  }))
   const [bannersText, setBannersText] = useState(() => JSON.stringify(chat?.banners ?? [], null, 2))
   const [themeVarsRows, setThemeVarsRows] = useState(() =>
     Object.entries(chat?.theme_vars ?? {}).map(([k, v]) => ({ k, v })))
@@ -133,8 +179,11 @@ function ChatForm({ botId, apiCall, chat, onClose, onSaved }) {
     const theme_vars = Object.fromEntries(themeVarsRows.filter(r => r.k.trim()).map(r => [r.k.trim(), r.v]))
     const body = {
       flow_id: form.flow_id, trigger_node_id: form.trigger_node_id, title: form.title,
-      is_public: form.is_public, enabled: form.enabled, banners, theme_vars, custom_css: form.custom_css || '',
+      is_public: form.access_mode === 'public',
+      open_login: form.access_mode === 'open_login',
+      enabled: form.enabled, banners, theme_vars, custom_css: form.custom_css || '',
       branding: brandingToPayload(branding),
+      info_banner: { enabled: infoBanner.enabled, message: infoBanner.message.trim() || DEFAULT_BANNER_MESSAGE_HINT() },
     }
 
     setSaving(true)
@@ -154,10 +203,12 @@ function ChatForm({ botId, apiCall, chat, onClose, onSaved }) {
           <button className="btn-ghost btn-sm" onClick={onClose}>✕</button>
         </div>
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-            <input type="checkbox" checked={form.enabled} onChange={e => updateField('enabled', e.target.checked)} />
-            Habilitado
-          </label>
+          <FieldToggle
+            checked={form.enabled}
+            onChange={v => updateField('enabled', v)}
+            label="Habilitado"
+            hint="Con esto apagado el link existe pero nadie puede chatear todavía."
+          />
 
           <label style={{ fontSize: 13 }}>
             Título
@@ -191,14 +242,47 @@ function ChatForm({ botId, apiCall, chat, onClose, onSaved }) {
             )}
           </label>
 
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-            <input type="checkbox" checked={form.is_public} onChange={e => updateField('is_public', e.target.checked)} />
-            Chat público (sin login)
-          </label>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Quién puede entrar</div>
+            <div className="field-cards">
+              {ACCESS_MODES.map(m => (
+                <label key={m.value} className={`field-card ${form.access_mode === m.value ? 'field-card--active' : ''}`}>
+                  <input type="radio" name="access_mode" checked={form.access_mode === m.value}
+                    onChange={() => updateField('access_mode', m.value)} />
+                  <span className="field-card-icon">{m.icon}</span>
+                  <span>
+                    <div className="field-card-label">{m.label}</div>
+                    <div className="field-card-hint">{m.hint}</div>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
 
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
             <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Marca</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div className="field-preview">
+              <div className="field-preview-caption">Vista previa combinada</div>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderRadius: 8,
+                background: branding.bgMode === 'image' && branding.bgImageUrl ? `url(${branding.bgImageUrl}) center/cover` : (branding.bgColor || '#0E1829'),
+                fontFamily: branding.fontFamily === '__custom__' ? (branding.fontCustom || 'inherit') : (branding.fontFamily || 'inherit'),
+              }}>
+                {branding.headerMode === 'banner' && branding.headerBannerUrl ? (
+                  <span style={{ fontSize: 11, color: branding.textColor || '#E8EDF7', opacity: .7 }}>(banner ancho arriba del chat)</span>
+                ) : (
+                  <>
+                    {branding.logoUrl && <img src={branding.logoUrl} alt="" style={{ width: 22, height: 22, borderRadius: 6, objectFit: 'cover' }} />}
+                    <span style={{ fontWeight: 700, fontSize: 14, color: branding.textColor || '#E8EDF7' }}>{form.title || 'PulpoChat'}</span>
+                  </>
+                )}
+                <span style={{
+                  marginLeft: 'auto', fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 999,
+                  background: branding.accentColor || '#8B5CF6', color: '#fff',
+                }}>Enviar</span>
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
               <div style={{ fontSize: 13 }}>
                 Header
                 <div style={{ display: 'flex', gap: 14, marginTop: 4, marginBottom: 6 }}>
@@ -295,6 +379,41 @@ function ChatForm({ botId, apiCall, chat, onClose, onSaved }) {
             </div>
           </div>
 
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Banner info (tipo noticiero)</div>
+            <FieldToggle
+              checked={infoBanner.enabled}
+              onChange={v => setInfoBanner(b => ({ ...b, enabled: v }))}
+              label="Mostrar banner"
+              hint="Franja debajo del header con hora + temperatura de Lugano (automáticas) y este mensaje."
+            />
+            <label style={{ fontSize: 13, display: 'block', marginTop: 10 }}>
+              Mensaje
+              <textarea
+                value={infoBanner.message}
+                onChange={e => setInfoBanner(b => ({ ...b, message: e.target.value }))}
+                placeholder={DEFAULT_BANNER_MESSAGE_HINT()}
+                rows={2}
+                disabled={!infoBanner.enabled}
+                style={{ width: '100%', marginTop: 4 }}
+              />
+              <small style={{ color: 'var(--text-subtle)' }}>
+                Vacío = se usa el mensaje por defecto. Actualizable también desde Luganense sin entrar acá.
+              </small>
+            </label>
+            {infoBanner.enabled && (
+              <div className="field-preview">
+                <div className="field-preview-caption">Vista previa</div>
+                <div className="field-preview-ticker">
+                  <span className="field-preview-ticker-live"><span className="field-preview-ticker-dot" />Lugano</span>
+                  <span className="field-preview-ticker-stat">🕒 12:34</span>
+                  <span className="field-preview-ticker-stat">🌡️ 18°C</span>
+                  <span className="field-preview-ticker-msg">{infoBanner.message.trim() || DEFAULT_BANNER_MESSAGE_HINT()}</span>
+                </div>
+              </div>
+            )}
+          </div>
+
           {!isNew && (
             <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
               <ChatAdsPanel botId={botId} chatId={chat.id} apiCall={apiCall} />
@@ -379,7 +498,7 @@ function ChatRow({ chat, onOpen, onEdit, onDelete }) {
           {chat.enabled ? 'Habilitado' : 'Deshabilitado'}
         </span>
         <span style={{ fontSize: 10, color: 'var(--text-subtle)' }}>
-          {chat.is_public ? 'Público' : 'Privado'}
+          {chat.is_public ? '🌐 Público' : chat.open_login ? '🔓 Login abierto' : '🔒 Privado'}
         </span>
         <button className="btn-ghost btn-sm" onClick={e => { e.stopPropagation(); onEdit(chat) }} title="Editar">✎</button>
         <button className="btn-danger btn-sm" onClick={e => { e.stopPropagation(); onDelete(chat) }} title="Eliminar">🗑</button>
@@ -474,6 +593,11 @@ export default function ChatsTab({ botId, apiCall }) {
       <div>
         <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
           Quién puede chatear (chats privados)
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-subtle)', marginBottom: 8 }}>
+          Cargalos vos a mano para "Solo emails autorizados". En "Cualquiera con login" esta lista se completa
+          sola como registro de quién entró (sacar a alguien de acá no le revoca el acceso en ese modo -- se
+          re-registra solo en el siguiente login, porque cualquiera con cuenta Google puede entrar igual).
         </div>
         {access.length === 0 && <div className="empty" style={{ padding: '8px 0' }}>Nadie tiene acceso todavía.</div>}
         {access.map(email => (

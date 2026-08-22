@@ -77,7 +77,11 @@ const BOT_KEY_ROUTES: { method: string; re: RegExp }[] = [
 // `/flows/node-types` es un catálogo estático (web/lib/flow/node-types.json,
 // sin botId ni datos de usuario) que el diagrama del reporte público necesita
 // para íconos/labels de nodo -- no hay nada que gatear.
-const PUBLIC_PATHS = ["/api/auth/token", "/api/flows/node-types"];
+// Clima de Lugano (2026-08-22, banner "info trans" -- ver
+// InfoBanner.jsx/app/api/weather/lugano): dato público sin nada sensible,
+// necesario para visitantes de un chat SIN sesión (públicos o antes de
+// loguearse en modo login abierto).
+const PUBLIC_PATHS = ["/api/auth/token", "/api/flows/node-types", "/api/weather/lugano"];
 
 // Paso 1 hacia Pulpo PRO/Lite (2026-07-22, ver auth.ts): allowlist explícita
 // y method-aware de qué puede pegar un usuario "scoped" (bot_users), UNA vez

@@ -27,10 +27,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ bot
       triggerNodeId: String(body.trigger_node_id ?? ""),
       title: body.title,
       isPublic,
+      openLogin: Boolean(body.open_login),
       enabled: Boolean(body.enabled),
       banners: body.banners,
       themeVars: body.theme_vars,
       customCss: body.custom_css,
+      branding: body.branding,
+      infoBanner: body.info_banner,
     });
     return Response.json(config, { status: 201 });
   } catch (err) {

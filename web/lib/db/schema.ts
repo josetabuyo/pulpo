@@ -263,6 +263,21 @@ export const chatConfigs = pgTable(
     // browser por toPublicDirectoryDto (source/lead nunca se exponen, solo
     // viven server-side).
     directory: jsonb("directory"),
+    // Login abierto (2026-08-22): tercer modo de acceso además de
+    // is_public (sin login) y privado+allowlist manual. Con openLogin=true,
+    // cualquier cuenta Google logueada entra y queda auto-registrada en
+    // `chatAccess` en su primer login (ver lib/auth/chat-access.ts) -- sin
+    // que un admin la agregue a mano. Pensado para el chat de Luganense:
+    // cualquier vecino puede usarlo, pero queda un registro de quién entró.
+    openLogin: boolean("open_login").notNull().default(false),
+    // Banner "info trans" (2026-08-22): franja tipo noticiero pegada debajo
+    // del header -- hora/temperatura de Lugano (calculadas en el cliente,
+    // no viven acá) + este mensaje editable. Lo actualiza Luganense vía
+    // POST /api/chat/[botId]/[chatId]/info-banner con X-Pulpo-Bot-Key (mismo
+    // esquema que chat_ads, ver lib/auth/bot-key.ts). Shape:
+    // {enabled: boolean, message: string}. Si message está vacío, el
+    // frontend usa un default compartido (ver chats.ts::DEFAULT_BANNER_MESSAGE).
+    infoBanner: jsonb("info_banner"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },

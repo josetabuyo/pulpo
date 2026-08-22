@@ -1,5 +1,5 @@
 import { auth } from "@/auth";
-import { getChatConfig, hasChatAccess } from "@/lib/business/chats";
+import { addChatAccess, getChatConfig, hasChatAccess } from "@/lib/business/chats";
 import { listBotsForEmail } from "@/lib/business/bot-users";
 
 // Espejo de lib/auth/bot-access.ts pero para el runtime del chat (no la
@@ -18,6 +18,7 @@ export interface ChatConfigDto {
   trigger_node_id: string;
   title: string;
   is_public: boolean;
+  open_login: boolean;
   enabled: boolean;
   banners: unknown;
   theme_vars: unknown;
@@ -45,6 +46,13 @@ export async function resolveChatCaller(
       hasChatAccess(botId, email),
     ]);
     if (ownsBot || chatAllowed) {
+      return { ownerKey: `email:${email}`, config: config as ChatConfigDto };
+    }
+    // Login abierto: cualquier cuenta Google entra, y queda auto-registrada
+    // en chatAccess en su primer login (a diferencia de la allowlist
+    // manual de arriba, que un admin carga a mano por email).
+    if (config.open_login) {
+      await addChatAccess(botId, email);
       return { ownerKey: `email:${email}`, config: config as ChatConfigDto };
     }
   }
