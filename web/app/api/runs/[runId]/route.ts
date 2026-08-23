@@ -2,15 +2,23 @@ import { asc, eq } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { flowRunSteps } from "@/lib/db/schema";
 import { getRun } from "@/lib/business/run-stats";
+import { assertBotAccess } from "@/lib/auth/bot-access";
 
 // GET /runs/{run_id} -- detalle con steps, mismo contrato snake_case que el
 // backend Python original (frontend/src/components/bot/RunsTab.jsx::RunDetail/
 // StepRow leen step.node_id/node_type/branch_taken/input_state/output_state).
-export async function GET(_request: Request, { params }: { params: Promise<{ runId: string }> }) {
+//
+// El botId del run no está en el path (proxy.ts::SELF_VALIDATING_ROUTES lo
+// deja pasar con solo sesión) -- por eso el chequeo real pasa acá, una vez
+// que sabemos de qué bot es el run.
+export async function GET(request: Request, { params }: { params: Promise<{ runId: string }> }) {
   const { runId } = await params;
 
   const run = await getRun(runId);
   if (!run) return Response.json({ error: "run not found" }, { status: 404 });
+
+  const denied = await assertBotAccess(request, run.bot_id);
+  if (denied) return denied;
 
   const db = getDb();
   const stepRows = await db

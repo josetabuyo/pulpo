@@ -99,13 +99,13 @@ export default function BotCard({
     { id: 'triggers', label: 'Triggers', count: null },
     ...(hasSummarizer ? [{ id: 'uis', label: 'UIs', count: null }] : []),
     { id: 'flow', label: 'Flow', count: null },
-    // GET /api/runs no filtra por bot todavía -- 403 para rol "scoped"
-    // (ver proxy.ts::SCOPED_BOT_ROUTES), así que no tiene sentido mostrar
-    // este tab en mode="bot" hasta que se porte ese filtro.
-    ...(mode === 'admin' ? [{ id: 'runs', label: 'Ejecuciones', count: null }] : []),
-    // Suite e2e data-driven -- mismo criterio que 'runs': GET /api/bots/{id}/test-cases
-    // todavía no pasa por proxy.ts::SCOPED_BOT_ROUTES, admin-only por ahora.
-    ...(mode === 'admin' ? [{ id: 'test', label: 'Test', count: null }] : []),
+    // Ejecuciones y Test (2026-08-23, portal de cliente con paridad de
+    // admin -- ver proxy.ts::SCOPED_BOT_ROUTES y los handlers de
+    // /api/runs/[runId] y /api/runs/stats): visibles en ambos modos, el
+    // backend ya filtra por bot para rol "scoped".
+    { id: 'runs', label: 'Ejecuciones', count: null },
+    // Suite e2e data-driven.
+    { id: 'test', label: 'Test', count: null },
     { id: 'config', label: 'Configurar', count: null },
     // Gestión de PulpoChat: acción de PRO o admin dueño del bot (a diferencia
     // de 'users', que sigue admin-only) -- visible en ambos modos, el
@@ -233,8 +233,8 @@ export default function BotCard({
           <BotUsersTab botId={botId} apiCall={apiCall} />
         )}
 
-        {/* ── Test (suite e2e configurable desde la UI, admin-only) ── */}
-        {activeTab === 'test' && mode === 'admin' && (
+        {/* ── Test (suite e2e configurable desde la UI) ── */}
+        {activeTab === 'test' && (
           <TestCasesTab botId={botId} apiCall={apiCall} />
         )}
       </div>

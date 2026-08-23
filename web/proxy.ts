@@ -102,10 +102,14 @@ const PUBLIC_PATHS = ["/api/auth/token", "/api/flows/node-types", "/api/weather"
 // GET/POST /api/bots (plural, lista todo), PUT/DELETE /api/bots/{id} (editar
 // nombre / borrar bot), /api/bots/{id}/users/** (otorgar acceso es admin-only,
 // aunque sea sobre el propio bot), /api/connections/** (keyed por `number`,
-// no por botId -- no se puede autorizar de forma segura acá), /api/runs*
-// (no filtra por bot todavía), /api/config/settings, /api/wavi/*, y las
+// no por botId -- no se puede autorizar de forma segura acá), GET /api/runs
+// (list global, sin botId), /api/config/settings, /api/wavi/*, y las
 // sub-rutas de versions/node-flows de flows (no portadas a este paso).
-const SCOPED_BOT_ROUTES: { method: string; re: RegExp }[] = [
+// GET /api/runs/{runId} y GET /api/runs/stats (botId va en el path/query,
+// no como segmento capturable de forma segura acá) usan en cambio
+// SELF_VALIDATING_ROUTES más abajo -- el handler hace su propio
+// assertBotAccess.
+export const SCOPED_BOT_ROUTES: { method: string; re: RegExp }[] = [
   { method: "GET", re: /^\/api\/bots\/([^/]+)$/ },
   { method: "GET", re: /^\/api\/bot\/([^/]+)\/paused$/ },
   { method: "PUT", re: /^\/api\/bot\/([^/]+)\/paused$/ },
@@ -159,11 +163,35 @@ const SCOPED_BOT_ROUTES: { method: string; re: RegExp }[] = [
   { method: "GET", re: /^\/api\/bots\/([^/]+)\/chat-configs\/[^/]+\/directory$/ },
   { method: "PUT", re: /^\/api\/bots\/([^/]+)\/chat-configs\/[^/]+\/directory$/ },
   { method: "POST", re: /^\/api\/bots\/([^/]+)\/api-key$/ },
+  // Tab "Test" (2026-08-23, paridad admin/cliente -- ver BotCard.jsx):
+  // suite e2e data-driven del bot. Cada handler ya llama assertBotAccess()
+  // por su cuenta (defense-in-depth), esto solo abre el gate del proxy.
+  { method: "GET", re: /^\/api\/bots\/([^/]+)\/test-cases$/ },
+  { method: "POST", re: /^\/api\/bots\/([^/]+)\/test-cases$/ },
+  { method: "GET", re: /^\/api\/bots\/([^/]+)\/test-cases\/[^/]+$/ },
+  { method: "PUT", re: /^\/api\/bots\/([^/]+)\/test-cases\/[^/]+$/ },
+  { method: "DELETE", re: /^\/api\/bots\/([^/]+)\/test-cases\/[^/]+$/ },
+  { method: "GET", re: /^\/api\/bots\/([^/]+)\/test-cases\/[^/]+\/latest-run$/ },
+  { method: "POST", re: /^\/api\/bots\/([^/]+)\/test-cases\/[^/]+\/run$/ },
+  { method: "POST", re: /^\/api\/bots\/([^/]+)\/test-runs$/ },
+  { method: "GET", re: /^\/api\/bots\/([^/]+)\/test-runs\/[^/]+$/ },
   // Reporte público de test (2026-08-07, ver BOT_KEY_ROUTES arriba) -- un
   // scoped con este bot en su allowlist lo ve por sesión, igual que
   // cualquier otra pantalla del bot (el admin ya pasa siempre, más arriba).
   { method: "GET", re: /^\/api\/test-reports\/bots\/([^/]+)$/ },
   { method: "GET", re: /^\/api\/test-reports\/bots\/([^/]+)\/[^/]+$/ },
+];
+
+// Rutas donde el botId no es un segmento de path capturable de forma segura
+// (va en el body de otra tabla -- runId -- o como query param), así que no
+// pueden vivir en SCOPED_BOT_ROUTES sin romper el invariante documentado ahí
+// arriba. En cambio, se auto-validan: el proxy solo exige sesión (cualquier
+// rol), y el handler hace su propio assertBotAccess() con el botId real una
+// vez que lo resuelve (ver app/api/runs/[runId]/route.ts y
+// app/api/runs/stats/route.ts, tab "Ejecuciones", 2026-08-23).
+export const SELF_VALIDATING_ROUTES: { method: string; re: RegExp }[] = [
+  { method: "GET", re: /^\/api\/runs\/[^/]+$/ },
+  { method: "GET", re: /^\/api\/runs\/stats$/ },
 ];
 
 export default auth(async (request) => {
@@ -214,6 +242,12 @@ export default auth(async (request) => {
 
   if (!request.auth?.user) {
     return Response.json({ error: "not authenticated" }, { status: 401 });
+  }
+
+  // Rutas auto-validadas (ver SELF_VALIDATING_ROUTES arriba): cualquier
+  // sesión pasa el proxy, el handler decide con el botId real.
+  if (SELF_VALIDATING_ROUTES.some(({ method, re }) => request.method === method && re.test(pathname))) {
+    return NextResponse.next();
   }
 
   // Paso 2 hacia Pulpo PRO/Lite (2026-07-22, ver auth.ts): admin ve todo,
