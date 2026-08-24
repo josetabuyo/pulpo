@@ -94,19 +94,26 @@ const CATEGORY_CASCADE: Record<string, CascadeEntry[]> = {
     { provider: "groq", model: "openai/gpt-oss-120b" },
     { provider: "openrouter", model: "google/gemma-4-31b-it:free" },
   ],
-  // 2026-08-22 re-sync with local-models/rankings/cloud.yaml: the old trio
-  // (nvidia qwen3.5-397b-a17b, groq llama-3.1-8b-instant, openrouter
-  // gemma-4-31b-it:free) was breaking the Luganense flow in prod -- nvidia
-  // model hit its EOL 2026-07-27 (410), groq's was decommissioned 2026-08-16
-  // (404), and openrouter's free-tier quota was getting exhausted with no
-  // fallback below it. Groq target is llama-4-scout-17b-16e-instruct, NOT
-  // gpt-oss-20b, deliberately -- gpt-oss-20b is reasoning-family (same as
-  // gpt-oss-120b) and this category excludes <think>-block models to avoid
-  // burning the whole token budget on low-max_tokens calls (see cloud.yaml).
+  // 2026-08-24 rebuilt from scratch: the previous trio was broken in a way
+  // nobody had noticed -- this category's whole point (per the original
+  // 2026-08-22 comment) was "excludes <think>-block models" for
+  // low-max_tokens classification calls (routers), but BOTH nvidia entries
+  // (thinkingmachines/inkling, meta/muse-glimmer-30b) turned out to also be
+  // reasoning models (content:null, answer stuck in a separate
+  // reasoning_content field -- confirmed live), on top of the groq entry
+  // being a dead model (llama-4-scout was pulled from Groq's catalog
+  // entirely). So the category never actually did what it claimed; routers
+  // using it silently ate the reasoning-truncation bug fixed in router.ts
+  // (2026-08-24) instead of avoiding it. meta/llama-3.1-8b-instruct is a
+  // real classic instruct model, validated with 10/10 on Luganense's actual
+  // router prompt (multi-case script, not just a smoke test) using 2-4
+  // completion tokens vs the ~100-300 a reasoning model burns per call --
+  // that's the real lever against exhausting a provider's daily quota, cost
+  // per call was already negligible either way. groq/openrouter kept as
+  // fallback (reasoning models, fine now that router.ts budgets for them).
   instruction: [
-    { provider: "nvidia", model: "thinkingmachines/inkling" },
-    { provider: "nvidia", model: "meta/muse-glimmer-30b" },
-    { provider: "groq", model: "llama/llama-4-scout-17b-16e-instruct" },
+    { provider: "nvidia", model: "meta/llama-3.1-8b-instruct" },
+    { provider: "groq", model: "openai/gpt-oss-20b" },
     { provider: "openrouter", model: "google/gemma-4-31b-it:free" },
     { provider: "openrouter", model: "openai/gpt-oss-20b:free" },
   ],
