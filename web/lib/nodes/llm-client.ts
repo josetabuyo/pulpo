@@ -38,7 +38,7 @@
 // change -- the acceptance criterion from the handoff doc.
 import { isLocalDev } from "@/lib/env";
 
-export type Provider = "nvidia" | "groq" | "openrouter";
+export type Provider = "nvidia" | "groq" | "openrouter" | "gemini";
 
 interface CascadeEntry {
   provider: Provider;
@@ -49,6 +49,13 @@ const PROVIDER_CONFIG: Record<Provider, { baseUrl: string; envKey: string }> = {
   nvidia: { baseUrl: "https://integrate.api.nvidia.com/v1", envKey: "NVIDIA_API_KEY" },
   groq: { baseUrl: "https://api.groq.com/openai/v1", envKey: "GROQ_API_KEY" },
   openrouter: { baseUrl: "https://openrouter.ai/api/v1", envKey: "OPENROUTER_API_KEY" },
+  // 2026-08-24: 5th provider, own infra/quota entirely separate from the
+  // other three -- added after an incident where Groq/NVIDIA/OpenRouter
+  // were all degraded at once (Groq daily quota, a dead NVIDIA model, an
+  // OpenRouter free-tier rate limit) with nowhere left to fall back to in
+  // production. OpenAI-compatible endpoint, see
+  // https://ai.google.dev/gemini-api/docs/openai.
+  gemini: { baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", envKey: "GEMINI_API_KEY" },
 };
 
 // Some NVIDIA NIM models hang without explicit thinking=off (ported from
@@ -330,11 +337,20 @@ export async function callLLM(opts: {
     }
   }
 
-  // Last-resort local fallback for the explicit "cloud" strategy when the
-  // whole cloud cascade failed AND we're in local dev -- mirrors Python's
-  // "cloud-best-with-local-fallback" (_build_llm()'s `cloud` branch wraps
-  // the cloud client in `.with_fallbacks([local_fallback])`).
-  if (parsed && parsed.strategy === "cloud" && isLocalDev() && (await routerIsUp())) {
+  // Last-resort local fallback when the whole cloud cascade failed AND
+  // we're in local dev -- mirrors Python's "cloud-best-with-local-fallback"
+  // (_build_llm()'s `cloud` branch wraps the cloud client in
+  // `.with_fallbacks([local_fallback])`). Extended to "cloud-first" too
+  // (2026-08-24): the two strategies already behave identically everywhere
+  // else in this file (both skip the local tier at the top, see the gate
+  // above) -- excluding "cloud-first" here was an inconsistency that left
+  // every node using it (the common case -- it's the actual default for
+  // flows imported from Python) with a strictly weaker cascade than "cloud"
+  // for no real reason. Still isLocalDev()-gated, so this can never fire on
+  // Vercel -- purely makes local testing survive a cloud provider outage
+  // (found investigating a real incident where Groq/NVIDIA/OpenRouter were
+  // all degraded simultaneously and there was nowhere left to fall back to).
+  if (parsed && (parsed.strategy === "cloud" || parsed.strategy === "cloud-first") && isLocalDev() && (await routerIsUp())) {
     try {
       const raw = await callLocalRouter("local", parsed.category, opts);
       const text = stripThinkBlocks(raw);
