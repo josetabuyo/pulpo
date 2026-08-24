@@ -472,7 +472,7 @@ export default function RunsTab({ botId, apiCall }) {
   // Monitor de esta bot, colapsable arriba de la lista -- arrastrar un rango
   // sobre su gráfico precarga estos mismos since/until (ver
   // MonitorPanel.jsx::OverlapChart, onRangeSelect).
-  const [monitorOpen, setMonitorOpen] = useState(false)
+  const [monitorOpen, setMonitorOpen] = useState(true)
 
   function handleMonitorRangeSelect(fromIso, toIso) {
     setSince(fromIso.slice(0, 16))

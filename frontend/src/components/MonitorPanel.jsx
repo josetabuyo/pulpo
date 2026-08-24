@@ -23,15 +23,19 @@ const STATUS = {
   pending: { label: 'En curso',  color: '#5e6e8f' }, // = --text-subtle (hex literal: fill SVG no resuelve var() de forma confiable en todos los browsers)
 }
 
+// Cada ventana define su propio intervalo de refresco: cuanto más chica la
+// ventana, más frecuente hay que refrescar para que un trigger nuevo se vea
+// enseguida (15m con un poll de 8s tarda casi la mitad de la ventana en
+// aparecer); ventanas grandes no necesitan poll rápido -- el bucket ya es de
+// horas/días, así que refrescar cada pocos segundos solo generaba requests
+// de más sin cambiar lo que se ve en pantalla.
 const TIME_WINDOWS = [
-  { label: '15m', since: '15m' },
-  { label: '1h',  since: '1h'  },
-  { label: '6h',  since: '6h'  },
-  { label: '24h', since: '24h' },
-  { label: '7d',  since: '7d'  },
+  { label: '15m', since: '15m', pollMs: 3000  },
+  { label: '1h',  since: '1h',  pollMs: 5000  },
+  { label: '6h',  since: '6h',  pollMs: 15000 },
+  { label: '24h', since: '24h', pollMs: 30000 },
+  { label: '7d',  since: '7d',  pollMs: 60000 },
 ]
-
-const POLL_MS = 8000
 
 function formatBucketLabel(iso, bucketMinutes) {
   const d = new Date(iso)
@@ -45,7 +49,7 @@ function formatBucketLabel(iso, bucketMinutes) {
 }
 
 // ── Polling hook ───────────────────────────────────────────────────────────
-function useRunStats(since, active, botId) {
+function useRunStats(since, active, botId, pollMs) {
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
 
@@ -66,9 +70,9 @@ function useRunStats(since, active, botId) {
 
   useEffect(() => {
     if (!active) return
-    const id = setInterval(fetchStats, POLL_MS)
+    const id = setInterval(fetchStats, pollMs)
     return () => clearInterval(id)
-  }, [fetchStats, active])
+  }, [fetchStats, active, pollMs])
 
   return { data, error }
 }
@@ -228,7 +232,7 @@ export default function MonitorPanel({ active = true, botId, onRangeSelect }) {
   const [paused, setPaused] = useState(false)
   const win = TIME_WINDOWS[windowIdx]
 
-  const { data, error } = useRunStats(win.since, active && !paused, botId)
+  const { data, error } = useRunStats(win.since, active && !paused, botId, win.pollMs)
 
   const buckets = data?.buckets ?? []
   const bucketMinutes = data?.bucketMinutes ?? 1

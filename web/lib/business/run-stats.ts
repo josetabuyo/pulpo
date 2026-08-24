@@ -18,23 +18,23 @@ export interface RunStatsBucket {
   pending: number;
 }
 
-export async function getRunStats(params: {
-  since: Date;
-  bucketMinutes: number;
-  botId?: string;
-}): Promise<{ bucketMinutes: number; buckets: RunStatsBucket[] }> {
-  const db = getDb();
-  const conditions = [gte(flowRuns.startedAt, params.since)];
-  if (params.botId) conditions.push(eq(flowRuns.botId, params.botId));
-  const rows = await db
-    .select({ startedAt: flowRuns.startedAt, status: flowRuns.status })
-    .from(flowRuns)
-    .where(and(...conditions));
+export interface RunStatsRow {
+  startedAt: Date | string | null;
+  status: string | null;
+}
 
-  const bucketMs = params.bucketMinutes * 60 * 1000;
-  const sinceMs = params.since.getTime();
-  const nowMs = Date.now();
-  const bucketCount = Math.max(1, Math.ceil((nowMs - sinceMs) / bucketMs));
+// Lógica pura de bucketing -- separada de la query para poder testearla sin
+// DB (ver run-stats.test.ts). success = completed | handed_off, error =
+// error, pending = cualquier otro estado (running | waiting_gate).
+export function bucketRunRows(
+  rows: RunStatsRow[],
+  since: Date,
+  bucketMinutes: number,
+  now: Date,
+): RunStatsBucket[] {
+  const bucketMs = bucketMinutes * 60 * 1000;
+  const sinceMs = since.getTime();
+  const bucketCount = Math.max(1, Math.ceil((now.getTime() - sinceMs) / bucketMs));
 
   const buckets: RunStatsBucket[] = Array.from({ length: bucketCount }, (_, i) => ({
     startedAt: new Date(sinceMs + i * bucketMs).toISOString(),
@@ -53,6 +53,23 @@ export async function getRunStats(params: {
     else buckets[idx].pending++; // running | waiting_gate
   }
 
+  return buckets;
+}
+
+export async function getRunStats(params: {
+  since: Date;
+  bucketMinutes: number;
+  botId?: string;
+}): Promise<{ bucketMinutes: number; buckets: RunStatsBucket[] }> {
+  const db = getDb();
+  const conditions = [gte(flowRuns.startedAt, params.since)];
+  if (params.botId) conditions.push(eq(flowRuns.botId, params.botId));
+  const rows = await db
+    .select({ startedAt: flowRuns.startedAt, status: flowRuns.status })
+    .from(flowRuns)
+    .where(and(...conditions));
+
+  const buckets = bucketRunRows(rows, params.since, params.bucketMinutes, new Date());
   return { bucketMinutes: params.bucketMinutes, buckets };
 }
 

@@ -239,7 +239,7 @@ export default function DashboardPage() {
   const [tgModal, setTgModal] = useState({ open: false, botId: null })
   const [envModal, setEnvModal] = useState({ open: false })
   const [expandedBot, setExpandedBot] = useState(null)
-  const [monitorCollapsed,  setMonitorCollapsed]  = useState(() => searchParams.get('monitor') !== '1')
+  const [monitorCollapsed,  setMonitorCollapsed]  = useState(() => searchParams.get('monitor') === '0')
   const [companiesCollapsed, setCompaniesCollapsed] = useState(false)
   const [environmentsCollapsed, setEnvironmentsCollapsed] = useState(true)
   const [waviModal,         setWaviModal]          = useState({ open: false, session: null })
