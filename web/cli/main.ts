@@ -49,11 +49,14 @@ const HELP_TEXT = `uso: pulpo <grupo> <subcomando> [args] [--flags]
   environments remove <name>
   test-cases list <botId>
   test-cases get <botId> <caseId>
+  test-cases create <botId> --file case.json
+  test-cases update <botId> <caseId> --file case.json
   test-cases run <botId> <caseId>
   test-cases latest-run <botId> <caseId>
   test-runs list <botId>
   test-runs run <botId> [--cases id1,id2,...]   (sin --cases: corre TODOS los casos del bot)
   test-runs get <botId> <runId>       (incluye diagram_image: PNG base64 con el camino resaltado, el reporte de la corrida)
+  environments test-reports publish <envName> --bot <botId> [--run <suiteRunId>]   (sin --run: publica la corrida de test más reciente)
 
 Output siempre JSON en stdout. Requiere \`npm run dev\` corriendo en web/ (default :${PORT}
 -- ver WEB_BACKEND_PORT) y, salvo \`flows trigger\`, PULPO_LOCAL_NO_AUTH=1 en web/.env.local.
@@ -406,6 +409,22 @@ async function main() {
       break;
     }
 
+    case "environments test-reports": {
+      const [action, name] = positional;
+      if (action !== "publish" || !name) {
+        throw new CliError("uso: environments test-reports publish <envName> --bot <botId> [--run <suiteRunId>]");
+      }
+      if (typeof flags.bot !== "string") throw new CliError("falta --bot <botId>");
+      result = await apiFetch(`/api/environments/${encodeURIComponent(name)}/test-reports`, {
+        method: "POST",
+        body: JSON.stringify({
+          bot_id: flags.bot,
+          ...(typeof flags.run === "string" ? { suite_run_id: flags.run } : {}),
+        }),
+      });
+      break;
+    }
+
     case "flows sync": {
       const [botId, flowId] = positional;
       const envName = flags.env;
@@ -468,6 +487,22 @@ async function main() {
       const [botId, caseId] = positional;
       if (!botId || !caseId) throw new CliError("uso: test-cases get <botId> <caseId>");
       result = await apiFetch(`/api/bots/${botId}/test-cases/${caseId}`);
+      break;
+    }
+
+    case "test-cases create": {
+      const [botId] = positional;
+      if (!botId) throw new CliError("uso: test-cases create <botId> --file case.json");
+      const body = readFileArg(flags);
+      result = await apiFetch(`/api/bots/${botId}/test-cases`, { method: "POST", body: JSON.stringify(body) });
+      break;
+    }
+
+    case "test-cases update": {
+      const [botId, caseId] = positional;
+      if (!botId || !caseId) throw new CliError("uso: test-cases update <botId> <caseId> --file case.json");
+      const body = readFileArg(flags);
+      result = await apiFetch(`/api/bots/${botId}/test-cases/${caseId}`, { method: "PUT", body: JSON.stringify(body) });
       break;
     }
 

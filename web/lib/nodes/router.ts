@@ -59,13 +59,39 @@ export const routerNode: NodeDef = {
         userMessage: `Mensaje: ${state.message}`,
         model,
         temperature: 0,
-        maxTokens: 10,
+        // Reasoning-capable models (increasingly the default across
+        // providers' cascades, e.g. Groq's openai/gpt-oss-* and qwen3.6-*)
+        // spend completion tokens on a <think>/reasoning preamble before
+        // the actual route word. 10 was too tight -- it truncated mid-think
+        // for every reasoning model, leaving unstripped "<think>..." text
+        // (or an empty content field, for models that put reasoning in a
+        // separate field) that silently missed the activeRoutes check below
+        // and fell back to `fallback` with NO error signal (found via a
+        // real incident, 2026-08-24: a plumbing request kept misrouting to
+        // "noticias"). 500 gives room for a full reasoning pass -- cheap on
+        // Groq's LPU hardware (sub-second even at this length).
+        maxTokens: 500,
       });
       if (error) {
         state.data._llm_errors = [...((state.data._llm_errors as unknown[]) ?? []), { output: "route", error }];
       }
       route = text.trim().toLowerCase();
-      if (activeRoutes.length && !activeRoutes.includes(route)) route = fallback;
+      // Two different reasons a route can miss activeRoutes -- only the
+      // first is a real failure worth logging. A route the LLM correctly
+      // named but that's disabled from the editor ("Ramas" toggle) is
+      // expected control flow, not an error -- `disabled_routes` is a
+      // deliberate business gate (e.g. Luganense's "producto") -- logging
+      // that as an _llm_errors entry would fail no_llm_errors checks on
+      // every disabled-route fallback, which isn't a bug.
+      if (routes.length && !routes.includes(route)) {
+        state.data._llm_errors = [
+          ...((state.data._llm_errors as unknown[]) ?? []),
+          { output: "route", error: `respuesta no es una ruta válida: ${JSON.stringify(text).slice(0, 200)}` },
+        ];
+        route = fallback;
+      } else if (activeRoutes.length && !activeRoutes.includes(route)) {
+        route = fallback;
+      }
     }
 
     if (maxVisits && maxVisitsRoute && !disabledRoutes.has(maxVisitsRoute) && route === fallback) {
