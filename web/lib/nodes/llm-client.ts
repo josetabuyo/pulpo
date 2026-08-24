@@ -56,7 +56,7 @@ const PROVIDER_CONFIG: Record<Provider, { baseUrl: string; envKey: string }> = {
 const NVIDIA_THINKING_DEFAULTS: Record<string, Record<string, boolean>> = {
   "deepseek-ai/deepseek-v4-pro": { thinking: false },
   "deepseek-ai/deepseek-v4-flash": { thinking: false },
-  "moonshotai/kimi-k2.6": { thinking: false },
+  "moonshotai/kimi-k3": { thinking: false },
   "qwen/qwen3.5-397b-a17b": { enable_thinking: false },
   "qwen/qwen3.5-122b-a10b": { enable_thinking: false },
 };
@@ -83,7 +83,7 @@ const CATEGORY_CASCADE: Record<string, CascadeEntry[]> = {
     { provider: "openrouter", model: "nvidia/nemotron-3-nano-30b-a3b:free" },
   ],
   summarization: [
-    { provider: "nvidia", model: "moonshotai/kimi-k2.6" },
+    { provider: "nvidia", model: "moonshotai/kimi-k3" },
     { provider: "groq", model: "openai/gpt-oss-120b" },
     { provider: "openrouter", model: "google/gemma-4-31b-it:free" },
   ],
@@ -110,7 +110,7 @@ const CATEGORY_CASCADE: Record<string, CascadeEntry[]> = {
   multilingual: [
     { provider: "groq", model: "openai/gpt-oss-20b" },
     { provider: "groq", model: "qwen/qwen3.6-27b" },
-    { provider: "nvidia", model: "moonshotai/kimi-k2.6" },
+    { provider: "nvidia", model: "moonshotai/kimi-k3" },
     { provider: "openrouter", model: "google/gemma-4-31b-it:free" },
   ],
   context: [
