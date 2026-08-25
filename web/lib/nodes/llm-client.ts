@@ -116,6 +116,12 @@ const CATEGORY_CASCADE: Record<string, CascadeEntry[]> = {
     { provider: "groq", model: "openai/gpt-oss-20b" },
     { provider: "openrouter", model: "google/gemma-4-31b-it:free" },
     { provider: "openrouter", model: "openai/gpt-oss-20b:free" },
+    // 2026-08-25: 5th independent provider (own infra/quota, unrelated to
+    // the other three) -- added after an incident where nvidia/groq/
+    // openrouter were all degraded at once with nowhere left to fall back
+    // to. gemini-3.5-flash-lite validated 10/10 on Luganense's real router
+    // prompt, 1-3 completion tokens per call.
+    { provider: "gemini", model: "gemini-3.5-flash-lite" },
   ],
   // Speed-first, same override as cloud.yaml: Groq LPU latency (2-8s) beats
   // NVIDIA's 397B model (40-60s) for conversational multilingual replies --
@@ -126,11 +132,15 @@ const CATEGORY_CASCADE: Record<string, CascadeEntry[]> = {
     { provider: "groq", model: "qwen/qwen3.6-27b" },
     { provider: "nvidia", model: "moonshotai/kimi-k3" },
     { provider: "openrouter", model: "google/gemma-4-31b-it:free" },
+    // 2026-08-25: 5th independent provider, see instruction's comment above.
+    { provider: "gemini", model: "gemini-3.5-flash-lite" },
   ],
   context: [
     { provider: "nvidia", model: "z-ai/glm-5.2" },
     { provider: "groq", model: "openai/gpt-oss-120b" },
     { provider: "openrouter", model: "nvidia/nemotron-3-ultra-550b-a55b:free" },
+    // 2026-08-25: 5th independent provider, see instruction's comment above.
+    { provider: "gemini", model: "gemini-3.5-flash-lite" },
   ],
 };
 
