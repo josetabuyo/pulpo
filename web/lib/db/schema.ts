@@ -480,3 +480,22 @@ export const publishedTestReports = pgTable(
   },
   (table) => [index("published_test_reports_bot_id_idx").on(table.botId)],
 );
+
+// Cache de títulos generados por LLM para noticias externas (Luganense
+// hoy, `/api/noticias` -- ver ADR-010). La fuente devuelve `title` como la
+// primera línea cruda del texto ("Nos llegó este mensaje", "Envía tu primer
+// comentario..."), inútil para listar -- este cache guarda un título corto
+// generado aparte, keyed por (source, external_id) para no re-generar en
+// cada corrida. Prueba de viabilidad: scripts/generate-news-titles.ts.
+export const newsTitles = pgTable(
+  "news_titles",
+  {
+    id: text("id").primaryKey(),
+    source: text("source").notNull(), // "luganense" hoy, otro page_id/cliente mañana
+    externalId: text("external_id").notNull(),
+    originalTitle: text("original_title"),
+    generatedTitle: text("generated_title").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [unique("news_titles_source_external_id_unique").on(table.source, table.externalId)],
+);
