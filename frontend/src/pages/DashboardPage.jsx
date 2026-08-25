@@ -543,6 +543,7 @@ export default function DashboardPage() {
             <BotCard
               mode="admin"
               bot={expandedBot.normalized}
+              syncUrl
               apiCall={call}
               onRefresh={loadBots}
               onEditBot={b => { openBotModal(null); setBotModal({ open: true, editBot: b }) }}

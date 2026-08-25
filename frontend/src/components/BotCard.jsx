@@ -14,6 +14,7 @@
  *   BotConfigTab.jsx    — tab Configurar (solo nombre/farewell/ttl del bot)
  */
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import FlowList from './FlowList.jsx'
 import UIsList from './UIsList.jsx'
 import { STATUS_LABELS, dotColor, CopyLinkBtn } from './bot/widgets.jsx'
@@ -23,6 +24,12 @@ import RunsTab from './bot/RunsTab.jsx'
 import BotUsersTab from './bot/BotUsersTab.jsx'
 import ChatsTab from './bot/ChatsTab.jsx'
 import TestCasesTab from './bot/TestCasesTab.jsx'
+
+// Superset de ids de tab válidos (independiente de mode/hasSummarizer) --
+// usado solo para validar el ?tab= de la URL antes de que `tabs` (que sí
+// depende de ese estado) esté armado; el render condicional de cada tab ya
+// se encarga de no mostrar nada si no corresponde al mode actual.
+const ALL_TAB_IDS = new Set(['triggers', 'uis', 'flow', 'runs', 'test', 'config', 'chats', 'users'])
 
 // Normaliza un bot del formato admin (/bots) al formato canónico de BotCard
 export function normalizeBot(bot) {
@@ -53,8 +60,21 @@ export default function BotCard({
 
   // Drag & drop (admin only)
   onDragOver, onDragLeave, onDrop,
+
+  // Sincroniza tab/filtros con la URL (?tab=, y los que dependen de la tab
+  // Ejecuciones) -- solo debe ser true para la instancia de BotCard que
+  // representa "la vista actual" del usuario (modal expandida en admin, o
+  // la única card del portal de cliente). La grilla de cards del dashboard
+  // admin monta una instancia por bot simultáneamente -- si todas
+  // sincronizaran el mismo ?tab=, se pisarían entre sí.
+  syncUrl = false,
 }) {
-  const [activeTab, setActiveTab] = useState('triggers')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [activeTab, setActiveTab] = useState(() => {
+    if (!syncUrl) return 'triggers'
+    const t = searchParams.get('tab')
+    return t && ALL_TAB_IDS.has(t) ? t : 'triggers'
+  })
   const [paused, setPaused] = useState(false)
   const [pauseLoading, setPauseLoading] = useState(false)
   const [hasSummarizer, setHasSummarizer] = useState(false)
@@ -62,9 +82,23 @@ export default function BotCard({
   // flow/nodo puntual ya seleccionado (ver FlowList.jsx/FlowEditor.jsx).
   const [flowOpenRequest, setFlowOpenRequest] = useState(null)
 
+  // Único punto de cambio de tab -- si esta instancia sincroniza con la
+  // URL, escribe ?tab= y limpia los params propios de la tab Ejecuciones
+  // (since/until/win/run) para que no sobrevivan a un salto a otra tab.
+  function selectTab(id) {
+    setActiveTab(id)
+    if (!syncUrl) return
+    setSearchParams(prev => {
+      const p = new URLSearchParams(prev)
+      p.set('tab', id)
+      if (id !== 'runs') { p.delete('since'); p.delete('until'); p.delete('win'); p.delete('run') }
+      return p
+    }, { replace: true })
+  }
+
   function handleConfigureTriggerNode(flowId, nodeId) {
     setFlowOpenRequest({ flowId, nodeId })
-    setActiveTab('flow')
+    selectTab('flow')
   }
 
   const botId = bot.id
@@ -177,7 +211,7 @@ export default function BotCard({
           <button
             key={tab.id}
             className={`ec-tab ${activeTab === tab.id ? 'ec-tab--active' : ''}`}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => selectTab(tab.id)}
           >
             {tab.label}
             {tab.count != null && <span className="ec-tab-badge">{tab.count}</span>}
@@ -202,7 +236,7 @@ export default function BotCard({
         {activeTab === 'flow' && (
           <FlowList
             botId={botId} apiCall={apiCall} connections={conns}
-            onGoToUIs={() => setActiveTab('uis')}
+            onGoToUIs={() => selectTab('uis')}
             openRequest={flowOpenRequest}
             onOpenRequestConsumed={() => setFlowOpenRequest(null)}
           />
@@ -210,7 +244,7 @@ export default function BotCard({
 
         {/* ── Ejecuciones (Monitor colapsable arriba + lista abajo, ver RunsTab.jsx) ── */}
         {activeTab === 'runs' && (
-          <RunsTab botId={botId} apiCall={apiCall} />
+          <RunsTab botId={botId} apiCall={apiCall} syncUrl={syncUrl} />
         )}
 
         {/* ── Config ── */}

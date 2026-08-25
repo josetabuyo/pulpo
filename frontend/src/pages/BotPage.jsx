@@ -43,6 +43,7 @@ function BotDashboard({ botId, onLogout }) {
         <BotCard
           mode="bot"
           bot={normalizeBot(bot)}
+          syncUrl
           apiCall={api}
           onRefresh={load}
         />

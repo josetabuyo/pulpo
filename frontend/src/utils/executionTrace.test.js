@@ -113,4 +113,29 @@ describe('buildExecutionTrace', () => {
     expect(edgeIds.has('e2')).toBe(true)
     expect(edgeIds.has('e3')).toBe(true)
   })
+
+  it('una única edge entre dos nodos se marca aunque no tenga label ni branch_taken', () => {
+    const flowEdges = [
+      { id: 'e1', source: 'start', target: 'mid' },
+      { id: 'e2', source: 'mid', target: 'end' },
+    ]
+    const steps = [{ node_id: 'start' }, { node_id: 'mid' }, { node_id: 'end' }]
+    const { edgeIds } = buildExecutionTrace(steps, flowEdges)
+    expect(edgeIds).toEqual(new Set(['e1', 'e2']))
+  })
+
+  it('router con dos salidas al mismo target y ningún label matcheable: fallback marca ambas (rama completa, no cortada)', () => {
+    // Fallback intencional (bug reportado 2026-08-25): ante ambigüedad real
+    // entre múltiples edges hacia el mismo nodo sin forma de desambiguar,
+    // es preferible marcar una edge de más a dejar la rama visualmente
+    // cortada en el nodo final.
+    const flowEdges = [
+      { id: 'e1', source: 'start', target: 'router1' },
+      { id: 'e2', source: 'router1', target: 'end', label: 'opcion_x' },
+      { id: 'e3', source: 'router1', target: 'end', label: 'opcion_y' },
+    ]
+    const steps = [{ node_id: 'start' }, { node_id: 'router1', branch_taken: 'algo_sin_relacion' }, { node_id: 'end' }]
+    const { edgeIds } = buildExecutionTrace(steps, flowEdges)
+    expect(edgeIds).toEqual(new Set(['e1', 'e2', 'e3']))
+  })
 })

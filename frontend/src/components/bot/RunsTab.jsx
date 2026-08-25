@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { humanizeId } from '../../store/flowStore.js'
 import { buildStepTree, maxTreeDepth } from '../../utils/stepTree.js'
 import FlowExecutionTwin from '../flow/FlowExecutionTwin.jsx'
 import { ChatTurn } from './CaseResultView.jsx'
 import MonitorPanel from '../MonitorPanel.jsx'
+import { isoToLocalInput, localInputToIso, localInputToMs } from '../../utils/datetimeLocal.js'
 
 function statusColor(s) {
   if (s === 'completed') return 'var(--success)'
@@ -255,27 +257,15 @@ function defaultExpandedForLevel(tree, level, acc) {
   return acc
 }
 
-function inRange(iso, from, to) {
-  if (!iso) return true
-  const t = new Date(iso).getTime()
-  if (from && t < new Date(from).getTime()) return false
-  if (to && t > new Date(to).getTime()) return false
-  return true
-}
-
 // Panel de steps de una corrida: filtro de nivel de anidamiento (sin límite
-// de profundidad, ver utils/stepTree.js) + filtro de fecha, sobre el árbol
-// reconstruido a partir del array plano que ya trae la corrida.
+// de profundidad, ver utils/stepTree.js), sobre el árbol reconstruido a
+// partir del array plano que ya trae la corrida. Sin filtro de fecha propio
+// -- el rango Desde/Hasta es de la lista de corridas (RunsTab), no aplica
+// una vez que ya se está viendo una corrida puntual.
 function StepsPanel({ steps, nodeLabels, nodeDescriptions }) {
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
   const [levelFilter, setLevelFilter] = useState(null) // null = "todos"
 
-  const filteredSteps = useMemo(
-    () => steps.filter(s => inRange(s.started_at, dateFrom, dateTo)),
-    [steps, dateFrom, dateTo],
-  )
-  const tree = useMemo(() => buildStepTree(filteredSteps), [filteredSteps])
+  const tree = useMemo(() => buildStepTree(steps), [steps])
   const depth = useMemo(() => maxTreeDepth(tree), [tree])
   const effectiveLevel = levelFilter == null ? depth + 1 : levelFilter
 
@@ -294,18 +284,8 @@ function StepsPanel({ steps, nodeLabels, nodeDescriptions }) {
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 8, fontSize: 12, flexWrap: 'wrap' }}>
-        <label style={{ display: 'flex', gap: 4, alignItems: 'center', color: 'var(--text-subtle)' }}>
-          Desde
-          <input type="datetime-local" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-            style={{ fontSize: 12 }} />
-        </label>
-        <label style={{ display: 'flex', gap: 4, alignItems: 'center', color: 'var(--text-subtle)' }}>
-          Hasta
-          <input type="datetime-local" value={dateTo} onChange={e => setDateTo(e.target.value)}
-            style={{ fontSize: 12 }} />
-        </label>
-        {depth > 0 && (
+      {depth > 0 && (
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 8, fontSize: 12, flexWrap: 'wrap' }}>
           <label style={{ display: 'flex', gap: 4, alignItems: 'center', color: 'var(--text-subtle)' }}>
             Nivel
             <select value={levelFilter == null ? 'all' : levelFilter}
@@ -317,13 +297,8 @@ function StepsPanel({ steps, nodeLabels, nodeDescriptions }) {
               ))}
             </select>
           </label>
-        )}
-        {(dateFrom || dateTo) && (
-          <button className="btn-ghost btn-sm" style={{ fontSize: 12 }} onClick={() => { setDateFrom(''); setDateTo('') }}>
-            ✕ Limpiar fechas
-          </button>
-        )}
-      </div>
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 8, padding: '4px 8px', paddingLeft: 8, fontSize: 11, fontWeight: 600, color: 'var(--text-subtle)', borderBottom: '1px solid var(--border)' }}>
         <span style={{ width: 12 }} />
@@ -463,29 +438,83 @@ function RunDetail({ run, onClose, botId, apiCall }) {
   )
 }
 
-export default function RunsTab({ botId, apiCall }) {
+export default function RunsTab({ botId, apiCall, syncUrl = false }) {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [runs, setRuns]       = useState([])
   const [selected, setSelected] = useState(null)
   const [loading, setLoading] = useState(false)
-  const [since, setSince] = useState('')
-  const [until, setUntil] = useState('')
+  // since/until viven en un solo objeto para que "Limpiar" sea una única
+  // transición atómica; rangeKey fuerza el remount de los inputs
+  // datetime-local al limpiar (Chrome puede retener texto parcial del
+  // widget si solo se les setea value='').
+  // Inicializador lazy desde la URL (?since=/?until=, ISO UTC) cuando esta
+  // instancia sincroniza -- se lee UNA sola vez acá, nunca en un efecto que
+  // vuelva a leer searchParams (eso es el ciclo que rompe la persistencia).
+  const [range, setRange] = useState(() => {
+    if (!syncUrl) return { since: '', until: '' }
+    return {
+      since: isoToLocalInput(searchParams.get('since')),
+      until: isoToLocalInput(searchParams.get('until')),
+    }
+  })
+  const [rangeKey, setRangeKey] = useState(0)
+  const [windowLabel, setWindowLabel] = useState(() => (syncUrl ? searchParams.get('win') || undefined : undefined))
   // Monitor de esta bot, colapsable arriba de la lista -- arrastrar un rango
   // sobre su gráfico precarga estos mismos since/until (ver
-  // MonitorPanel.jsx::OverlapChart, onRangeSelect).
+  // MonitorPanel.jsx::OverlapChart, onRangeSelect). fromIso/toIso vienen en
+  // UTC; los inputs datetime-local interpretan el string como hora LOCAL,
+  // así que hay que convertir en vez de recortar el ISO a lo bruto (bug real:
+  // recortar de-sincroniza el filtro del rango pintado en el gráfico).
   const [monitorOpen, setMonitorOpen] = useState(true)
 
+  // Único punto de escritura de los params de esta tab -- siempre con
+  // replace:true para no ensuciar el historial. Nunca se combina con un
+  // efecto que lea searchParams de vuelta (evita el loop de sync).
+  const syncParams = useCallback((patch) => {
+    if (!syncUrl) return
+    setSearchParams(prev => {
+      const p = new URLSearchParams(prev)
+      for (const [key, value] of Object.entries(patch)) {
+        if (value) p.set(key, value)
+        else p.delete(key)
+      }
+      return p
+    }, { replace: true })
+  }, [syncUrl, setSearchParams])
+
   function handleMonitorRangeSelect(fromIso, toIso) {
-    setSince(fromIso.slice(0, 16))
-    setUntil(toIso.slice(0, 16))
+    setRange({ since: isoToLocalInput(fromIso), until: isoToLocalInput(toIso) })
+    syncParams({ since: fromIso, until: toIso })
   }
+
+  function clearRange() {
+    setRange({ since: '', until: '' })
+    setRangeKey(k => k + 1)
+    syncParams({ since: null, until: null })
+  }
+
+  function handleWindowChange(label) {
+    setWindowLabel(label)
+    syncParams({ win: label })
+  }
+
+  // Rango activo en ms epoch -- lo consume MonitorPanel para pintar la banda
+  // de referencia y el zoom sobre el gráfico, evitando ambigüedad de zona
+  // horaria (a diferencia de los strings locales de los inputs).
+  const selectedRangeMs = useMemo(() => ({
+    from: localInputToMs(range.since),
+    to: localInputToMs(range.until),
+  }), [range])
 
   const load = useCallback(async () => {
     const qs = new URLSearchParams({ limit: '30' })
-    if (since) qs.set('since', new Date(since).toISOString())
-    if (until) qs.set('until', new Date(until).toISOString())
+    const sinceIso = localInputToIso(range.since)
+    const untilIso = localInputToIso(range.until)
+    if (sinceIso) qs.set('since', sinceIso)
+    if (untilIso) qs.set('until', untilIso)
     const data = await apiCall('GET', `/runs/bots/${botId}?${qs}`, null).catch(() => null)
     if (Array.isArray(data)) setRuns(data)
-  }, [botId, apiCall, since, until])
+  }, [botId, apiCall, range])
 
   useEffect(() => { load() }, [load])
 
@@ -493,10 +522,32 @@ export default function RunsTab({ botId, apiCall }) {
     setLoading(true)
     const data = await apiCall('GET', `/runs/${runId}`, null).catch(() => null)
     setLoading(false)
-    if (data?.run_id) setSelected(data)
+    if (data?.run_id) { setSelected(data); syncParams({ run: runId }) }
   }
 
-  if (selected) return <RunDetail run={selected} onClose={() => setSelected(null)} botId={botId} apiCall={apiCall} />
+  function closeRun() {
+    setSelected(null)
+    syncParams({ run: null })
+  }
+
+  // Restaura el detalle abierto al montar si la URL trae ?run= (F5 con una
+  // corrida abierta) -- dependencias fijas ([botId]), nunca `searchParams`,
+  // para no re-disparar en cada escritura propia de syncParams.
+  useEffect(() => {
+    if (!syncUrl) return
+    const runId = searchParams.get('run')
+    if (!runId) return
+    let cancelled = false
+    apiCall('GET', `/runs/${runId}`, null).then(data => {
+      if (cancelled) return
+      if (data?.run_id) setSelected(data)
+      else syncParams({ run: null })
+    }).catch(() => { if (!cancelled) syncParams({ run: null }) })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [botId])
+
+  if (selected) return <RunDetail run={selected} onClose={closeRun} botId={botId} apiCall={apiCall} />
 
   return (
     <div>
@@ -513,7 +564,16 @@ export default function RunsTab({ botId, apiCall }) {
         </div>
         {monitorOpen && (
           <div style={{ padding: '0 10px 10px' }}>
-            <MonitorPanel botId={botId} active={monitorOpen} onRangeSelect={handleMonitorRangeSelect} />
+            <MonitorPanel
+              botId={botId}
+              active={monitorOpen}
+              onRangeSelect={handleMonitorRangeSelect}
+              selectedRange={selectedRangeMs}
+              onClearRange={clearRange}
+              onRefresh={load}
+              windowLabel={windowLabel}
+              onWindowChange={handleWindowChange}
+            />
           </div>
         )}
       </div>
@@ -522,21 +582,42 @@ export default function RunsTab({ botId, apiCall }) {
         <span style={{ fontSize: 12, color: 'var(--text-subtle)' }}>
           {runs.length === 0 ? 'Sin ejecuciones' : `${runs.length} ejecuciones recientes`}
         </span>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12 }}>
-          <label style={{ display: 'flex', gap: 4, alignItems: 'center', color: 'var(--text-subtle)' }}>
+        <div className="runs-filterbar">
+          <label className="runs-filterbar__label">
             Desde
-            <input type="datetime-local" value={since} onChange={e => setSince(e.target.value)} style={{ fontSize: 12 }} />
+            <input
+              key={`since-${rangeKey}`}
+              type="datetime-local"
+              className="runs-filterbar__input"
+              value={range.since}
+              onChange={e => {
+                const value = e.target.value
+                setRange(r => ({ ...r, since: value }))
+                syncParams({ since: localInputToIso(value) })
+              }}
+            />
           </label>
-          <label style={{ display: 'flex', gap: 4, alignItems: 'center', color: 'var(--text-subtle)' }}>
+          <label className="runs-filterbar__label">
             Hasta
-            <input type="datetime-local" value={until} onChange={e => setUntil(e.target.value)} style={{ fontSize: 12 }} />
+            <input
+              key={`until-${rangeKey}`}
+              type="datetime-local"
+              className="runs-filterbar__input"
+              value={range.until}
+              onChange={e => {
+                const value = e.target.value
+                setRange(r => ({ ...r, until: value }))
+                syncParams({ until: localInputToIso(value) })
+              }}
+            />
           </label>
-          {(since || until) && (
-            <button className="btn-ghost btn-sm" style={{ fontSize: 12 }} onClick={() => { setSince(''); setUntil('') }}>
-              ✕ Limpiar
-            </button>
-          )}
-          <button className="btn-ghost btn-sm" onClick={load}>↺ Actualizar</button>
+          <button
+            className="btn-ghost btn-sm"
+            onClick={clearRange}
+            disabled={!range.since && !range.until}
+          >
+            ✕ Limpiar
+          </button>
         </div>
       </div>
 

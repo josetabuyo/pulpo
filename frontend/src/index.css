@@ -693,8 +693,18 @@ main { max-width: 900px; margin: 28px auto; padding: 0 16px; }
 }
 .mon-tab:hover { background: var(--border-strong); color: var(--text); }
 .mon-tab--active { background: var(--brand); color: #fff; border-color: var(--brand); }
-.mon-pause-btn { background: var(--surface-3) !important; color: var(--text-muted) !important; border: 1px solid var(--border) !important; margin-left: auto; }
-.mon-pause-btn:hover { background: var(--surface-2) !important; color: var(--text) !important; }
+.mon-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.mon-actions .btn-ghost {
+  background: var(--surface-3); color: var(--text-muted); border: 1px solid var(--border);
+}
+.mon-actions .btn-ghost:hover { background: var(--surface-2); color: var(--text); }
+
+.mon-range-chip {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 8px 18px; font-size: 12px; color: var(--text-muted);
+  border-bottom: 1px solid var(--border); background: var(--surface-2);
+}
+.mon-range-chip__warn { color: var(--danger); font-size: 11px; }
 
 /* Stat cards */
 .mon-stats {
@@ -737,6 +747,25 @@ main { max-width: 900px; margin: 28px auto; padding: 0 16px; }
 .mon-tooltip-time { color: var(--text-subtle); font-size: 10px; margin-bottom: 2px; }
 
 .mon-empty { text-align: center; color: var(--text-subtle); padding: 40px 20px; font-size: 13px; }
+
+/* Barra de filtros de fecha de la tabla de Ejecuciones -- mismo lenguaje
+   visual que .mon-controls/.mon-tab para que ambas filas queden coherentes. */
+.runs-filterbar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 8px 14px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface-2);
+}
+.runs-filterbar__label {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+  color: var(--text-subtle);
+}
+.runs-filterbar__input {
+  background: var(--surface-3); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text-muted); font-size: 12px; padding: 4px 8px;
+}
+.runs-filterbar__input:focus { border-color: var(--brand); outline: none; }
+.runs-filterbar__input::-webkit-calendar-picker-indicator { filter: invert(.7); }
 
 /* ─── Portal empresa — Conexion cards ─── */
 .conexion-card {

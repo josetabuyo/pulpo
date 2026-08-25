@@ -37,6 +37,13 @@ function subflowRoute(nodeId) {
   return m ? m[1] : null
 }
 
+// Normaliza para comparar un branch_taken/label contra el otro sin que
+// mayúsculas, espacios o separadores (_/-) hagan fallar un match que en
+// esencia es el mismo nombre de rama (ej. "sf_end_notfound" vs "not_found").
+function norm(s) {
+  return String(s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
 export function buildExecutionTrace(steps, edges) {
   const list = steps || []
   const nodeIds = new Set(list.map(s => topLevel(s.node_id)))
@@ -47,6 +54,10 @@ export function buildExecutionTrace(steps, edges) {
   // `edges` conoce. El branch_taken real (columna de DB) de cualquier step
   // interno siempre pisa un guess de subflowRoute() -- el guess solo llena
   // el hueco si el grupo todavía no tiene ningún branch_taken real.
+  // branchSource distingue el origen: un guess de subflowRoute() es un id
+  // elegido a mano en el editor, coincidencia contra el label real no
+  // garantizada -- por eso el matching de edges lo trata distinto (salta
+  // directo a comparación normalizada en vez de exigir match exacto).
   const collapsed = []
   for (const s of list) {
     const id = topLevel(s.node_id)
@@ -54,28 +65,74 @@ export function buildExecutionTrace(steps, edges) {
     if (last && last.id === id) {
       if (s.branch_taken) {
         last.branch_taken = s.branch_taken
+        last.branchSource = 'logged'
       } else if (!last.branch_taken) {
         const guessed = subflowRoute(s.node_id)
-        if (guessed) last.branch_taken = guessed
+        if (guessed) { last.branch_taken = guessed; last.branchSource = 'guessed' }
       }
       continue
     }
-    collapsed.push({ id, branch_taken: s.branch_taken || subflowRoute(s.node_id) || null })
+    const branch_taken = s.branch_taken || subflowRoute(s.node_id) || null
+    collapsed.push({
+      id,
+      branch_taken,
+      branchSource: s.branch_taken ? 'logged' : (branch_taken ? 'guessed' : null),
+    })
   }
 
-  // Clave compuesta con la rama tomada (o '' si el nodo no es router/no la
-  // seteó) -- necesario para no perder información cuando el MISMO router
-  // se visita más de una vez en la corrida (turnos distintos) con ramas
-  // distintas, algo real en esta suite (ver "Confirmó la propuesta?" en los
-  // casos de comercio: rechaza en un turno, confirma en el siguiente).
-  const tracedKeys = new Set()
-  for (let i = 0; i < collapsed.length - 1; i++) {
-    tracedKeys.add(`${collapsed[i].id}->${collapsed[i + 1].id}::${collapsed[i].branch_taken || ''}`)
-  }
-
-  const edgeIds = new Set()
+  const edgesBySourceTarget = new Map()
   for (const e of edges || []) {
-    if (tracedKeys.has(`${e.source}->${e.target}::${e.label || ''}`)) edgeIds.add(e.id)
+    const key = `${e.source}->${e.target}`
+    if (!edgesBySourceTarget.has(key)) edgesBySourceTarget.set(key, [])
+    edgesBySourceTarget.get(key).push(e)
+  }
+
+  // Para cada transición consecutiva a->b realmente recorrida (ambos nodos
+  // están en nodeIds con certeza), resuelve CUÁL de las posibles edges
+  // a->b fue la tomada -- en cascada, de la señal más confiable a la menos:
+  //   1 sola edge entre a y b => es esa, no hace falta mirar el label.
+  //   varias edges => match exacto de label (solo si branch fue LOGUEADO),
+  //     luego match normalizado, luego match por contención si es único.
+  //   ninguna de las anteriores desambiguó => marcar TODAS: la transición
+  //     ocurrió con certeza, preferible resaltar una edge de más a cortar
+  //     la rama visualmente en el nodo final (bug reportado 2026-08-25).
+  const edgeIds = new Set()
+  for (let i = 0; i < collapsed.length - 1; i++) {
+    const a = collapsed[i]
+    const b = collapsed[i + 1]
+    const candidates = edgesBySourceTarget.get(`${a.id}->${b.id}`) || []
+    if (candidates.length === 0) continue
+    if (candidates.length === 1) {
+      edgeIds.add(candidates[0].id)
+      continue
+    }
+
+    const branch = a.branch_taken
+    let matched = null
+
+    if (branch && a.branchSource === 'logged') {
+      matched = candidates.filter(e => (e.label || '') === branch)
+      if (matched.length !== 1) matched = null
+    }
+    if (!matched && branch) {
+      const normBranch = norm(branch)
+      matched = candidates.filter(e => norm(e.label) === normBranch)
+      if (matched.length !== 1) matched = null
+    }
+    if (!matched && branch) {
+      const normBranch = norm(branch)
+      matched = candidates.filter(e => {
+        const normLabel = norm(e.label)
+        return normLabel && (normLabel.includes(normBranch) || normBranch.includes(normLabel))
+      })
+      if (matched.length !== 1) matched = null
+    }
+
+    if (matched) {
+      edgeIds.add(matched[0].id)
+    } else {
+      candidates.forEach(e => edgeIds.add(e.id))
+    }
   }
 
   return { nodeIds, edgeIds }
