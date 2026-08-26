@@ -1,13 +1,31 @@
 import { useEffect, useState } from 'react'
 
 // Franja tipo noticiero pegada debajo del header (pc-header) -- hora +
-// fecha + temperatura de la ubicación configurada para ESTE chat
-// (infoBanner.location: {label, timezone, lat, lon} -- Lugano es solo el
-// default de fábrica, ver lib/business/chats.ts::DEFAULT_BANNER_LOCATION,
-// cualquier chat/cliente puede configurar la suya propia desde ChatsTab) +
-// un mensaje editable (chat_configs.info_banner.message, actualizable por
-// el cliente vía POST /api/chat/{botId}/{chatId}/info-banner con
+// fecha + temperatura de la ubicación de QUIEN ESTÁ USANDO EL CHAT ahora
+// mismo, detectada por IP vía /api/geo (ver ese route: ipwho.is, sin pedir
+// permiso al visitante). No es una ubicación fija por chat/cliente -- cada
+// visitante ve la suya propia. Si la detección falla (ver useGeoLocation),
+// cae a infoBanner.location (config del admin, ver lib/business/
+// chats.ts::DEFAULT_BANNER_LOCATION) como fallback, y si tampoco hay eso,
+// no se muestra fecha/hora/temp (solo el mensaje del ticker). El mensaje en
+// sí sigue siendo editable (chat_configs.info_banner.message, actualizable
+// por el cliente vía POST /api/chat/{botId}/{chatId}/info-banner con
 // X-Pulpo-Bot-Key). Si info_banner.enabled es false, no renderiza nada.
+
+function useGeoLocation(fallback) {
+  const [location, setLocation] = useState(fallback)
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/geo').then(r => r.json()).then(d => {
+      if (cancelled) return
+      if (typeof d?.lat === 'number' && typeof d?.lon === 'number' && d?.timezone) {
+        setLocation(d)
+      }
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+  return location
+}
 
 function useClock(timezone) {
   const [now, setNow] = useState(() => new Date())
@@ -34,7 +52,7 @@ function useTemp(lat, lon) {
 }
 
 export default function InfoBanner({ infoBanner }) {
-  const location = infoBanner?.location || {}
+  const location = useGeoLocation(infoBanner?.location || {})
   const { time, date } = useClock(location.timezone || 'UTC')
   const temp = useTemp(location.lat, location.lon)
 
