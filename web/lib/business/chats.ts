@@ -26,17 +26,20 @@ type ChatConfigRow = typeof chatConfigs.$inferSelect;
 // que DEFAULT_BANNERS en ChatBanners.jsx).
 export const DEFAULT_BANNER_MESSAGE = "Escribí lo que quieras, estamos para ayudarte 👋";
 
-// Ubicación de fábrica (Villa Lugano, CABA -- primer cliente) -- SOLO un
+// Ubicación de fábrica (Villa Riachuelo, CABA -- primer cliente) -- SOLO un
 // default para precargar el form de un chat nuevo. Nada del feature está
-// hardcodeado a Lugano: cada chat guarda su propia location en info_banner,
-// así mañana un cliente de otra ciudad configura la suya sin tocar código
-// (ver InfoBanner.jsx/app/api/weather/route.ts, ambos genéricos por
-// lat/lon/tz). Bug real 2026-08-26: estas coordenadas apuntaban a Lugano,
-// Suiza (mismo nombre, ciudad equivocada) -- Rodolfo (Luganense) reportó
-// hora "descontrolada" y temperatura de 28°C en pleno invierno porteño;
-// el chat de Luganense nunca tuvo location propia en info_banner, así que
-// corría 100% sobre este default.
-export const DEFAULT_BANNER_LOCATION = { label: "Villa Lugano", timezone: "America/Argentina/Buenos_Aires", lat: -34.6685, lon: -58.4738 };
+// hardcodeado a este barrio: cada chat guarda su propia location en
+// info_banner, así mañana un cliente de otra ciudad configura la suya sin
+// tocar código (ver InfoBanner.jsx/app/api/weather/route.ts, ambos
+// genéricos por lat/lon/tz). Bug real 2026-08-26: estas coordenadas
+// apuntaban a Lugano, SUIZA (mismo nombre, ciudad equivocada) -- Rodolfo
+// (Luganense) reportó hora "descontrolada" y temperatura de 28°C en pleno
+// invierno porteño; el chat de Luganense nunca tuvo location propia en
+// info_banner, así que corría 100% sobre este default. El label dice
+// "Villa Riachuelo" (no "Villa Lugano") porque, aunque el cliente se llama
+// Luganense, la zona real que cubre hoy es ese barrio -- confirmado con
+// Jose, no es el nombre histórico del barrio de al lado.
+export const DEFAULT_BANNER_LOCATION = { label: "Villa Riachuelo", timezone: "America/Argentina/Buenos_Aires", lat: -34.6875, lon: -58.4880 };
 
 interface InfoBannerLocation {
   label: string;
