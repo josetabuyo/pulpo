@@ -1,17 +1,26 @@
-// Prueba de viabilidad: generar un título corto y descriptivo para noticias
-// de Luganense (`/api/noticias`, ver ADR-010) vía el cascade LLM que ya usa
-// el nodo `llm` en producción (lib/nodes/llm-client.ts, categoría
-// "summarization" -- NVIDIA/Groq/OpenRouter/Gemini, todos free-tier). La
-// fuente hoy devuelve `title` = primera línea cruda del texto ("Nos llegó
-// este mensaje", "Envía tu primer comentario...") -- inútil para listar.
+// Genera un título corto y descriptivo para noticias de Luganense
+// (`/api/noticias`, ver ADR-010) vía el cascade LLM que ya usa el nodo `llm`
+// en producción (lib/nodes/llm-client.ts, categoría "summarization" --
+// NVIDIA/Groq/OpenRouter/Gemini, todos free-tier). La fuente hoy devuelve
+// `title` = primera línea cruda del texto ("Nos llegó este mensaje", "Envía
+// tu primer comentario...") -- inútil para listar.
 //
-// Uso: dotenv -e .env.local -- tsx scripts/generate-news-titles.ts [--count N]
+// Cachea en news_titles keyed por (source, external_id) -- por default salta
+// los ids que ya tienen fila (no vuelve a gastar una llamada LLM por algo ya
+// generado). --regenerate fuerza recalcular todo el batch igual.
+//
+// Uso:
+//   dotenv -e .env.local -- tsx scripts/generate-news-titles.ts             # todas las pendientes
+//   dotenv -e .env.local -- tsx scripts/generate-news-titles.ts --count 10  # limita el batch
+//   dotenv -e .env.local -- tsx scripts/generate-news-titles.ts --regenerate # ignora el cache
+import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "../lib/db/client";
 import { newsTitles } from "../lib/db/schema";
 import { callLLM } from "../lib/nodes/llm-client";
 
 const NOTICIAS_URL = "https://luganense.vercel.app/api/noticias?page_id=luganense&q=&offset=0&limit=";
 const SOURCE = "luganense";
+const FETCH_LIMIT_CAP = 1000; // techo defensivo -- el endpoint hoy no pagina de verdad
 
 interface RawNoticia {
   id: string;
@@ -19,18 +28,29 @@ interface RawNoticia {
   text?: string;
 }
 
-function parseCount(): number {
+function parseArgs(): { count?: number; regenerate: boolean } {
   const idx = process.argv.indexOf("--count");
-  if (idx === -1) return 10;
-  const n = Number(process.argv[idx + 1]);
-  return Number.isFinite(n) && n > 0 ? n : 10;
+  const count = idx === -1 ? undefined : Number(process.argv[idx + 1]);
+  return {
+    count: Number.isFinite(count) && (count as number) > 0 ? count : undefined,
+    regenerate: process.argv.includes("--regenerate"),
+  };
 }
 
-async function fetchNoticias(count: number): Promise<RawNoticia[]> {
-  const res = await fetch(`${NOTICIAS_URL}${count}`);
+async function fetchNoticias(limit: number): Promise<{ results: RawNoticia[]; total: number }> {
+  const res = await fetch(`${NOTICIAS_URL}${limit}`);
   if (!res.ok) throw new Error(`GET /api/noticias -> HTTP ${res.status}`);
-  const data = (await res.json()) as { results?: RawNoticia[] };
-  return data.results ?? [];
+  const data = (await res.json()) as { results?: RawNoticia[]; total?: number };
+  return { results: data.results ?? [], total: data.total ?? (data.results ?? []).length };
+}
+
+async function fetchAlreadyCachedIds(db: ReturnType<typeof getDb>, ids: string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set();
+  const rows = await db
+    .select({ externalId: newsTitles.externalId })
+    .from(newsTitles)
+    .where(and(eq(newsTitles.source, SOURCE), inArray(newsTitles.externalId, ids)));
+  return new Set(rows.map((r) => r.externalId));
 }
 
 const SYSTEM_PROMPT =
@@ -41,14 +61,29 @@ const SYSTEM_PROMPT =
   "como 'Nos llegó este mensaje' -- resumí el contenido real.";
 
 async function main() {
-  const count = parseCount();
-  const noticias = await fetchNoticias(count);
-  console.log(`Fetched ${noticias.length} noticias reales de Luganense.\n`);
+  const { count, regenerate } = parseArgs();
+
+  const { results: all, total } = await fetchNoticias(count ?? FETCH_LIMIT_CAP);
+  console.log(`Fuente: ${all.length}/${total} noticias.`);
 
   const db = getDb();
+  const cached = regenerate ? new Set<string>() : await fetchAlreadyCachedIds(db, all.map((n) => n.id));
+  const pending = all.filter((n) => !cached.has(n.id));
+
+  console.log(
+    regenerate
+      ? `--regenerate: se van a re-generar las ${pending.length} noticias del batch.`
+      : `${cached.size} ya tenían título en cache, se saltean. Pendientes: ${pending.length}.\n`,
+  );
+
+  if (pending.length === 0) {
+    console.log("Nada para hacer.");
+    process.exit(0);
+  }
+
   const rows: { id: string; original: string; generated: string; ok: boolean; ms: number }[] = [];
 
-  for (const n of noticias) {
+  for (const n of pending) {
     const text = (n.text ?? "").slice(0, 1500);
     const started = performance.now();
     const { text: generated, error } = await callLLM({
@@ -89,7 +124,7 @@ async function main() {
 
   const okCount = rows.filter((r) => r.ok).length;
   const avgMs = Math.round(rows.reduce((s, r) => s + r.ms, 0) / rows.length);
-  console.log(`\n${okCount}/${rows.length} títulos generados OK. Latencia promedio: ${avgMs}ms.`);
+  console.log(`\n${okCount}/${rows.length} títulos generados OK (${cached.size} saltados por cache). Latencia promedio: ${avgMs}ms.`);
   console.log("Costo: $0 -- todo el cascade (NVIDIA NIM / Groq / OpenRouter / Gemini) corre sobre modelos free-tier, sin billing por token configurado.");
 
   process.exit(0);

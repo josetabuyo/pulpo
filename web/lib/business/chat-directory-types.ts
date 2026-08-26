@@ -44,6 +44,12 @@ export interface DirectorySource {
     image_url?: string;
     meta?: string;
     link?: string; // URL externa del item (ej. nota original) -- solo mode: "detail"
+    // Opt-in genérico (no específico de ningún cliente): si está seteado,
+    // searchSection pisa item.title con lo que haya en news_titles para
+    // (title_cache_source, item.id), cuando exista una fila -- ver
+    // scripts/generate-news-titles.ts. Pensado para fuentes cuyo título
+    // crudo es basura (ej. Luganense: primera línea del post de Facebook).
+    title_cache_source?: string;
   };
   limit?: number;
 }
@@ -204,6 +210,7 @@ function validateSource(s: unknown, sectionId: string): DirectorySource {
       image_url: typeof im.image_url === "string" ? im.image_url : undefined,
       meta: typeof im.meta === "string" ? im.meta : undefined,
       link: typeof im.link === "string" ? im.link : undefined,
+      title_cache_source: typeof im.title_cache_source === "string" ? im.title_cache_source : undefined,
     },
   };
   if (isRecord(s.headers)) source.headers = s.headers as Record<string, string>;

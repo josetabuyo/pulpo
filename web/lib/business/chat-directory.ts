@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
-import { chatConfigs } from "@/lib/db/schema";
+import { chatConfigs, newsTitles } from "@/lib/db/schema";
 import { ValidationError } from "@/lib/business/bots";
 import { resolveJsonPath, SENTINEL } from "@/lib/nodes/json-path";
 import {
@@ -258,6 +258,25 @@ function normalizeItem(raw: unknown, section: DirectorySection, chatConfigId: st
   };
 }
 
+// Pisa item.title in-place con lo que haya en news_titles para
+// (title_cache_source, item.id) -- una sola query batched para toda la
+// página, no una por item. Genérico: cualquier fuente puede optar-in seteando
+// item_map.title_cache_source (ver scripts/generate-news-titles.ts), nada
+// acá conoce a Luganense en particular.
+async function applyTitleCacheOverrides(items: DirectoryItem[], titleCacheSource: string): Promise<void> {
+  const db = getDb();
+  const rows = await db
+    .select({ externalId: newsTitles.externalId, generatedTitle: newsTitles.generatedTitle })
+    .from(newsTitles)
+    .where(and(eq(newsTitles.source, titleCacheSource), inArray(newsTitles.externalId, items.map((it) => it.id))));
+  if (rows.length === 0) return;
+  const overrides = new Map(rows.map((r) => [r.externalId, r.generatedTitle]));
+  for (const item of items) {
+    const override = overrides.get(item.id);
+    if (override) item.title = override;
+  }
+}
+
 // ─── Búsqueda (server-side, evita CORS y no expone credenciales upstream) ─
 
 export async function searchSection(
@@ -319,6 +338,11 @@ export async function searchSection(
     .slice(0, limit)
     .map((it) => normalizeItem(it, section, chatConfigId))
     .filter((it): it is DirectoryItem => it !== null);
+
+  const titleCacheSource = section.source.item_map.title_cache_source;
+  if (titleCacheSource && items.length > 0) {
+    await applyTitleCacheOverrides(items, titleCacheSource);
+  }
 
   // "Hay más" es una inferencia, no un dato del contrato: si el upstream
   // devolvió una página completa (>= limit), asumimos que puede haber más --

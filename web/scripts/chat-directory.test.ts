@@ -321,6 +321,21 @@ test("validateDirectoryConfig acepta mode: detail sin connect", () => {
   assert.equal(section.connect, undefined);
 });
 
+test("validateDirectoryConfig conserva item_map.title_cache_source si viene", () => {
+  const raw = detailSectionRaw();
+  const cfg = validateDirectoryConfig({
+    version: 1,
+    enabled: true,
+    sections: [{ ...raw, source: { ...raw.source, item_map: { ...raw.source.item_map, title_cache_source: "luganense" } } }],
+  });
+  assert.equal(cfg.sections[0].source.item_map.title_cache_source, "luganense");
+});
+
+test("validateDirectoryConfig sin title_cache_source lo deja undefined", () => {
+  const cfg = validateDirectoryConfig({ version: 1, enabled: true, sections: [detailSectionRaw()] });
+  assert.equal(cfg.sections[0].source.item_map.title_cache_source, undefined);
+});
+
 test("validateDirectoryConfig default mode es connect y exige connect", () => {
   assert.throws(
     () =>
