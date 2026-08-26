@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, gte } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { flowRuns, flows, telegramKnownContacts, telegramTriggerCooldowns } from "@/lib/db/schema";
 
@@ -187,6 +187,35 @@ export async function getWaitingGateRun(botId: string, contactPhone: string) {
     .orderBy(desc(flowRuns.startedAt))
     .limit(1);
   return run ?? null;
+}
+
+// Bug real 2026-08-25 (ver management/): un run que acaba de mandar la
+// pregunta del wait_user ("¿Es este el tipo de servicio...?") todavía puede
+// figurar status="running" en el instante en que la respuesta del usuario
+// llega -- el paso que marca waiting_gate (markWaitingGate en
+// lib/flow/steps.ts) es un step separado del que mandó el mensaje, y
+// Workflow DevKit no garantiza que ambos terminen en el mismo instante que
+// el usuario ve la pregunta y contesta. Sin este chequeo, getWaitingGateRun
+// no encuentra nada y dispatchInbound arranca un run nuevo EN PARALELO --
+// el run original queda huérfano en waiting_gate, listo para tragarse el
+// próximo mensaje del usuario (tema completamente distinto) como si fuera
+// la respuesta a esa pregunta vieja.
+export async function hasRecentRunningRun(botId: string, contactPhone: string): Promise<boolean> {
+  const db = getDb();
+  const cutoff = new Date(Date.now() - 60_000);
+  const [run] = await db
+    .select({ runId: flowRuns.runId })
+    .from(flowRuns)
+    .where(
+      and(
+        eq(flowRuns.botId, botId),
+        eq(flowRuns.contactPhone, contactPhone),
+        eq(flowRuns.status, "running"),
+        gte(flowRuns.startedAt, cutoff),
+      ),
+    )
+    .limit(1);
+  return !!run;
 }
 
 // "handed_off" (no "completed"): este run nunca llegó a un final natural,

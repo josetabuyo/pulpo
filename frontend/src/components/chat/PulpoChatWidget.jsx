@@ -21,6 +21,16 @@ import './chat.css'
 
 const POLL_MS = 2000
 
+// Evita duplicar mensajes cuando el poll del intervalo y un poll manual
+// (post-send) devuelven el mismo mensaje nuevo por leer lastIdRef antes
+// de que el otro lo actualice.
+function mergeMessages(prev, incoming) {
+  if (!incoming?.length) return prev
+  const seen = new Set(prev.map(m => m.id))
+  const fresh = incoming.filter(m => !seen.has(m.id))
+  return fresh.length ? [...prev, ...fresh] : prev
+}
+
 // Auth.js v5 no soporta GET directo a /api/auth/signin/google -- mismo
 // flujo CSRF+POST que frontend/src/pages/LoginPage.jsx.
 async function loginWithGoogle(callbackUrl) {
@@ -65,6 +75,7 @@ export default function PulpoChatWidget({
 
   const lastIdRef = useRef(0)
   const pollRef = useRef(null)
+  const pollFnRef = useRef(null)
 
   // El caller (ChatPage) puede controlar conversationId vía la URL --
   // sincronizamos cuando cambia desde afuera (navegación externa).
@@ -137,11 +148,12 @@ export default function PulpoChatWidget({
       if (cancelled) return
       if (!res._ok) return
       if (res.messages?.length) {
-        setMessages(prev => [...prev, ...res.messages])
+        setMessages(prev => mergeMessages(prev, res.messages))
         lastIdRef.current = res.messages[res.messages.length - 1].id
       }
       setRunStatus(res.run_status ?? null)
     }
+    pollFnRef.current = poll
     poll()
     pollRef.current = setInterval(poll, POLL_MS)
     return () => { cancelled = true; clearInterval(pollRef.current) }
@@ -152,14 +164,9 @@ export default function PulpoChatWidget({
     const res = await chatApi.sendMessage(botId, chatId, conversationId, text)
     if (!res._ok) { setSendError(res.error || 'No se pudo enviar el mensaje'); return }
     setRunStatus('running')
-    // Empuja un poll inmediato en vez de esperar el próximo intervalo.
-    chatApi.getMessages(botId, chatId, conversationId, lastIdRef.current || undefined).then(r => {
-      if (r._ok && r.messages?.length) {
-        setMessages(prev => [...prev, ...r.messages])
-        lastIdRef.current = r.messages[r.messages.length - 1].id
-      }
-      if (r._ok) setRunStatus(r.run_status ?? null)
-    })
+    // Empuja un poll inmediato en vez de esperar el próximo intervalo,
+    // reusando la misma función que el intervalo (mismo merge deduplicado).
+    pollFnRef.current?.()
   }
 
   function handleNewConversation() {

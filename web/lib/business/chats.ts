@@ -26,12 +26,17 @@ type ChatConfigRow = typeof chatConfigs.$inferSelect;
 // que DEFAULT_BANNERS en ChatBanners.jsx).
 export const DEFAULT_BANNER_MESSAGE = "Escribí lo que quieras, estamos para ayudarte 👋";
 
-// Ubicación de fábrica (Lugano, primer cliente) -- SOLO un default para
-// precargar el form de un chat nuevo. Nada del feature está hardcodeado a
-// Lugano: cada chat guarda su propia location en info_banner, así mañana un
-// cliente de otra ciudad configura la suya sin tocar código (ver
-// InfoBanner.jsx/app/api/weather/route.ts, ambos genéricos por lat/lon/tz).
-export const DEFAULT_BANNER_LOCATION = { label: "Lugano", timezone: "Europe/Zurich", lat: 46.0037, lon: 8.9511 };
+// Ubicación de fábrica (Villa Lugano, CABA -- primer cliente) -- SOLO un
+// default para precargar el form de un chat nuevo. Nada del feature está
+// hardcodeado a Lugano: cada chat guarda su propia location en info_banner,
+// así mañana un cliente de otra ciudad configura la suya sin tocar código
+// (ver InfoBanner.jsx/app/api/weather/route.ts, ambos genéricos por
+// lat/lon/tz). Bug real 2026-08-26: estas coordenadas apuntaban a Lugano,
+// Suiza (mismo nombre, ciudad equivocada) -- Rodolfo (Luganense) reportó
+// hora "descontrolada" y temperatura de 28°C en pleno invierno porteño;
+// el chat de Luganense nunca tuvo location propia en info_banner, así que
+// corría 100% sobre este default.
+export const DEFAULT_BANNER_LOCATION = { label: "Villa Lugano", timezone: "America/Argentina/Buenos_Aires", lat: -34.6685, lon: -58.4738 };
 
 interface InfoBannerLocation {
   label: string;

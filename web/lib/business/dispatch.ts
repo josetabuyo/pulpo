@@ -3,7 +3,11 @@ import { runFlowWorkflow } from "@/workflows/run-flow";
 import { createFlowState } from "@/lib/nodes/state";
 import type { FlowState } from "@/lib/nodes/state";
 import { continueConversation } from "@/lib/flow/conversation";
-import { endFlowRunHandedOff, getWaitingGateRun, restoreSlotsForResume } from "@/lib/business/telegram";
+import { endFlowRunHandedOff, getWaitingGateRun, hasRecentRunningRun, restoreSlotsForResume } from "@/lib/business/telegram";
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 // Dispatcher compartido: "si hay waiting_gate para (botId, contactIdentifier)
 // reanudá, si no arrancá en el trigger" -- antes duplicado en
@@ -35,11 +39,25 @@ export interface InboundContext {
 // Si no hay nada que reanudar, devuelve null -- el caller decide qué hacer
 // (arrancar UN flow fijo, como el trigger route/chat, o fan-out a varios
 // matches, como el webhook de Telegram).
+// Reintentos si no hay waiting_gate pero SÍ hay un run reciente todavía
+// "running" para este contacto -- ver hasRecentRunningRun: puede estar a
+// mitad de camino de pausarse. Sin esto, dispatchInbound arrancaría un run
+// nuevo en paralelo y el que está pausándose queda huérfano (bug real
+// 2026-08-25). 5 intentos x 600ms = hasta 3s de espera, solo en este caso
+// raro -- no afecta la latencia normal (sin run en vuelo, retorna al toque).
+const RESUME_RACE_RETRIES = 5;
+const RESUME_RACE_DELAY_MS = 600;
+
 export async function resumeWaitingConversation(
   ctx: InboundContext,
 ): Promise<{ runId: string; resumed: true } | null> {
   if (!ctx.contactIdentifier) return null;
-  const waiting = await getWaitingGateRun(ctx.botId, ctx.contactIdentifier);
+  let waiting = await getWaitingGateRun(ctx.botId, ctx.contactIdentifier);
+  for (let i = 0; !waiting && i < RESUME_RACE_RETRIES; i++) {
+    if (!(await hasRecentRunningRun(ctx.botId, ctx.contactIdentifier))) break;
+    await sleep(RESUME_RACE_DELAY_MS);
+    waiting = await getWaitingGateRun(ctx.botId, ctx.contactIdentifier);
+  }
   if (!waiting || !waiting.resumeNodeId) return null;
 
   const resumeState = createFlowState({
