@@ -82,7 +82,11 @@ const BOT_KEY_ROUTES: { method: string; re: RegExp }[] = [
 // necesario para visitantes de un chat SIN sesión (públicos o antes de
 // loguearse en modo login abierto). Genérico -- cada chat pasa su propia
 // ubicación (chat_configs.info_banner.location), no solo Lugano.
-const PUBLIC_PATHS = ["/api/auth/token", "/api/flows/node-types", "/api/weather"];
+// Geolocalización por IP (2026-08-26, mismo banner -- ver
+// InfoBanner.jsx/app/api/geo): mismo criterio que /api/weather, visitante
+// sin sesión la necesita para que el banner muestre SU ubicación real en
+// vez de la fija del admin.
+const PUBLIC_PATHS = ["/api/auth/token", "/api/flows/node-types", "/api/weather", "/api/geo"];
 
 // Paso 1 hacia Pulpo PRO/Lite (2026-07-22, ver auth.ts): allowlist explícita
 // y method-aware de qué puede pegar un usuario "scoped" (bot_users), UNA vez
