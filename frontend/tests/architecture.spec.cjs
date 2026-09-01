@@ -4,16 +4,11 @@
  * Requiere back + front corriendo (mismo setup que el resto de la suite).
  */
 const { test, expect } = require('@playwright/test')
-
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin'
+const { loginAsAdmin } = require('./helpers.cjs')
 
 async function login(page) {
-  await page.goto('/')
-  await page.evaluate(() => sessionStorage.clear())
-  await page.goto('/')
-  await page.getByPlaceholder('Contraseña').fill(ADMIN_PASSWORD)
-  await page.getByRole('button', { name: 'Entrar' }).click()
-  await page.waitForURL(/\/dashboard/)
+  await loginAsAdmin(page)
+  await page.goto('/dashboard')
 }
 
 test('la sección Arquitectura existe y aparece antes que Config', async ({ page }) => {

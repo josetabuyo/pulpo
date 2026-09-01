@@ -5,18 +5,13 @@
  * Correr: cd frontend && node_modules/.bin/playwright test tests/flows.spec.cjs
  */
 const { test, expect } = require('@playwright/test')
-
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin'
+const { loginAsAdmin } = require('./helpers.cjs')
 
 // Helper: login y navegar a la tab "Flow" de la primera empresa
 // Devuelve { card, flowSection } para que los tests puedan escopar sus selectores
 async function goToFlowTab(page) {
-  await page.goto('/')
-  await page.evaluate(() => sessionStorage.clear())
-  await page.goto('/')
-  await page.getByPlaceholder('Contraseña').fill(ADMIN_PASSWORD)
-  await page.getByRole('button', { name: 'Entrar' }).click()
-  await page.waitForURL('/dashboard')
+  await loginAsAdmin(page)
+  await page.goto('/dashboard')
 
   // Abrir la primera empresa visible
   const card = page.locator('.ec-card').first()
@@ -142,12 +137,8 @@ test('buscador de nodos filtra por texto', async ({ page }) => {
 // más arriba (ver FlowCanvas.jsx: isBackEdge / getSmoothStepPath).
 
 test('back-edge se renderiza bajando antes de subir hacia el destino', async ({ page }) => {
-  await page.goto('/')
-  await page.evaluate(() => sessionStorage.clear())
-  await page.goto('/')
-  await page.getByPlaceholder('Contraseña').fill(ADMIN_PASSWORD)
-  await page.getByRole('button', { name: 'Entrar' }).click()
-  await page.waitForURL('/dashboard')
+  await loginAsAdmin(page)
+  await page.goto('/dashboard')
 
   // Abrir tab Flow del bot Luganense (tiene back-edge sin_direccion → pedir_direccion)
   const luganenseCard = page.locator('.ec-card', { has: page.locator('text=luganense') })

@@ -4,16 +4,11 @@
  * También cubre el lightbox de imágenes (sv-img-modal) que antes no abría nada al hacer click.
  */
 const { test, expect } = require('@playwright/test')
-
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin'
+const { loginAsAdmin } = require('./helpers.cjs')
 
 async function login(page) {
-  await page.goto('/')
-  await page.evaluate(() => sessionStorage.clear())
-  await page.goto('/')
-  await page.getByPlaceholder('Contraseña').fill(ADMIN_PASSWORD)
-  await page.getByRole('button', { name: 'Entrar' }).click()
-  await page.waitForURL('/dashboard')
+  await loginAsAdmin(page)
+  await page.goto('/dashboard')
 }
 
 test('sv-bubble--out tiene align-self: flex-end en el stylesheet', async ({ page }) => {

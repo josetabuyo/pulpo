@@ -10,16 +10,11 @@
  * Correr: cd frontend && node_modules/.bin/playwright test tests/bot_safety.spec.cjs
  */
 const { test, expect } = require('@playwright/test')
-
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin'
+const { loginAsAdmin } = require('./helpers.cjs')
 
 async function loginAndGetCard(page) {
-  await page.goto('/')
-  await page.evaluate(() => sessionStorage.clear())
-  await page.goto('/')
-  await page.getByPlaceholder('Contraseña').fill(ADMIN_PASSWORD)
-  await page.getByRole('button', { name: 'Entrar' }).click()
-  await page.waitForURL('/dashboard')
+  await loginAsAdmin(page)
+  await page.goto('/dashboard')
   const card = page.locator('.ec-card').first()
   await card.waitFor({ state: 'visible' })
   return card

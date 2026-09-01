@@ -1,6 +1,9 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
+import Credentials from "next-auth/providers/credentials";
+import type { Provider } from "@auth/core/providers";
 import { listBotsForEmail } from "@/lib/business/bot-users";
+import { isLocalDev } from "@/lib/env";
 
 // Same pattern as Luganense's auth.ts (Auth.js v5, session: jwt, trustHost).
 // Any Google account can complete OAuth; the signIn callback below is what
@@ -21,13 +24,55 @@ function allowedAdminEmails(): string[] {
     .filter(Boolean);
 }
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
-  providers: [
-    Google({
-      clientId: process.env.AUTH_GOOGLE_ID,
-      clientSecret: process.env.AUTH_GOOGLE_SECRET,
+// Bypass de login para e2e/dev local -- mismo problema que ya resolvió
+// Luganense (components/LoginPage.tsx + auth.ts, provider "fake-login"
+// gateado por NODE_ENV): Playwright no puede completar un OAuth real contra
+// Google. Gateado acá con isLocalDev() (lib/env.ts: !VERCEL && NODE_ENV !==
+// "production") en vez de un chequeo propio -- ES el mismo predicado ya
+// usado por el CLI y el router local (management/HANDOFF_LOCAL_CLI_AND_NODES.md
+// §2), no una condición nueva a mantener sincronizada por separado.
+// Evaluado UNA vez al cargar el módulo: en cualquier build real de Vercel
+// (preview o producción, ambos corren `next build` → NODE_ENV=production)
+// este provider directamente no se registra, no es que quede oculto en la
+// UI -- no existe en ese proceso.
+//
+// A diferencia del "fake-login" de Luganense (que consulta su propia tabla
+// `users`), authorize() acá NO decide nada de autorización -- solo valida
+// que venga un email y se lo pasa a NextAuth. La decisión real (admin vs
+// scoped vs rechazado) la sigue haciendo el callback signIn() de abajo,
+// EXACTAMENTE la misma lógica que un login real de Google -- un email de
+// prueba pasa por el mismo allowedAdminEmails()/listBotsForEmail() que
+// pasaría con Google, cero lógica de autorización duplicada.
+//
+// Nota histórica (ver lib/auth/local-bypass.ts): una sesión anterior había
+// agregado un Credentials provider ad-hoc acá mismo, dos veces, y lo revirtió
+// sin comittear por apuro/falta de revisión -- no porque se haya encontrado
+// una falla de seguridad concreta. Esta vez queda documentado y con el
+// mismo gate ya establecido y revisado que usa el resto del bypass local.
+const providers: Provider[] = [
+  Google({
+    clientId: process.env.AUTH_GOOGLE_ID,
+    clientSecret: process.env.AUTH_GOOGLE_SECRET,
+  }),
+];
+
+if (isLocalDev()) {
+  providers.push(
+    Credentials({
+      id: "test-login",
+      name: "Test Login (solo local/e2e)",
+      credentials: { email: { label: "Email", type: "email" } },
+      async authorize(credentials) {
+        const email = typeof credentials?.email === "string" ? credentials.email.trim() : "";
+        if (!email) return null;
+        return { id: email, email, name: email };
+      },
     }),
-  ],
+  );
+}
+
+export const { handlers, auth, signIn, signOut } = NextAuth({
+  providers,
   session: { strategy: "jwt" },
   trustHost: true,
   pages: { signIn: "/" },
