@@ -159,9 +159,15 @@ export default function PulpoChatWidget({
     return () => { cancelled = true; clearInterval(pollRef.current) }
   }, [botId, chatId, conversationId, needsLogin])
 
-  async function handleSend(text) {
+  async function handleSend(text, file) {
     setSendError('')
-    const res = await chatApi.sendMessage(botId, chatId, conversationId, text)
+    let attachmentUrl
+    if (file) {
+      const uploaded = await chatApi.uploadAttachment(botId, chatId, conversationId, file)
+      if (!uploaded._ok) { setSendError(uploaded.error || 'No se pudo subir el adjunto'); return }
+      attachmentUrl = uploaded.url
+    }
+    const res = await chatApi.sendMessage(botId, chatId, conversationId, text, attachmentUrl)
     if (!res._ok) { setSendError(res.error || 'No se pudo enviar el mensaje'); return }
     setRunStatus('running')
     // Empuja un poll inmediato en vez de esperar el próximo intervalo,
@@ -230,6 +236,14 @@ export default function PulpoChatWidget({
   // Facebook) o logo chico + título en texto -- ver ChatForm, "headerMode".
   // Si carga banner, gana -- header sin texto, la identidad va en la imagen.
   const hasHeaderBanner = Boolean(branding.headerBannerUrl)
+  // Rails opcionales por chat (2026-09-01, ver lib/business/chats.ts) --
+  // default true si el campo no vino (chats viejos/API desactualizada), así
+  // nunca se ocultan de golpe por accidente. Un chat que los apaga (ej.
+  // MachElectronics, sin publicidad ni directorio propios) ni siquiera
+  // monta el componente -- no alcanza con ocultarlo por CSS, ChatBanners
+  // cae a su set "de fábrica" (self-promo) si no hay ads reales cargados.
+  const hasAds = config.ads_enabled !== false
+  const hasSidebar = config.sidebar_enabled !== false
 
   return (
     <div className={wrapperClass} style={themedStyle}>
@@ -256,30 +270,34 @@ export default function PulpoChatWidget({
 
         <InfoBanner infoBanner={config.info_banner} />
 
-        <div className={`pc-body ${mobileDirOpen ? 'pc-body--dir-open' : ''}`}>
-          <ChatDirectory
-            botId={botId}
-            chatId={chatId}
-            directory={config.directory}
-            open={mobileDirOpen}
-            onToggle={() => setOpenPanel(p => p === 'dir' ? 'ads' : 'dir')}
-            conversations={conversations}
-            activeConversationId={conversationId}
-            onSelectConversation={id => { setConversationId(id); setOpenPanel('ads') }}
-            onNewConversation={() => { handleNewConversation(); setOpenPanel('ads') }}
-          />
+        <div className={`pc-body ${mobileDirOpen ? 'pc-body--dir-open' : ''} ${!hasSidebar ? 'pc-body--no-dir' : ''} ${!hasAds ? 'pc-body--no-ads' : ''}`}>
+          {hasSidebar && (
+            <ChatDirectory
+              botId={botId}
+              chatId={chatId}
+              directory={config.directory}
+              open={mobileDirOpen}
+              onToggle={() => setOpenPanel(p => p === 'dir' ? 'ads' : 'dir')}
+              conversations={conversations}
+              activeConversationId={conversationId}
+              onSelectConversation={id => { setConversationId(id); setOpenPanel('ads') }}
+              onNewConversation={() => { handleNewConversation(); setOpenPanel('ads') }}
+            />
+          )}
 
           <div className="pc-main">
             <ChatThread messages={messages} runStatus={runStatus} error={sendError} />
             <ChatComposer disabled={disabled} onSend={handleSend} />
           </div>
 
-          <ChatBanners
-            ads={config.ads}
-            banners={config.banners}
-            open={openPanel === 'ads'}
-            onToggle={() => setOpenPanel(p => p === 'ads' ? 'dir' : 'ads')}
-          />
+          {hasAds && (
+            <ChatBanners
+              ads={config.ads}
+              banners={config.banners}
+              open={openPanel === 'ads'}
+              onToggle={() => setOpenPanel(p => p === 'ads' ? 'dir' : 'ads')}
+            />
+          )}
         </div>
       </div>
     </div>

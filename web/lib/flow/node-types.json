@@ -1878,5 +1878,54 @@
         "default": "wavi_messages"
       }
     ]
+  },
+  {
+    "id": "document_vision",
+    "label": "Lector de documentos (visión)",
+    "color": "#9333ea",
+    "description": "Manda una imagen (factura, ticket, documento) a un modelo con visión y extrae datos estructurados en JSON.",
+    "help": "",
+    "schema": [
+      {
+        "key": "prompt",
+        "type": "textarea",
+        "label": "Instrucciones de extracción",
+        "default": "",
+        "rows": 8,
+        "hint": "Qué campos extraer y cómo (ej: proveedor, CUIT, número, fecha, importe total). El resultado se interpreta como JSON -- dejar null lo que no se pueda leer con confianza."
+      },
+      {
+        "key": "image_url",
+        "type": "string",
+        "label": "URL de la imagen",
+        "default": "{{attachment_url}}",
+        "hint": "Soporta {{placeholders}}. Normalmente {{attachment_url}} (lo setea el chat cuando el usuario adjunta una imagen)."
+      },
+      {
+        "key": "output",
+        "type": "string",
+        "label": "Destino de la salida",
+        "default": "document_data",
+        "hint": "Clave de state.data donde se guarda el JSON extraído (objeto completo, no solo texto). null si no había imagen en este mensaje."
+      },
+      {
+        "key": "temperature",
+        "type": "float",
+        "label": "Temperatura",
+        "default": 0.1
+      },
+      {
+        "key": "max_tokens",
+        "type": "int",
+        "label": "Máximo de tokens (opcional)",
+        "default": 500
+      },
+      {
+        "key": "color",
+        "type": "string",
+        "label": "Color (opcional)",
+        "hint": "Color RGB/hex (ej: #3b82f6) que pisa el color default del tipo de nodo para esta instancia."
+      }
+    ]
   }
 ]

@@ -84,6 +84,8 @@ function toConfigDto(row: ChatConfigRow) {
     custom_css: row.customCss ?? "",
     branding: row.branding ?? {},
     directory: row.directory ?? null,
+    ads_enabled: row.adsEnabled,
+    sidebar_enabled: row.sidebarEnabled,
     info_banner: toInfoBannerDto(row.infoBanner),
     created_at: row.createdAt,
     updated_at: row.updatedAt,
@@ -125,6 +127,8 @@ export interface ChatConfigInput {
   customCss?: string;
   branding?: unknown;
   infoBanner?: unknown;
+  adsEnabled?: boolean;
+  sidebarEnabled?: boolean;
 }
 
 function validateChatConfigInput(input: ChatConfigInput) {
@@ -157,6 +161,8 @@ export async function createChatConfig(botId: string, input: ChatConfigInput) {
     customCss: input.customCss ?? "",
     branding: input.branding ?? {},
     infoBanner: input.infoBanner ?? null,
+    adsEnabled: input.adsEnabled ?? true,
+    sidebarEnabled: input.sidebarEnabled ?? true,
   });
 
   return getChatConfig(id);
@@ -183,6 +189,8 @@ export async function updateChatConfig(chatId: string, botId: string, input: Cha
       customCss: input.customCss ?? "",
       branding: input.branding ?? {},
       infoBanner: input.infoBanner ?? null,
+      adsEnabled: input.adsEnabled ?? true,
+      sidebarEnabled: input.sidebarEnabled ?? true,
       updatedAt: new Date(),
     })
     .where(eq(chatConfigs.id, chatId));
@@ -228,6 +236,8 @@ export async function toPublicConfigDto(row: ChatConfigRow) {
     is_public: row.isPublic,
     open_login: row.openLogin,
     enabled: row.enabled,
+    ads_enabled: row.adsEnabled,
+    sidebar_enabled: row.sidebarEnabled,
     info_banner: toInfoBannerDto(row.infoBanner),
   };
 }
@@ -331,6 +341,7 @@ export async function listConversationMessages(conversationId: string, afterId?:
     role: r.role,
     content: r.content,
     run_id: r.runId,
+    attachment_url: r.attachmentUrl,
     created_at: r.createdAt,
   }));
 }
@@ -420,9 +431,9 @@ export async function createConversation(botId: string, chatConfigId: string, ow
   return { id, created_at: new Date(), last_message_at: new Date() };
 }
 
-export async function insertUserMessage(conversationId: string, content: string) {
+export async function insertUserMessage(conversationId: string, content: string, attachmentUrl?: string) {
   const db = getDb();
-  await db.insert(chatMessages).values({ conversationId, role: "user", content });
+  await db.insert(chatMessages).values({ conversationId, role: "user", content, attachmentUrl: attachmentUrl || null });
   await db
     .update(chatConversations)
     .set({ lastMessageAt: new Date() })

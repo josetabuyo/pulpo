@@ -299,6 +299,87 @@ export interface LLMCallResult {
   error: string | null;
 }
 
+// Cascada para lib/nodes/document-vision.ts. Groq queda afuera a propósito
+// -- su catálogo (GET /v1/models) no tiene ningún modelo con visión hoy
+// (2026-09-01). Los otros 3 sí, validados con curl contra una factura real:
+// NVIDIA y Gemini devolvieron JSON correcto, OpenRouter (modelo free,
+// mismo que ya usan las cascadas de texto) dio 429 de rate-limit del pool
+// compartido -- esperable, sirve como último fallback igual.
+export const VISION_CASCADE: CascadeEntry[] = [
+  { provider: "nvidia", model: "meta/llama-3.2-11b-vision-instruct" },
+  { provider: "gemini", model: "gemini-flash-lite-latest" },
+  { provider: "openrouter", model: "google/gemma-4-31b-it:free" },
+];
+
+// Hermana de callProvider() -- no la reusa porque el body multimodal difiere
+// en demasiados puntos (un solo mensaje user con content en array, sin
+// mensaje system separado -- así lo validé con curl: Gemini y NVIDIA
+// contestan limpio así, agregar un system message aparte no se probó y no
+// vale el riesgo de romper el caso ya validado).
+async function callVisionProvider(
+  entry: CascadeEntry,
+  opts: { userText: string; imageDataUri: string; temperature: number; maxTokens?: number },
+): Promise<string> {
+  const { baseUrl, envKey } = PROVIDER_CONFIG[entry.provider];
+  const apiKey = process.env[envKey];
+  if (!apiKey) throw new Error(`${envKey} no está seteada`);
+
+  const body: Record<string, unknown> = {
+    model: entry.model,
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: opts.userText },
+          { type: "image_url", image_url: { url: opts.imageDataUri } },
+        ],
+      },
+    ],
+    temperature: opts.temperature,
+  };
+  if (opts.maxTokens) body.max_tokens = opts.maxTokens;
+
+  const res = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+      "User-Agent": "pulpo-web/1.0",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(`${entry.provider}/${entry.model} → HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  }
+  const data = (await res.json()) as ChatCompletionResponse;
+  return data.choices?.[0]?.message?.content ?? "";
+}
+
+// Mismo shape de retorno que callLLM() para que document-vision.ts lo
+// consuma sin parseo especial. Recorre VISION_CASCADE probando cada
+// provider hasta que uno devuelva contenido -- mismo criterio de
+// redundancia que callLLM(), sin la capa de router local (Apple Vision es
+// lo único "local" acá y ya se descartó, ver plan de esta sesión).
+export async function callVisionLLM(opts: {
+  userText: string;
+  imageDataUri: string;
+  temperature: number;
+  maxTokens?: number;
+}): Promise<LLMCallResult> {
+  const errors: string[] = [];
+  for (const entry of VISION_CASCADE) {
+    try {
+      const raw = await callVisionProvider(entry, opts);
+      const text = stripThinkBlocks(raw);
+      if (text) return { text, error: null };
+      errors.push(`${entry.provider}/${entry.model}: contenido vacío`);
+    } catch (err) {
+      errors.push(`${entry.provider}/${entry.model}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return { text: "", error: `Toda la cascada de visión falló — ${errors.join(" | ")}` };
+}
+
 // TS port of the LLM-invocation core shared by LLMNode and RouterNode
 // (pulpo/graphs/nodes/llm.py's inline call in .run(), pulpo/graphs/nodes/router.py).
 // Tries each provider in the category's cascade in order -- unlike the

@@ -2,6 +2,7 @@ import type { NodeDef } from "./base";
 import { apiTriggerNode } from "./api-trigger";
 import { fetchHttpNode } from "./fetch-http";
 import { conditionNode } from "./condition";
+import { documentVisionNode } from "./document-vision";
 import { routerNode } from "./router";
 import { setStateNode } from "./set-state";
 import { replyNode } from "./reply";
@@ -38,6 +39,7 @@ export const NODE_REGISTRY: Record<string, NodeDef> = {
   send_message: replyNode,
   end_conversation: endConversationNode,
   llm: llmNode,
+  document_vision: documentVisionNode,
   metric: metricNode,
   subflow_start: subflowStartNode,
   subflow_end: subflowEndNode,

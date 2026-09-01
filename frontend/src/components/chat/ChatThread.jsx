@@ -24,6 +24,9 @@ export default function ChatThread({ messages, runStatus, error }) {
       {messages.map(m => (
         <div key={m.id} className={`pc-bubble-row pc-bubble-row--${m.role === 'user' ? 'user' : 'bot'}`}>
           <div className={`pc-bubble pc-bubble--${m.role === 'user' ? 'user' : 'bot'}`}>
+            {m.attachment_url && (
+              <img className="pc-bubble-attachment" src={m.attachment_url} alt="adjunto" />
+            )}
             {m.content}
             <span className="pc-bubble-time">{formatTime(m.created_at)}</span>
           </div>

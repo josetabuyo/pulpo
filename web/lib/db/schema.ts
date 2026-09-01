@@ -263,6 +263,15 @@ export const chatConfigs = pgTable(
     // browser por toPublicDirectoryDto (source/lead nunca se exponen, solo
     // viven server-side).
     directory: jsonb("directory"),
+    // Rails opcionales del widget (2026-09-01) -- default true en los dos
+    // para no romper chats existentes (Luganense sigue viendo ambos sin
+    // tocar nada). Un chat nuevo sin publicidad/directorio propios (ej.
+    // MachElectronics) los apaga explícito -- sin esto, ChatBanners cae al
+    // set "de fábrica" (self-promo de Pulpo) y ChatDirectory igual monta el
+    // rail solo por el tab built-in "Conversaciones", comiéndose espacio
+    // real en mobile por algo que ese chat no usa.
+    adsEnabled: boolean("ads_enabled").notNull().default(true),
+    sidebarEnabled: boolean("sidebar_enabled").notNull().default(true),
     // Login abierto (2026-08-22): tercer modo de acceso además de
     // is_public (sin login) y privado+allowlist manual. Con openLogin=true,
     // cualquier cuenta Google logueada entra y queda auto-registrada en
@@ -356,6 +365,11 @@ export const chatMessages = pgTable("chat_messages", {
   role: text("role").notNull(), // 'user' | 'bot'
   content: text("content").notNull(),
   runId: text("run_id"),
+  // URL pública del adjunto (Vercel Blob) que mandó el usuario junto con
+  // este mensaje -- ej. foto de una factura. Nullable: la mayoría de los
+  // mensajes son texto puro. Ver web/app/api/chat/[botId]/[chatId]/
+  // conversations/[conversationId]/attachments/route.ts para el upload.
+  attachmentUrl: text("attachment_url"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 

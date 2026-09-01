@@ -56,7 +56,8 @@ export async function POST(
 
   const body = await request.json().catch(() => ({}));
   const message = String(body.message ?? "").trim();
-  if (!message) return Response.json({ error: "message vacío" }, { status: 400 });
+  const attachmentUrl = String(body.attachment_url ?? "").trim();
+  if (!message && !attachmentUrl) return Response.json({ error: "message vacío" }, { status: 400 });
 
   // Un trigger pausado no acepta activaciones nuevas -- ver
   // lib/business/telegram.ts::findMatchingTriggers para el mismo guard del
@@ -67,15 +68,26 @@ export async function POST(
     return Response.json({ error: "Este trigger está pausado" }, { status: 409 });
   }
 
-  await insertUserMessage(conversationId, message);
+  await insertUserMessage(conversationId, message, attachmentUrl);
+
+  // state.message vacío hace que startConversation()/appendConversationEntry
+  // (lib/nodes/state.ts) no inicialicen state.data.conversation -- ese guard
+  // es `if (!content) return`, así que un mensaje solo-adjunto (típico en
+  // este bot: el usuario manda la factura sin texto) corre el flow entero
+  // sin transcript, y el panel "Conversación" del dashboard queda vacío
+  // (bug real encontrado por José probando MachElectronics, 2026-09-01). Un
+  // placeholder acá alimenta el motor sin tocar chat_messages.content (la
+  // burbuja del usuario sigue mostrando solo la miniatura, no texto de más).
+  const flowMessage = message || (attachmentUrl ? "[imagen adjunta]" : "");
 
   const { runId, resumed } = await dispatchInbound({
     botId,
     flowId: loaded.resolved.config.flow_id,
     triggerNodeId: loaded.resolved.config.trigger_node_id,
     contactIdentifier: loaded.conversation.contactIdentifier,
-    message,
+    message: flowMessage,
     canal: "chat",
+    data: attachmentUrl ? { attachment_url: attachmentUrl } : undefined,
   });
 
   return Response.json({ run_id: runId, resumed });

@@ -43,6 +43,15 @@
   color: var(--pc-text);
   font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
+
+  /* Los breakpoints de layout de acá abajo (rails de dir/ads, grid mobile)
+     miden el propio ancho del widget, no el del viewport -- así el preview
+     smartphone/tablet de ChatsTab (marco angosto dentro de un dashboard
+     desktop ancho) cae en el layout compacto correcto sin depender de qué
+     tan ancha esté la ventana del navegador. En fullscreen (ChatPage) el
+     ancho del contenedor == viewport, mismo comportamiento que antes. */
+  container-type: inline-size;
+  container-name: pulpochat;
 }
 
 /* Uso embebido (2026-07-23, ChatsTab): contenido dentro de la card del bot,
@@ -207,7 +216,7 @@
 @media (prefers-reduced-motion: reduce) {
   .pc-infobanner-ticker-track { animation: none; }
 }
-@media (max-width: 640px) {
+@container pulpochat (max-width: 640px) {
   .pc-infobanner { gap: 6px; padding: 5px 10px; }
   .pc-infobanner-live-label { display: none; }
   .pc-infobanner-stat { font-size: 11px; }
@@ -300,11 +309,22 @@
   color: var(--pc-text);
   border-bottom-right-radius: var(--pc-radius-bubble-tail);
 }
+.pc-bubble-attachment {
+  display: block;
+  max-width: 100%;
+  max-height: 220px;
+  border-radius: 8px;
+  margin-bottom: 6px;
+  object-fit: cover;
+}
 .pc-bubble-time {
   display: block;
   margin-top: 4px;
   font-size: 11px;
   color: var(--pc-text-subtle);
+}
+.pc-bubble--user .pc-bubble-time {
+  color: rgba(255, 255, 255, .72);
 }
 
 .pc-typing {
@@ -326,21 +346,69 @@
 @keyframes pc-bounce { 0%, 80%, 100% { opacity: .3; } 40% { opacity: 1; } }
 
 /* ─── Composer ─── */
-.pc-composer {
-  display: flex;
-  gap: 10px;
-  padding: 14px 20px;
+.pc-composer-wrap {
   background: var(--pc-surface-raised);
   border-top: 1px solid var(--pc-border);
+}
+.pc-composer-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px 0;
+}
+.pc-composer-preview img {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--pc-border);
+}
+.pc-composer-preview button {
+  background: var(--pc-surface);
+  color: var(--pc-text-subtle);
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  font-size: 11px;
+  line-height: 1;
+}
+/* Íconos redondos tipo app de chat de teléfono (WhatsApp/Telegram) --
+   adjuntar y enviar comparten tamaño/forma, solo cambia el color de fondo
+   (enviar = accent, siempre visible como acción principal; adjuntar =
+   transparente, discreto). Pedido explícito 2026-09-01: "el botón enviar
+   puede ser solo un ícono" -- antes era texto ("Enviar"), que en mobile
+   angosto se comía espacio del textarea y quedaba todo apretado/cortado. */
+.pc-attach-btn,
+.pc-send-btn {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.pc-attach-btn {
+  background: transparent;
+  color: var(--pc-text-subtle);
+  font-size: 18px;
+}
+.pc-attach-btn:hover:not(:disabled) { color: var(--pc-text); background: var(--pc-surface); opacity: 1; }
+.pc-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
 }
 .pc-composer textarea {
   flex: 1;
   resize: none;
   background: var(--pc-bg-deep);
   border: 1px solid var(--pc-border);
-  border-radius: 10px;
+  border-radius: 20px;
   color: var(--pc-text);
-  padding: 10px 12px;
+  padding: 10px 16px;
   font-family: inherit;
   font-size: 14px;
   min-height: 40px;
@@ -355,10 +423,8 @@
 .pc-send-btn {
   background: var(--pc-accent);
   color: white;
-  font-weight: 600;
-  font-size: 13px;
-  padding: 0 18px;
 }
+.pc-send-btn svg { transform: translateX(-1px); } /* el ícono no es simétrico, centrado óptico */
 .pc-send-btn:hover:not(:disabled) { background: var(--pc-accent-deep); opacity: 1; }
 
 /* ─── Rail de publicidad (derecha, full-height) ───
@@ -841,7 +907,7 @@
    bloque siguiente) para el modo aún más chico, que reusa este mismo
    mecanismo de .pc-dir (barra angosta + handle) pero fuerza a ads a su
    propia franja arriba, siempre visible, nunca colapsada. ─── */
-@media (max-width: 1180px) {
+@container pulpochat (max-width: 1180px) {
   /* En pantallas chicas, un banner de 192px se come demasiado del alto
      disponible -- lo bajamos a algo más parecido a lo que usa Facebook
      mobile. */
@@ -907,7 +973,7 @@
    auto (altura de contenido) y "dir main" se reparten la fila 1fr
    (el resto), sin inflar nada de más. Ver .pc-body--dir-open más abajo
    para el estado expandido (dir pasa a ocupar la única columna). */
-@media (max-width: 640px) {
+@container pulpochat (max-width: 640px) {
   .pc-body {
     display: grid;
     grid-template-columns: 44px 1fr;
@@ -917,6 +983,26 @@
   .pc-body--dir-open {
     grid-template-columns: 1fr;
     grid-template-areas: "ads" "dir";
+  }
+
+  /* Rails opcionales (PulpoChatWidget.jsx pasa estos modifiers cuando
+     ChatDirectory/ChatBanners ni se montan, ver hasAds/hasSidebar) -- sin
+     esto, "ads"/"dir" quedarían referenciados en grid-template-areas sin
+     ningún hijo real que los ocupe: hueco vacío en vez de que el chat use
+     ese espacio. MachElectronics (ninguno de los dos configurado) cae en
+     la combinación de abajo, single-column, el chat solo. */
+  .pc-body--no-dir {
+    grid-template-columns: 1fr;
+    grid-template-areas: "ads" "main";
+  }
+  .pc-body--no-ads {
+    grid-template-rows: 1fr;
+    grid-template-areas: "dir main";
+  }
+  .pc-body--no-dir.pc-body--no-ads {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr;
+    grid-template-areas: "main";
   }
 
   /* .pc-ads es el último hijo en el DOM (dir, main, ads) pero acá tiene que

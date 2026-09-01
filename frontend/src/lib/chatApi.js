@@ -40,8 +40,27 @@ export const chatApi = {
   createConversation: (botId, chatId) => call('POST', `/chat/${botId}/${chatId}/conversations`, {}),
   getMessages: (botId, chatId, conversationId, afterId) =>
     call('GET', `/chat/${botId}/${chatId}/conversations/${conversationId}/messages${afterId ? `?after=${afterId}` : ''}`),
-  sendMessage: (botId, chatId, conversationId, message) =>
-    call('POST', `/chat/${botId}/${chatId}/conversations/${conversationId}/messages`, { message }),
+  sendMessage: (botId, chatId, conversationId, message, attachmentUrl) =>
+    call('POST', `/chat/${botId}/${chatId}/conversations/${conversationId}/messages`, {
+      message,
+      ...(attachmentUrl ? { attachment_url: attachmentUrl } : {}),
+    }),
+  // Multipart -- separado de call() (que siempre manda JSON). Sube el
+  // archivo y devuelve {url}, que el caller pasa como attachmentUrl a
+  // sendMessage. Mismos headers de auth que call(), sin Content-Type manual
+  // (el browser arma el boundary del multipart solo).
+  uploadAttachment: async (botId, chatId, conversationId, file) => {
+    const form = new FormData()
+    form.append('file', file)
+    const res = await fetch(`/api/chat/${botId}/${chatId}/conversations/${conversationId}/attachments`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'X-Chat-Visitor': getVisitorKey() },
+      body: form,
+    })
+    const data = await res.json().catch(() => ({}))
+    return { ...data, _status: res.status, _ok: res.ok }
+  },
   directorySearch: (botId, chatId, sectionId, q, offset = 0) =>
     call('GET', `/chat/${botId}/${chatId}/directory/${sectionId}/search?q=${encodeURIComponent(q ?? '')}&offset=${offset}`),
   directoryConnect: (botId, chatId, sectionId, body) =>
